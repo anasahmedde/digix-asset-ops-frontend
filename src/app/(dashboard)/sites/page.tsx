@@ -2,7 +2,8 @@
 
 import dynamic from "next/dynamic";
 import { List, Map, MapPin, Pencil, Plus, Trash2, X } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import { FilterBar } from "@/components/ui/filter-bar";
@@ -10,7 +11,8 @@ import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
 
-const SiteMap = dynamic(() => import("@/components/map/site-map"), { ssr: false, loading: () => <div className="flex h-[500px] items-center justify-center rounded-xl border border-gray-200 bg-gray-50"><div className="h-6 w-6 animate-spin rounded-full border-2 border-teal-500/30 border-t-teal-500" /></div> });
+const SiteMap = dynamic(() => import("@/components/map/site-map"), { ssr: false, loading: () => <div className="flex h-[500px] items-center justify-center rounded-xl border border-border bg-secondary/50"><div className="h-6 w-6 animate-spin rounded-full border-2 border-primary/30 border-t-primary" /></div> });
+const LocationPicker = dynamic(() => import("@/components/map/location-picker"), { ssr: false, loading: () => <div className="flex h-[280px] items-center justify-center rounded-lg border border-border bg-secondary/50"><div className="h-6 w-6 animate-spin rounded-full border-2 border-primary/30 border-t-primary" /></div> });
 
 interface Site {
   id: string;
@@ -37,9 +39,9 @@ interface SiteDetail extends Site {
 interface Option { id: string; label: string; }
 
 const inputClass =
-  "flex h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-teal-500/50 focus:outline-none focus:ring-1 focus:ring-teal-500/30 transition-colors";
-const labelClass = "text-xs font-medium text-gray-600";
-const thClass = "px-5 py-3.5 text-left text-xs font-medium uppercase tracking-wider text-gray-400";
+  "flex h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors";
+const labelClass = "text-xs font-medium text-muted-foreground";
+const thClass = "px-5 py-3.5 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground";
 const tdClass = "px-5 py-3.5";
 
 export default function SitesPage() {
@@ -55,6 +57,10 @@ export default function SitesPage() {
   const [view, setView] = useState<"list" | "map">("list");
   const [filterValues, setFilterValues] = useState<Record<string, string>>({ status: "", country: "" });
   const [search, setSearch] = useState("");
+  const [pickerLat, setPickerLat] = useState<number | null>(null);
+  const [pickerLng, setPickerLng] = useState<number | null>(null);
+  const searchParams = useSearchParams();
+  const autoOpenedRef = useRef(false);
 
   const fetchSites = useCallback(async () => {
     try {
@@ -71,6 +77,23 @@ export default function SitesPage() {
     fetchSites();
   }, [fetchSites]);
 
+  useEffect(() => {
+    if (autoOpenedRef.current || loading) return;
+    const siteId = searchParams.get("site");
+    if (!siteId) return;
+    autoOpenedRef.current = true;
+    Promise.all([
+      api.get(`/sites/sites/${siteId}/`),
+      api.get("/clients/", { params: { page_size: 200 } }),
+    ]).then(([siteRes, clientsRes]) => {
+      setSelected(siteRes.data);
+      setPickerLat(siteRes.data.latitude ?? null);
+      setPickerLng(siteRes.data.longitude ?? null);
+      setClients((clientsRes.data.results ?? clientsRes.data).map((c: { id: string; name: string }) => ({ id: c.id, label: c.name })));
+      setModalMode("edit");
+    }).catch(() => {});
+  }, [searchParams, loading]);
+
   async function loadClients() {
     try {
       const { data } = await api.get("/clients/", { params: { page_size: 200 } });
@@ -82,6 +105,8 @@ export default function SitesPage() {
 
   function openCreate() {
     setSelected(null);
+    setPickerLat(null);
+    setPickerLng(null);
     setModalMode("create");
     loadClients();
   }
@@ -90,6 +115,8 @@ export default function SitesPage() {
     try {
       const { data } = await api.get(`/sites/sites/${site.id}/`);
       setSelected(data);
+      setPickerLat(data.latitude ?? null);
+      setPickerLng(data.longitude ?? null);
       setModalMode("edit");
       loadClients();
     } catch (err: unknown) {
@@ -100,6 +127,8 @@ export default function SitesPage() {
   function closeModal() {
     setModalMode(null);
     setSelected(null);
+    setPickerLat(null);
+    setPickerLng(null);
   }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -117,8 +146,8 @@ export default function SitesPage() {
       access_instructions: fd.get("access_instructions"),
       operating_hours: fd.get("operating_hours"),
       client: fd.get("client") || null,
-      latitude: fd.get("latitude") ? parseFloat(fd.get("latitude") as string) : null,
-      longitude: fd.get("longitude") ? parseFloat(fd.get("longitude") as string) : null,
+      latitude: pickerLat,
+      longitude: pickerLng,
     };
     try {
       if (modalMode === "create") {
@@ -153,24 +182,24 @@ export default function SitesPage() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-green-600">
-            <MapPin className="h-5 w-5 text-gray-900" />
+            <MapPin className="h-5 w-5 text-foreground" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Sites</h1>
-            <p className="text-gray-500">Manage client sites and device locations</p>
+            <h1 className="text-2xl font-bold text-foreground">Sites</h1>
+            <p className="text-muted-foreground">Manage client sites and device locations</p>
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <div className="flex rounded-lg border border-gray-200 bg-gray-50 p-0.5">
-            <button onClick={() => setView("list")} className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${view === "list" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
+          <div className="flex rounded-lg border border-border bg-secondary/50 p-0.5">
+            <button onClick={() => setView("list")} className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${view === "list" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
               <List className="h-3.5 w-3.5" /> List
             </button>
-            <button onClick={() => setView("map")} className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${view === "map" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
+            <button onClick={() => setView("map")} className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${view === "map" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
               <Map className="h-3.5 w-3.5" /> Map
             </button>
           </div>
           {canEdit && (
-            <button onClick={openCreate} className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-teal-500 to-teal-600 px-4 py-2.5 text-sm font-medium text-white shadow-lg shadow-teal-500/20 transition-all hover:shadow-teal-500/30">
+            <button onClick={openCreate} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-all">
               <Plus className="h-4 w-4" /> Add Site
             </button>
           )}
@@ -202,22 +231,22 @@ export default function SitesPage() {
         });
         return loading ? (
         <div className="flex items-center justify-center py-20">
-          <div className="h-6 w-6 animate-spin rounded-full border-2 border-teal-500/30 border-t-teal-500" />
+          <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
         </div>
       ) : filtered.length === 0 ? (
-        <div className="rounded-xl border border-gray-200 bg-white p-12 text-center">
-          <MapPin className="mx-auto h-12 w-12 text-gray-300" />
-          <h3 className="mt-4 text-lg font-semibold text-gray-900">No sites found</h3>
-          <p className="mt-2 text-sm text-gray-500">{sites.length > 0 ? "Try adjusting your filters." : "Add your first client site to start managing device locations."}</p>
+        <div className="rounded-xl border border-border bg-card p-12 text-center">
+          <MapPin className="mx-auto h-12 w-12 text-muted-foreground/30" />
+          <h3 className="mt-4 text-lg font-semibold text-foreground">No sites found</h3>
+          <p className="mt-2 text-sm text-muted-foreground">{sites.length > 0 ? "Try adjusting your filters." : "Add your first client site to start managing device locations."}</p>
         </div>
       ) : view === "map" ? (
-        <SiteMap sites={filtered} />
+        <SiteMap sites={filtered.filter((s): s is typeof s & { latitude: number; longitude: number } => s.latitude != null && s.longitude != null)} />
       ) : (
-        <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-gray-200 bg-gray-50">
+                <tr className="border-b border-border bg-secondary/50">
                   <th className={thClass}>Name</th>
                   <th className={thClass}>City</th>
                   <th className={thClass}>Country</th>
@@ -228,10 +257,10 @@ export default function SitesPage() {
               </thead>
               <tbody>
                 {filtered.map((s) => (
-                  <tr key={s.id} onClick={() => openEdit(s)} className="border-b border-gray-200/30 cursor-pointer transition-colors hover:bg-teal-50/40">
-                    <td className={`${tdClass} font-medium text-gray-900`}>{s.name}</td>
-                    <td className={`${tdClass} text-gray-600`}>{s.city || "-"}</td>
-                    <td className={`${tdClass} text-gray-600`}>{s.country}</td>
+                  <tr key={s.id} onClick={() => openEdit(s)} className="border-b border-border/30 cursor-pointer transition-colors hover:bg-secondary/30">
+                    <td className={`${tdClass} font-medium text-foreground`}>{s.name}</td>
+                    <td className={`${tdClass} text-muted-foreground`}>{s.city || "-"}</td>
+                    <td className={`${tdClass} text-muted-foreground`}>{s.country}</td>
                     <td className={tdClass}>
                       <span className="inline-flex rounded-full bg-blue-500/10 px-2.5 py-0.5 text-xs font-medium text-blue-400 ring-1 ring-blue-500/20">
                         {s.device_count}
@@ -245,15 +274,15 @@ export default function SitesPage() {
                     <td className={tdClass} onClick={(e) => e.stopPropagation()}>
                       {canEdit ? (
                         <div className="flex items-center gap-1">
-                          <button onClick={() => openEdit(s)} className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900" title="Edit">
+                          <button onClick={() => openEdit(s)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground" title="Edit">
                             <Pencil className="h-3.5 w-3.5" />
                           </button>
-                          <button onClick={() => handleDelete(s)} className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-gray-100 hover:text-red-400" title="Delete">
+                          <button onClick={() => handleDelete(s)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-destructive" title="Delete">
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         </div>
                       ) : (
-                        <span className="text-xs text-gray-400">—</span>
+                        <span className="text-xs text-muted-foreground">—</span>
                       )}
                     </td>
                   </tr>
@@ -267,10 +296,10 @@ export default function SitesPage() {
 
       {modalMode && (
         <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/60 py-8 backdrop-blur-sm">
-          <div className="w-full max-w-2xl rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl">
+          <div className="w-full max-w-2xl rounded-2xl border border-border bg-card p-6 shadow-2xl">
             <div className="mb-5 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-gray-900">{modalMode === "create" ? "Add New Site" : "Edit Site"}</h2>
-              <button onClick={closeModal} className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-900">
+              <h2 className="text-lg font-semibold text-foreground">{modalMode === "create" ? "Add New Site" : "Edit Site"}</h2>
+              <button onClick={closeModal} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
                 <X className="h-5 w-5" />
               </button>
             </div>
@@ -301,7 +330,7 @@ export default function SitesPage() {
                 </div>
                 <div className="space-y-1.5">
                   <label htmlFor="country" className={labelClass}>Country</label>
-                  <input id="country" name="country" defaultValue={selected?.country ?? "UAE"} className={inputClass} />
+                  <input id="country" name="country" defaultValue={selected?.country ?? "Pakistan"} className={inputClass} />
                 </div>
                 <div className="space-y-1.5">
                   <label htmlFor="operating_hours" className={labelClass}>Operating Hours</label>
@@ -309,19 +338,17 @@ export default function SitesPage() {
                 </div>
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <label htmlFor="latitude" className={labelClass}>Latitude</label>
-                  <input id="latitude" name="latitude" type="number" step="0.0000001" defaultValue={selected?.latitude ?? ""} className={inputClass} />
-                </div>
-                <div className="space-y-1.5">
-                  <label htmlFor="longitude" className={labelClass}>Longitude</label>
-                  <input id="longitude" name="longitude" type="number" step="0.0000001" defaultValue={selected?.longitude ?? ""} className={inputClass} />
-                </div>
+              <div className="space-y-1.5">
+                <label className={labelClass}>Location (click map or search)</label>
+                <LocationPicker
+                  lat={pickerLat}
+                  lng={pickerLng}
+                  onChange={({ lat, lng }) => { setPickerLat(lat); setPickerLng(lng); }}
+                />
               </div>
 
-              <div className="border-t border-gray-200/30 pt-4">
-                <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-400">Contact</p>
+              <div className="border-t border-border/30 pt-4">
+                <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Contact</p>
                 <div className="grid gap-4 sm:grid-cols-3">
                   <div className="space-y-1.5">
                     <label htmlFor="contact_person" className={labelClass}>Contact Person</label>
@@ -344,8 +371,8 @@ export default function SitesPage() {
               </div>
 
               <div className="flex justify-end gap-3 pt-2">
-                <button type="button" onClick={closeModal} className="inline-flex h-10 items-center rounded-lg border border-gray-200 bg-transparent px-4 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900">Cancel</button>
-                <button type="submit" disabled={saving} className="inline-flex h-10 items-center rounded-lg bg-gradient-to-r from-teal-500 to-teal-600 px-5 text-sm font-medium text-white shadow-lg shadow-teal-500/20 transition-all hover:shadow-teal-500/30 disabled:opacity-50">
+                <button type="button" onClick={closeModal} className="inline-flex h-10 items-center rounded-lg border border-border bg-transparent px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">Cancel</button>
+                <button type="submit" disabled={saving} className="inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-medium text-white transition-all disabled:opacity-50">
                   {saving ? "Saving..." : modalMode === "create" ? "Create Site" : "Save Changes"}
                 </button>
               </div>

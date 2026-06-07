@@ -32,9 +32,9 @@ interface Invoice {
 }
 
 const inputClass =
-  "flex h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-teal-500/50 focus:outline-none focus:ring-1 focus:ring-teal-500/30 transition-colors";
-const labelClass = "text-xs font-medium text-gray-600";
-const thClass = "px-5 py-3.5 text-left text-xs font-medium uppercase tracking-wider text-gray-400";
+  "flex h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors";
+const labelClass = "text-xs font-medium text-muted-foreground";
+const thClass = "px-5 py-3.5 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground";
 const tdClass = "px-5 py-3.5";
 
 const typeBadge: Record<string, string> = {
@@ -43,7 +43,7 @@ const typeBadge: Record<string, string> = {
 };
 
 const statusBadge: Record<string, string> = {
-  draft: "bg-gray-500/10 text-gray-400 ring-gray-500/20",
+  draft: "bg-secondary/500/10 text-muted-foreground ring-gray-500/20",
   sent: "bg-blue-500/10 text-blue-400 ring-blue-500/20",
   partially_paid: "bg-amber-500/10 text-amber-400 ring-amber-500/20",
   paid: "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20",
@@ -165,22 +165,22 @@ export default function FinancePage() {
             <CreditCard className="h-5 w-5 text-white" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Finance</h1>
-            <p className="text-gray-500">Manage invoices, payments, and financial records</p>
+            <h1 className="text-2xl font-bold text-foreground">Finance</h1>
+            <p className="text-muted-foreground">Manage invoices, payments, and financial records</p>
           </div>
         </div>
         <div className="flex items-center gap-3">
           <select
             value={currency}
             onChange={(e) => { setCurrency(e.target.value as CurrencyCode); setCurrencyState(e.target.value as CurrencyCode); }}
-            className="h-10 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-700 focus:border-teal-500/50 focus:outline-none focus:ring-1 focus:ring-teal-500/30"
+            className="h-10 rounded-lg border border-border bg-card px-3 text-sm text-gray-700 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
           >
             {CURRENCIES.map((c) => (
               <option key={c.code} value={c.code}>{c.code} — {c.name}</option>
             ))}
           </select>
           {canEdit && (
-            <button onClick={() => { setSelected(null); setModalMode("create"); }} className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-teal-500 to-teal-600 px-4 py-2.5 text-sm font-medium text-white shadow-lg shadow-teal-500/20 transition-all hover:shadow-teal-500/30">
+            <button onClick={() => { setSelected(null); setModalMode("create"); }} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-all">
               <Plus className="h-4 w-4" /> Add Invoice
             </button>
           )}
@@ -190,8 +190,8 @@ export default function FinancePage() {
       {!loading && invoices.length > 0 && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {summaryCards.map((card) => (
-            <div key={card.label} className={`rounded-xl border border-gray-200 bg-white p-5 border-l-4 ${card.color}`}>
-              <p className="text-xs font-medium text-gray-500">{card.label}</p>
+            <div key={card.label} className={`rounded-xl border border-border bg-card p-5 border-l-4 ${card.color}`}>
+              <p className="text-xs font-medium text-muted-foreground">{card.label}</p>
               <p className={`mt-1 text-xl font-bold ${card.text}`}>{fmt(card.value)}</p>
             </div>
           ))}
@@ -222,20 +222,20 @@ export default function FinancePage() {
         });
         return loading ? (
         <div className="flex items-center justify-center py-20">
-          <div className="h-6 w-6 animate-spin rounded-full border-2 border-teal-500/30 border-t-teal-500" />
+          <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
         </div>
       ) : filtered.length === 0 ? (
-        <div className="rounded-xl border border-gray-200 bg-white p-12 text-center">
-          <CreditCard className="mx-auto h-12 w-12 text-gray-300" />
-          <h3 className="mt-4 text-lg font-semibold text-gray-900">No invoices found</h3>
-          <p className="mt-2 text-sm text-gray-500">{invoices.length > 0 ? "Try adjusting your filters." : "Add invoices to start tracking your finances."}</p>
+        <div className="rounded-xl border border-border bg-card p-12 text-center">
+          <CreditCard className="mx-auto h-12 w-12 text-muted-foreground/30" />
+          <h3 className="mt-4 text-lg font-semibold text-foreground">No invoices found</h3>
+          <p className="mt-2 text-sm text-muted-foreground">{invoices.length > 0 ? "Try adjusting your filters." : "Add invoices to start tracking your finances."}</p>
         </div>
       ) : (
-        <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-gray-200 bg-gray-50">
+                <tr className="border-b border-border bg-secondary/50">
                   <th className={thClass}>Invoice #</th>
                   <th className={thClass}>Type</th>
                   <th className={thClass}>Status</th>
@@ -252,40 +252,40 @@ export default function FinancePage() {
               </thead>
               <tbody>
                 {filtered.map((inv) => (
-                  <tr key={inv.id} onClick={() => { setSelected(inv); setModalMode("edit"); }} className="border-b border-gray-200 cursor-pointer transition-colors hover:bg-teal-50/40">
-                    <td className={`${tdClass} font-medium text-gray-900`}>{inv.invoice_number}</td>
+                  <tr key={inv.id} onClick={() => { setSelected(inv); setModalMode("edit"); }} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
+                    <td className={`${tdClass} font-medium text-foreground`}>{inv.invoice_number}</td>
                     <td className={tdClass}>
-                      <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${typeBadge[inv.invoice_type] ?? "bg-gray-500/10 text-gray-400 ring-gray-500/20"}`}>
+                      <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${typeBadge[inv.invoice_type] ?? "bg-secondary/500/10 text-muted-foreground ring-gray-500/20"}`}>
                         {inv.invoice_type}
                       </span>
                     </td>
                     <td className={tdClass}>
-                      <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${statusBadge[inv.status] ?? "bg-gray-500/10 text-gray-400 ring-gray-500/20"}`}>
+                      <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${statusBadge[inv.status] ?? "bg-secondary/500/10 text-muted-foreground ring-gray-500/20"}`}>
                         {inv.status?.replace("_", " ")}
                       </span>
                     </td>
-                    <td className={`${tdClass} text-gray-600`}>
+                    <td className={`${tdClass} text-muted-foreground`}>
                       {inv.invoice_type === "receivable" ? inv.client_name || "-" : inv.supplier_name || "-"}
                     </td>
-                    <td className={`${tdClass} text-xs text-gray-500`}>{inv.currency || "PKR"}</td>
-                    <td className={`${tdClass} text-gray-600`}>{formatCurrency(inv.amount, (inv.currency as CurrencyCode) || undefined)}</td>
-                    <td className={`${tdClass} text-gray-600`}>{formatCurrency(inv.tax_amount, (inv.currency as CurrencyCode) || undefined)}</td>
-                    <td className={`${tdClass} font-medium text-gray-900`}>{formatCurrency(inv.total_amount, (inv.currency as CurrencyCode) || undefined)}</td>
-                    <td className={`${tdClass} text-gray-600`}>{formatCurrency(inv.paid_amount, (inv.currency as CurrencyCode) || undefined)}</td>
-                    <td className={`${tdClass} font-medium text-gray-900`}>{formatCurrency(inv.balance_due, (inv.currency as CurrencyCode) || undefined)}</td>
-                    <td className={`${tdClass} text-gray-600`}>{inv.due_date || "-"}</td>
+                    <td className={`${tdClass} text-xs text-muted-foreground`}>{inv.currency || "PKR"}</td>
+                    <td className={`${tdClass} text-muted-foreground`}>{formatCurrency(inv.amount, (inv.currency as CurrencyCode) || undefined)}</td>
+                    <td className={`${tdClass} text-muted-foreground`}>{formatCurrency(inv.tax_amount, (inv.currency as CurrencyCode) || undefined)}</td>
+                    <td className={`${tdClass} font-medium text-foreground`}>{formatCurrency(inv.total_amount, (inv.currency as CurrencyCode) || undefined)}</td>
+                    <td className={`${tdClass} text-muted-foreground`}>{formatCurrency(inv.paid_amount, (inv.currency as CurrencyCode) || undefined)}</td>
+                    <td className={`${tdClass} font-medium text-foreground`}>{formatCurrency(inv.balance_due, (inv.currency as CurrencyCode) || undefined)}</td>
+                    <td className={`${tdClass} text-muted-foreground`}>{inv.due_date || "-"}</td>
                     <td className={tdClass} onClick={(e) => e.stopPropagation()}>
                       {canEdit ? (
                         <div className="flex items-center gap-1">
-                          <button onClick={() => { setSelected(inv); setModalMode("edit"); }} className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900" title="Edit">
+                          <button onClick={() => { setSelected(inv); setModalMode("edit"); }} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground" title="Edit">
                             <Pencil className="h-3.5 w-3.5" />
                           </button>
-                          <button onClick={() => handleDelete(inv)} className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-gray-100 hover:text-red-400" title="Delete">
+                          <button onClick={() => handleDelete(inv)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-destructive" title="Delete">
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         </div>
                       ) : (
-                        <span className="text-xs text-gray-400">—</span>
+                        <span className="text-xs text-muted-foreground">—</span>
                       )}
                     </td>
                   </tr>
@@ -299,10 +299,10 @@ export default function FinancePage() {
 
       {modalMode && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl">
+          <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl">
             <div className="mb-5 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-gray-900">{modalMode === "create" ? "Add New Invoice" : "Edit Invoice"}</h2>
-              <button onClick={closeModal} className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-900">
+              <h2 className="text-lg font-semibold text-foreground">{modalMode === "create" ? "Add New Invoice" : "Edit Invoice"}</h2>
+              <button onClick={closeModal} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
                 <X className="h-5 w-5" />
               </button>
             </div>
@@ -364,8 +364,8 @@ export default function FinancePage() {
                 <textarea id="notes" name="notes" rows={3} defaultValue={selected?.notes ?? ""} className={`${inputClass} h-auto py-2`} />
               </div>
               <div className="flex justify-end gap-3 pt-2">
-                <button type="button" onClick={closeModal} className="inline-flex h-10 items-center rounded-lg border border-gray-200 bg-transparent px-4 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900">Cancel</button>
-                <button type="submit" disabled={saving} className="inline-flex h-10 items-center rounded-lg bg-gradient-to-r from-teal-500 to-teal-600 px-5 text-sm font-medium text-white shadow-lg shadow-teal-500/20 transition-all hover:shadow-teal-500/30 disabled:opacity-50">
+                <button type="button" onClick={closeModal} className="inline-flex h-10 items-center rounded-lg border border-border bg-transparent px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">Cancel</button>
+                <button type="submit" disabled={saving} className="inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-medium text-white transition-all disabled:opacity-50">
                   {saving ? "Saving..." : modalMode === "create" ? "Create Invoice" : "Save Changes"}
                 </button>
               </div>

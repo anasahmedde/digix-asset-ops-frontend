@@ -1,151 +1,137 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import {
-  AlertTriangle,
-  Building2,
-  CreditCard,
-  HardDrive,
-  MapPin,
-  Package,
-  Shield,
-  Ticket,
-  TrendingUp,
-  Truck,
-  Users,
+  AlertCircle,
+  CheckCircle,
+  Clock,
+  Monitor,
   Wrench,
+  XCircle,
 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import api from "@/lib/api";
-import { getCurrentUser, type User } from "@/lib/auth";
-import { formatCurrency } from "@/lib/currency";
+import { AssignedTicketsBanner } from "@/components/ui/assigned-tickets-banner";
+import { StatCard } from "@/components/ui/stat-card";
+import { DonutChart } from "@/components/charts/donut-chart";
+import { BarChart } from "@/components/charts/bar-chart";
+import { GaugeChart } from "@/components/charts/gauge-chart";
 
-interface DashboardData {
-  devices: number;
-  sites: number;
-  users: number;
-  clients: number;
-  suppliers: number;
-  openTickets: number;
-  underMaintenance: number;
-  overdueTickets: number;
-  activeWarranties: number;
-  lowStockItems: number;
-  totalReceivable: number;
-  totalPayable: number;
-  recentTickets: Array<{
-    id: string;
-    title: string;
-    priority: string;
-    status: string;
-    site_name: string | null;
-    assigned_to_name: string | null;
-    created_at: string;
-  }>;
-  deviceStatuses: Array<{ status: string; count: number }>;
+const StatusMap = dynamic(() => import("@/components/map/status-map"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-[500px] items-center justify-center rounded-xl border border-border bg-card">
+      <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+    </div>
+  ),
+});
+
+interface DashboardStats {
+  total: number;
+  working: number;
+  out_of_order: number;
+  under_maintenance: number;
+  in_stock: number;
+  by_status: Record<string, number>;
+  by_city: { city: string; count: number }[];
+  by_region: { region: string; count: number }[];
+  by_model_type: { screen_type: string; count: number }[];
 }
 
-const PRIORITY_COLORS: Record<string, string> = {
-  critical: "bg-red-100 text-red-700",
-  high: "bg-orange-100 text-orange-700",
-  medium: "bg-yellow-100 text-yellow-700",
-  low: "bg-gray-100 text-gray-600",
-};
+interface MapDevice {
+  id: string;
+  asset_code: string;
+  status: string;
+  current_site__id: string;
+  current_site__name: string;
+  current_site__city: string;
+  current_site__state_province: string;
+  current_site__country: string;
+  current_site__latitude: string;
+  current_site__longitude: string;
+}
 
-const STATUS_COLORS: Record<string, string> = {
-  open: "bg-blue-100 text-blue-700",
-  in_progress: "bg-amber-100 text-amber-700",
-  on_hold: "bg-gray-100 text-gray-600",
-  resolved: "bg-green-100 text-green-700",
-  closed: "bg-slate-100 text-slate-600",
-};
+interface MaintenanceSiteMap {
+  id: string;
+  title: string;
+  maintenance_type: string;
+  frequency: string;
+  next_due: string | null;
+  site__id: string;
+  site__name: string;
+  site__city: string;
+  site__state_province: string;
+  site__country: string;
+  site__latitude: string;
+  site__longitude: string;
+}
 
-const DEVICE_STATUS_COLORS: Record<string, string> = {
-  active: "#10b981",
-  installed: "#06b6d4",
-  in_stock: "#6366f1",
-  under_maintenance: "#f59e0b",
-  procured: "#8b5cf6",
-  assigned: "#3b82f6",
-  decommissioned: "#94a3b8",
-  in_transit: "#ec4899",
-};
+interface AlertItem {
+  id: string;
+  title: string;
+  severity: string;
+  category: string;
+  device_code: string | null;
+  site_name: string | null;
+  site_city: string | null;
+  created_at: string;
+}
+
+interface MaintenanceStats {
+  total: number;
+  completed: number;
+  in_progress: number;
+  pending: number;
+}
+
+const STATUS_LEGEND = [
+  { label: "Active", desc: "Screens are working fine", color: "#10b981" },
+  { label: "Installed", desc: "Recently installed screens", color: "#06b6d4" },
+  { label: "In Stock", desc: "Available in warehouse", color: "#6366f1" },
+  { label: "Under Maintenance", desc: "Currently being serviced", color: "#f59e0b" },
+  { label: "Procured", desc: "Purchased, not yet deployed", color: "#8b5cf6" },
+  { label: "Assigned", desc: "Assigned to a client", color: "#3b82f6" },
+  { label: "Decommissioned", desc: "Taken out of service", color: "#ef4444" },
+  { label: "RMA", desc: "Returned for repair/replacement", color: "#f97316" },
+  { label: "In Transit", desc: "Being shipped to location", color: "#ec4899" },
+];
 
 export default function DashboardPage() {
-  const [user, setUser] = useState<User | null>(null);
-  const [data, setData] = useState<DashboardData>({
-    devices: 0, sites: 0, users: 0, clients: 0, suppliers: 0,
-    openTickets: 0, underMaintenance: 0, overdueTickets: 0,
-    activeWarranties: 0, lowStockItems: 0,
-    totalReceivable: 0, totalPayable: 0,
-    recentTickets: [], deviceStatuses: [],
-  });
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [mapDevices, setMapDevices] = useState<MapDevice[]>([]);
+  const [maintSites, setMaintSites] = useState<MaintenanceSiteMap[]>([]);
+  const [alerts, setAlerts] = useState<AlertItem[]>([]);
+  const [maintenance, setMaintenance] = useState<MaintenanceStats>({ total: 0, completed: 0, in_progress: 0, pending: 0 });
   const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    getCurrentUser().then(setUser).catch(() => {});
-  }, []);
 
   useEffect(() => {
     async function fetchAll() {
       try {
-        const [
-          devicesRes, sitesRes, usersRes, clientsRes, suppliersRes,
-          ticketsRes, openTicketsRes, allOpenTicketsRes, maintenanceRes, warrantiesRes,
-          inventoryRes, receivableRes, payableRes, deviceStatusRes,
-        ] = await Promise.allSettled([
-          api.get("/assets/devices/", { params: { page_size: 1 } }),
-          api.get("/sites/sites/", { params: { page_size: 1 } }),
-          api.get("/accounts/users/", { params: { page_size: 1 } }),
-          api.get("/clients/", { params: { page_size: 1 } }),
-          api.get("/suppliers/", { params: { page_size: 1 } }),
-          api.get("/tickets/", { params: { page_size: 5, ordering: "-created_at" } }),
-          api.get("/tickets/", { params: { page_size: 1, status: "open" } }),
-          api.get("/tickets/", { params: { page_size: 200 } }),
-          api.get("/assets/devices/", { params: { page_size: 1, status: "under_maintenance" } }),
-          api.get("/warranties/", { params: { page_size: 1, status: "active" } }),
-          api.get("/inventory/items/", { params: { page_size: 200 } }),
-          api.get("/finance/invoices/", { params: { invoice_type: "receivable", page_size: 200 } }),
-          api.get("/finance/invoices/", { params: { invoice_type: "payable", page_size: 200 } }),
-          api.get("/assets/devices/status_summary/"),
+        const [statsRes, mapRes, alertsRes, maintRes, maintMapRes] = await Promise.allSettled([
+          api.get("/assets/devices/dashboard_stats/"),
+          api.get("/assets/devices/map_data/"),
+          api.get("/analytics/alerts/", { params: { page_size: 5, ordering: "-created_at", is_dismissed: false } }),
+          api.get("/maintenance/schedules/", { params: { page_size: 1000 } }),
+          api.get("/maintenance/schedules/map_data/"),
         ]);
 
-        const count = (r: PromiseSettledResult<{ data: { count?: number } }>) =>
-          r.status === "fulfilled" ? (r.value.data?.count ?? 0) : 0;
+        if (statsRes.status === "fulfilled") setStats(statsRes.value.data);
+        if (mapRes.status === "fulfilled") setMapDevices(mapRes.value.data);
+        if (maintMapRes.status === "fulfilled") setMaintSites(maintMapRes.value.data);
+        if (alertsRes.status === "fulfilled") setAlerts(alertsRes.value.data.results ?? []);
 
-        const recentTickets = ticketsRes.status === "fulfilled" ? ticketsRes.value.data.results ?? [] : [];
-        const allTickets = allOpenTicketsRes.status === "fulfilled" ? allOpenTicketsRes.value.data.results ?? [] : [];
-        const overdueCount = allTickets.filter((t: { due_date: string | null; status: string }) =>
-          t.due_date && new Date(t.due_date) < new Date() && !["resolved", "closed"].includes(t.status)
-        ).length;
-
-        const invItems = inventoryRes.status === "fulfilled" ? (inventoryRes.value.data.results ?? []) : [];
-        const lowStock = invItems.filter((i: { is_low_stock: boolean }) => i.is_low_stock).length;
-
-        const recInvoices = receivableRes.status === "fulfilled" ? (receivableRes.value.data.results ?? []) : [];
-        const payInvoices = payableRes.status === "fulfilled" ? (payableRes.value.data.results ?? []) : [];
-        const totalRec = recInvoices.reduce((sum: number, inv: { balance_due: string }) => sum + parseFloat(inv.balance_due || "0"), 0);
-        const totalPay = payInvoices.reduce((sum: number, inv: { balance_due: string }) => sum + parseFloat(inv.balance_due || "0"), 0);
-
-        const deviceStatuses = deviceStatusRes.status === "fulfilled" ? deviceStatusRes.value.data : [];
-
-        setData({
-          devices: count(devicesRes as PromiseSettledResult<{ data: { count: number } }>),
-          sites: count(sitesRes as PromiseSettledResult<{ data: { count: number } }>),
-          users: count(usersRes as PromiseSettledResult<{ data: { count: number } }>),
-          clients: count(clientsRes as PromiseSettledResult<{ data: { count: number } }>),
-          suppliers: count(suppliersRes as PromiseSettledResult<{ data: { count: number } }>),
-          openTickets: openTicketsRes.status === "fulfilled" ? openTicketsRes.value.data.count : 0,
-          underMaintenance: maintenanceRes.status === "fulfilled" ? maintenanceRes.value.data.count : 0,
-          overdueTickets: overdueCount,
-          activeWarranties: warrantiesRes.status === "fulfilled" ? warrantiesRes.value.data.count : 0,
-          lowStockItems: lowStock,
-          totalReceivable: totalRec,
-          totalPayable: totalPay,
-          recentTickets: recentTickets.slice(0, 5),
-          deviceStatuses,
-        });
+        if (maintRes.status === "fulfilled") {
+          const schedules = maintRes.value.data.results ?? [];
+          const today = new Date().toISOString().split("T")[0];
+          setMaintenance({
+            total: schedules.length,
+            completed: schedules.filter((s: { is_active: boolean; next_due: string }) => !s.is_active).length,
+            in_progress: schedules.filter((s: { is_active: boolean; next_due: string }) => s.is_active && s.next_due <= today).length,
+            pending: schedules.filter((s: { is_active: boolean; next_due: string }) => s.is_active && s.next_due > today).length,
+          });
+        }
       } finally {
         setLoading(false);
       }
@@ -153,148 +139,240 @@ export default function DashboardPage() {
     fetchAll();
   }, []);
 
-  const topCards = [
-    { label: "Total Devices", value: data.devices, icon: HardDrive, gradient: "from-teal-500 to-emerald-600", href: "/assets" },
-    { label: "Active Sites", value: data.sites, icon: MapPin, gradient: "from-blue-500 to-cyan-600", href: "/sites" },
-    { label: "Team Members", value: data.users, icon: Users, gradient: "from-indigo-500 to-purple-600", href: "/teams" },
-    { label: "Clients", value: data.clients, icon: Building2, gradient: "from-orange-500 to-amber-600", href: "/clients" },
-  ];
+  const total = stats?.total ?? 0;
+  const working = stats?.working ?? 0;
+  const outOfOrder = stats?.out_of_order ?? 0;
+  const underMaint = stats?.under_maintenance ?? 0;
+  const inStock = stats?.in_stock ?? 0;
 
-  const secondaryCards = [
-    { label: "Open Tickets", value: data.openTickets, icon: Ticket, color: "text-amber-500", href: "/tickets" },
-    { label: "Under Maintenance", value: data.underMaintenance, icon: Wrench, color: "text-rose-500", href: "/maintenance" },
-    { label: "Active Warranties", value: data.activeWarranties, icon: Shield, color: "text-emerald-500", href: "/warranties" },
-    { label: "Low Stock Items", value: data.lowStockItems, icon: Package, color: "text-indigo-500", href: "/inventory" },
-  ];
+  const workingPct = total > 0 ? (working / total) * 100 : 0;
+  const outPct = total > 0 ? (outOfOrder / total) * 100 : 0;
+  const maintPct = total > 0 ? (underMaint / total) * 100 : 0;
+  const inStockPct = total > 0 ? (inStock / total) * 100 : 0;
 
-  const financeCards = [
-    { label: "Receivable", value: data.totalReceivable, icon: TrendingUp, color: "border-l-emerald-500 text-emerald-600", href: "/finance" },
-    { label: "Payable", value: data.totalPayable, icon: CreditCard, color: "border-l-red-500 text-red-500", href: "/finance" },
-    { label: "Overdue Tickets", value: data.overdueTickets, icon: AlertTriangle, color: "border-l-amber-500 text-amber-500", href: "/tickets" },
-    { label: "Suppliers", value: data.suppliers, icon: Truck, color: "border-l-cyan-500 text-cyan-600", href: "/suppliers" },
-  ];
+  const assetHealth = total > 0 ? Math.round((working / total) * 100) : 0;
+
+  const statusDistData = [
+    { name: "Active", value: working, color: "#10b981" },
+    { name: "Decommissioned", value: outOfOrder, color: "#ef4444" },
+    { name: "Under Maintenance", value: underMaint, color: "#f59e0b" },
+    { name: "In Stock", value: inStock, color: "#6366f1" },
+  ].filter((d) => d.value > 0);
+
+  const cityData = (stats?.by_city ?? [])
+    .slice(0, 6)
+    .map((c) => ({ name: c.city || "Unknown", value: c.count }));
+
+  if (loading) {
+    return (
+      <div className="flex h-96 items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
+      <AssignedTicketsBanner />
+
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-        <p className="text-gray-500">Welcome back, {user?.first_name || "Admin"}</p>
+        <h1 className="text-2xl font-bold text-foreground">Main Dashboard</h1>
+        <p className="text-sm text-muted-foreground">Asset Overview</p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {topCards.map((card) => (
-          <Link key={card.label} href={card.href} className="stat-card group block">
-            <div className="flex items-center justify-between">
+      {/* Top stat cards */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+        <StatCard
+          label="Total Screens"
+          value={total}
+          subtitle="All Over Pakistan"
+          icon={<Monitor className="h-5 w-5" />}
+        />
+        <StatCard
+          label="Working"
+          value={working}
+          subtitle={`${workingPct.toFixed(1)}%`}
+          icon={<CheckCircle className="h-5 w-5" />}
+        />
+        <StatCard
+          label="Out of Order"
+          value={outOfOrder}
+          subtitle={`${outPct.toFixed(1)}%`}
+          icon={<XCircle className="h-5 w-5" />}
+        />
+        <StatCard
+          label="Under Maintenance"
+          value={underMaint}
+          subtitle={`${maintPct.toFixed(1)}%`}
+          icon={<Wrench className="h-5 w-5" />}
+        />
+        <StatCard
+          label="In Stock"
+          value={inStock}
+          subtitle={`${inStockPct.toFixed(1)}%`}
+          variant="highlighted"
+          icon={<Clock className="h-5 w-5" />}
+        />
+      </div>
+
+      {/* Map + Legend + Quick Summary + Alerts */}
+      <div className="grid gap-6 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          <div className="rounded-xl border border-border bg-card overflow-hidden h-full flex flex-col">
+            <div className="flex items-center justify-between px-5 py-4">
               <div>
-                <p className="text-xs font-medium text-gray-500">{card.label}</p>
-                <p className="mt-2 text-2xl font-bold text-gray-900">
-                  {loading ? <span className="inline-block h-7 w-16 animate-pulse rounded bg-gray-100" /> : card.value.toLocaleString()}
-                </p>
+                <h2 className="text-base font-semibold text-foreground">Screen Status Map</h2>
+                <p className="text-xs text-muted-foreground">Live status of screens across Pakistan</p>
               </div>
-              <div className={`flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br ${card.gradient} shadow-lg`}>
-                <card.icon className="h-5 w-5 text-white" />
-              </div>
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-3 py-1 text-[11px] font-medium text-emerald-400">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                Live
+              </span>
             </div>
-          </Link>
-        ))}
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {secondaryCards.map((card) => (
-          <Link key={card.label} href={card.href} className="stat-card block">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-medium text-gray-500">{card.label}</p>
-              <card.icon className={`h-5 w-5 ${card.color}`} />
+            <div className="border-t border-border flex-1 min-h-[400px]">
+              <StatusMap devices={mapDevices} maintenanceSites={maintSites} height="100%" />
             </div>
-            <p className="mt-2 text-2xl font-bold text-gray-900">
-              {loading ? <span className="inline-block h-7 w-12 animate-pulse rounded bg-gray-100" /> : card.value}
-            </p>
-          </Link>
-        ))}
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {financeCards.map((card) => (
-          <Link key={card.label} href={card.href} className={`block rounded-xl border border-gray-200 bg-white p-5 shadow-sm border-l-4 cursor-pointer transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 hover:border-gray-300 ${card.color.split(" ")[0]}`}>
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-medium text-gray-500">{card.label}</p>
-              <card.icon className={`h-4 w-4 ${card.color.split(" ")[1]}`} />
-            </div>
-            <p className="mt-2 text-xl font-bold text-gray-900">
-              {loading ? (
-                <span className="inline-block h-6 w-20 animate-pulse rounded bg-gray-100" />
-              ) : typeof card.value === "number" && card.label !== "Overdue Tickets" && card.label !== "Suppliers" ? (
-                formatCurrency(card.value)
-              ) : (
-                card.value
-              )}
-            </p>
-          </Link>
-        ))}
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-          <div className="flex items-center justify-between">
-            <h2 className="text-base font-semibold text-gray-900">Recent Tickets</h2>
-            <Link href="/tickets" className="rounded-full bg-teal-50 px-2.5 py-1 text-[11px] font-medium text-teal-600 hover:bg-teal-100 transition-colors">
-              View All
-            </Link>
           </div>
-          {data.recentTickets.length > 0 ? (
-            <div className="mt-4 space-y-3">
-              {data.recentTickets.map((t) => (
-                <Link key={t.id} href="/tickets" className="flex items-center justify-between rounded-lg border border-gray-100 p-3 cursor-pointer transition-all hover:border-gray-200 hover:bg-gray-50/50">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-gray-900">{t.title}</p>
-                    <p className="mt-0.5 text-xs text-gray-400">
-                      {t.site_name || "No site"} {t.assigned_to_name ? `· ${t.assigned_to_name}` : ""}
-                    </p>
+        </div>
+
+        <div className="space-y-4">
+          {/* Status Legend */}
+          <div className="rounded-xl border border-border bg-card p-5">
+            <h3 className="text-sm font-semibold text-foreground mb-3">Status Legend</h3>
+            <div className="space-y-2.5">
+              {STATUS_LEGEND.map((item) => (
+                <div key={item.label} className="flex items-start gap-2.5">
+                  <span
+                    className="mt-0.5 h-3 w-3 shrink-0 rounded-full"
+                    style={{ backgroundColor: item.color }}
+                  />
+                  <div>
+                    <p className="text-xs font-medium text-foreground">{item.label}</p>
+                    <p className="text-[10px] text-muted-foreground">{item.desc}</p>
                   </div>
-                  <div className="ml-3 flex items-center gap-2">
-                    <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${PRIORITY_COLORS[t.priority] || "bg-gray-100 text-gray-600"}`}>
-                      {t.priority}
-                    </span>
-                    <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${STATUS_COLORS[t.status] || "bg-gray-100 text-gray-600"}`}>
-                      {t.status.replace("_", " ")}
-                    </span>
-                  </div>
-                </Link>
+                </div>
               ))}
             </div>
-          ) : (
-            <div className="mt-6 flex flex-col items-center justify-center py-8 text-center">
-              <Ticket className="h-10 w-10 text-gray-300" />
-              <p className="mt-3 text-sm text-gray-500">No tickets yet</p>
+          </div>
+
+          {/* Quick Summary */}
+          <div className="rounded-xl border border-border bg-card p-5">
+            <h3 className="text-sm font-semibold text-foreground mb-3">Quick Summary</h3>
+            <DonutChart
+              data={statusDistData.length > 0 ? statusDistData : [{ name: "No Data", value: 1, color: "#94a3b8" }]}
+              centerValue={total}
+              centerLabel="Total"
+              size={140}
+              showLegend={false}
+            />
+            <Link
+              href="/analytics"
+              className="mt-4 block rounded-lg border border-primary/30 py-2 text-center text-xs font-medium text-primary transition-colors hover:bg-primary/5"
+            >
+              View Detailed Report →
+            </Link>
+          </div>
+
+          {/* Recent Alerts */}
+          <div className="rounded-xl border border-border bg-card p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-foreground">Recent Alerts</h3>
+              <Link href="/alerts" className="text-[11px] font-medium text-primary hover:underline">
+                View All
+              </Link>
             </div>
+            {alerts.length > 0 ? (
+              <div className="space-y-3">
+                {alerts.map((alert) => (
+                  <div key={alert.id} className="flex items-start gap-2.5">
+                    <AlertCircle
+                      className="mt-0.5 h-4 w-4 shrink-0"
+                      style={{
+                        color:
+                          alert.severity === "critical" ? "#ef4444" :
+                          alert.severity === "error" ? "#f97316" :
+                          alert.severity === "warning" ? "#f59e0b" : "#3b82f6",
+                      }}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-medium text-foreground truncate">
+                        {alert.device_code && `Screen ID: ${alert.device_code}`}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground truncate">{alert.title}</p>
+                      {alert.site_name && (
+                        <p className="text-[10px] text-muted-foreground">{alert.site_name}{alert.site_city ? `, ${alert.site_city}` : ""}</p>
+                      )}
+                    </div>
+                    <span className="shrink-0 text-[10px] text-muted-foreground">
+                      {new Date(alert.created_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">No recent alerts</p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Bottom row: Status Distribution, Top Cities, Maintenance Overview, Asset Health */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-xl border border-border bg-card p-5">
+          <h3 className="text-sm font-semibold text-foreground mb-4">Status Distribution</h3>
+          <DonutChart
+            data={statusDistData.length > 0 ? statusDistData : [{ name: "No Data", value: 1, color: "#94a3b8" }]}
+            size={120}
+            showLegend={true}
+          />
+        </div>
+
+        <div className="rounded-xl border border-border bg-card p-5">
+          <h3 className="text-sm font-semibold text-foreground mb-4">Top Cities by Screens</h3>
+          {cityData.length > 0 ? (
+            <BarChart data={cityData} height={160} />
+          ) : (
+            <p className="text-xs text-muted-foreground">No city data available</p>
           )}
         </div>
 
-        <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-          <div className="flex items-center justify-between">
-            <h2 className="text-base font-semibold text-gray-900">Device Status</h2>
-            <Link href="/assets" className="rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-medium text-blue-600 hover:bg-blue-100 transition-colors">
-              View All
-            </Link>
+        <div className="rounded-xl border border-border bg-card p-5">
+          <h3 className="text-sm font-semibold text-foreground mb-4">Maintenance Overview</h3>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Wrench className="h-4 w-4 text-muted-foreground" />
+                <span className="text-xs text-muted-foreground">Total Maintenance</span>
+              </div>
+              <span className="text-lg font-bold text-foreground">{maintenance.total}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <CheckCircle className="h-4 w-4 text-emerald-500" />
+                <span className="text-xs text-muted-foreground">Completed</span>
+              </div>
+              <span className="text-lg font-bold text-foreground">{maintenance.completed}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Clock className="h-4 w-4 text-amber-500" />
+                <span className="text-xs text-muted-foreground">In Progress</span>
+              </div>
+              <span className="text-lg font-bold text-foreground">{maintenance.in_progress}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="h-4 w-4 text-muted-foreground" />
+                <span className="text-xs text-muted-foreground">Pending</span>
+              </div>
+              <span className="text-lg font-bold text-foreground">{maintenance.pending}</span>
+            </div>
           </div>
-          {data.deviceStatuses.length > 0 ? (
-            <div className="mt-4 space-y-1">
-              {data.deviceStatuses.map((s: { status: string; count: number }) => (
-                <Link key={s.status} href="/assets" className="flex items-center justify-between rounded-lg px-2 py-2 cursor-pointer transition-all hover:bg-gray-50">
-                  <div className="flex items-center gap-2.5">
-                    <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: DEVICE_STATUS_COLORS[s.status] || "#94a3b8" }} />
-                    <span className="text-sm capitalize text-gray-600">{s.status.replace("_", " ")}</span>
-                  </div>
-                  <span className="text-sm font-semibold text-gray-900">{s.count}</span>
-                </Link>
-              ))}
-            </div>
-          ) : (
-            <div className="mt-6 flex flex-col items-center justify-center py-8 text-center">
-              <HardDrive className="h-10 w-10 text-gray-300" />
-              <p className="mt-3 text-sm text-gray-500">No devices registered</p>
-            </div>
-          )}
+        </div>
+
+        <div className="rounded-xl border border-border bg-card p-5 flex flex-col items-center justify-center">
+          <h3 className="text-sm font-semibold text-foreground mb-4">Asset Health</h3>
+          <GaugeChart value={assetHealth} />
         </div>
       </div>
     </div>

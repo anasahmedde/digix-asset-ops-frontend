@@ -83,8 +83,8 @@ export default function SettingsPage() {
     }
   }
 
-  const inputClass = "flex h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-teal-500/50 focus:outline-none focus:ring-1 focus:ring-teal-500/30 transition-colors dark:bg-[hsl(222,15%,13%)] dark:border-[hsl(222,15%,20%)] dark:text-gray-200";
-  const labelClass = "text-xs font-medium text-gray-600 dark:text-gray-400";
+  const inputClass = "flex h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors dark:bg-[hsl(222,15%,13%)] dark:border-[hsl(222,15%,20%)] dark:text-gray-200";
+  const labelClass = "text-xs font-medium text-muted-foreground dark:text-muted-foreground";
 
   return (
     <div className="space-y-6">
@@ -93,18 +93,18 @@ export default function SettingsPage() {
           <Settings className="h-5 w-5 text-white" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
-          <p className="text-gray-500">Configure your platform preferences</p>
+          <h1 className="text-2xl font-bold text-foreground">Settings</h1>
+          <p className="text-muted-foreground">Configure your platform preferences</p>
         </div>
       </div>
 
       {/* Profile Section */}
-      <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-        <div className="flex items-center gap-3 pb-4 border-b border-gray-100">
+      <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+        <div className="flex items-center gap-3 pb-4 border-b border-border">
           <User className="h-5 w-5 text-teal-500" />
           <div>
-            <h2 className="text-sm font-semibold text-gray-900">Profile</h2>
-            <p className="text-xs text-gray-500">Update your personal information</p>
+            <h2 className="text-sm font-semibold text-foreground">Profile</h2>
+            <p className="text-xs text-muted-foreground">Update your personal information</p>
           </div>
         </div>
         {user && (
@@ -122,7 +122,7 @@ export default function SettingsPage() {
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <label className={labelClass}>Email</label>
-                <input value={user.email} disabled className="flex h-10 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-500 cursor-not-allowed" />
+                <input value={user.email} disabled className="flex h-10 w-full rounded-lg border border-border bg-secondary/50 px-3 text-sm text-muted-foreground cursor-not-allowed" />
               </div>
               <div className="space-y-1.5">
                 <label className={labelClass}>Phone</label>
@@ -132,15 +132,15 @@ export default function SettingsPage() {
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <label className={labelClass}>Username</label>
-                <input value={user.username} disabled className="flex h-10 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-500 cursor-not-allowed" />
+                <input value={user.username} disabled className="flex h-10 w-full rounded-lg border border-border bg-secondary/50 px-3 text-sm text-muted-foreground cursor-not-allowed" />
               </div>
               <div className="space-y-1.5">
                 <label className={labelClass}>Role</label>
-                <input value={user.role.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())} disabled className="flex h-10 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-500 capitalize cursor-not-allowed" />
+                <input value={user.role.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())} disabled className="flex h-10 w-full rounded-lg border border-border bg-secondary/50 px-3 text-sm text-muted-foreground capitalize cursor-not-allowed" />
               </div>
             </div>
             <div className="flex justify-end">
-              <button type="submit" disabled={saving} className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-teal-500 to-teal-600 px-5 py-2.5 text-sm font-medium text-white shadow-lg shadow-teal-500/20 transition-all hover:shadow-teal-500/30 disabled:opacity-50">
+              <button type="submit" disabled={saving} className="inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-white transition-all disabled:opacity-50">
                 {saving ? "Saving..." : "Save Changes"}
               </button>
             </div>
@@ -149,12 +149,12 @@ export default function SettingsPage() {
       </div>
 
       {/* Change Password */}
-      <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-        <div className="flex items-center gap-3 pb-4 border-b border-gray-100">
+      <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+        <div className="flex items-center gap-3 pb-4 border-b border-border">
           <Key className="h-5 w-5 text-teal-500" />
           <div>
-            <h2 className="text-sm font-semibold text-gray-900">Change Password</h2>
-            <p className="text-xs text-gray-500">Update your account password</p>
+            <h2 className="text-sm font-semibold text-foreground">Change Password</h2>
+            <p className="text-xs text-muted-foreground">Update your account password</p>
           </div>
         </div>
         <form onSubmit={handlePasswordChange} className="mt-4 space-y-4">
@@ -173,7 +173,7 @@ export default function SettingsPage() {
             </div>
           </div>
           <div className="flex justify-end">
-            <button type="submit" disabled={changingPw} className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-5 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-50">
+            <button type="submit" disabled={changingPw} className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-5 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-secondary/50 disabled:opacity-50">
               {changingPw ? "Changing..." : "Change Password"}
             </button>
           </div>
@@ -181,12 +181,12 @@ export default function SettingsPage() {
       </div>
 
       {/* Currency Section */}
-      <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-        <div className="flex items-center gap-3 pb-4 border-b border-gray-100">
+      <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+        <div className="flex items-center gap-3 pb-4 border-b border-border">
           <Globe className="h-5 w-5 text-teal-500" />
           <div>
-            <h2 className="text-sm font-semibold text-gray-900">Currency</h2>
-            <p className="text-xs text-gray-500">Select the default currency for invoices, procurement, and financial reports</p>
+            <h2 className="text-sm font-semibold text-foreground">Currency</h2>
+            <p className="text-xs text-muted-foreground">Select the default currency for invoices, procurement, and financial reports</p>
           </div>
         </div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -197,15 +197,15 @@ export default function SettingsPage() {
               className={`flex items-center gap-3 rounded-lg border p-4 text-left transition-all ${
                 activeCurrency === c.code
                   ? "border-teal-500 bg-teal-50/50 ring-1 ring-teal-500/30"
-                  : "border-gray-200 hover:border-gray-300 hover:bg-gray-50"
+                  : "border-border hover:border-gray-300 hover:bg-secondary/50"
               }`}
             >
-              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gray-100 text-base font-semibold text-gray-700">
+              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-secondary text-base font-semibold text-gray-700">
                 {c.symbol}
               </span>
               <div>
-                <p className="text-sm font-medium text-gray-900">{c.code}</p>
-                <p className="text-xs text-gray-500">{c.name}</p>
+                <p className="text-sm font-medium text-foreground">{c.code}</p>
+                <p className="text-xs text-muted-foreground">{c.name}</p>
               </div>
             </button>
           ))}
@@ -213,12 +213,12 @@ export default function SettingsPage() {
       </div>
 
       {/* Appearance Section */}
-      <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-        <div className="flex items-center gap-3 pb-4 border-b border-gray-100">
+      <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+        <div className="flex items-center gap-3 pb-4 border-b border-border">
           <Palette className="h-5 w-5 text-teal-500" />
           <div>
-            <h2 className="text-sm font-semibold text-gray-900">Appearance</h2>
-            <p className="text-xs text-gray-500">Choose your preferred theme</p>
+            <h2 className="text-sm font-semibold text-foreground">Appearance</h2>
+            <p className="text-xs text-muted-foreground">Choose your preferred theme</p>
           </div>
         </div>
         <div className="mt-4 grid gap-3 sm:grid-cols-3">
@@ -233,13 +233,13 @@ export default function SettingsPage() {
               className={`flex items-center gap-3 rounded-lg border p-4 text-left transition-all ${
                 theme === opt.value
                   ? "border-teal-500 bg-teal-50/50 ring-1 ring-teal-500/30 dark:bg-teal-500/10"
-                  : "border-gray-200 hover:border-gray-300 hover:bg-gray-50 dark:border-[hsl(222,15%,20%)] dark:hover:border-[hsl(222,15%,25%)] dark:hover:bg-white/5"
+                  : "border-border hover:border-gray-300 hover:bg-secondary/50 dark:border-[hsl(222,15%,20%)] dark:hover:border-[hsl(222,15%,25%)] dark:hover:bg-card/5"
               }`}
             >
-              <opt.icon className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+              <opt.icon className="h-5 w-5 text-muted-foreground dark:text-muted-foreground" />
               <div>
-                <p className="text-sm font-medium text-gray-900 dark:text-gray-200">{opt.label}</p>
-                <p className="text-xs text-gray-500 dark:text-gray-500">{opt.desc}</p>
+                <p className="text-sm font-medium text-foreground dark:text-gray-200">{opt.label}</p>
+                <p className="text-xs text-muted-foreground dark:text-muted-foreground">{opt.desc}</p>
               </div>
             </button>
           ))}
@@ -247,12 +247,12 @@ export default function SettingsPage() {
       </div>
 
       {/* Notification Preferences */}
-      <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-        <div className="flex items-center gap-3 pb-4 border-b border-gray-100">
+      <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+        <div className="flex items-center gap-3 pb-4 border-b border-border">
           <Bell className="h-5 w-5 text-teal-500" />
           <div>
-            <h2 className="text-sm font-semibold text-gray-900">Notifications</h2>
-            <p className="text-xs text-gray-500">Manage how you receive notifications</p>
+            <h2 className="text-sm font-semibold text-foreground">Notifications</h2>
+            <p className="text-xs text-muted-foreground">Manage how you receive notifications</p>
           </div>
         </div>
         <div className="mt-4 space-y-4">
@@ -288,16 +288,16 @@ function NotificationToggle({ id, label, description }: { id: string; label: str
   }
 
   return (
-    <div className="flex items-center justify-between rounded-lg border border-gray-100 dark:border-[hsl(222,15%,16%)] p-4 transition-colors hover:bg-gray-50/50 dark:hover:bg-white/[0.03]">
+    <div className="flex items-center justify-between rounded-lg border border-border dark:border-[hsl(222,15%,16%)] p-4 transition-colors hover:bg-secondary/50 dark:hover:bg-card/[0.03]">
       <div>
-        <p className="text-sm font-medium text-gray-900 dark:text-gray-200">{label}</p>
-        <p className="text-xs text-gray-500">{description}</p>
+        <p className="text-sm font-medium text-foreground dark:text-gray-200">{label}</p>
+        <p className="text-xs text-muted-foreground">{description}</p>
       </div>
       <button
         onClick={toggle}
         className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${enabled ? "bg-teal-500" : "bg-gray-200"}`}
       >
-        <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${enabled ? "translate-x-5" : "translate-x-0"}`} />
+        <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-card shadow ring-0 transition duration-200 ease-in-out ${enabled ? "translate-x-5" : "translate-x-0"}`} />
       </button>
     </div>
   );

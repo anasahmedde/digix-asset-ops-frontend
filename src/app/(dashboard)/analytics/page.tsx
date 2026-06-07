@@ -209,30 +209,30 @@ export default function AnalyticsPage() {
           <BarChart3 className="h-5 w-5 text-white" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Analytics</h1>
-          <p className="text-sm text-gray-500">Platform overview and key metrics</p>
+          <h1 className="text-2xl font-bold text-foreground">Analytics</h1>
+          <p className="text-sm text-muted-foreground">Platform overview and key metrics</p>
         </div>
       </div>
 
       {/* Top stats row */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <div className="bg-card rounded-xl border border-border p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-3xl font-bold text-gray-900">{data.devices.total.toLocaleString()}</p>
-              <p className="text-sm text-gray-500 mt-1">Total Devices</p>
+              <p className="text-3xl font-bold text-foreground">{data.devices.total.toLocaleString()}</p>
+              <p className="text-sm text-muted-foreground mt-1">Total Devices</p>
             </div>
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-teal-500 to-emerald-600">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
               <HardDrive className="h-6 w-6 text-white" />
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <div className="bg-card rounded-xl border border-border p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-3xl font-bold text-gray-900">{openTickets.toLocaleString()}</p>
-              <p className="text-sm text-gray-500 mt-1">Open Tickets</p>
+              <p className="text-3xl font-bold text-foreground">{openTickets.toLocaleString()}</p>
+              <p className="text-sm text-muted-foreground mt-1">Open Tickets</p>
             </div>
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500 to-orange-600">
               <Ticket className="h-6 w-6 text-white" />
@@ -240,11 +240,11 @@ export default function AnalyticsPage() {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <div className="bg-card rounded-xl border border-border p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-3xl font-bold text-gray-900">{data.warranties.active.toLocaleString()}</p>
-              <p className="text-sm text-gray-500 mt-1">Active Warranties</p>
+              <p className="text-3xl font-bold text-foreground">{data.warranties.active.toLocaleString()}</p>
+              <p className="text-sm text-muted-foreground mt-1">Active Warranties</p>
             </div>
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-green-600">
               <Shield className="h-6 w-6 text-white" />
@@ -252,11 +252,11 @@ export default function AnalyticsPage() {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <div className="bg-card rounded-xl border border-border p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-3xl font-bold text-gray-900">{data.inventory.lowStockCount.toLocaleString()}</p>
-              <p className="text-sm text-gray-500 mt-1">Low Stock Items</p>
+              <p className="text-3xl font-bold text-foreground">{data.inventory.lowStockCount.toLocaleString()}</p>
+              <p className="text-sm text-muted-foreground mt-1">Low Stock Items</p>
             </div>
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-red-500 to-rose-600">
               <PackageOpen className="h-6 w-6 text-white" />
@@ -268,11 +268,11 @@ export default function AnalyticsPage() {
       {/* Breakdown row */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {/* Device Status Breakdown */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h2 className="text-base font-semibold text-gray-900 mb-4">Device Status Breakdown</h2>
+        <div className="bg-card rounded-xl border border-border p-6">
+          <h2 className="text-base font-semibold text-foreground mb-4">Device Status Breakdown</h2>
           <div className="space-y-3">
             {Object.entries(data.devices.byStatus).length === 0 ? (
-              <p className="text-sm text-gray-400">No device data</p>
+              <p className="text-sm text-muted-foreground">No device data</p>
             ) : (
               Object.entries(data.devices.byStatus).map(([status, count]) => (
                 <div key={status} className="flex items-center justify-between">
@@ -280,7 +280,7 @@ export default function AnalyticsPage() {
                     <span className={`h-2.5 w-2.5 rounded-full ${getStatusColor(status)}`} />
                     <span className="text-sm text-gray-700">{formatLabel(status)}</span>
                   </div>
-                  <span className="text-sm font-semibold text-gray-900">{count}</span>
+                  <span className="text-sm font-semibold text-foreground">{count}</span>
                 </div>
               ))
             )}
@@ -288,8 +288,8 @@ export default function AnalyticsPage() {
         </div>
 
         {/* Ticket Status Breakdown */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h2 className="text-base font-semibold text-gray-900 mb-4">Ticket Status Breakdown</h2>
+        <div className="bg-card rounded-xl border border-border p-6">
+          <h2 className="text-base font-semibold text-foreground mb-4">Ticket Status Breakdown</h2>
           <div className="space-y-3">
             {Object.entries(data.tickets.byStatus).map(([status, count]) => (
               <div key={status} className="flex items-center justify-between">
@@ -297,18 +297,18 @@ export default function AnalyticsPage() {
                   <span className={`h-2.5 w-2.5 rounded-full ${getStatusColor(status)}`} />
                   <span className="text-sm text-gray-700">{formatLabel(status)}</span>
                 </div>
-                <span className="text-sm font-semibold text-gray-900">{count}</span>
+                <span className="text-sm font-semibold text-foreground">{count}</span>
               </div>
             ))}
           </div>
         </div>
 
         {/* Purchase Orders */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h2 className="text-base font-semibold text-gray-900 mb-4">Purchase Orders</h2>
+        <div className="bg-card rounded-xl border border-border p-6">
+          <h2 className="text-base font-semibold text-foreground mb-4">Purchase Orders</h2>
           <div className="space-y-3">
             {Object.entries(data.orders.byStatus).length === 0 ? (
-              <p className="text-sm text-gray-400">No order data</p>
+              <p className="text-sm text-muted-foreground">No order data</p>
             ) : (
               Object.entries(data.orders.byStatus).map(([status, count]) => (
                 <div key={status} className="flex items-center justify-between">
@@ -316,7 +316,7 @@ export default function AnalyticsPage() {
                     <span className={`h-2.5 w-2.5 rounded-full ${getStatusColor(status)}`} />
                     <span className="text-sm text-gray-700">{formatLabel(status)}</span>
                   </div>
-                  <span className="text-sm font-semibold text-gray-900">{count}</span>
+                  <span className="text-sm font-semibold text-foreground">{count}</span>
                 </div>
               ))
             )}
@@ -327,27 +327,27 @@ export default function AnalyticsPage() {
       {/* Financial & Maintenance row */}
       <div className="grid gap-4 sm:grid-cols-1 lg:grid-cols-2">
         {/* Financial Summary */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <div className="bg-card rounded-xl border border-border p-6">
           <div className="flex items-center gap-2 mb-4">
             <Receipt className="h-5 w-5 text-indigo-500" />
-            <h2 className="text-base font-semibold text-gray-900">Financial Summary</h2>
+            <h2 className="text-base font-semibold text-foreground">Financial Summary</h2>
           </div>
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-gray-500">Total Receivable</span>
+              <span className="text-sm text-muted-foreground">Total Receivable</span>
               <span className="text-lg font-semibold text-emerald-600">
                 {formatCurrency(data.invoices.totalReceivable)}
               </span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-sm text-gray-500">Total Payable</span>
+              <span className="text-sm text-muted-foreground">Total Payable</span>
               <span className="text-lg font-semibold text-red-500">
                 {formatCurrency(data.invoices.totalPayable)}
               </span>
             </div>
-            <div className="border-t border-gray-100 pt-4 flex items-center justify-between">
-              <span className="text-sm text-gray-500">Total Paid</span>
-              <span className="text-lg font-semibold text-gray-900">
+            <div className="border-t border-border pt-4 flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">Total Paid</span>
+              <span className="text-lg font-semibold text-foreground">
                 {formatCurrency(data.invoices.totalPaid)}
               </span>
             </div>
@@ -355,21 +355,21 @@ export default function AnalyticsPage() {
         </div>
 
         {/* Maintenance Overview */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <div className="bg-card rounded-xl border border-border p-6">
           <div className="flex items-center gap-2 mb-4">
             <Wrench className="h-5 w-5 text-amber-500" />
-            <h2 className="text-base font-semibold text-gray-900">Maintenance Overview</h2>
+            <h2 className="text-base font-semibold text-foreground">Maintenance Overview</h2>
           </div>
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-gray-500">Total Schedules</span>
-              <span className="text-lg font-semibold text-gray-900">
+              <span className="text-sm text-muted-foreground">Total Schedules</span>
+              <span className="text-lg font-semibold text-foreground">
                 {data.schedules.total.toLocaleString()}
               </span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-sm text-gray-500">Overdue</span>
-              <span className={`text-lg font-semibold ${data.schedules.overdue > 0 ? "text-red-500" : "text-gray-900"}`}>
+              <span className="text-sm text-muted-foreground">Overdue</span>
+              <span className={`text-lg font-semibold ${data.schedules.overdue > 0 ? "text-red-500" : "text-foreground"}`}>
                 {data.schedules.overdue.toLocaleString()}
               </span>
             </div>

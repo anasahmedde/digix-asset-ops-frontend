@@ -28,10 +28,10 @@ interface InventoryItem {
 }
 
 const inputClass =
-  "flex h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-teal-500/50 focus:outline-none focus:ring-1 focus:ring-teal-500/30 transition-colors";
-const labelClass = "text-xs font-medium text-gray-600";
+  "flex h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors";
+const labelClass = "text-xs font-medium text-muted-foreground";
 const thClass =
-  "px-5 py-3.5 text-left text-xs font-medium uppercase tracking-wider text-gray-400";
+  "px-5 py-3.5 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground";
 const tdClass = "px-5 py-3.5";
 
 const LOCATION_BADGES: Record<string, string> = {
@@ -139,8 +139,8 @@ export default function InventoryPage() {
             <Package className="h-5 w-5 text-white" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Inventory</h1>
-            <p className="text-gray-500">
+            <h1 className="text-2xl font-bold text-foreground">Inventory</h1>
+            <p className="text-muted-foreground">
               Manage stock levels across warehouse and sites
             </p>
           </div>
@@ -151,7 +151,7 @@ export default function InventoryPage() {
               setSelected(null);
               setModalMode("create");
             }}
-            className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-teal-500 to-teal-600 px-4 py-2.5 text-sm font-medium text-white shadow-lg shadow-teal-500/20 transition-all hover:shadow-teal-500/30"
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-all"
           >
             <Plus className="h-4 w-4" /> Add Item
           </button>
@@ -159,7 +159,7 @@ export default function InventoryPage() {
       </div>
 
       {/* Tab bar */}
-      <div className="flex gap-1 rounded-lg border border-gray-200 bg-gray-50 p-1">
+      <div className="flex gap-1 rounded-lg border border-border bg-secondary/50 p-1">
         {TABS.map((tab) => (
           <Link
             key={tab.key}
@@ -167,7 +167,7 @@ export default function InventoryPage() {
             className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
               activeTab === tab.key
                 ? "bg-teal-50 text-teal-700"
-                : "text-gray-500 hover:text-gray-700"
+                : "text-muted-foreground hover:text-gray-700"
             }`}
           >
             {tab.label}
@@ -200,20 +200,20 @@ export default function InventoryPage() {
         });
         return loading ? (
         <div className="flex items-center justify-center py-20">
-          <div className="h-6 w-6 animate-spin rounded-full border-2 border-teal-500/30 border-t-teal-500" />
+          <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
         </div>
       ) : filtered.length === 0 ? (
-        <div className="rounded-xl border border-gray-200 bg-white p-12 text-center">
-          <Package className="mx-auto h-12 w-12 text-gray-300" />
-          <h3 className="mt-4 text-lg font-semibold text-gray-900">No items found</h3>
-          <p className="mt-2 text-sm text-gray-500">{items.length > 0 ? "Try adjusting your filters." : "Add items to start tracking your stock levels."}</p>
+        <div className="rounded-xl border border-border bg-card p-12 text-center">
+          <Package className="mx-auto h-12 w-12 text-muted-foreground/30" />
+          <h3 className="mt-4 text-lg font-semibold text-foreground">No items found</h3>
+          <p className="mt-2 text-sm text-muted-foreground">{items.length > 0 ? "Try adjusting your filters." : "Add items to start tracking your stock levels."}</p>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+        <div className="overflow-hidden rounded-xl border border-border bg-card">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-gray-200 bg-gray-50">
+                <tr className="border-b border-border bg-secondary/50">
                   <th className={thClass}>SKU</th>
                   <th className={thClass}>Material</th>
                   <th className={thClass}>Location</th>
@@ -229,19 +229,19 @@ export default function InventoryPage() {
                   <tr
                     key={item.id}
                     onClick={() => { setSelected(item); setModalMode("edit"); }}
-                    className="border-b border-gray-200 cursor-pointer transition-colors hover:bg-teal-50/40"
+                    className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30"
                   >
-                    <td className={`${tdClass} font-medium text-gray-900`}>
+                    <td className={`${tdClass} font-medium text-foreground`}>
                       {item.sku}
                     </td>
-                    <td className={`${tdClass} text-gray-600`}>
+                    <td className={`${tdClass} text-muted-foreground`}>
                       {item.material_name || item.material_type}
                     </td>
                     <td className={tdClass}>
                       <span
                         className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${
                           LOCATION_BADGES[item.location] ??
-                          "bg-gray-500/10 text-gray-600 ring-gray-500/20"
+                          "bg-secondary/500/10 text-muted-foreground ring-gray-500/20"
                         }`}
                       >
                         {LOCATION_LABELS[item.location] ?? item.location}
@@ -249,18 +249,18 @@ export default function InventoryPage() {
                     </td>
                     <td
                       className={`${tdClass} font-medium ${
-                        item.is_low_stock ? "text-red-600" : "text-gray-900"
+                        item.is_low_stock ? "text-red-600" : "text-foreground"
                       }`}
                     >
                       {item.quantity}
                     </td>
-                    <td className={`${tdClass} text-gray-600`}>
+                    <td className={`${tdClass} text-muted-foreground`}>
                       {item.min_stock_level}
                     </td>
-                    <td className={`${tdClass} text-gray-600`}>
+                    <td className={`${tdClass} text-muted-foreground`}>
                       {item.site_name || item.site || "-"}
                     </td>
-                    <td className={`${tdClass} text-gray-600`}>
+                    <td className={`${tdClass} text-muted-foreground`}>
                       {item.unit_cost ? `$${item.unit_cost}` : "-"}
                     </td>
                     <td className={tdClass} onClick={(e) => e.stopPropagation()}>
@@ -268,21 +268,21 @@ export default function InventoryPage() {
                         <div className="flex items-center gap-1">
                           <button
                             onClick={() => { setSelected(item); setModalMode("edit"); }}
-                            className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900"
+                            className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                             title="Edit"
                           >
                             <Pencil className="h-3.5 w-3.5" />
                           </button>
                           <button
                             onClick={() => handleDelete(item)}
-                            className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-gray-100 hover:text-red-400"
+                            className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-destructive"
                             title="Delete"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         </div>
                       ) : (
-                        <span className="text-xs text-gray-400">—</span>
+                        <span className="text-xs text-muted-foreground">—</span>
                       )}
                     </td>
                   </tr>
@@ -296,14 +296,14 @@ export default function InventoryPage() {
 
       {modalMode && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl">
+          <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl">
             <div className="mb-5 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-gray-900">
+              <h2 className="text-lg font-semibold text-foreground">
                 {modalMode === "create" ? "Add New Item" : "Edit Item"}
               </h2>
               <button
                 onClick={closeModal}
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-900"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -411,14 +411,14 @@ export default function InventoryPage() {
                 <button
                   type="button"
                   onClick={closeModal}
-                  className="inline-flex h-10 items-center rounded-lg border border-gray-200 bg-transparent px-4 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
+                  className="inline-flex h-10 items-center rounded-lg border border-border bg-transparent px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={saving}
-                  className="inline-flex h-10 items-center rounded-lg bg-gradient-to-r from-teal-500 to-teal-600 px-5 text-sm font-medium text-white shadow-lg shadow-teal-500/20 transition-all hover:shadow-teal-500/30 disabled:opacity-50"
+                  className="inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-medium text-white transition-all disabled:opacity-50"
                 >
                   {saving
                     ? "Saving..."

@@ -95,7 +95,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen bg-white">
+    <div className="flex min-h-screen bg-background">
       {/* Left — Image Carousel */}
       <div className="relative hidden w-[55%] overflow-hidden lg:block">
         {/* Gradient overlay */}
@@ -190,15 +190,15 @@ export default function LoginPage() {
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-teal-600">
             <ClipboardList className="h-5 w-5 text-white" />
           </div>
-          <span className="text-lg font-bold text-gray-900">DIGIX</span>
+          <span className="text-lg font-bold text-foreground">DIGIX</span>
         </div>
 
         <div className="flex flex-1 items-center justify-center px-6 py-12 sm:px-12 lg:px-16">
           <div className="w-full max-w-[420px]">
             {/* Header */}
             <div className="space-y-2">
-              <h2 className="text-2xl font-bold text-gray-900 sm:text-3xl">Welcome back</h2>
-              <p className="text-sm text-gray-500">
+              <h2 className="text-2xl font-bold text-foreground sm:text-3xl">Welcome back</h2>
+              <p className="text-sm text-muted-foreground">
                 Sign in to your DIGIX account to continue
               </p>
             </div>
@@ -206,7 +206,7 @@ export default function LoginPage() {
             {/* Form */}
             <form onSubmit={handleSubmit} className="mt-8 space-y-5">
               {error && (
-                <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-600 animate-in slide-in-from-top-2">
+                <div className="flex items-start gap-3 rounded-xl border border-destructive/20 bg-destructive/5 p-4 text-sm text-destructive animate-in slide-in-from-top-2">
                   <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-100">
                     <span className="text-xs font-bold">!</span>
                   </div>
@@ -215,7 +215,7 @@ export default function LoginPage() {
               )}
 
               <div className="space-y-1.5">
-                <label htmlFor="username" className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+                <label htmlFor="username" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   Username
                 </label>
                 <input
@@ -224,13 +224,13 @@ export default function LoginPage() {
                   type="text"
                   required
                   autoComplete="username"
-                  className="flex h-12 w-full rounded-xl border border-gray-200 bg-gray-50/50 px-4 text-sm text-gray-900 placeholder:text-gray-400 focus:border-teal-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 transition-all"
+                  className="flex h-12 w-full rounded-xl border border-border bg-secondary/50 px-4 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:bg-card focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
                   placeholder="Enter your username"
                 />
               </div>
 
               <div className="space-y-1.5">
-                <label htmlFor="password" className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+                <label htmlFor="password" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   Password
                 </label>
                 <div className="relative">
@@ -240,13 +240,13 @@ export default function LoginPage() {
                     type={showPassword ? "text" : "password"}
                     required
                     autoComplete="current-password"
-                    className="flex h-12 w-full rounded-xl border border-gray-200 bg-gray-50/50 px-4 pr-12 text-sm text-gray-900 placeholder:text-gray-400 focus:border-teal-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 transition-all"
+                    className="flex h-12 w-full rounded-xl border border-border bg-secondary/50 px-4 pr-12 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:bg-card focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
                     placeholder="Enter your password"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 transition-colors hover:text-gray-600"
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
                   >
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
@@ -271,19 +271,19 @@ export default function LoginPage() {
             </form>
 
             {/* Trust badges */}
-            <div className="mt-10 flex items-center gap-6 border-t border-gray-100 pt-8">
-              <div className="flex items-center gap-2 text-gray-400">
-                <Shield className="h-4 w-4 text-teal-500/60" />
+            <div className="mt-10 flex items-center gap-6 border-t border-border pt-8">
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Shield className="h-4 w-4 text-primary/60" />
                 <span className="text-xs">256-bit encryption</span>
               </div>
-              <div className="flex items-center gap-2 text-gray-400">
-                <Zap className="h-4 w-4 text-teal-500/60" />
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Zap className="h-4 w-4 text-primary/60" />
                 <span className="text-xs">SSO ready</span>
               </div>
             </div>
 
             {/* Footer */}
-            <p className="mt-8 text-center text-[11px] text-gray-400">
+            <p className="mt-8 text-center text-[11px] text-muted-foreground">
               &copy; {new Date().getFullYear()} DIGIX Asset Operations. All rights reserved.
             </p>
           </div>

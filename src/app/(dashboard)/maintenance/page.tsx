@@ -1,7 +1,8 @@
 "use client";
 
 import { Pencil, Plus, Trash2, Wrench, X } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import { FilterBar } from "@/components/ui/filter-bar";
@@ -27,10 +28,10 @@ interface MaintenanceSchedule {
 }
 
 const inputClass =
-  "flex h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-teal-500/50 focus:outline-none focus:ring-1 focus:ring-teal-500/30 transition-colors";
-const labelClass = "text-xs font-medium text-gray-600";
+  "flex h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors";
+const labelClass = "text-xs font-medium text-muted-foreground";
 const thClass =
-  "px-5 py-3.5 text-left text-xs font-medium uppercase tracking-wider text-gray-400";
+  "px-5 py-3.5 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground";
 const tdClass = "px-5 py-3.5";
 
 const TYPE_BADGES: Record<string, string> = {
@@ -58,6 +59,8 @@ export default function MaintenancePage() {
   const [saving, setSaving] = useState(false);
   const [filterValues, setFilterValues] = useState<Record<string, string>>({ type: "", frequency: "", active: "" });
   const [search, setSearch] = useState("");
+  const searchParams = useSearchParams();
+  const autoOpenedRef = useRef(false);
 
   const fetchSchedules = useCallback(async () => {
     try {
@@ -73,6 +76,18 @@ export default function MaintenancePage() {
   useEffect(() => {
     fetchSchedules();
   }, [fetchSchedules]);
+
+  useEffect(() => {
+    if (autoOpenedRef.current || loading) return;
+    const scheduleId = searchParams.get("schedule");
+    if (!scheduleId) return;
+    autoOpenedRef.current = true;
+    const found = schedules.find((s) => s.id === scheduleId);
+    if (found) {
+      setSelected(found);
+      setModalMode("edit");
+    }
+  }, [searchParams, loading, schedules]);
 
   function closeModal() {
     setModalMode(null);
@@ -128,8 +143,8 @@ export default function MaintenancePage() {
             <Wrench className="h-5 w-5 text-white" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Maintenance</h1>
-            <p className="text-gray-500">
+            <h1 className="text-2xl font-bold text-foreground">Maintenance</h1>
+            <p className="text-muted-foreground">
               Manage preventive and corrective maintenance schedules
             </p>
           </div>
@@ -140,7 +155,7 @@ export default function MaintenancePage() {
               setSelected(null);
               setModalMode("create");
             }}
-            className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-teal-500 to-teal-600 px-4 py-2.5 text-sm font-medium text-white shadow-lg shadow-teal-500/20 transition-all hover:shadow-teal-500/30"
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-all"
           >
             <Plus className="h-4 w-4" /> Add Schedule
           </button>
@@ -174,20 +189,20 @@ export default function MaintenancePage() {
         });
         return loading ? (
         <div className="flex items-center justify-center py-20">
-          <div className="h-6 w-6 animate-spin rounded-full border-2 border-teal-500/30 border-t-teal-500" />
+          <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
         </div>
       ) : filtered.length === 0 ? (
-        <div className="rounded-xl border border-gray-200 bg-white p-12 text-center">
-          <Wrench className="mx-auto h-12 w-12 text-gray-300" />
-          <h3 className="mt-4 text-lg font-semibold text-gray-900">No schedules found</h3>
-          <p className="mt-2 text-sm text-gray-500">{schedules.length > 0 ? "Try adjusting your filters." : "Add a schedule to start tracking maintenance activities."}</p>
+        <div className="rounded-xl border border-border bg-card p-12 text-center">
+          <Wrench className="mx-auto h-12 w-12 text-muted-foreground/30" />
+          <h3 className="mt-4 text-lg font-semibold text-foreground">No schedules found</h3>
+          <p className="mt-2 text-sm text-muted-foreground">{schedules.length > 0 ? "Try adjusting your filters." : "Add a schedule to start tracking maintenance activities."}</p>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+        <div className="overflow-hidden rounded-xl border border-border bg-card">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-gray-200 bg-gray-50">
+                <tr className="border-b border-border bg-secondary/50">
                   <th className={thClass}>Title</th>
                   <th className={thClass}>Type</th>
                   <th className={thClass}>Frequency</th>
@@ -204,35 +219,35 @@ export default function MaintenancePage() {
                   <tr
                     key={s.id}
                     onClick={() => { setSelected(s); setModalMode("edit"); }}
-                    className="border-b border-gray-200 cursor-pointer transition-colors hover:bg-teal-50/40"
+                    className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30"
                   >
-                    <td className={`${tdClass} font-medium text-gray-900`}>
+                    <td className={`${tdClass} font-medium text-foreground`}>
                       {s.title}
                     </td>
                     <td className={tdClass}>
                       <span
-                        className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${TYPE_BADGES[s.maintenance_type] ?? "bg-gray-500/10 text-gray-400 ring-gray-500/20"}`}
+                        className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${TYPE_BADGES[s.maintenance_type] ?? "bg-secondary/500/10 text-muted-foreground ring-gray-500/20"}`}
                       >
                         {s.maintenance_type}
                       </span>
                     </td>
                     <td className={tdClass}>
-                      <span className="inline-flex rounded-full bg-gray-500/10 px-2.5 py-0.5 text-xs font-medium text-gray-500 ring-1 ring-gray-500/20">
+                      <span className="inline-flex rounded-full bg-secondary/500/10 px-2.5 py-0.5 text-xs font-medium text-muted-foreground ring-1 ring-gray-500/20">
                         {FREQ_LABEL[s.frequency] ?? s.frequency}
                       </span>
                     </td>
-                    <td className={`${tdClass} text-gray-600`}>
+                    <td className={`${tdClass} text-muted-foreground`}>
                       {s.next_due
                         ? new Date(s.next_due).toLocaleDateString()
                         : "-"}
                     </td>
-                    <td className={`${tdClass} text-gray-600`}>
+                    <td className={`${tdClass} text-muted-foreground`}>
                       {s.device_code || "-"}
                     </td>
-                    <td className={`${tdClass} text-gray-600`}>
+                    <td className={`${tdClass} text-muted-foreground`}>
                       {s.site_name || "-"}
                     </td>
-                    <td className={`${tdClass} text-gray-600`}>
+                    <td className={`${tdClass} text-muted-foreground`}>
                       {s.assigned_to_name || "-"}
                     </td>
                     <td className={tdClass}>
@@ -247,21 +262,21 @@ export default function MaintenancePage() {
                         <div className="flex items-center gap-1">
                           <button
                             onClick={() => { setSelected(s); setModalMode("edit"); }}
-                            className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900"
+                            className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                             title="Edit"
                           >
                             <Pencil className="h-3.5 w-3.5" />
                           </button>
                           <button
                             onClick={() => handleDelete(s)}
-                            className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-gray-100 hover:text-red-400"
+                            className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-destructive"
                             title="Delete"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         </div>
                       ) : (
-                        <span className="text-xs text-gray-400">—</span>
+                        <span className="text-xs text-muted-foreground">—</span>
                       )}
                     </td>
                   </tr>
@@ -275,16 +290,16 @@ export default function MaintenancePage() {
 
       {modalMode && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl">
+          <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl">
             <div className="mb-5 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-gray-900">
+              <h2 className="text-lg font-semibold text-foreground">
                 {modalMode === "create"
                   ? "Add New Schedule"
                   : "Edit Schedule"}
               </h2>
               <button
                 onClick={closeModal}
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-900"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -370,7 +385,7 @@ export default function MaintenancePage() {
                   name="is_active"
                   type="checkbox"
                   defaultChecked={selected?.is_active ?? true}
-                  className="h-4 w-4 rounded border-gray-300 text-teal-600 focus:ring-teal-500"
+                  className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-teal-500"
                 />
                 <label htmlFor="is_active" className={labelClass}>
                   Active
@@ -380,14 +395,14 @@ export default function MaintenancePage() {
                 <button
                   type="button"
                   onClick={closeModal}
-                  className="inline-flex h-10 items-center rounded-lg border border-gray-200 bg-transparent px-4 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
+                  className="inline-flex h-10 items-center rounded-lg border border-border bg-transparent px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={saving}
-                  className="inline-flex h-10 items-center rounded-lg bg-gradient-to-r from-teal-500 to-teal-600 px-5 text-sm font-medium text-white shadow-lg shadow-teal-500/20 transition-all hover:shadow-teal-500/30 disabled:opacity-50"
+                  className="inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-medium text-white transition-all disabled:opacity-50"
                 >
                   {saving
                     ? "Saving..."

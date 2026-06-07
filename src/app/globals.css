@@ -189,6 +189,298 @@
   background: hsl(168 76% 42% / 0.2);
 }
 
+.dark-map .leaflet-control-zoom a {
+  background: white !important;
+  color: #374151 !important;
+  border-color: #e5e7eb !important;
+}
+.dark-map .leaflet-control-zoom a:hover {
+  background: #f3f4f6 !important;
+}
+
+/* ── Dot markers ── */
+.map-dot-wrap {
+  background: transparent !important;
+  border: none !important;
+}
+.map-dot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: var(--dot-color);
+  border: 2.5px solid white;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.25), 0 0 0 1px rgba(0,0,0,0.06);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  position: relative;
+}
+.map-dot:hover {
+  transform: scale(1.25);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.3), 0 0 0 1px rgba(0,0,0,0.08);
+}
+
+.map-dot--maint {
+  width: 100%;
+  height: 100%;
+  border-radius: 6px;
+  border: 2.5px solid white;
+  background: #f59e0b;
+  box-shadow: 0 2px 8px rgba(245,158,11,0.4), 0 0 0 1px rgba(0,0,0,0.06);
+}
+.map-dot--maint:hover {
+  box-shadow: 0 4px 14px rgba(245,158,11,0.5), 0 0 0 1px rgba(0,0,0,0.08);
+}
+
+.map-dot-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.map-dot--pulse::before {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: inherit;
+  background: var(--dot-color);
+  opacity: 0;
+  animation: dotPulse 2.5s ease-out infinite;
+  pointer-events: none;
+}
+
+@keyframes dotPulse {
+  0%   { opacity: 0.5; transform: scale(0.85); }
+  100% { opacity: 0;   transform: scale(1.8); }
+}
+
+/* ── Popup card ── */
+.device-popup .leaflet-popup-content-wrapper {
+  background: white;
+  border-radius: 14px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.15), 0 0 0 1px rgba(0,0,0,0.04);
+  padding: 0;
+  overflow: hidden;
+}
+.device-popup .leaflet-popup-content {
+  margin: 0;
+  line-height: 1.5;
+}
+.device-popup .leaflet-popup-tip {
+  background: white;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.dp-card {
+  padding: 14px 16px 12px;
+  font-family: inherit;
+}
+.dp-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.dp-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-size: 10px;
+  font-weight: 600;
+  color: white;
+  letter-spacing: 0.02em;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+.dp-code {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1e293b;
+  letter-spacing: -0.01em;
+}
+.dp-site {
+  font-size: 12px;
+  font-weight: 500;
+  color: #334155;
+}
+.dp-city {
+  font-size: 11px;
+  color: #94a3b8;
+  margin-bottom: 10px;
+}
+.dp-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: #f1f5f9;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.dp-link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #475569;
+  background: white;
+  text-decoration: none;
+  transition: background 0.12s;
+}
+.dp-link:hover {
+  background: #f8fafc;
+  color: #0f172a;
+}
+.dp-link--primary { color: #0d9488; font-weight: 600; }
+.dp-link--primary:hover { background: #f0fdfa; color: #0d9488; }
+.dp-link--warn { color: #d97706; font-weight: 600; }
+.dp-link--warn:hover { background: #fffbeb; color: #d97706; }
+.dp-link-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+.dp-badge--maint {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.dp-badge-icon {
+  width: 11px;
+  height: 11px;
+}
+.dp-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e293b;
+  margin-bottom: 2px;
+}
+.dp-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 11px;
+  color: #64748b;
+  margin-bottom: 10px;
+}
+
+/* ── Map country selector ── */
+.map-country-select {
+  position: absolute;
+  top: 12px;
+  left: 50px;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 4px 10px;
+  background: rgba(255,255,255,0.95);
+  backdrop-filter: blur(8px);
+  border: 1.5px solid #e2e8f0;
+  border-radius: 20px;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.1);
+}
+.map-country-icon {
+  width: 16px;
+  height: 16px;
+  color: #0d9488;
+  flex-shrink: 0;
+}
+.map-country-dropdown {
+  appearance: none;
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+  color: #1e293b;
+  cursor: pointer;
+  padding-right: 16px;
+  outline: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2364748b' d='M3 4.5L6 8l3-3.5H3z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0 center;
+}
+.map-country-dropdown:focus {
+  color: #0d9488;
+}
+
+/* ── Map layer toggle ── */
+.map-wrapper { position: relative; }
+.map-layer-toggle {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 1000;
+  display: flex;
+  gap: 6px;
+}
+.map-layer-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #64748b;
+  background: rgba(255,255,255,0.92);
+  backdrop-filter: blur(8px);
+  border: 1.5px solid #e2e8f0;
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+  user-select: none;
+}
+.map-layer-chip:hover {
+  background: white;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+}
+.map-layer-chip--active {
+  color: #065f46;
+  background: #ecfdf5;
+  border-color: #6ee7b7;
+}
+.map-layer-chip--active:hover {
+  background: #d1fae5;
+}
+.map-layer-chip--active-warn {
+  color: #92400e;
+  background: #fffbeb;
+  border-color: #fcd34d;
+}
+.map-layer-chip--active-warn:hover {
+  background: #fef3c7;
+}
+.map-layer-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.map-layer-count {
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(0,0,0,0.06);
+  padding: 1px 6px;
+  border-radius: 10px;
+  min-width: 20px;
+  text-align: center;
+}
+.map-layer-chip--active .map-layer-count {
+  background: rgba(16,185,129,0.15);
+}
+.map-layer-chip--active-warn .map-layer-count {
+  background: rgba(245,158,11,0.15);
+}
+
+/* ── Pakistan border glow ── */
+.dark-map .leaflet-overlay-pane svg path[stroke="#00ffcc"],
+.dark-map .leaflet-overlay-pane svg path[stroke="#00ffd0"] {
+  filter: drop-shadow(0 0 6px rgba(0, 255, 210, 0.35));
+}
+
 @keyframes slideProgress {
   from { transform: translateX(-100%); }
   to { transform: translateX(0); }

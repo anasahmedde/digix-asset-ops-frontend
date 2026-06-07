@@ -19,17 +19,12 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
             cd /opt/digix/frontend
-
-            # Pull latest code
             git fetch origin main
             git reset --hard origin/main
 
-            # Rebuild and restart
             cd /opt/digix
-            docker compose -f docker-compose.prod.yml --env-file .env.prod build frontend
-            docker compose -f docker-compose.prod.yml --env-file .env.prod up -d frontend
-
-            # Restart nginx to pick up any changes
-            docker compose -f docker-compose.prod.yml --env-file .env.prod restart nginx
+            docker compose --env-file .env build frontend
+            docker compose --env-file .env up -d frontend
+            docker compose --env-file .env restart nginx
 
             echo "Frontend deployed successfully!"
