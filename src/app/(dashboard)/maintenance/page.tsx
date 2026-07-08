@@ -23,6 +23,9 @@ interface MaintenanceSchedule {
   assigned_to_name: string | null;
   next_due: string;
   instructions: string;
+  status: string;
+  status_display: string;
+  effective_status: string;
   is_active: boolean;
   created_at: string;
 }
@@ -104,7 +107,7 @@ export default function MaintenancePage() {
       frequency: fd.get("frequency"),
       next_due: fd.get("next_due"),
       instructions: fd.get("instructions"),
-      is_active: fd.has("is_active"),
+      status: fd.get("status"),
     };
     try {
       if (modalMode === "create") {
@@ -166,7 +169,7 @@ export default function MaintenancePage() {
         filters={[
           { key: "type", label: "Type", options: Object.keys(TYPE_BADGES).map((t) => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) })) },
           { key: "frequency", label: "Frequency", options: Object.entries(FREQ_LABEL).map(([v, l]) => ({ value: v, label: l })) },
-          { key: "active", label: "Active", options: [{ value: "yes", label: "Active" }, { value: "no", label: "Inactive" }] },
+          { key: "status", label: "Status", options: [["active", "Active"], ["pending", "Pending"], ["in_process", "In Process"], ["on_hold", "On Hold"], ["overdue", "Over Due"], ["completed", "Completed"]].map(([v, l]) => ({ value: v, label: l })) },
         ]}
         values={filterValues}
         onChange={(k, v) => setFilterValues((prev) => ({ ...prev, [k]: v }))}
@@ -179,8 +182,7 @@ export default function MaintenancePage() {
         const filtered = schedules.filter((s) => {
           if (filterValues.type && s.maintenance_type !== filterValues.type) return false;
           if (filterValues.frequency && s.frequency !== filterValues.frequency) return false;
-          if (filterValues.active === "yes" && !s.is_active) return false;
-          if (filterValues.active === "no" && s.is_active) return false;
+          if (filterValues.status && (s.effective_status || s.status) !== filterValues.status) return false;
           if (search) {
             const q = search.toLowerCase();
             if (!s.title.toLowerCase().includes(q) && !(s.site_name || "").toLowerCase().includes(q) && !(s.device_code || "").toLowerCase().includes(q) && !(s.assigned_to_name || "").toLowerCase().includes(q)) return false;
@@ -210,7 +212,7 @@ export default function MaintenancePage() {
                   <th className={thClass}>Device</th>
                   <th className={thClass}>Site</th>
                   <th className={thClass}>Assigned To</th>
-                  <th className={thClass}>Active</th>
+                  <th className={thClass}>Status</th>
                   <th className={thClass}>Actions</th>
                 </tr>
               </thead>
@@ -251,11 +253,20 @@ export default function MaintenancePage() {
                       {s.assigned_to_name || "-"}
                     </td>
                     <td className={tdClass}>
-                      <span
-                        className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${s.is_active ? "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20" : "bg-red-500/10 text-red-400 ring-red-500/20"}`}
-                      >
-                        {s.is_active ? "Active" : "Inactive"}
-                      </span>
+                      {(() => {
+                        const st = s.effective_status || s.status || "active";
+                        const styles: Record<string, string> = {
+                          active: "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20",
+                          pending: "bg-blue-500/10 text-blue-400 ring-blue-500/20",
+                          in_process: "bg-cyan-500/10 text-cyan-400 ring-cyan-500/20",
+                          on_hold: "bg-slate-500/10 text-slate-400 ring-slate-500/20",
+                          overdue: "bg-red-500/10 text-red-400 ring-red-500/20",
+                          completed: "bg-gray-500/10 text-gray-400 ring-gray-500/20",
+                        };
+                        const labels: Record<string, string> = { in_process: "In Process", on_hold: "On Hold", overdue: "Over Due" };
+                        const text = labels[st] || st.charAt(0).toUpperCase() + st.slice(1);
+                        return <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${styles[st] || styles.active}`}>{text}</span>;
+                      })()}
                     </td>
                     <td className={tdClass} onClick={(e) => e.stopPropagation()}>
                       {canEdit ? (
@@ -379,17 +390,16 @@ export default function MaintenancePage() {
                   placeholder="Step-by-step maintenance instructions..."
                 />
               </div>
-              <div className="flex items-center gap-2">
-                <input
-                  id="is_active"
-                  name="is_active"
-                  type="checkbox"
-                  defaultChecked={selected?.is_active ?? true}
-                  className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-teal-500"
-                />
-                <label htmlFor="is_active" className={labelClass}>
-                  Active
-                </label>
+              <div className="space-y-1.5">
+                <label htmlFor="status" className={labelClass}>Status</label>
+                <select id="status" name="status" defaultValue={selected?.status ?? "active"} className={inputClass}>
+                  <option value="active">Active</option>
+                  <option value="pending">Pending</option>
+                  <option value="in_process">In Process</option>
+                  <option value="on_hold">On Hold</option>
+                  <option value="overdue">Over Due</option>
+                  <option value="completed">Completed</option>
+                </select>
               </div>
               <div className="flex justify-end gap-3 pt-2">
                 <button

@@ -20,7 +20,9 @@ import {
   MessageSquare,
   Moon,
   Package,
+  ScrollText,
   Settings,
+  SlidersHorizontal,
   Sun,
   Ticket,
   Truck,
@@ -52,11 +54,13 @@ const navigation: NavItem[] = [
   {
     name: "Sites", href: "/sites", icon: MapPin, roles: ["super_admin", "ops_manager", "technician"],
   },
-  { name: "Work Orders", href: "/work-orders", icon: Ticket, roles: ["super_admin", "ops_manager", "technician"] },
+  { name: "Tickets", href: "/tickets", icon: Ticket, roles: ["super_admin", "ops_manager", "supervisor", "technician"] },
+  { name: "Work Orders", href: "/work-orders", icon: ScrollText, roles: ["super_admin", "ops_manager"] },
   { name: "Inventory", href: "/inventory", icon: Package, roles: ["super_admin", "ops_manager", "warehouse"] },
   {
     name: "Reports", href: "/analytics", icon: BarChart3, roles: ["super_admin", "ops_manager", "finance"],
     children: [
+      { name: "Reports", href: "/reports", icon: BarChart3 },
       { name: "Analytics", href: "/analytics", icon: BarChart3 },
       { name: "Finance", href: "/finance", icon: CreditCard },
     ],
@@ -67,6 +71,7 @@ const navigation: NavItem[] = [
   { name: "Vendors", href: "/suppliers", icon: Truck, roles: ["super_admin", "ops_manager"] },
   { name: "Clients", href: "/clients", icon: Building2, roles: ["super_admin", "ops_manager", "client_viewer"] },
   { name: "Chat", href: "/chat", icon: MessageSquare },
+  { name: "Setup", href: "/setup", icon: SlidersHorizontal, roles: ["super_admin", "ops_manager"] },
   { name: "Settings", href: "/settings", icon: Settings },
 ];
 

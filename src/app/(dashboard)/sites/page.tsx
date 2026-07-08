@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
+import { ContactsEditor } from "@/components/ui/contacts-editor";
 import { FilterBar } from "@/components/ui/filter-bar";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
@@ -23,6 +24,7 @@ interface Site {
   latitude: number | null;
   longitude: number | null;
   client: string | null;
+  client_name: string | null;
   is_active: boolean;
   device_count: number;
   created_at: string;
@@ -248,6 +250,7 @@ export default function SitesPage() {
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
                   <th className={thClass}>Name</th>
+                  <th className={thClass}>Client</th>
                   <th className={thClass}>City</th>
                   <th className={thClass}>Country</th>
                   <th className={thClass}>Devices</th>
@@ -259,6 +262,7 @@ export default function SitesPage() {
                 {filtered.map((s) => (
                   <tr key={s.id} onClick={() => openEdit(s)} className="border-b border-border/30 cursor-pointer transition-colors hover:bg-secondary/30">
                     <td className={`${tdClass} font-medium text-foreground`}>{s.name}</td>
+                    <td className={`${tdClass} text-muted-foreground`}>{s.client_name || "-"}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{s.city || "-"}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{s.country}</td>
                     <td className={tdClass}>
@@ -369,6 +373,10 @@ export default function SitesPage() {
                 <label htmlFor="access_instructions" className={labelClass}>Access Instructions</label>
                 <textarea id="access_instructions" name="access_instructions" rows={2} defaultValue={selected?.access_instructions ?? ""} className={`${inputClass} h-auto py-2`} placeholder="e.g. Security gate code, parking info..." />
               </div>
+
+              {modalMode === "edit" && selected && (
+                <ContactsEditor endpoint="/sites/site-contacts/" parentField="site" parentId={selected.id} label="Site Contacts (POC)" />
+              )}
 
               <div className="flex justify-end gap-3 pt-2">
                 <button type="button" onClick={closeModal} className="inline-flex h-10 items-center rounded-lg border border-border bg-transparent px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">Cancel</button>

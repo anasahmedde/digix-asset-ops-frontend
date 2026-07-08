@@ -21,7 +21,10 @@ interface Device {
   serial_number: string;
   device_model: string;
   device_model_name: string;
+  asset_type_name: string | null;
+  display_name: string;
   status: string;
+  warranty_status: string;
   image: string | null;
   current_site: string | null;
   site_name: string | null;
@@ -38,6 +41,10 @@ interface DeviceDetail extends Device {
   brand_name: string | null;
   screen_type: string | null;
   screen_size: string | null;
+  asset_type: string | null;
+  length_cm: string | null;
+  width_cm: string | null;
+  diagonal_inches: string | null;
   specifications: Record<string, unknown>;
   firmware_version: string;
   hardware_revision: string;
@@ -148,6 +155,7 @@ export default function AssetsPage() {
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
 
   const [deviceModels, setDeviceModels] = useState<Option[]>([]);
+  const [assetTypes, setAssetTypes] = useState<Option[]>([]);
   const [sites, setSites] = useState<Option[]>([]);
   const [clients, setClients] = useState<Option[]>([]);
   const [suppliers, setSuppliers] = useState<Option[]>([]);
@@ -198,14 +206,16 @@ export default function AssetsPage() {
   }
 
   async function loadOptions() {
-    const [dm, st, cl, su, tech] = await Promise.allSettled([
+    const [dm, at, st, cl, su, tech] = await Promise.allSettled([
       api.get("/assets/device-models/", { params: { page_size: 200 } }),
+      api.get("/assets/asset-types/", { params: { page_size: 200 } }),
       api.get("/sites/sites/", { params: { page_size: 200 } }),
       api.get("/clients/", { params: { page_size: 200 } }),
       api.get("/suppliers/", { params: { page_size: 200 } }),
       api.get("/accounts/users/", { params: { is_field_staff: true, is_active: true, page_size: 200 } }),
     ]);
     if (dm.status === "fulfilled") setDeviceModels((dm.value.data.results ?? dm.value.data).map((m: { id: string; name: string; brand_name?: string }) => ({ id: m.id, label: m.brand_name ? `${m.brand_name} ${m.name}` : m.name })));
+    if (at.status === "fulfilled") setAssetTypes((at.value.data.results ?? at.value.data).map((t: { id: string; name: string }) => ({ id: t.id, label: t.name })));
     if (st.status === "fulfilled") setSites((st.value.data.results ?? st.value.data).map((s: { id: string; name: string }) => ({ id: s.id, label: s.name })));
     if (cl.status === "fulfilled") setClients((cl.value.data.results ?? cl.value.data).map((c: { id: string; name: string }) => ({ id: c.id, label: c.name })));
     if (su.status === "fulfilled") setSuppliers((su.value.data.results ?? su.value.data).map((s: { id: string; name: string }) => ({ id: s.id, label: s.name })));
@@ -272,6 +282,11 @@ export default function AssetsPage() {
       serial_number: fd.get("serial_number"),
       status: fd.get("status"),
       device_model: fd.get("device_model") || undefined,
+      asset_type: fd.get("asset_type") || null,
+      display_name: fd.get("display_name") || "",
+      length_cm: fd.get("length_cm") || null,
+      width_cm: fd.get("width_cm") || null,
+      diagonal_inches: fd.get("diagonal_inches") || null,
       mobile_id: fd.get("mobile_id"),
       mac_address: fd.get("mac_address"),
       imei: fd.get("imei"),
@@ -409,13 +424,14 @@ export default function AssetsPage() {
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-6 gap-y-3">
                     <MetaField label="Asset ID" value={d.asset_code} mono />
                     <MetaField label="Serial Number" value={d.serial_number} />
-                    <MetaField label="Asset Type" value={d.screen_type || (specs.asset_type as string)} />
+                    <MetaField label="Asset Type" value={d.asset_type_name || d.screen_type || (specs.asset_type as string)} />
                     <MetaField label="Model / Series" value={d.device_model_name} />
                     <MetaField label="Manufacturer" value={d.brand_name} />
                     <MetaField label="Installation Date" value={d.installation_date ? formatDate(d.installation_date) : null} />
                     <MetaField label="Location" value={d.site_name} highlight />
                     <MetaField label="Status" value={d.status?.replace(/_/g, " ")} capitalize />
                     <MetaField label="Screen Size" value={d.screen_size || (specs.screen_size as string)} />
+                    <MetaField label="Dimensions" value={d.length_cm && d.width_cm ? `${d.length_cm} × ${d.width_cm} cm` : d.diagonal_inches ? `${d.diagonal_inches}"` : null} />
                     <MetaField label="Resolution" value={specs.resolution as string} />
                     <MetaField label="Pixel Pitch" value={specs.pixel_pitch as string} />
                     <MetaField label="Brightness" value={specs.brightness as string} />
@@ -772,7 +788,9 @@ export default function AssetsPage() {
                   <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Device</th>
                   <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Serial #</th>
                   <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Model</th>
+                  <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Type</th>
                   <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Status</th>
+                  <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Warranty</th>
                   <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Site</th>
                   <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Client</th>
                   <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Actions</th>
@@ -789,7 +807,17 @@ export default function AssetsPage() {
                     </td>
                     <td className="px-5 py-3 text-muted-foreground">{d.serial_number}</td>
                     <td className="px-5 py-3 text-foreground">{d.device_model_name || "—"}</td>
+                    <td className="px-5 py-3 text-muted-foreground">{d.asset_type_name || "—"}</td>
                     <td className="px-5 py-3"><StatusBadge status={d.status} /></td>
+                    <td className="px-5 py-3">
+                      {d.warranty_status === "active" ? (
+                        <span className="inline-flex rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-500 ring-1 ring-emerald-500/20">Under Warranty</span>
+                      ) : d.warranty_status === "expired" ? (
+                        <span className="inline-flex rounded-full bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-500 ring-1 ring-red-500/20">Expired</span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </td>
                     <td className="px-5 py-3 text-muted-foreground">{d.site_name || "—"}</td>
                     <td className="px-5 py-3 text-muted-foreground">{d.client_name || "—"}</td>
                     <td className="px-5 py-3" onClick={(e) => e.stopPropagation()}>
@@ -838,6 +866,35 @@ export default function AssetsPage() {
                 <option value="">Select model</option>
                 {deviceModels.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
               </select>
+            </div>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <label htmlFor="asset_type" className={labelClass}>Asset Type</label>
+              <select id="asset_type" name="asset_type" defaultValue={selected?.asset_type ?? ""} className={inputClass}>
+                <option value="">Select type</option>
+                {assetTypes.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="display_name" className={labelClass}>Asset Name</label>
+              <input id="display_name" name="display_name" defaultValue={selected?.display_name ?? ""} className={inputClass} placeholder="e.g. Main entrance SMD wall" />
+            </div>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div className="space-y-1.5">
+              <label htmlFor="length_cm" className={labelClass}>Length (cm)</label>
+              <input id="length_cm" name="length_cm" type="number" step="0.01" defaultValue={selected?.length_cm ?? ""} className={inputClass} />
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="width_cm" className={labelClass}>Width (cm)</label>
+              <input id="width_cm" name="width_cm" type="number" step="0.01" defaultValue={selected?.width_cm ?? ""} className={inputClass} />
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="diagonal_inches" className={labelClass}>Diagonal (in)</label>
+              <input id="diagonal_inches" name="diagonal_inches" type="number" step="0.1" defaultValue={selected?.diagonal_inches ?? ""} className={inputClass} />
             </div>
           </div>
 

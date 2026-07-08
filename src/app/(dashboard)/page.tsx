@@ -6,6 +6,7 @@ import {
   CheckCircle,
   Clock,
   Monitor,
+  MonitorCheck,
   Wrench,
   XCircle,
 } from "lucide-react";
@@ -31,6 +32,7 @@ const StatusMap = dynamic(() => import("@/components/map/status-map"), {
 interface DashboardStats {
   total: number;
   working: number;
+  installed: number;
   out_of_order: number;
   under_maintenance: number;
   in_stock: number;
@@ -144,7 +146,9 @@ export default function DashboardPage() {
   const outOfOrder = stats?.out_of_order ?? 0;
   const underMaint = stats?.under_maintenance ?? 0;
   const inStock = stats?.in_stock ?? 0;
+  const installed = stats?.installed ?? 0;
 
+  const installedPct = total > 0 ? (installed / total) * 100 : 0;
   const workingPct = total > 0 ? (working / total) * 100 : 0;
   const outPct = total > 0 ? (outOfOrder / total) * 100 : 0;
   const maintPct = total > 0 ? (underMaint / total) * 100 : 0;
@@ -181,12 +185,18 @@ export default function DashboardPage() {
       </div>
 
       {/* Top stat cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <StatCard
           label="Total Screens"
           value={total}
           subtitle="All Over Pakistan"
           icon={<Monitor className="h-5 w-5" />}
+        />
+        <StatCard
+          label="Installed"
+          value={installed}
+          subtitle={`${installedPct.toFixed(1)}% deployed`}
+          icon={<MonitorCheck className="h-5 w-5" />}
         />
         <StatCard
           label="Working"
@@ -262,8 +272,8 @@ export default function DashboardPage() {
               data={statusDistData.length > 0 ? statusDistData : [{ name: "No Data", value: 1, color: "#94a3b8" }]}
               centerValue={total}
               centerLabel="Total"
-              size={140}
-              showLegend={false}
+              size={120}
+              showLegend={true}
             />
             <Link
               href="/analytics"
