@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Eye, HardDrive, ImagePlus, Pencil, Plus, Trash2, X, Download, MapPin, Clock, Shield, Wrench, FileText, ChevronRight, Calendar, DollarSign, Package, Zap, Monitor, Sun } from "lucide-react";
+import { ArrowLeft, Eye, HardDrive, ImagePlus, Pencil, Plus, Printer, QrCode, Trash2, X, Download, MapPin, Clock, Shield, Wrench, FileText, ChevronRight, Calendar, DollarSign, Package, Zap, Monitor, Sun } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
@@ -149,6 +149,8 @@ export default function AssetsPage() {
   const [detailView, setDetailView] = useState<DeviceDetail | null>(null);
   const [detailTab, setDetailTab] = useState("overview");
   const [saving, setSaving] = useState(false);
+  const [labelModal, setLabelModal] = useState<{ url: string; format: "qr" | "code128" } | null>(null);
+  const [labelLoading, setLabelLoading] = useState(false);
 
   const [warranties, setWarranties] = useState<WarrantyItem[]>([]);
   const [maintSchedules, setMaintSchedules] = useState<MaintenanceItem[]>([]);
@@ -258,6 +260,27 @@ export default function AssetsPage() {
   }
 
   function closeModal() { setModalMode(null); setSelected(null); setImageFiles([]); setImagePreviews([]); }
+
+  async function generateLabel(deviceId: string, format: "qr" | "code128") {
+    setLabelLoading(true);
+    try {
+      const { data } = await api.post(`/assets/devices/${deviceId}/label/`, { format });
+      setLabelModal({ url: data.generated_file, format });
+    } catch (err) {
+      toast.error(getApiError(err, "Failed to generate label"));
+    } finally {
+      setLabelLoading(false);
+    }
+  }
+
+  function printLabel(url: string, code: string) {
+    const w = window.open("", "_blank", "width=420,height=540");
+    if (!w) { toast.error("Allow pop-ups to print labels"); return; }
+    w.document.write(
+      `<!doctype html><html><head><title>${code} label</title></head><body style="margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="${url}" style="width:60mm" onload="setTimeout(function(){window.print();window.close()},250)" /></body></html>`
+    );
+    w.document.close();
+  }
 
   function handleImageSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
@@ -377,6 +400,11 @@ export default function AssetsPage() {
             Back to Assets
           </button>
           <div className="ml-auto flex gap-2">
+            {canEdit && (
+              <button onClick={() => generateLabel(d.id, "qr")} disabled={labelLoading} className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-60">
+                <QrCode className="h-4 w-4" /> {labelLoading ? "Generating…" : "QR Label"}
+              </button>
+            )}
             {canEdit && (
               <button onClick={() => openEdit(d)} className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-secondary hover:text-foreground">
                 <Pencil className="h-4 w-4" /> Edit Asset
@@ -734,6 +762,45 @@ export default function AssetsPage() {
             )}
           </div>
         </div>
+
+        {/* QR / Barcode label */}
+        <Modal open={!!labelModal} onClose={() => setLabelModal(null)} title={`Asset Label — ${d.asset_code}`}>
+          {labelModal && (
+            <div className="space-y-4">
+              <div className="flex justify-center rounded-lg border border-border bg-white p-6">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={labelModal.url} alt={`${d.asset_code} label`} className="max-h-72" />
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => generateLabel(d.id, "qr")}
+                    disabled={labelLoading}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-semibold ring-1 transition-colors ${labelModal.format === "qr" ? "bg-primary/10 text-primary ring-primary/30" : "text-muted-foreground ring-border hover:bg-secondary"}`}
+                  >
+                    QR Code
+                  </button>
+                  <button
+                    onClick={() => generateLabel(d.id, "code128")}
+                    disabled={labelLoading}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-semibold ring-1 transition-colors ${labelModal.format === "code128" ? "bg-primary/10 text-primary ring-primary/30" : "text-muted-foreground ring-border hover:bg-secondary"}`}
+                  >
+                    Barcode
+                  </button>
+                </div>
+                <button
+                  onClick={() => printLabel(labelModal.url, d.asset_code)}
+                  className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                >
+                  <Printer className="h-4 w-4" /> Print
+                </button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Stick this label on the device — scanning it with the DIGIX Field app opens this asset instantly.
+              </p>
+            </div>
+          )}
+        </Modal>
       </div>
     );
   }
