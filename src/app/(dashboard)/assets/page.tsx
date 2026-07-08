@@ -21,7 +21,10 @@ interface Device {
   serial_number: string;
   device_model: string;
   device_model_name: string;
+  asset_type_name: string | null;
+  display_name: string;
   status: string;
+  warranty_status: string;
   image: string | null;
   current_site: string | null;
   site_name: string | null;
@@ -772,7 +775,9 @@ export default function AssetsPage() {
                   <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Device</th>
                   <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Serial #</th>
                   <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Model</th>
+                  <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Type</th>
                   <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Status</th>
+                  <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Warranty</th>
                   <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Site</th>
                   <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Client</th>
                   <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Actions</th>
@@ -789,7 +794,17 @@ export default function AssetsPage() {
                     </td>
                     <td className="px-5 py-3 text-muted-foreground">{d.serial_number}</td>
                     <td className="px-5 py-3 text-foreground">{d.device_model_name || "—"}</td>
+                    <td className="px-5 py-3 text-muted-foreground">{d.asset_type_name || "—"}</td>
                     <td className="px-5 py-3"><StatusBadge status={d.status} /></td>
+                    <td className="px-5 py-3">
+                      {d.warranty_status === "active" ? (
+                        <span className="inline-flex rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-500 ring-1 ring-emerald-500/20">Under Warranty</span>
+                      ) : d.warranty_status === "expired" ? (
+                        <span className="inline-flex rounded-full bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-500 ring-1 ring-red-500/20">Expired</span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </td>
                     <td className="px-5 py-3 text-muted-foreground">{d.site_name || "—"}</td>
                     <td className="px-5 py-3 text-muted-foreground">{d.client_name || "—"}</td>
                     <td className="px-5 py-3" onClick={(e) => e.stopPropagation()}>
