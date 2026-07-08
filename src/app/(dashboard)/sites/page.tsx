@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
+import { ContactsEditor } from "@/components/ui/contacts-editor";
 import { FilterBar } from "@/components/ui/filter-bar";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
@@ -372,6 +373,10 @@ export default function SitesPage() {
                 <label htmlFor="access_instructions" className={labelClass}>Access Instructions</label>
                 <textarea id="access_instructions" name="access_instructions" rows={2} defaultValue={selected?.access_instructions ?? ""} className={`${inputClass} h-auto py-2`} placeholder="e.g. Security gate code, parking info..." />
               </div>
+
+              {modalMode === "edit" && selected && (
+                <ContactsEditor endpoint="/sites/site-contacts/" parentField="site" parentId={selected.id} label="Site Contacts (POC)" />
+              )}
 
               <div className="flex justify-end gap-3 pt-2">
                 <button type="button" onClick={closeModal} className="inline-flex h-10 items-center rounded-lg border border-border bg-transparent px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">Cancel</button>

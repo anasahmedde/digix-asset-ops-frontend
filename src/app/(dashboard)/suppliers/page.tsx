@@ -4,6 +4,7 @@ import { Pencil, Plus, Trash2, Truck, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { ContactsEditor } from "@/components/ui/contacts-editor";
 import { FilterBar } from "@/components/ui/filter-bar";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
@@ -19,6 +20,7 @@ interface Supplier {
   address: string;
   website: string;
   is_active: boolean;
+  service_categories: string[];
   created_at: string;
 }
 
@@ -32,6 +34,7 @@ export default function SuppliersPage() {
   const { canWrite } = useUser();
   const canEdit = canWrite("suppliers");
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
   const [selected, setSelected] = useState<Supplier | null>(null);
@@ -52,6 +55,7 @@ export default function SuppliersPage() {
 
   useEffect(() => {
     fetchSuppliers();
+    api.get("/suppliers/service-categories/").then((r) => setCategories(r.data.results ?? r.data)).catch(() => {});
   }, [fetchSuppliers]);
 
   function closeModal() {
@@ -71,6 +75,7 @@ export default function SuppliersPage() {
       contact_phone: fd.get("contact_phone"),
       address: fd.get("address"),
       website: fd.get("website"),
+      service_categories: fd.getAll("service_categories"),
     };
     try {
       if (modalMode === "create") {
@@ -243,6 +248,22 @@ export default function SuppliersPage() {
                 <label htmlFor="address" className={labelClass}>Address</label>
                 <textarea id="address" name="address" rows={2} defaultValue={selected?.address ?? ""} className={`${inputClass} h-auto py-2`} />
               </div>
+              {categories.length > 0 && (
+                <div className="space-y-1.5">
+                  <label className={labelClass}>Service Categories</label>
+                  <div className="flex flex-wrap gap-2">
+                    {categories.map((c) => (
+                      <label key={c.id} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1 text-xs text-foreground">
+                        <input type="checkbox" name="service_categories" value={c.id} defaultChecked={selected?.service_categories?.includes(c.id)} className="h-3.5 w-3.5 rounded border-border text-primary" />
+                        {c.name}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {modalMode === "edit" && selected && (
+                <ContactsEditor endpoint="/suppliers/contacts/" parentField="supplier" parentId={selected.id} />
+              )}
               <div className="flex justify-end gap-3 pt-2">
                 <button type="button" onClick={closeModal} className="inline-flex h-10 items-center rounded-lg border border-border bg-transparent px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">Cancel</button>
                 <button type="submit" disabled={saving} className="inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-medium text-white transition-all disabled:opacity-50">
