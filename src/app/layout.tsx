@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import { Toaster } from "sonner";
 
 import { QueryProvider } from "@/lib/query-provider";
+import { ThemeProvider } from "@/lib/theme-context";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -10,7 +11,10 @@ const inter = Inter({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "DIGIX Asset Management",
   description: "Asset Management & Operations Management Platform",
+  icons: { icon: "/favicon.svg" },
 };
+
+const themeScript = `(function(){try{var t=localStorage.getItem("theme");if(t==="dark"||(t==="system"&&window.matchMedia("(prefers-color-scheme:dark)").matches))document.documentElement.classList.add("dark")}catch(e){}})()`;
 
 export default function RootLayout({
   children,
@@ -18,12 +22,17 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+      </head>
       <body className={inter.className}>
-        <QueryProvider>
-          {children}
-          <Toaster position="top-right" richColors />
-        </QueryProvider>
+        <ThemeProvider>
+          <QueryProvider>
+            {children}
+            <Toaster position="top-right" richColors />
+          </QueryProvider>
+        </ThemeProvider>
       </body>
     </html>
   );
