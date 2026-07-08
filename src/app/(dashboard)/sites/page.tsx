@@ -23,6 +23,7 @@ interface Site {
   latitude: number | null;
   longitude: number | null;
   client: string | null;
+  client_name: string | null;
   is_active: boolean;
   device_count: number;
   created_at: string;
@@ -248,6 +249,7 @@ export default function SitesPage() {
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
                   <th className={thClass}>Name</th>
+                  <th className={thClass}>Client</th>
                   <th className={thClass}>City</th>
                   <th className={thClass}>Country</th>
                   <th className={thClass}>Devices</th>
@@ -259,6 +261,7 @@ export default function SitesPage() {
                 {filtered.map((s) => (
                   <tr key={s.id} onClick={() => openEdit(s)} className="border-b border-border/30 cursor-pointer transition-colors hover:bg-secondary/30">
                     <td className={`${tdClass} font-medium text-foreground`}>{s.name}</td>
+                    <td className={`${tdClass} text-muted-foreground`}>{s.client_name || "-"}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{s.city || "-"}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{s.country}</td>
                     <td className={tdClass}>

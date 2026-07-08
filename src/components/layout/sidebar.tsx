@@ -60,6 +60,7 @@ const navigation: NavItem[] = [
   {
     name: "Reports", href: "/analytics", icon: BarChart3, roles: ["super_admin", "ops_manager", "finance"],
     children: [
+      { name: "Reports", href: "/reports", icon: BarChart3 },
       { name: "Analytics", href: "/analytics", icon: BarChart3 },
       { name: "Finance", href: "/finance", icon: CreditCard },
     ],
