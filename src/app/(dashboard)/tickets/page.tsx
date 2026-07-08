@@ -44,6 +44,7 @@ import type { TicketAttachment, TicketComment, TicketStatus } from "@/types";
 
 interface TicketItem {
   id: string;
+  ticket_number: string;
   title: string;
   description: string;
   priority: string;
@@ -353,7 +354,7 @@ function TicketDetailView({
           </button>
           <div className="hidden items-center gap-2 sm:flex">
             <div className="h-4 w-px bg-border" />
-            <span className="text-xs text-muted-foreground">#{ticket.id.slice(0, 8)}</span>
+            <span className="text-xs font-semibold text-foreground">{ticket.ticket_number || `#${ticket.id.slice(0, 8)}`}</span>
             <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ${statusBadge[ticket.status]}`}>
               {statusIcon[ticket.status]} {formatLabel(ticket.status)}
             </span>
@@ -906,7 +907,7 @@ export default function TicketsPage() {
           if (filterValues.category && t.category !== filterValues.category) return false;
           if (search) {
             const q = search.toLowerCase();
-            if (!t.title.toLowerCase().includes(q) && !(t.site_name || "").toLowerCase().includes(q) && !(t.assigned_to_name || "").toLowerCase().includes(q)) return false;
+            if (!t.title.toLowerCase().includes(q) && !(t.ticket_number || "").toLowerCase().includes(q) && !(t.site_name || "").toLowerCase().includes(q) && !(t.assigned_to_name || "").toLowerCase().includes(q)) return false;
           }
           return true;
         });
@@ -924,6 +925,7 @@ export default function TicketsPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border bg-secondary/50">
+                    <th className={thClass}>Ticket #</th>
                     <th className={thClass}>Title</th>
                     <th className={thClass}>Priority</th>
                     <th className={thClass}>Status</th>
@@ -937,6 +939,7 @@ export default function TicketsPage() {
                 <tbody>
                   {filtered.map((t) => (
                     <tr key={t.id} onClick={() => openDetail(t)} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
+                      <td className={`${tdClass} whitespace-nowrap font-medium text-primary`}>{t.ticket_number || `#${t.id.slice(0, 8)}`}</td>
                       <td className={`${tdClass} font-medium text-foreground`}>
                         <div className="flex items-center gap-2">
                           {t.title}

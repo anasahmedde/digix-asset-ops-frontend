@@ -22,6 +22,8 @@ import {
   Package,
   ScrollText,
   Settings,
+  ShieldCheck,
+  ShoppingCart,
   SlidersHorizontal,
   Sun,
   Ticket,
@@ -50,6 +52,7 @@ const navigation: NavItem[] = [
   { name: "Assets", href: "/assets", icon: HardDrive, roles: ["super_admin", "ops_manager", "technician"] },
   { name: "Installation Tracker", href: "/installation-tracker", icon: Layers, roles: ["super_admin", "ops_manager", "technician"] },
   { name: "Maintenance", href: "/maintenance", icon: Wrench, roles: ["super_admin", "ops_manager", "technician"] },
+  { name: "Warranties", href: "/warranties", icon: ShieldCheck, roles: ["super_admin", "ops_manager"] },
   { name: "Projects", href: "/projects", icon: ClipboardList, roles: ["super_admin", "ops_manager"] },
   {
     name: "Sites", href: "/sites", icon: MapPin, roles: ["super_admin", "ops_manager", "technician"],
@@ -57,6 +60,7 @@ const navigation: NavItem[] = [
   { name: "Tickets", href: "/tickets", icon: Ticket, roles: ["super_admin", "ops_manager", "supervisor", "technician"] },
   { name: "Work Orders", href: "/work-orders", icon: ScrollText, roles: ["super_admin", "ops_manager"] },
   { name: "Inventory", href: "/inventory", icon: Package, roles: ["super_admin", "ops_manager", "warehouse"] },
+  { name: "Procurement", href: "/procurement", icon: ShoppingCart, roles: ["super_admin", "ops_manager", "finance"] },
   {
     name: "Reports", href: "/analytics", icon: BarChart3, roles: ["super_admin", "ops_manager", "finance"],
     children: [
