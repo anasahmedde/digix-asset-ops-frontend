@@ -88,18 +88,6 @@ interface MaintenanceStats {
   pending: number;
 }
 
-const STATUS_LEGEND = [
-  { label: "Active", desc: "Screens are working fine", color: "#10b981" },
-  { label: "Installed", desc: "Recently installed screens", color: "#06b6d4" },
-  { label: "In Stock", desc: "Available in warehouse", color: "#6366f1" },
-  { label: "Under Maintenance", desc: "Currently being serviced", color: "#f59e0b" },
-  { label: "Procured", desc: "Purchased, not yet deployed", color: "#8b5cf6" },
-  { label: "Assigned", desc: "Assigned to a client", color: "#3b82f6" },
-  { label: "Decommissioned", desc: "Taken out of service", color: "#ef4444" },
-  { label: "RMA", desc: "Returned for repair/replacement", color: "#f97316" },
-  { label: "In Transit", desc: "Being shipped to location", color: "#ec4899" },
-];
-
 export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [mapDevices, setMapDevices] = useState<MapDevice[]>([]);
@@ -249,25 +237,6 @@ export default function DashboardPage() {
         </div>
 
         <div className="space-y-4">
-          {/* Status Legend */}
-          <div className="rounded-xl border border-border bg-card p-5">
-            <h3 className="text-sm font-semibold text-foreground mb-3">Status Legend</h3>
-            <div className="space-y-2.5">
-              {STATUS_LEGEND.map((item) => (
-                <div key={item.label} className="flex items-start gap-2.5">
-                  <span
-                    className="mt-0.5 h-3 w-3 shrink-0 rounded-full"
-                    style={{ backgroundColor: item.color }}
-                  />
-                  <div>
-                    <p className="text-xs font-medium text-foreground">{item.label}</p>
-                    <p className="text-[10px] text-muted-foreground">{item.desc}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
           {/* Quick Summary */}
           <div className="rounded-xl border border-border bg-card p-5">
             <h3 className="text-sm font-semibold text-foreground mb-3">Quick Summary</h3>
