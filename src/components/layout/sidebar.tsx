@@ -30,6 +30,7 @@ import {
   Truck,
   Users,
   Wrench,
+  Fingerprint,
 } from "lucide-react";
 
 import { useChatUnread } from "@/lib/chat-context";
@@ -71,6 +72,7 @@ const navigation: NavItem[] = [
   },
   { name: "Alerts", href: "/alerts", icon: AlertCircle, roles: ["super_admin", "ops_manager"] },
   { name: "Documents", href: "/documents", icon: FileText, roles: ["super_admin", "ops_manager"] },
+  { name: "Attendance", href: "/attendance", icon: Fingerprint, roles: ["super_admin", "ops_manager", "supervisor"] },
   { name: "Teams", href: "/teams", icon: Users, roles: ["super_admin"] },
   { name: "Vendors", href: "/suppliers", icon: Truck, roles: ["super_admin", "ops_manager"] },
   { name: "Clients", href: "/clients", icon: Building2, roles: ["super_admin", "ops_manager", "client_viewer"] },
