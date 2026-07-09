@@ -290,9 +290,13 @@ function DeviceMarker({ device, issueMode = false }: { device: MapDevice; issueM
               {openTickets > 0 && (
                 <a href={`/tickets?device=${device.id}`} className="dp-link dp-link--warn">
                   <svg viewBox="0 0 20 20" fill="currentColor" className="dp-link-icon"><path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd"/></svg>
-                  View Open Tickets
+                  View Open Tickets ({openTickets})
                 </a>
               )}
+              <a href={`/tickets?create=1&device=${device.id}`} className="dp-link dp-link--primary">
+                <svg viewBox="0 0 20 20" fill="currentColor" className="dp-link-icon"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z" clipRule="evenodd"/></svg>
+                Raise Ticket
+              </a>
               <a href={`/assets?device=${device.id}`} className="dp-link dp-link--primary">
                 <svg viewBox="0 0 20 20" fill="currentColor" className="dp-link-icon"><path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/><path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd"/></svg>
                 View Device

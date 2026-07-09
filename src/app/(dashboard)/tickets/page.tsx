@@ -185,7 +185,7 @@ const commentTypeConfig: Record<string, { icon: React.ReactNode; color: string; 
   rejection: { icon: <ShieldX className="h-3.5 w-3.5" />, color: "text-red-500", bg: "bg-red-500/10" },
 };
 
-function ActivityItem({ comment }: { comment: TicketComment }) {
+function ActivityItem({ comment, onImageClick }: { comment: TicketComment; onImageClick?: (src: string) => void }) {
   const cfg = commentTypeConfig[comment.comment_type] || commentTypeConfig.comment;
   return (
     <div className="flex gap-3">
@@ -213,7 +213,16 @@ function ActivityItem({ comment }: { comment: TicketComment }) {
             <span className="rounded-md bg-red-500/10 px-2 py-0.5 text-[11px] font-medium text-red-500">Rejected</span>
           )}
         </div>
-        <p className="mt-1 text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">{comment.content}</p>
+        {comment.content ? <p className="mt-1 text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">{comment.content}</p> : null}
+        {comment.image && (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            src={comment.image}
+            alt="Comment attachment"
+            className="mt-2 max-h-48 cursor-zoom-in rounded-lg border border-border object-cover"
+            onClick={() => onImageClick?.(comment.image!)}
+          />
+        )}
         <p className="mt-1.5 text-[11px] text-muted-foreground/60">{formatDateTime(comment.created_at)}</p>
       </div>
     </div>
@@ -256,6 +265,8 @@ function TicketDetailView({
   const [completionPreviews, setCompletionPreviews] = useState<string[]>([]);
   const [reviewComments, setReviewComments] = useState("");
   const [newComment, setNewComment] = useState("");
+  const [commentImage, setCommentImage] = useState<File | null>(null);
+  const commentFileRef = useRef<HTMLInputElement>(null);
   const [commentLoading, setCommentLoading] = useState(false);
   const [lightboxImg, setLightboxImg] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -271,7 +282,7 @@ function TicketDetailView({
   const isOverdue = ticket.due_date && new Date(ticket.due_date) < new Date() && !isClosed;
 
   const completionAttachments = ticket.attachments?.filter((a) => a.attachment_type === "completion") || [];
-  const generalAttachments = ticket.attachments?.filter((a) => a.attachment_type === "general") || [];
+  const generalAttachments = ticket.attachments?.filter((a) => a.attachment_type === "general" || a.attachment_type === "fault") || [];
 
   async function refreshTicket() {
     try {
@@ -389,11 +400,19 @@ function TicketDetailView({
   }
 
   async function handleAddComment() {
-    if (!newComment.trim()) return;
+    if (!newComment.trim() && !commentImage) return;
     setCommentLoading(true);
     try {
-      await api.post(`/tickets/${ticket.id}/comments/`, { content: newComment });
+      if (commentImage) {
+        const fd = new FormData();
+        fd.append("content", newComment);
+        fd.append("image", commentImage);
+        await api.post(`/tickets/${ticket.id}/comments/`, fd, { headers: { "Content-Type": "multipart/form-data" } });
+      } else {
+        await api.post(`/tickets/${ticket.id}/comments/`, { content: newComment });
+      }
       setNewComment("");
+      setCommentImage(null);
       await refreshTicket();
     } catch (err: unknown) {
       toast.error(getApiError(err, "Failed to add comment"));
@@ -601,27 +620,44 @@ function TicketDetailView({
                     </div>
                   </div>
                   {(ticket.comments || []).map((c) => (
-                    <ActivityItem key={c.id} comment={c} />
+                    <ActivityItem key={c.id} comment={c} onImageClick={setLightboxImg} />
                   ))}
                 </div>
 
                 {/* Add comment */}
                 {!["closed"].includes(ticket.status) && (
-                  <div className="mt-4 flex gap-2 border-t border-border pt-4">
-                    <input
-                      value={newComment}
-                      onChange={(e) => setNewComment(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleAddComment(); } }}
-                      placeholder="Write a comment..."
-                      className={inputClass}
-                    />
-                    <button
-                      onClick={handleAddComment}
-                      disabled={commentLoading || !newComment.trim()}
-                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary text-white transition-all disabled:opacity-50"
-                    >
-                      <Send className="h-4 w-4" />
-                    </button>
+                  <div className="mt-4 space-y-2 border-t border-border pt-4">
+                    {commentImage && (
+                      <div className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs">
+                        <ImageIcon className="h-3.5 w-3.5 text-primary" />
+                        <span className="truncate text-primary">{commentImage.name}</span>
+                        <button onClick={() => setCommentImage(null)} className="ml-auto rounded p-0.5 text-primary hover:bg-primary/10"><X className="h-3 w-3" /></button>
+                      </div>
+                    )}
+                    <div className="flex gap-2">
+                      <input
+                        value={newComment}
+                        onChange={(e) => setNewComment(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleAddComment(); } }}
+                        placeholder="Write a comment..."
+                        className={inputClass}
+                      />
+                      <input ref={commentFileRef} type="file" accept="image/*" className="hidden" onChange={(e) => setCommentImage(e.target.files?.[0] ?? null)} />
+                      <button
+                        onClick={() => commentFileRef.current?.click()}
+                        title="Attach photo"
+                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
+                      >
+                        <Plus className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={handleAddComment}
+                        disabled={commentLoading || (!newComment.trim() && !commentImage)}
+                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary text-white transition-all disabled:opacity-50"
+                      >
+                        <Send className="h-4 w-4" />
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -1003,6 +1039,8 @@ export default function TicketsPage() {
     site_name?: string | null; current_site?: string | null; warranty_status?: string | null;
   } | null>(null);
   const [faultFiles, setFaultFiles] = useState<File[]>([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState("");
+  const [deviceFilter, setDeviceFilter] = useState("");
 
   const fetchTickets = useCallback(async () => {
     try {
@@ -1018,6 +1056,14 @@ export default function TicketsPage() {
   useEffect(() => { fetchTickets(); }, [fetchTickets]);
 
   useEffect(() => {
+    const createParam = searchParams.get("create");
+    const deviceParam = searchParams.get("device");
+    if (createParam) {
+      openCreate(deviceParam ?? undefined);
+      router.replace("/tickets", { scroll: false });
+      return;
+    }
+    if (deviceParam) setDeviceFilter(deviceParam);
     const openId = searchParams.get("open");
     if (openId && tickets.length > 0) {
       const found = tickets.find((t) => t.id === openId);
@@ -1050,7 +1096,12 @@ export default function TicketsPage() {
     } catch { setDeviceInfo(null); }
   }
 
-  function openCreate() { setSelected(null); setDeviceInfo(null); setFaultFiles([]); setModalMode("create"); loadFormOptions(); }
+  function openCreate(presetDeviceId?: string) {
+    setSelected(null); setDeviceInfo(null); setFaultFiles([]);
+    setSelectedDeviceId(presetDeviceId ?? "");
+    if (presetDeviceId) onDeviceSelect(presetDeviceId);
+    setModalMode("create"); loadFormOptions();
+  }
   function openEdit(t: TicketItem) { setSelected(t); setDeviceInfo(null); setFaultFiles([]); setModalMode("edit"); loadFormOptions(); }
   function openDetail(t: TicketItem) {
     api.get(`/tickets/${t.id}/`).then(({ data }) => setDetailTicket(data)).catch(() => setDetailTicket(t));
@@ -1128,12 +1179,22 @@ export default function TicketsPage() {
           </div>
         </div>
         {canEdit && (
-          <button onClick={openCreate} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-all">
+          <button onClick={() => openCreate()} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-all">
             <Plus className="h-4 w-4" /> Add Ticket
           </button>
         )}
       </div>
 
+      {deviceFilter && (
+        <div className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs">
+          <span className="font-medium text-primary">
+            Showing tickets for asset {tickets.find((t) => t.device === deviceFilter)?.device_code || "selected asset"}
+          </span>
+          <button onClick={() => setDeviceFilter("")} className="ml-auto rounded p-0.5 text-primary hover:bg-primary/10" title="Clear filter">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
       <FilterBar
         filters={[
           { key: "status", label: "Status", options: Object.keys(statusBadge).map((s) => ({ value: s, label: formatLabel(s) })) },
@@ -1149,6 +1210,7 @@ export default function TicketsPage() {
 
       {(() => {
         const filtered = tickets.filter((t) => {
+          if (deviceFilter && t.device !== deviceFilter) return false;
           if (filterValues.status && t.status !== filterValues.status) return false;
           if (filterValues.priority && t.priority !== filterValues.priority) return false;
           if (filterValues.category && t.category !== filterValues.category) return false;
@@ -1241,7 +1303,7 @@ export default function TicketsPage() {
               {modalMode === "create" && (
                 <div className="space-y-1.5">
                   <label htmlFor="device" className={labelClass}>Asset</label>
-                  <select id="device" name="device" className={inputClass} onChange={(e) => onDeviceSelect(e.target.value)}>
+                  <select id="device" name="device" value={selectedDeviceId} className={inputClass} onChange={(e) => { setSelectedDeviceId(e.target.value); onDeviceSelect(e.target.value); }}>
                     <option value="">Select asset (optional)</option>
                     {deviceOptions.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
                   </select>

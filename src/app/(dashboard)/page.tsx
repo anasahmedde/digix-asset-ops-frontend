@@ -18,7 +18,6 @@ import { AssignedTicketsBanner } from "@/components/ui/assigned-tickets-banner";
 import { StatCard } from "@/components/ui/stat-card";
 import { DonutChart } from "@/components/charts/donut-chart";
 import { BarChart } from "@/components/charts/bar-chart";
-import { GaugeChart } from "@/components/charts/gauge-chart";
 
 const StatusMap = dynamic(() => import("@/components/map/status-map"), {
   ssr: false,
@@ -177,43 +176,24 @@ export default function DashboardPage() {
 
       {/* Top stat cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-        <StatCard
-          label="Total Screens"
-          value={total}
-          subtitle="All Over Pakistan"
-          icon={<Monitor className="h-5 w-5" />}
-        />
-        <StatCard
-          label="Installed"
-          value={installed}
-          subtitle={`${installedPct.toFixed(1)}% deployed`}
-          icon={<MonitorCheck className="h-5 w-5" />}
-        />
-        <StatCard
-          label="Working"
-          value={working}
-          subtitle={`${workingPct.toFixed(1)}%`}
-          icon={<CheckCircle className="h-5 w-5" />}
-        />
-        <StatCard
-          label="Out of Order"
-          value={outOfOrder}
-          subtitle={`${outPct.toFixed(1)}%`}
-          icon={<XCircle className="h-5 w-5" />}
-        />
-        <StatCard
-          label="Under Maintenance"
-          value={underMaint}
-          subtitle={`${maintPct.toFixed(1)}%`}
-          icon={<Wrench className="h-5 w-5" />}
-        />
-        <StatCard
-          label="In Stock"
-          value={inStock}
-          subtitle={`${inStockPct.toFixed(1)}%`}
-          variant="highlighted"
-          icon={<Clock className="h-5 w-5" />}
-        />
+        <Link href="/assets" className="block">
+          <StatCard label="Total Screens" value={total} subtitle="All Over Pakistan" icon={<Monitor className="h-5 w-5" />} />
+        </Link>
+        <Link href="/assets?status=installed" className="block">
+          <StatCard label="Installed" value={installed} subtitle={`${installedPct.toFixed(1)}% deployed`} icon={<MonitorCheck className="h-5 w-5" />} />
+        </Link>
+        <Link href="/assets?status=active" className="block">
+          <StatCard label="Working" value={working} subtitle={`${workingPct.toFixed(1)}%`} icon={<CheckCircle className="h-5 w-5" />} />
+        </Link>
+        <Link href="/assets?status=decommissioned" className="block">
+          <StatCard label="Out of Order" value={outOfOrder} subtitle={`${outPct.toFixed(1)}%`} icon={<XCircle className="h-5 w-5" />} />
+        </Link>
+        <Link href="/maintenance" className="block">
+          <StatCard label="Under Maintenance" value={underMaint} subtitle={`${maintPct.toFixed(1)}%`} icon={<Wrench className="h-5 w-5" />} />
+        </Link>
+        <Link href="/assets?status=in_stock" className="block">
+          <StatCard label="In Stock" value={inStock} subtitle={`${inStockPct.toFixed(1)}%`} variant="highlighted" icon={<Clock className="h-5 w-5" />} />
+        </Link>
       </div>
 
       {/* Map + Legend + Quick Summary + Alerts */}
@@ -328,65 +308,6 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Bottom row: Status Distribution, Top Cities, Maintenance Overview, Asset Health */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-xl border border-border bg-card p-5">
-          <h3 className="text-sm font-semibold text-foreground mb-4">Status Distribution</h3>
-          <DonutChart
-            data={statusDistData.length > 0 ? statusDistData : [{ name: "No Data", value: 1, color: "#94a3b8" }]}
-            size={120}
-            showLegend={true}
-          />
-        </div>
-
-        <div className="rounded-xl border border-border bg-card p-5">
-          <h3 className="text-sm font-semibold text-foreground mb-4">Top Cities by Screens</h3>
-          {cityData.length > 0 ? (
-            <BarChart data={cityData} height={160} />
-          ) : (
-            <p className="text-xs text-muted-foreground">No city data available</p>
-          )}
-        </div>
-
-        <div className="rounded-xl border border-border bg-card p-5">
-          <h3 className="text-sm font-semibold text-foreground mb-4">Maintenance Overview</h3>
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Wrench className="h-4 w-4 text-muted-foreground" />
-                <span className="text-xs text-muted-foreground">Total Maintenance</span>
-              </div>
-              <span className="text-lg font-bold text-foreground">{maintenance.total}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <CheckCircle className="h-4 w-4 text-emerald-500" />
-                <span className="text-xs text-muted-foreground">Completed</span>
-              </div>
-              <span className="text-lg font-bold text-foreground">{maintenance.completed}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Clock className="h-4 w-4 text-amber-500" />
-                <span className="text-xs text-muted-foreground">In Progress</span>
-              </div>
-              <span className="text-lg font-bold text-foreground">{maintenance.in_progress}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <AlertCircle className="h-4 w-4 text-muted-foreground" />
-                <span className="text-xs text-muted-foreground">Pending</span>
-              </div>
-              <span className="text-lg font-bold text-foreground">{maintenance.pending}</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-border bg-card p-5 flex flex-col items-center justify-center">
-          <h3 className="text-sm font-semibold text-foreground mb-4">Asset Health</h3>
-          <GaugeChart value={assetHealth} />
-        </div>
-      </div>
     </div>
   );
 }
