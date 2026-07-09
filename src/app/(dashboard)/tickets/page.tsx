@@ -45,6 +45,15 @@ import type { TicketAttachment, TicketComment, TicketStatus } from "@/types";
 interface TicketItem {
   id: string;
   ticket_number: string;
+  occurrence: number;
+  issue_type: string | null;
+  issue_type_name: string | null;
+  assigned_vendor: string | null;
+  assigned_vendor_name: string | null;
+  parts_used: string;
+  response_due_at: string | null;
+  escalated: boolean;
+  is_response_overdue: boolean;
   title: string;
   description: string;
   priority: string;
@@ -103,6 +112,9 @@ const statusBadge: Record<string, string> = {
   in_progress: "bg-amber-500/10 text-amber-400 ring-amber-500/20",
   on_hold: "bg-gray-500/10 text-gray-400 ring-gray-500/20",
   blocked: "bg-red-500/10 text-red-400 ring-red-500/20",
+  alignment_pending: "bg-cyan-500/10 text-cyan-400 ring-cyan-500/20",
+  pending_ops_approval: "bg-orange-500/10 text-orange-400 ring-orange-500/20",
+  pending_client_approval: "bg-violet-500/10 text-violet-400 ring-violet-500/20",
   pending_review: "bg-purple-500/10 text-purple-400 ring-purple-500/20",
   approved: "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20",
   rejected: "bg-rose-500/10 text-rose-400 ring-rose-500/20",
@@ -114,6 +126,9 @@ const statusIcon: Record<string, React.ReactNode> = {
   in_progress: <Play className="h-3.5 w-3.5" />,
   on_hold: <Pause className="h-3.5 w-3.5" />,
   blocked: <AlertTriangle className="h-3.5 w-3.5" />,
+  alignment_pending: <Clock className="h-3.5 w-3.5" />,
+  pending_ops_approval: <ShieldCheck className="h-3.5 w-3.5" />,
+  pending_client_approval: <User className="h-3.5 w-3.5" />,
   pending_review: <Clock className="h-3.5 w-3.5" />,
   approved: <CheckCircle2 className="h-3.5 w-3.5" />,
   rejected: <XCircle className="h-3.5 w-3.5" />,
@@ -229,6 +244,14 @@ function TicketDetailView({
   const [activeAction, setActiveAction] = useState<string | null>(null);
   const [transitionNotes, setTransitionNotes] = useState("");
   const [completionNotes, setCompletionNotes] = useState("");
+  const [partsUsed, setPartsUsed] = useState("");
+  const [assignUsers, setAssignUsers] = useState<{ id: string; label: string }[]>([]);
+  const [assignVendors, setAssignVendors] = useState<{ id: string; name: string }[]>([]);
+  const [assignUser, setAssignUser] = useState("");
+  const [assignVendor, setAssignVendor] = useState("");
+  const [visitFiles, setVisitFiles] = useState<File[]>([]);
+  const [visitCaption, setVisitCaption] = useState("");
+  const [visitUploading, setVisitUploading] = useState(false);
   const [completionImages, setCompletionImages] = useState<File[]>([]);
   const [completionPreviews, setCompletionPreviews] = useState<string[]>([]);
   const [reviewComments, setReviewComments] = useState("");
@@ -240,7 +263,10 @@ function TicketDetailView({
   const isAssignee = ticket.assigned_to === currentUserId;
   const isReporter = ticket.reported_by === currentUserId;
   const isAdmin = currentUserRole === "super_admin" || currentUserRole === "ops_manager";
+  const isMarketing = currentUserRole === "marketing";
   const canReview = isReporter || isAdmin;
+  // Managers can drive the work stages too (matches backend rules).
+  const canAct = isAssignee || isAdmin;
   const isClosed = ["approved", "closed"].includes(ticket.status);
   const isOverdue = ticket.due_date && new Date(ticket.due_date) < new Date() && !isClosed;
 
@@ -252,6 +278,56 @@ function TicketDetailView({
       const { data } = await api.get(`/tickets/${ticket.id}/`);
       setTicket(data);
     } catch { /* keep current */ }
+  }
+
+  async function openAssignPanel() {
+    setActiveAction("assign");
+    try {
+      const [u, v] = await Promise.all([
+        api.get("/accounts/users/", { params: { is_active: true, page_size: 200 } }),
+        api.get("/suppliers/", { params: { page_size: 200 } }),
+      ]);
+      setAssignUsers((u.data.results ?? u.data).map((x: { id: string; first_name: string; last_name: string; username: string }) => ({
+        id: x.id, label: `${x.first_name} ${x.last_name}`.trim() || x.username,
+      })));
+      setAssignVendors(v.data.results ?? v.data);
+      setAssignUser(ticket.assigned_to ?? "");
+      setAssignVendor(ticket.assigned_vendor ?? "");
+    } catch { toast.error("Could not load assignees"); }
+  }
+
+  async function handleAssign() {
+    setActionLoading(true);
+    try {
+      const { data } = await api.post(`/tickets/${ticket.id}/assign/`, {
+        assigned_to: assignUser || null,
+        assigned_vendor: assignVendor || null,
+      });
+      setTicket(data);
+      setActiveAction(null);
+      onRefresh();
+      toast.success("Ticket assigned");
+    } catch (err: unknown) { toast.error(getApiError(err, "Assignment failed")); }
+    finally { setActionLoading(false); }
+  }
+
+  async function handleVisitUpload() {
+    if (visitFiles.length === 0) return;
+    setVisitUploading(true);
+    try {
+      for (const file of visitFiles) {
+        const fd = new FormData();
+        fd.append("file", file);
+        fd.append("attachment_type", "general");
+        fd.append("caption", visitCaption || "Site visit photo");
+        await api.post(`/tickets/${ticket.id}/attachments/`, fd, { headers: { "Content-Type": "multipart/form-data" } });
+      }
+      setVisitFiles([]);
+      setVisitCaption("");
+      await refreshTicket();
+      toast.success("Photos attached");
+    } catch (err: unknown) { toast.error(getApiError(err, "Upload failed")); }
+    finally { setVisitUploading(false); }
   }
 
   async function handleTransition(targetStatus: string, notes: string = "") {
@@ -276,6 +352,7 @@ function TicketDetailView({
     try {
       const formData = new FormData();
       formData.append("completion_notes", completionNotes);
+      formData.append("parts_used", partsUsed);
       completionImages.forEach((img) => formData.append("images", img));
       const { data } = await api.post(`/tickets/${ticket.id}/submit-completion/`, formData, {
         headers: { "Content-Type": "multipart/form-data" },
@@ -355,9 +432,22 @@ function TicketDetailView({
           <div className="hidden items-center gap-2 sm:flex">
             <div className="h-4 w-px bg-border" />
             <span className="text-xs font-semibold text-foreground">{ticket.ticket_number || `#${ticket.id.slice(0, 8)}`}</span>
-            <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ${statusBadge[ticket.status]}`}>
+            {ticket.device_code && ticket.occurrence > 0 && (
+              <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-muted-foreground" title={`Ticket #${ticket.occurrence} raised against ${ticket.device_code}`}>
+                #{ticket.occurrence} for {ticket.device_code}
+              </span>
+            )}
+            <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ${statusBadge[ticket.status] ?? statusBadge.open}`}>
               {statusIcon[ticket.status]} {formatLabel(ticket.status)}
             </span>
+            {ticket.issue_type_name && (
+              <span className="rounded-full bg-rose-500/10 px-2 py-0.5 text-[10px] font-medium text-rose-500 ring-1 ring-rose-500/20">{ticket.issue_type_name}</span>
+            )}
+            {(ticket.escalated || ticket.is_response_overdue) && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-0.5 text-[10px] font-semibold text-red-500 ring-1 ring-red-500/20">
+                <AlertTriangle className="h-3 w-3" /> {ticket.escalated ? "Escalated" : "Response Overdue"}
+              </span>
+            )}
             <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ${priorityBadge[ticket.priority]}`}>
               {formatLabel(ticket.priority)}
             </span>
@@ -606,6 +696,26 @@ function TicketDetailView({
                       {isOverdue && <AlertCircle className="ml-1 inline h-3 w-3" />}
                     </span>
                   </div>
+                  {ticket.response_due_at && (
+                    <>
+                      <div className="h-px bg-border" />
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-muted-foreground">Respond By</span>
+                        <span className={`text-xs font-medium ${ticket.is_response_overdue || ticket.escalated ? "text-red-500" : "text-foreground"}`}>
+                          {new Date(ticket.response_due_at).toLocaleString()}
+                        </span>
+                      </div>
+                    </>
+                  )}
+                  {ticket.assigned_vendor_name && (
+                    <>
+                      <div className="h-px bg-border" />
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-muted-foreground">Vendor</span>
+                        <span className="text-xs font-medium text-foreground">{ticket.assigned_vendor_name}</span>
+                      </div>
+                    </>
+                  )}
                   <div className="h-px bg-border" />
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-muted-foreground">Created</span>
@@ -653,6 +763,7 @@ function TicketDetailView({
                     <p className="text-xs font-semibold text-purple-500">Submit for Review</p>
                     <p className="text-[11px] text-muted-foreground">Describe work done &amp; upload evidence. This goes to your supervisor.</p>
                     <textarea value={completionNotes} onChange={(e) => setCompletionNotes(e.target.value)} placeholder="What was completed? (required)" rows={3} className={`${inputClass} h-auto py-2 text-xs`} />
+                    <textarea value={partsUsed} onChange={(e) => setPartsUsed(e.target.value)} placeholder="Parts used (e.g. 1x P6 module, 2x ribbon cables)" rows={2} className={`${inputClass} h-auto py-2 text-xs`} />
                     <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleImageSelect} />
                     <button type="button" onClick={() => fileInputRef.current?.click()} className="flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border bg-secondary/20 px-3 py-2.5 text-xs text-muted-foreground hover:border-primary/40 hover:bg-primary/5 transition-colors">
                       <Camera className="h-3.5 w-3.5" /> Upload Photos
@@ -685,22 +796,77 @@ function TicketDetailView({
                   </div>
                 )}
 
+                {activeAction === "ops_approval" && (
+                  <div className="mb-4 space-y-3 rounded-lg border border-orange-500/20 bg-orange-500/5 p-3">
+                    <p className="text-xs font-semibold text-orange-500">Request Operations Approval</p>
+                    <textarea value={transitionNotes} onChange={(e) => setTransitionNotes(e.target.value)} placeholder="Issue found, parts/cost needed (required)" rows={2} className={`${inputClass} h-auto py-2 text-xs`} />
+                    <div className="flex gap-2">
+                      <button onClick={() => setActiveAction(null)} className="flex-1 h-8 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-secondary">Cancel</button>
+                      <button onClick={() => handleTransition("pending_ops_approval", transitionNotes)} disabled={actionLoading || !transitionNotes.trim()} className="flex-1 h-8 rounded-lg bg-orange-500 text-xs font-medium text-white disabled:opacity-50">{actionLoading ? "..." : "Request"}</button>
+                    </div>
+                  </div>
+                )}
+                {activeAction === "decline" && (
+                  <div className="mb-4 space-y-3 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
+                    <p className="text-xs font-semibold text-amber-500">Decline — Put On Hold</p>
+                    <textarea value={transitionNotes} onChange={(e) => setTransitionNotes(e.target.value)} placeholder="Reason (required)" rows={2} className={`${inputClass} h-auto py-2 text-xs`} />
+                    <div className="flex gap-2">
+                      <button onClick={() => setActiveAction(null)} className="flex-1 h-8 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-secondary">Cancel</button>
+                      <button onClick={() => handleTransition("on_hold", transitionNotes)} disabled={actionLoading || !transitionNotes.trim()} className="flex-1 h-8 rounded-lg bg-amber-500 text-xs font-medium text-white disabled:opacity-50">{actionLoading ? "..." : "Confirm"}</button>
+                    </div>
+                  </div>
+                )}
+                {activeAction === "assign" && (
+                  <div className="mb-4 space-y-3 rounded-lg border border-primary/20 bg-primary/5 p-3">
+                    <p className="text-xs font-semibold text-primary">Assign Ticket</p>
+                    <div className="space-y-1">
+                      <label className="text-[11px] text-muted-foreground">Employee</label>
+                      <select value={assignUser} onChange={(e) => setAssignUser(e.target.value)} className={`${inputClass} text-xs`}>
+                        <option value="">Unassigned</option>
+                        {assignUsers.map((u) => <option key={u.id} value={u.id}>{u.label}</option>)}
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] text-muted-foreground">Vendor (for in-warranty assets)</label>
+                      <select value={assignVendor} onChange={(e) => setAssignVendor(e.target.value)} className={`${inputClass} text-xs`}>
+                        <option value="">No vendor</option>
+                        {assignVendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                      </select>
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => setActiveAction(null)} className="flex-1 h-8 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-secondary">Cancel</button>
+                      <button onClick={handleAssign} disabled={actionLoading} className="flex-1 h-8 rounded-lg bg-primary text-xs font-medium text-white disabled:opacity-50">{actionLoading ? "..." : "Assign"}</button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Action buttons */}
                 {!activeAction && (
                   <div className="space-y-2">
-                    {isAssignee && ticket.status === "open" && (
+                    {isAdmin && !isClosed && (
+                      <button onClick={openAssignPanel} className="flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-primary/30 bg-primary/5 text-sm font-medium text-primary hover:bg-primary/10">
+                        <User className="h-4 w-4" /> {ticket.assigned_to_name || ticket.assigned_vendor_name ? "Reassign" : "Assign"} Ticket
+                      </button>
+                    )}
+                    {canAct && ticket.status === "open" && (
                       <button onClick={() => handleTransition("in_progress")} disabled={actionLoading} className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-primary text-sm font-medium text-white disabled:opacity-50">
                         <Play className="h-4 w-4" /> {actionLoading ? "..." : "Start Working"}
                       </button>
                     )}
-                    {isAssignee && ticket.status === "in_progress" && (
+                    {canAct && ticket.status === "in_progress" && (
                       <>
                         <button onClick={() => setActiveAction("completion")} className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-purple-500 text-sm font-medium text-white">
                           <CheckCircle2 className="h-4 w-4" /> Submit for Review
                         </button>
-                        <div className="grid grid-cols-2 gap-2">
+                        <button onClick={() => setActiveAction("ops_approval")} className="flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-orange-500/30 bg-orange-500/10 text-xs font-medium text-orange-600">
+                          <ShieldCheck className="h-3.5 w-3.5" /> Request Ops Approval
+                        </button>
+                        <div className="grid grid-cols-3 gap-2">
+                          <button onClick={() => handleTransition("alignment_pending")} disabled={actionLoading} className="flex h-9 items-center justify-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 text-xs font-medium text-cyan-600 disabled:opacity-50">
+                            Alignment
+                          </button>
                           <button onClick={() => setActiveAction("on_hold")} className="flex h-9 items-center justify-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 text-xs font-medium text-amber-600">
-                            <Pause className="h-3.5 w-3.5" /> On Hold
+                            <Pause className="h-3.5 w-3.5" /> Hold
                           </button>
                           <button onClick={() => setActiveAction("blocked")} className="flex h-9 items-center justify-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/10 text-xs font-medium text-red-600">
                             <AlertTriangle className="h-3.5 w-3.5" /> Blocked
@@ -708,10 +874,40 @@ function TicketDetailView({
                         </div>
                       </>
                     )}
-                    {isAssignee && (ticket.status === "on_hold" || ticket.status === "blocked") && (
+                    {canAct && (ticket.status === "on_hold" || ticket.status === "blocked" || ticket.status === "alignment_pending") && (
                       <button onClick={() => handleTransition("in_progress")} disabled={actionLoading} className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-primary text-sm font-medium text-white disabled:opacity-50">
                         <Play className="h-4 w-4" /> {actionLoading ? "..." : "Resume Work"}
                       </button>
+                    )}
+                    {(isAdmin || isMarketing) && ticket.status === "on_hold" && (
+                      <button onClick={() => handleTransition("closed", "Closed from hold (client declined / no action).")} disabled={actionLoading} className="flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-slate-500/30 bg-slate-500/10 text-xs font-medium text-slate-500 disabled:opacity-50">
+                        <Check className="h-3.5 w-3.5" /> Close Ticket
+                      </button>
+                    )}
+                    {isAdmin && ticket.status === "pending_ops_approval" && (
+                      <>
+                        <button onClick={() => handleTransition("in_progress", "Rectification approved by Operations.")} disabled={actionLoading} className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-emerald-500 text-sm font-medium text-white disabled:opacity-50">
+                          <CheckCircle2 className="h-4 w-4" /> Approve Rectification
+                        </button>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button onClick={() => handleTransition("pending_client_approval", "Client expense approval required — over to Marketing.")} disabled={actionLoading} className="flex h-9 items-center justify-center gap-1.5 rounded-lg border border-violet-500/30 bg-violet-500/10 text-xs font-medium text-violet-600 disabled:opacity-50">
+                            Needs Client Approval
+                          </button>
+                          <button onClick={() => setActiveAction("decline")} className="flex h-9 items-center justify-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 text-xs font-medium text-amber-600">
+                            Decline
+                          </button>
+                        </div>
+                      </>
+                    )}
+                    {(isMarketing || isAdmin) && ticket.status === "pending_client_approval" && (
+                      <>
+                        <button onClick={() => handleTransition("in_progress", "Client approved the expense — proceed with rectification.")} disabled={actionLoading} className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-emerald-500 text-sm font-medium text-white disabled:opacity-50">
+                          <CheckCircle2 className="h-4 w-4" /> Client Approved
+                        </button>
+                        <button onClick={() => setActiveAction("decline")} className="flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 text-xs font-medium text-amber-600">
+                          Client Declined
+                        </button>
+                      </>
                     )}
                     {isAssignee && ticket.status === "rejected" && (
                       <button onClick={() => handleTransition("in_progress")} disabled={actionLoading} className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-primary text-sm font-medium text-white disabled:opacity-50">
@@ -723,10 +919,26 @@ function TicketDetailView({
                         <ShieldCheck className="h-4 w-4" /> Review Submission
                       </button>
                     )}
-                    {isAdmin && ticket.status === "approved" && (
-                      <button onClick={() => handleTransition("closed")} disabled={actionLoading} className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-slate-600 text-sm font-medium text-white disabled:opacity-50">
-                        <Check className="h-4 w-4" /> {actionLoading ? "..." : "Close Ticket"}
+                    {(isAdmin || isMarketing) && ticket.status === "approved" && (
+                      <button onClick={() => handleTransition("closed", "Reviewed and shared with client — closing.")} disabled={actionLoading} className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-slate-600 text-sm font-medium text-white disabled:opacity-50">
+                        <Check className="h-4 w-4" /> {actionLoading ? "..." : "Close Ticket (Client Sign-off)"}
                       </button>
+                    )}
+
+                    {/* Site-visit photos (any stage before closure) */}
+                    {!isClosed && (
+                      <div className="mt-3 space-y-2 rounded-lg border border-border bg-secondary/20 p-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Attach Visit Photos</p>
+                        <input
+                          type="file" accept="image/*" multiple
+                          onChange={(e) => setVisitFiles(Array.from(e.target.files ?? []))}
+                          className="block w-full text-xs text-muted-foreground file:mr-2 file:rounded file:border-0 file:bg-primary/10 file:px-2 file:py-1 file:text-[11px] file:text-primary"
+                        />
+                        <input value={visitCaption} onChange={(e) => setVisitCaption(e.target.value)} placeholder="Describe the issue seen…" className={`${inputClass} h-8 text-xs`} />
+                        <button onClick={handleVisitUpload} disabled={visitUploading || visitFiles.length === 0} className="flex h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-primary/90 text-xs font-medium text-white disabled:opacity-50">
+                          <Camera className="h-3.5 w-3.5" /> {visitUploading ? "Uploading…" : `Attach${visitFiles.length ? ` (${visitFiles.length})` : ""}`}
+                        </button>
+                      </div>
                     )}
 
                     {/* Status messages */}
@@ -783,7 +995,14 @@ export default function TicketsPage() {
   const [saving, setSaving] = useState(false);
   const [filterValues, setFilterValues] = useState<Record<string, string>>({ status: "", priority: "", category: "" });
   const [search, setSearch] = useState("");
-  const [teamMembers, setTeamMembers] = useState<UserOption[]>([]);
+  const [deviceOptions, setDeviceOptions] = useState<{ id: string; label: string }[]>([]);
+  const [issueTypes, setIssueTypes] = useState<{ id: string; name: string }[]>([]);
+  const [deviceInfo, setDeviceInfo] = useState<{
+    asset_code: string; display_name?: string; model_name?: string; device_model_name?: string;
+    installation_date?: string | null; purchase_date?: string | null; supplier_name?: string | null;
+    site_name?: string | null; current_site?: string | null; warranty_status?: string | null;
+  } | null>(null);
+  const [faultFiles, setFaultFiles] = useState<File[]>([]);
 
   const fetchTickets = useCallback(async () => {
     try {
@@ -808,19 +1027,31 @@ export default function TicketsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, tickets]);
 
-  async function loadTeamMembers() {
+  async function loadFormOptions() {
     try {
-      const { data } = await api.get("/accounts/users/", { params: { is_active: true, page_size: 200 } });
-      const users = data.results ?? data;
-      setTeamMembers(users.map((u: { id: string; first_name: string; last_name: string; username: string }) => ({
-        id: u.id,
-        label: u.first_name || u.last_name ? `${u.first_name} ${u.last_name}`.trim() : u.username,
+      const [dev, it] = await Promise.all([
+        api.get("/assets/devices/", { params: { page_size: 500, ordering: "asset_code" } }),
+        api.get("/tickets/issue-types/", { params: { is_active: true, page_size: 100 } }),
+      ]);
+      const devices = dev.data.results ?? dev.data;
+      setDeviceOptions(devices.map((d: { id: string; asset_code: string; device_model_name?: string; serial_number?: string }) => ({
+        id: d.id,
+        label: `${d.asset_code}${d.device_model_name ? ` — ${d.device_model_name}` : ""}`,
       })));
+      setIssueTypes(it.data.results ?? it.data);
     } catch { /* silently fail */ }
   }
 
-  function openCreate() { setSelected(null); setModalMode("create"); loadTeamMembers(); }
-  function openEdit(t: TicketItem) { setSelected(t); setModalMode("edit"); loadTeamMembers(); }
+  async function onDeviceSelect(deviceId: string) {
+    if (!deviceId) { setDeviceInfo(null); return; }
+    try {
+      const { data } = await api.get(`/assets/devices/${deviceId}/`);
+      setDeviceInfo(data);
+    } catch { setDeviceInfo(null); }
+  }
+
+  function openCreate() { setSelected(null); setDeviceInfo(null); setFaultFiles([]); setModalMode("create"); loadFormOptions(); }
+  function openEdit(t: TicketItem) { setSelected(t); setDeviceInfo(null); setFaultFiles([]); setModalMode("edit"); loadFormOptions(); }
   function openDetail(t: TicketItem) {
     api.get(`/tickets/${t.id}/`).then(({ data }) => setDetailTicket(data)).catch(() => setDetailTicket(t));
     router.replace(`/tickets?open=${t.id}`, { scroll: false });
@@ -834,12 +1065,28 @@ export default function TicketsPage() {
     const fd = new FormData(e.currentTarget);
     const payload: Record<string, unknown> = {
       title: fd.get("title"), description: fd.get("description"), priority: fd.get("priority"),
-      status: fd.get("status"), category: fd.get("category"),
-      assigned_to: fd.get("assigned_to") || null, due_date: fd.get("due_date") || null,
+      category: fd.get("category"), issue_type: fd.get("issue_type") || null,
+      due_date: fd.get("due_date") || null,
     };
+    if (modalMode === "create") {
+      payload.device = fd.get("device") || null;
+      payload.site = deviceInfo?.current_site || null;
+    }
     try {
-      if (modalMode === "create") { await api.post("/tickets/", payload); toast.success("Ticket created"); }
-      else if (selected) { await api.patch(`/tickets/${selected.id}/`, payload); toast.success("Ticket updated"); }
+      if (modalMode === "create") {
+        const { data } = await api.post("/tickets/", payload);
+        for (const file of faultFiles) {
+          const ffd = new FormData();
+          ffd.append("file", file);
+          ffd.append("attachment_type", "fault");
+          ffd.append("caption", "Fault evidence (at creation)");
+          await api.post(`/tickets/${data.id}/attachments/`, ffd, { headers: { "Content-Type": "multipart/form-data" } });
+        }
+        toast.success(`Ticket ${data.ticket_number || "created"} raised`);
+      } else if (selected) {
+        await api.patch(`/tickets/${selected.id}/`, payload);
+        toast.success("Ticket updated");
+      }
       closeModal(); closeDetail(); fetchTickets();
     } catch (err: unknown) { toast.error(getApiError(err, "Failed to save ticket")); }
     finally { setSaving(false); }
@@ -991,18 +1238,47 @@ export default function TicketsPage() {
                 <label htmlFor="description" className={labelClass}>Description</label>
                 <textarea id="description" name="description" rows={3} defaultValue={selected?.description ?? ""} className={`${inputClass} h-auto py-2`} placeholder="Detailed description of the issue" />
               </div>
+              {modalMode === "create" && (
+                <div className="space-y-1.5">
+                  <label htmlFor="device" className={labelClass}>Asset</label>
+                  <select id="device" name="device" className={inputClass} onChange={(e) => onDeviceSelect(e.target.value)}>
+                    <option value="">Select asset (optional)</option>
+                    {deviceOptions.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
+                  </select>
+                  {deviceInfo && (
+                    <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 rounded-lg border border-primary/20 bg-primary/5 p-3 text-xs">
+                      <span className="text-muted-foreground">Asset Name</span>
+                      <span className="font-medium text-foreground">{deviceInfo.display_name || deviceInfo.device_model_name || deviceInfo.asset_code}</span>
+                      <span className="text-muted-foreground">Installed On</span>
+                      <span className="font-medium text-foreground">{deviceInfo.installation_date || "—"}</span>
+                      <span className="text-muted-foreground">Procured From</span>
+                      <span className="font-medium text-foreground">{deviceInfo.supplier_name || "—"}</span>
+                      <span className="text-muted-foreground">Location</span>
+                      <span className="font-medium text-foreground">{deviceInfo.site_name || "In warehouse"}</span>
+                      {deviceInfo.warranty_status && (
+                        <>
+                          <span className="text-muted-foreground">Warranty</span>
+                          <span className={`font-medium ${deviceInfo.warranty_status === "active" ? "text-emerald-500" : "text-muted-foreground"}`}>
+                            {deviceInfo.warranty_status === "active" ? "Under warranty" : formatLabel(deviceInfo.warranty_status)}
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+              <div className="space-y-1.5">
+                <label htmlFor="issue_type" className={labelClass}>Issue Type</label>
+                <select id="issue_type" name="issue_type" defaultValue={selected?.issue_type ?? ""} className={inputClass}>
+                  <option value="">Select issue…</option>
+                  {issueTypes.map((it) => <option key={it.id} value={it.id}>{it.name}</option>)}
+                </select>
+              </div>
               <div className="grid gap-4 sm:grid-cols-3">
                 <div className="space-y-1.5">
                   <label htmlFor="priority" className={labelClass}>Priority</label>
                   <select id="priority" name="priority" defaultValue={selected?.priority ?? "medium"} className={inputClass}>
                     <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option>
-                  </select>
-                </div>
-                <div className="space-y-1.5">
-                  <label htmlFor="status" className={labelClass}>Status</label>
-                  <select id="status" name="status" defaultValue={selected?.status ?? "open"} className={inputClass}>
-                    <option value="open">Open</option><option value="in_progress">In Progress</option><option value="on_hold">On Hold</option><option value="blocked">Blocked</option>
-                    <option value="pending_review">Pending Review</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="closed">Closed</option>
                   </select>
                 </div>
                 <div className="space-y-1.5">
@@ -1012,20 +1288,25 @@ export default function TicketsPage() {
                     <option value="inspection">Inspection</option><option value="relocation">Relocation</option><option value="other">Other</option>
                   </select>
                 </div>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <label htmlFor="assigned_to" className={labelClass}>Assign To</label>
-                  <select id="assigned_to" name="assigned_to" defaultValue={selected?.assigned_to ?? ""} className={inputClass}>
-                    <option value="">Unassigned</option>
-                    {teamMembers.map((u) => <option key={u.id} value={u.id}>{u.label}</option>)}
-                  </select>
-                </div>
                 <div className="space-y-1.5">
                   <label htmlFor="due_date" className={labelClass}>Due Date</label>
                   <input id="due_date" name="due_date" type="date" defaultValue={selected?.due_date ?? ""} className={inputClass} />
                 </div>
               </div>
+              {modalMode === "create" && (
+                <div className="space-y-1.5">
+                  <label className={labelClass}>Fault Photos</label>
+                  <input
+                    type="file" accept="image/*" multiple
+                    onChange={(e) => setFaultFiles(Array.from(e.target.files ?? []))}
+                    className="block w-full text-xs text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-primary/10 file:px-3 file:py-2 file:text-xs file:font-medium file:text-primary hover:file:bg-primary/20"
+                  />
+                  {faultFiles.length > 0 && <p className="text-[11px] text-muted-foreground">{faultFiles.length} photo(s) will be attached as fault evidence.</p>}
+                </div>
+              )}
+              <p className="text-[11px] text-muted-foreground">
+                Assignment is done by Operations after the ticket is raised.
+              </p>
               <div className="flex justify-end gap-3 pt-2">
                 <button type="button" onClick={closeModal} className="inline-flex h-10 items-center rounded-lg border border-border bg-transparent px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">Cancel</button>
                 <button type="submit" disabled={saving} className="inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-medium text-white transition-all disabled:opacity-50">

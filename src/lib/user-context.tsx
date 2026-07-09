@@ -36,7 +36,7 @@ const WRITE_RULES: Record<string, string[]> = {
   setup: ["super_admin", "ops_manager"],
   devices: ["super_admin", "ops_manager"],
   sites: ["super_admin", "ops_manager"],
-  tickets: ["super_admin", "ops_manager", "supervisor", "technician"],
+  tickets: ["super_admin", "ops_manager", "supervisor", "technician", "marketing"],
   teams: ["super_admin"],
   warranties: ["super_admin", "ops_manager"],
   maintenance: ["super_admin", "ops_manager", "supervisor", "technician"],

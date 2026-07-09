@@ -34,12 +34,18 @@ const MAINT_TYPE_META: Record<string, { color: string; label: string }> = {
 
 const iconCache = new Map<string, L.DivIcon>();
 
-function getDeviceIcon(status: string): L.DivIcon {
-  const key = `device-${status}`;
+function getDeviceIcon(status: string, hasIssues = false): L.DivIcon {
+  const key = `device-${status}${hasIssues ? "-issues" : ""}`;
   if (iconCache.has(key)) return iconCache.get(key)!;
-  const { color, pulse } = STATUS_META[status] ?? { color: "#94a3b8" };
-  const html = `<span class="map-dot${pulse ? " map-dot--pulse" : ""}" style="--dot-color:${color}"></span>`;
-  const icon = L.divIcon({ html, className: "map-dot-wrap", iconSize: [20, 20], iconAnchor: [10, 10], popupAnchor: [0, -12] });
+  const meta = STATUS_META[status] ?? { color: "#94a3b8", pulse: false };
+  const color = hasIssues ? "#ef4444" : meta.color;
+  const pulse = hasIssues || meta.pulse;
+  const html = hasIssues
+    ? `<span class="map-dot map-dot--pulse" style="--dot-color:${color}">
+  <svg class="map-dot-icon" viewBox="0 0 20 20" fill="white"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+</span>`
+    : `<span class="map-dot${pulse ? " map-dot--pulse" : ""}" style="--dot-color:${color}"></span>`;
+  const icon = L.divIcon({ html, className: "map-dot-wrap", iconSize: hasIssues ? [26, 26] : [20, 20], iconAnchor: hasIssues ? [13, 13] : [10, 10], popupAnchor: [0, -12] });
   iconCache.set(key, icon);
   return icon;
 }
@@ -110,6 +116,7 @@ export interface MapDevice {
   id: string;
   asset_code: string;
   status: string;
+  open_tickets?: number;
   current_site__id: string;
   current_site__name: string;
   current_site__city: string;
@@ -256,17 +263,18 @@ function HomeButton({ country }: { country: string }) {
   );
 }
 
-function DeviceMarker({ device }: { device: MapDevice }) {
+function DeviceMarker({ device, issueMode = false }: { device: MapDevice; issueMode?: boolean }) {
   const [flyTarget, setFlyTarget] = useState<{ lat: number; lng: number } | null>(null);
   const lat = parseFloat(device.current_site__latitude);
   const lng = parseFloat(device.current_site__longitude);
   if (isNaN(lat) || isNaN(lng)) return null;
   const meta = STATUS_META[device.status] ?? { color: "#94a3b8", label: device.status };
+  const openTickets = device.open_tickets ?? 0;
 
   return (
     <>
       {flyTarget && <FlyTo lat={flyTarget.lat} lng={flyTarget.lng} />}
-      <Marker position={[lat, lng]} icon={getDeviceIcon(device.status)} eventHandlers={{ click: () => setFlyTarget({ lat, lng }) }}>
+      <Marker position={[lat, lng]} icon={getDeviceIcon(device.status, issueMode)} eventHandlers={{ click: () => setFlyTarget({ lat, lng }) }}>
         <Popup className="device-popup" closeButton={false} autoPan maxWidth={280} minWidth={220}>
           <div className="dp-card">
             <div className="dp-header">
@@ -275,7 +283,16 @@ function DeviceMarker({ device }: { device: MapDevice }) {
             </div>
             <div className="dp-site">{device.current_site__name}</div>
             <div className="dp-city">{device.current_site__city}{device.current_site__state_province ? `, ${device.current_site__state_province}` : ""}</div>
+            {openTickets > 0 && (
+              <div className="dp-meta"><span style={{ color: "#dc2626", fontWeight: 600 }}>⚠ {openTickets} open ticket{openTickets > 1 ? "s" : ""}</span></div>
+            )}
             <div className="dp-actions">
+              {openTickets > 0 && (
+                <a href={`/tickets?device=${device.id}`} className="dp-link dp-link--warn">
+                  <svg viewBox="0 0 20 20" fill="currentColor" className="dp-link-icon"><path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd"/></svg>
+                  View Open Tickets
+                </a>
+              )}
               <a href={`/assets?device=${device.id}`} className="dp-link dp-link--primary">
                 <svg viewBox="0 0 20 20" fill="currentColor" className="dp-link-icon"><path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/><path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd"/></svg>
                 View Device
@@ -335,7 +352,7 @@ function MaintenanceMarker({ site }: { site: MaintenanceSite }) {
   );
 }
 
-type ActiveLayer = "devices" | "maintenance";
+type ActiveLayer = "devices" | "issues" | "maintenance";
 
 export default function StatusMap({ devices, maintenanceSites = [], height = "500px", className }: StatusMapProps) {
   const [activeLayer, setActiveLayer] = useState<ActiveLayer>("devices");
@@ -357,6 +374,11 @@ export default function StatusMap({ devices, maintenanceSites = [], height = "50
   const filteredMaint = useMemo(
     () => maintenanceSites.filter((s) => s.site__country === selectedCountry),
     [maintenanceSites, selectedCountry],
+  );
+
+  const issueDevices = useMemo(
+    () => filteredDevices.filter((d) => (d.open_tickets ?? 0) > 0),
+    [filteredDevices],
   );
 
   return (
@@ -383,6 +405,9 @@ export default function StatusMap({ devices, maintenanceSites = [], height = "50
         {activeLayer === "devices" && filteredDevices.map((device) => (
           <DeviceMarker key={`device-${device.id}`} device={device} />
         ))}
+        {activeLayer === "issues" && issueDevices.map((device) => (
+          <DeviceMarker key={`issue-${device.id}`} device={device} issueMode />
+        ))}
         {activeLayer === "maintenance" && filteredMaint.map((site) => (
           <MaintenanceMarker key={`maint-${site.id}`} site={site} />
         ))}
@@ -405,16 +430,25 @@ export default function StatusMap({ devices, maintenanceSites = [], height = "50
       </div>
 
       {/* Layer toggle — top-right */}
-      {(filteredMaint.length > 0 || maintenanceSites.length > 0) && (
-        <div className="map-layer-toggle">
-          <button
-            onClick={() => setActiveLayer("devices")}
-            className={`map-layer-chip ${activeLayer === "devices" ? "map-layer-chip--active" : ""}`}
-          >
-            <span className="map-layer-dot" style={{ background: "#22c55e" }} />
-            Devices
-            <span className="map-layer-count">{filteredDevices.length}</span>
-          </button>
+      <div className="map-layer-toggle">
+        <button
+          onClick={() => setActiveLayer("devices")}
+          className={`map-layer-chip ${activeLayer === "devices" ? "map-layer-chip--active" : ""}`}
+        >
+          <span className="map-layer-dot" style={{ background: "#22c55e" }} />
+          Devices
+          <span className="map-layer-count">{filteredDevices.length}</span>
+        </button>
+        <button
+          onClick={() => setActiveLayer("issues")}
+          className={`map-layer-chip ${activeLayer === "issues" ? "map-layer-chip--active-warn" : ""}`}
+          title="Assets with open tickets"
+        >
+          <span className="map-layer-dot" style={{ background: "#ef4444" }} />
+          Issues
+          <span className="map-layer-count">{issueDevices.length}</span>
+        </button>
+        {(filteredMaint.length > 0 || maintenanceSites.length > 0) && (
           <button
             onClick={() => setActiveLayer("maintenance")}
             className={`map-layer-chip ${activeLayer === "maintenance" ? "map-layer-chip--active-warn" : ""}`}
@@ -423,8 +457,8 @@ export default function StatusMap({ devices, maintenanceSites = [], height = "50
             Maintenance
             <span className="map-layer-count">{filteredMaint.length}</span>
           </button>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

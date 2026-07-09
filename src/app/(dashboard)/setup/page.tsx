@@ -145,6 +145,25 @@ const SECTIONS: SectionConfig[] = [
     ],
   },
   {
+    key: "issue-types",
+    label: "Ticket Issue Types",
+    endpoint: "/tickets/issue-types/",
+    singular: "Issue Type",
+    labelKey: "name",
+    searchKeys: ["name"],
+    columns: [
+      { key: "name", label: "Issue", className: "font-medium text-foreground" },
+      { key: "sort_order", label: "Order" },
+      { key: "is_active", label: "Status", render: activeCell },
+    ],
+    fields: [
+      { name: "name", label: "Issue Name", required: true, placeholder: "e.g. Module Burnt" },
+      { name: "description", label: "Description", type: "textarea" },
+      { name: "sort_order", label: "Sort Order", type: "number", default: 0 },
+      { name: "is_active", label: "Active", type: "checkbox", default: true },
+    ],
+  },
+  {
     key: "payment-terms",
     label: "Payment Terms",
     endpoint: "/setup/payment-terms/",
