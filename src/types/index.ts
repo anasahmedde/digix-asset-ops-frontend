@@ -256,13 +256,14 @@ export interface TicketAttachment {
   uploaded_by_name: string | null;
   file: string;
   caption: string;
-  attachment_type: "general" | "completion" | "review";
+  attachment_type: "general" | "fault" | "completion" | "review";
   created_at: string;
 }
 
 export interface TicketComment {
   id: string;
   ticket: string;
+  image?: string | null;
   author: string | null;
   author_name: string | null;
   author_avatar: string | null;

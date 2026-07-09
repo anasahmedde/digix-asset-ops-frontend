@@ -186,6 +186,8 @@ export default function AssetsPage() {
 
   useEffect(() => {
     if (autoOpenedRef.current || loading) return;
+    const statusParam = searchParams.get("status");
+    if (statusParam) setFilterValues((prev) => ({ ...prev, status: statusParam }));
     const deviceId = searchParams.get("device");
     if (!deviceId) return;
     autoOpenedRef.current = true;
