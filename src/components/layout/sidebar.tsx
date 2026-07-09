@@ -58,7 +58,7 @@ const navigation: NavItem[] = [
   {
     name: "Sites", href: "/sites", icon: MapPin, roles: ["super_admin", "ops_manager", "technician"],
   },
-  { name: "Tickets", href: "/tickets", icon: Ticket, roles: ["super_admin", "ops_manager", "supervisor", "technician"] },
+  { name: "Tickets", href: "/tickets", icon: Ticket, roles: ["super_admin", "ops_manager", "supervisor", "technician", "marketing"] },
   { name: "Work Orders", href: "/work-orders", icon: ScrollText, roles: ["super_admin", "ops_manager"] },
   { name: "Inventory", href: "/inventory", icon: Package, roles: ["super_admin", "ops_manager", "warehouse"] },
   { name: "Procurement", href: "/procurement", icon: ShoppingCart, roles: ["super_admin", "ops_manager", "finance"] },

@@ -25,7 +25,9 @@ interface User {
 const ROLES = [
   { value: "super_admin", label: "Super Admin" },
   { value: "ops_manager", label: "Operations Manager" },
+  { value: "supervisor", label: "Supervisor" },
   { value: "technician", label: "Technician" },
+  { value: "marketing", label: "Marketing" },
   { value: "finance", label: "Finance" },
   { value: "warehouse", label: "Warehouse Staff" },
   { value: "client_viewer", label: "Client Viewer" },

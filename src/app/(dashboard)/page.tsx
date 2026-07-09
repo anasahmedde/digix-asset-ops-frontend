@@ -106,23 +106,26 @@ export default function DashboardPage() {
   const [maintSites, setMaintSites] = useState<MaintenanceSiteMap[]>([]);
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [maintenance, setMaintenance] = useState<MaintenanceStats>({ total: 0, completed: 0, in_progress: 0, pending: 0 });
+  const [stock, setStock] = useState<{ id: string; sku: string; material_name: string | null; category_name: string | null; quantity: number; unit: string; reorder_level: number }[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function fetchAll() {
       try {
-        const [statsRes, mapRes, alertsRes, maintRes, maintMapRes] = await Promise.allSettled([
+        const [statsRes, mapRes, alertsRes, maintRes, maintMapRes, stockRes] = await Promise.allSettled([
           api.get("/assets/devices/dashboard_stats/"),
           api.get("/assets/devices/map_data/"),
           api.get("/analytics/alerts/", { params: { page_size: 5, ordering: "-created_at", is_dismissed: false } }),
           api.get("/maintenance/schedules/", { params: { page_size: 1000 } }),
           api.get("/maintenance/schedules/map_data/"),
+          api.get("/inventory/items/", { params: { page_size: 6, ordering: "-quantity" } }),
         ]);
 
         if (statsRes.status === "fulfilled") setStats(statsRes.value.data);
         if (mapRes.status === "fulfilled") setMapDevices(mapRes.value.data);
         if (maintMapRes.status === "fulfilled") setMaintSites(maintMapRes.value.data);
         if (alertsRes.status === "fulfilled") setAlerts(alertsRes.value.data.results ?? []);
+        if (stockRes.status === "fulfilled") setStock(stockRes.value.data.results ?? []);
 
         if (maintRes.status === "fulfilled") {
           const schedules = maintRes.value.data.results ?? [];
@@ -281,6 +284,36 @@ export default function DashboardPage() {
             >
               View Detailed Report →
             </Link>
+          </div>
+
+          {/* In-Hand Stock */}
+          <div className="rounded-xl border border-border bg-card p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-foreground">In-Hand Stock</h3>
+              <Link href="/inventory" className="text-[11px] font-medium text-primary hover:underline">
+                View All
+              </Link>
+            </div>
+            {stock.length > 0 ? (
+              <div className="space-y-2">
+                {stock.map((item) => {
+                  const low = item.quantity <= item.reorder_level;
+                  return (
+                    <div key={item.id} className="flex items-center justify-between gap-2 rounded-lg border border-border/60 px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-medium text-foreground">{item.material_name || item.sku}</p>
+                        <p className="text-[10px] text-muted-foreground">{item.sku}{item.category_name ? ` · ${item.category_name}` : ""}</p>
+                      </div>
+                      <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${low ? "bg-red-500/10 text-red-500" : "bg-emerald-500/10 text-emerald-600"}`}>
+                        {item.quantity} {item.unit}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="py-4 text-center text-xs text-muted-foreground">No stock items</p>
+            )}
           </div>
 
           {/* Recent Alerts */}
