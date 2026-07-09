@@ -9,17 +9,35 @@ import {
   Clock,
   Eye,
   Filter,
+  Plus,
   Truck,
   XCircle,
 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 
 import api from "@/lib/api";
+import { getApiError } from "@/lib/api-error";
 import { StatCard } from "@/components/ui/stat-card";
 import { StatusBadge } from "@/components/ui/badge";
+import { Modal } from "@/components/ui/modal";
 import { DonutChart } from "@/components/charts/donut-chart";
 import { BarChart } from "@/components/charts/bar-chart";
+
+interface ClientOpt { id: string; name: string }
+const STATUS_OPTIONS = [
+  { value: "planning", label: "Planning" },
+  { value: "on_track", label: "On Track" },
+  { value: "at_risk", label: "At Risk" },
+  { value: "delayed", label: "Delayed" },
+  { value: "on_hold", label: "On Hold" },
+  { value: "completed", label: "Completed" },
+];
+const emptyForm = {
+  name: "", location: "", description: "", status: "planning",
+  client: "", start_date: "", target_date: "", budget: "",
+};
 
 interface ProjectStats {
   total: number;
@@ -54,22 +72,56 @@ export default function ProjectsPage() {
   const [stats, setStats] = useState<ProjectStats | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
+  const [clients, setClients] = useState<ClientOpt[]>([]);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState(emptyForm);
+
+  const fetchAll = useCallback(async () => {
+    try {
+      const [statsRes, projectsRes] = await Promise.allSettled([
+        api.get("/teams/projects/dashboard_stats/"),
+        api.get("/teams/projects/", { params: { page_size: 50, ordering: "-created_at" } }),
+      ]);
+      if (statsRes.status === "fulfilled") setStats(statsRes.value.data);
+      if (projectsRes.status === "fulfilled") setProjects(projectsRes.value.data.results ?? []);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    async function fetchAll() {
-      try {
-        const [statsRes, projectsRes] = await Promise.allSettled([
-          api.get("/teams/projects/dashboard_stats/"),
-          api.get("/teams/projects/", { params: { page_size: 50, ordering: "-created_at" } }),
-        ]);
-        if (statsRes.status === "fulfilled") setStats(statsRes.value.data);
-        if (projectsRes.status === "fulfilled") setProjects(projectsRes.value.data.results ?? []);
-      } finally {
-        setLoading(false);
-      }
-    }
     fetchAll();
-  }, []);
+    api.get("/clients/", { params: { page_size: 200 } })
+      .then((r) => setClients((r.data.results ?? r.data).map((c: ClientOpt) => ({ id: c.id, name: c.name }))))
+      .catch(() => {});
+  }, [fetchAll]);
+
+  async function createProject(e: React.FormEvent) {
+    e.preventDefault();
+    if (!form.name.trim()) { toast.error("Project name is required"); return; }
+    setSaving(true);
+    try {
+      await api.post("/teams/projects/", {
+        name: form.name.trim(),
+        location: form.location,
+        description: form.description,
+        status: form.status,
+        client: form.client || null,
+        start_date: form.start_date || null,
+        target_date: form.target_date || null,
+        budget: form.budget ? Number(form.budget) : null,
+      });
+      toast.success("Project created");
+      setModalOpen(false);
+      setForm(emptyForm);
+      fetchAll();
+    } catch (err) {
+      toast.error(getApiError(err, "Failed to create project"));
+    } finally {
+      setSaving(false);
+    }
+  }
 
   if (loading) {
     return (
@@ -116,6 +168,12 @@ export default function ProjectsPage() {
         <div className="flex items-center gap-3">
           <button className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary">
             <Filter className="h-4 w-4" /> Filter
+          </button>
+          <button
+            onClick={() => setModalOpen(true)}
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-all hover:opacity-90"
+          >
+            <Plus className="h-4 w-4" /> New Project
           </button>
         </div>
       </div>
@@ -271,6 +329,64 @@ export default function ProjectsPage() {
           </div>
         </div>
       )}
+
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="New Project" size="md">
+        <form onSubmit={createProject} className="space-y-4">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">Project name *</label>
+            <input
+              value={form.name}
+              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+              placeholder="e.g. Lucky One Mall rollout"
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none"
+              autoFocus
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">Client</label>
+              <select value={form.client} onChange={(e) => setForm((f) => ({ ...f, client: e.target.value }))} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none">
+                <option value="">—</option>
+                {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">Status</label>
+              <select value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none">
+                {STATUS_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">Location</label>
+            <input value={form.location} onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))} placeholder="City / mall / area" className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">Start date</label>
+              <input type="date" value={form.start_date} onChange={(e) => setForm((f) => ({ ...f, start_date: e.target.value }))} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none" />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">Target date</label>
+              <input type="date" value={form.target_date} onChange={(e) => setForm((f) => ({ ...f, target_date: e.target.value }))} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none" />
+            </div>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">Budget (optional)</label>
+            <input type="number" min="0" value={form.budget} onChange={(e) => setForm((f) => ({ ...f, budget: e.target.value }))} placeholder="0" className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none" />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">Description</label>
+            <textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={3} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none" />
+          </div>
+          <div className="flex justify-end gap-3 pt-2">
+            <button type="button" onClick={() => setModalOpen(false)} className="rounded-lg border border-border px-4 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary">Cancel</button>
+            <button type="submit" disabled={saving} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition-all hover:opacity-90 disabled:opacity-60">
+              {saving ? "Creating…" : "Create Project"}
+            </button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

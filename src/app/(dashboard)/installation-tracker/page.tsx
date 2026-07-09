@@ -2,15 +2,20 @@
 
 import {
   ArrowLeft,
+  Check,
   FileText,
   Layers,
+  Play,
+  RotateCcw,
   Share2,
   Download,
 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 
 import api from "@/lib/api";
+import { getApiError } from "@/lib/api-error";
 import { DeviceImage } from "@/components/ui/device-image";
 import { StatusBadge } from "@/components/ui/badge";
 import { ProgressStepper } from "@/components/ui/progress-stepper";
@@ -62,6 +67,7 @@ export default function InstallationTrackerPage() {
   const [installations, setInstallations] = useState<InstallationListItem[]>([]);
   const [selected, setSelected] = useState<Installation | null>(null);
   const [loading, setLoading] = useState(true);
+  const [updatingStep, setUpdatingStep] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchInstallations() {
@@ -81,6 +87,19 @@ export default function InstallationTrackerPage() {
       setSelected(data);
     } catch {
       // handled by error boundary
+    }
+  }
+
+  async function updateStep(stepId: string, status: string) {
+    setUpdatingStep(stepId);
+    try {
+      await api.patch(`/sites/installation-steps/${stepId}/`, { status });
+      if (selected) await loadDetail(selected.id);
+      toast.success("Step updated");
+    } catch (err) {
+      toast.error(getApiError(err, "Failed to update step"));
+    } finally {
+      setUpdatingStep(null);
     }
   }
 
@@ -200,6 +219,24 @@ export default function InstallationTrackerPage() {
                     </div>
                     {step.description && (
                       <p className="text-muted-foreground mt-2 pt-2 border-t border-border">{step.description}</p>
+                    )}
+                  </div>
+                  {/* Advance actions */}
+                  <div className="mt-3 flex flex-wrap gap-1.5 border-t border-border pt-3">
+                    {step.status !== "in_progress" && step.status !== "completed" && (
+                      <button disabled={updatingStep === step.id} onClick={() => updateStep(step.id, "in_progress")} className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 px-2 py-1 text-[11px] font-medium text-amber-600 transition-colors hover:bg-amber-500/20 disabled:opacity-50">
+                        <Play className="h-3 w-3" /> Start
+                      </button>
+                    )}
+                    {step.status !== "completed" && (
+                      <button disabled={updatingStep === step.id} onClick={() => updateStep(step.id, "completed")} className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-1 text-[11px] font-medium text-emerald-600 transition-colors hover:bg-emerald-500/20 disabled:opacity-50">
+                        <Check className="h-3 w-3" /> Complete
+                      </button>
+                    )}
+                    {step.status !== "not_started" && (
+                      <button disabled={updatingStep === step.id} onClick={() => updateStep(step.id, "not_started")} className="inline-flex items-center gap-1 rounded-md bg-secondary px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-secondary/70 disabled:opacity-50">
+                        <RotateCcw className="h-3 w-3" /> Reset
+                      </button>
                     )}
                   </div>
                 </div>
