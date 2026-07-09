@@ -117,7 +117,7 @@ export function Header() {
   const [user, setUser] = useState<User | null>(null);
   const [showNotifications, setShowNotifications] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const { toggle } = useSidebar();
+  const { toggle, openMobile } = useSidebar();
   const { notifications, unreadCount, markRead, markAllRead } = useNotifications();
 
   useEffect(() => {
@@ -142,9 +142,19 @@ export function Header() {
   return (
     <header className="sticky top-0 z-40 flex h-16 items-center justify-between border-b border-border bg-card px-6">
       <div className="flex items-center gap-4">
+        {/* Mobile: open the drawer */}
+        <button
+          onClick={openMobile}
+          aria-label="Open menu"
+          className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground lg:hidden"
+        >
+          <Menu className="h-4 w-4" />
+        </button>
+        {/* Desktop: collapse the sidebar */}
         <button
           onClick={toggle}
-          className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          aria-label="Collapse sidebar"
+          className="hidden h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground lg:flex"
         >
           <Menu className="h-4 w-4" />
         </button>

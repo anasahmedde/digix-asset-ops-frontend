@@ -83,7 +83,7 @@ const navigation: NavItem[] = [
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { collapsed } = useSidebar();
+  const { collapsed, mobileOpen, closeMobile } = useSidebar();
   const { user } = useUser();
   const { theme, setTheme } = useTheme();
   const { totalUnread } = useChatUnread();
@@ -120,8 +120,13 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        "fixed inset-y-0 left-0 z-50 flex flex-col border-r border-border bg-sidebar transition-all duration-200",
-        sidebarWidth
+        "fixed inset-y-0 left-0 z-50 flex flex-col border-r border-border bg-sidebar transition-transform duration-200",
+        // Always full-width (labels visible) as a drawer on phones; honour collapse on desktop.
+        "max-lg:w-64",
+        sidebarWidth,
+        // Off-canvas on mobile unless opened; always visible on desktop.
+        mobileOpen ? "translate-x-0" : "-translate-x-full",
+        "lg:translate-x-0"
       )}
     >
       <div className="flex h-16 items-center gap-3 border-b border-border px-4">
@@ -178,6 +183,7 @@ export function Sidebar() {
                             <li key={child.name}>
                               <Link
                                 href={child.href}
+                                onClick={closeMobile}
                                 className={cn(
                                   "flex items-center gap-3 rounded-lg px-3 py-2 text-[12px] font-medium transition-all duration-150",
                                   childIsActive
@@ -197,6 +203,7 @@ export function Sidebar() {
                 ) : (
                   <Link
                     href={item.href}
+                    onClick={closeMobile}
                     className={cn(
                       "flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium transition-all duration-150",
                       isActive
