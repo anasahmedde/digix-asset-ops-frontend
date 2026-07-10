@@ -192,22 +192,22 @@ export default function DashboardPage() {
 
       {/* Top stat cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-        <Link href="/assets" className="block">
+        <Link href="/assets" className="block rounded-xl transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md">
           <StatCard label="Total Screens" value={total} subtitle="All Over Pakistan" icon={<Monitor className="h-5 w-5" />} />
         </Link>
-        <Link href="/assets?status=installed" className="block">
+        <Link href="/assets?status=installed" className="block rounded-xl transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md">
           <StatCard label="Installed" value={installed} subtitle={`${installedPct.toFixed(1)}% deployed`} icon={<MonitorCheck className="h-5 w-5" />} />
         </Link>
-        <Link href="/assets?status=active" className="block">
+        <Link href="/assets?status=active" className="block rounded-xl transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md">
           <StatCard label="Working" value={working} subtitle={`${workingPct.toFixed(1)}%`} icon={<CheckCircle className="h-5 w-5" />} />
         </Link>
-        <Link href="/assets?status=decommissioned" className="block">
+        <Link href="/assets?status=decommissioned" className="block rounded-xl transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md">
           <StatCard label="Out of Order" value={outOfOrder} subtitle={`${outPct.toFixed(1)}%`} icon={<XCircle className="h-5 w-5" />} />
         </Link>
-        <Link href="/maintenance" className="block">
+        <Link href="/maintenance" className="block rounded-xl transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md">
           <StatCard label="Under Maintenance" value={underMaint} subtitle={`${maintPct.toFixed(1)}%`} icon={<Wrench className="h-5 w-5" />} />
         </Link>
-        <Link href="/assets?status=in_stock" className="block">
+        <Link href="/assets?status=in_stock" className="block rounded-xl transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md">
           <StatCard label="In Stock" value={inStock} subtitle={`${inStockPct.toFixed(1)}%`} variant="highlighted" icon={<Clock className="h-5 w-5" />} />
         </Link>
       </div>
@@ -264,7 +264,7 @@ export default function DashboardPage() {
                 {stock.map((item) => {
                   const low = item.quantity <= item.reorder_level;
                   return (
-                    <div key={item.id} className="flex items-center justify-between gap-2 rounded-lg border border-border/60 px-3 py-2">
+                    <Link key={item.id} href="/inventory" className="flex items-center justify-between gap-2 rounded-lg border border-border/60 px-3 py-2 transition-colors hover:border-primary/40 hover:bg-primary/5">
                       <div className="min-w-0">
                         <p className="truncate text-xs font-medium text-foreground">{item.material_name || item.sku}</p>
                         <p className="text-[10px] text-muted-foreground">{item.sku}{item.category_name ? ` · ${item.category_name}` : ""}</p>
@@ -272,7 +272,7 @@ export default function DashboardPage() {
                       <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${low ? "bg-red-500/10 text-red-500" : "bg-emerald-500/10 text-emerald-600"}`}>
                         {item.quantity} {item.unit}
                       </span>
-                    </div>
+                    </Link>
                   );
                 })}
               </div>

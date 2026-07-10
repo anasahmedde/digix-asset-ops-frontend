@@ -29,6 +29,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 
@@ -453,9 +454,9 @@ function TicketDetailView({
             <div className="h-4 w-px bg-border" />
             <span className="text-xs font-semibold text-foreground">{ticket.ticket_number || `#${ticket.id.slice(0, 8)}`}</span>
             {ticket.device_code && ticket.occurrence > 0 && (
-              <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-muted-foreground" title={`Ticket #${ticket.occurrence} raised against ${ticket.device_code}`}>
+              <Link href={`/assets?device=${ticket.device}`} className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/10" title={`Ticket #${ticket.occurrence} raised against ${ticket.device_code} — view asset`}>
                 #{ticket.occurrence} for {ticket.device_code}
-              </span>
+              </Link>
             )}
             <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ${statusBadge[ticket.status] ?? statusBadge.open}`}>
               {statusIcon[ticket.status]} {formatLabel(ticket.status)}
@@ -708,9 +709,9 @@ function TicketDetailView({
                       <div className="h-px bg-border" />
                       <div className="flex items-start justify-between">
                         <span className="text-xs text-muted-foreground mt-0.5">Site</span>
-                        <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-                          <MapPin className="h-3 w-3 text-muted-foreground" /> {ticket.site_name}
-                        </span>
+                        <Link href={`/sites?site=${ticket.site}`} className="flex items-center gap-1.5 text-sm font-medium text-primary hover:underline">
+                          <MapPin className="h-3 w-3" /> {ticket.site_name}
+                        </Link>
                       </div>
                     </>
                   )}
@@ -719,9 +720,9 @@ function TicketDetailView({
                       <div className="h-px bg-border" />
                       <div className="flex items-start justify-between">
                         <span className="text-xs text-muted-foreground mt-0.5">Device</span>
-                        <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-                          <Monitor className="h-3 w-3 text-muted-foreground" /> {ticket.device_code}
-                        </span>
+                        <Link href={`/assets?device=${ticket.device}`} className="flex items-center gap-1.5 text-sm font-medium text-primary hover:underline">
+                          <Monitor className="h-3 w-3" /> {ticket.device_code}
+                        </Link>
                       </div>
                     </>
                   )}
@@ -758,7 +759,7 @@ function TicketDetailView({
                       <div className="h-px bg-border" />
                       <div className="flex items-center justify-between">
                         <span className="text-xs text-muted-foreground">Vendor</span>
-                        <span className="text-xs font-medium text-foreground">{ticket.assigned_vendor_name}</span>
+                        <Link href="/suppliers" className="text-xs font-medium text-primary hover:underline">{ticket.assigned_vendor_name}</Link>
                       </div>
                     </>
                   )}
