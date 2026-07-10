@@ -977,6 +977,16 @@ function TicketDetailView({
                       </button>
                     )}
 
+                    {(isAdmin || isMarketing || isReporter) && ["open", "in_progress", "blocked", "alignment_pending"].includes(ticket.status) && (
+                      <button
+                        onClick={() => { if (confirm("Close this ticket? Use for duplicates, invalid reports, or client-cancelled work.")) handleTransition("closed", "Closed without rectification."); }}
+                        disabled={actionLoading}
+                        className="flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-slate-500/30 bg-slate-500/10 text-xs font-medium text-slate-500 hover:bg-slate-500/20 disabled:opacity-50"
+                      >
+                        <Check className="h-3.5 w-3.5" /> Close Ticket
+                      </button>
+                    )}
+
                     {/* Site-visit photos (any stage before closure) */}
                     {!isClosed && (
                       <div className="mt-3 space-y-2 rounded-lg border border-border bg-secondary/20 p-3">
