@@ -1302,12 +1302,13 @@ export default function TicketsPage() {
       {/* Create/Edit Modal */}
       {modalMode && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl">
-            <div className="mb-5 flex items-center justify-between">
+          <div className="flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
+            <div className="flex items-center justify-between border-b border-border px-6 py-4">
               <h2 className="text-lg font-semibold text-foreground">{modalMode === "create" ? "Create Ticket" : "Edit Ticket"}</h2>
               <button onClick={closeModal} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"><X className="h-5 w-5" /></button>
             </div>
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+              <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5">
               <div className="space-y-1.5">
                 <label htmlFor="title" className={labelClass}>Title</label>
                 <input id="title" name="title" required defaultValue={selected?.title ?? ""} className={inputClass} placeholder="Brief summary of the issue" />
@@ -1324,7 +1325,7 @@ export default function TicketsPage() {
                     {deviceOptions.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
                   </select>
                   {deviceInfo && (
-                    <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 rounded-lg border border-primary/20 bg-primary/5 p-3 text-xs">
+                    <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 rounded-lg border border-primary/20 bg-primary/5 p-3 text-xs sm:grid-cols-4">
                       <span className="text-muted-foreground">Asset Name</span>
                       <span className="font-medium text-foreground">{deviceInfo.display_name || deviceInfo.device_model_name || deviceInfo.asset_code}</span>
                       <span className="text-muted-foreground">Installed On</span>
@@ -1347,16 +1348,18 @@ export default function TicketsPage() {
                   )}
                 </div>
               )}
-              <div className="space-y-1.5">
-                <label htmlFor="issue_type" className={labelClass}>Issue Type</label>
-                <select id="issue_type" name="issue_type" defaultValue={selected?.issue_type ?? ""} className={inputClass}>
-                  <option value="">Select issue…</option>
-                  {issueTypes.map((it) => <option key={it.id} value={it.id}>{it.name}</option>)}
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <label htmlFor="complaint_by" className={labelClass}>Complaint By</label>
-                <input id="complaint_by" name="complaint_by" defaultValue={selected?.complaint_by ?? ""} className={inputClass} placeholder="e.g. client company, client staff, or internal person" />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <label htmlFor="issue_type" className={labelClass}>Issue Type</label>
+                  <select id="issue_type" name="issue_type" defaultValue={selected?.issue_type ?? ""} className={inputClass}>
+                    <option value="">Select issue…</option>
+                    {issueTypes.map((it) => <option key={it.id} value={it.id}>{it.name}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="complaint_by" className={labelClass}>Complaint By</label>
+                  <input id="complaint_by" name="complaint_by" defaultValue={selected?.complaint_by ?? ""} className={inputClass} placeholder="e.g. client company or staff" />
+                </div>
               </div>
               <div className="grid gap-4 sm:grid-cols-3">
                 <div className="space-y-1.5">
@@ -1391,7 +1394,8 @@ export default function TicketsPage() {
               <p className="text-[11px] text-muted-foreground">
                 Assignment is done by Operations after the ticket is raised.
               </p>
-              <div className="flex justify-end gap-3 pt-2">
+              </div>
+              <div className="flex justify-end gap-3 border-t border-border px-6 py-4">
                 <button type="button" onClick={closeModal} className="inline-flex h-10 items-center rounded-lg border border-border bg-transparent px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">Cancel</button>
                 <button type="submit" disabled={saving} className="inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-medium text-white transition-all disabled:opacity-50">
                   {saving ? "Saving..." : modalMode === "create" ? "Create Ticket" : "Save Changes"}
