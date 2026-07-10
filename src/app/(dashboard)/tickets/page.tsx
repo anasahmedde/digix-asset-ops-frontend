@@ -1056,6 +1056,8 @@ export default function TicketsPage() {
   } | null>(null);
   const [faultFiles, setFaultFiles] = useState<File[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState("");
+  const [deviceQuery, setDeviceQuery] = useState("");
+  const [deviceListOpen, setDeviceListOpen] = useState(false);
   const [deviceFilter, setDeviceFilter] = useState("");
 
   const fetchTickets = useCallback(async () => {
@@ -1113,7 +1115,7 @@ export default function TicketsPage() {
   }
 
   function openCreate(presetDeviceId?: string) {
-    setSelected(null); setDeviceInfo(null); setFaultFiles([]);
+    setSelected(null); setDeviceInfo(null); setFaultFiles([]); setDeviceQuery(""); setDeviceListOpen(false);
     setSelectedDeviceId(presetDeviceId ?? "");
     if (presetDeviceId) onDeviceSelect(presetDeviceId);
     setModalMode("create"); loadFormOptions();
@@ -1321,10 +1323,36 @@ export default function TicketsPage() {
               {modalMode === "create" && (
                 <div className="space-y-1.5">
                   <label htmlFor="device" className={labelClass}>Asset</label>
-                  <select id="device" name="device" value={selectedDeviceId} className={inputClass} onChange={(e) => { setSelectedDeviceId(e.target.value); onDeviceSelect(e.target.value); }}>
-                    <option value="">Select asset (optional)</option>
-                    {deviceOptions.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
-                  </select>
+                  <div className="relative">
+                    <input
+                      id="device"
+                      value={deviceQuery}
+                      onChange={(e) => { setDeviceQuery(e.target.value); setDeviceListOpen(true); if (!e.target.value) { setSelectedDeviceId(""); onDeviceSelect(""); } }}
+                      onFocus={() => setDeviceListOpen(true)}
+                      onBlur={() => setTimeout(() => setDeviceListOpen(false), 150)}
+                      placeholder="Search asset by code or model…"
+                      className={inputClass}
+                      autoComplete="off"
+                    />
+                    <input type="hidden" name="device" value={selectedDeviceId} />
+                    {deviceListOpen && (
+                      <div className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-border bg-card shadow-xl">
+                        {deviceOptions.filter((d) => d.label.toLowerCase().includes(deviceQuery.toLowerCase())).slice(0, 50).map((d) => (
+                          <button
+                            key={d.id}
+                            type="button"
+                            onMouseDown={() => { setSelectedDeviceId(d.id); setDeviceQuery(d.label); setDeviceListOpen(false); onDeviceSelect(d.id); }}
+                            className={`block w-full px-3 py-2 text-left text-sm transition-colors hover:bg-primary/10 ${selectedDeviceId === d.id ? "bg-primary/5 font-medium text-primary" : "text-foreground"}`}
+                          >
+                            {d.label}
+                          </button>
+                        ))}
+                        {deviceOptions.filter((d) => d.label.toLowerCase().includes(deviceQuery.toLowerCase())).length === 0 && (
+                          <p className="px-3 py-2 text-xs text-muted-foreground">No assets match "{deviceQuery}"</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
                   {deviceInfo && (
                     <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 rounded-lg border border-primary/20 bg-primary/5 p-3 text-xs sm:grid-cols-4">
                       <span className="text-muted-foreground">Asset Name</span>
