@@ -46,6 +46,7 @@ interface TicketItem {
   id: string;
   ticket_number: string;
   occurrence: number;
+  complaint_by: string;
   issue_type: string | null;
   issue_type_name: string | null;
   assigned_vendor: string | null;
@@ -743,6 +744,15 @@ function TicketDetailView({
                       </div>
                     </>
                   )}
+                  {ticket.complaint_by && (
+                    <>
+                      <div className="h-px bg-border" />
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-muted-foreground">Complaint By</span>
+                        <span className="text-xs font-medium text-foreground">{ticket.complaint_by}</span>
+                      </div>
+                    </>
+                  )}
                   {ticket.assigned_vendor_name && (
                     <>
                       <div className="h-px bg-border" />
@@ -945,10 +955,15 @@ function TicketDetailView({
                         </button>
                       </>
                     )}
-                    {isAssignee && ticket.status === "rejected" && (
-                      <button onClick={() => handleTransition("in_progress")} disabled={actionLoading} className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-primary text-sm font-medium text-white disabled:opacity-50">
-                        <Play className="h-4 w-4" /> {actionLoading ? "..." : "Resume & Rework"}
-                      </button>
+                    {canAct && ticket.status === "rejected" && (
+                      <>
+                        <button onClick={() => setActiveAction("completion")} className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-purple-500 text-sm font-medium text-white">
+                          <CheckCircle2 className="h-4 w-4" /> Resubmit for Review
+                        </button>
+                        <button onClick={() => handleTransition("in_progress")} disabled={actionLoading} className="flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-secondary disabled:opacity-50">
+                          <Play className="h-3.5 w-3.5" /> {actionLoading ? "..." : "Resume & Rework First"}
+                        </button>
+                      </>
                     )}
                     {canReview && ticket.status === "pending_review" && (
                       <button onClick={() => setActiveAction("review")} className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-primary text-sm font-medium text-white">
@@ -1117,6 +1132,7 @@ export default function TicketsPage() {
     const payload: Record<string, unknown> = {
       title: fd.get("title"), description: fd.get("description"), priority: fd.get("priority"),
       category: fd.get("category"), issue_type: fd.get("issue_type") || null,
+      complaint_by: fd.get("complaint_by") || "",
       due_date: fd.get("due_date") || null,
     };
     if (modalMode === "create") {
@@ -1315,6 +1331,8 @@ export default function TicketsPage() {
                       <span className="font-medium text-foreground">{deviceInfo.installation_date || "—"}</span>
                       <span className="text-muted-foreground">Procured From</span>
                       <span className="font-medium text-foreground">{deviceInfo.supplier_name || "—"}</span>
+                      <span className="text-muted-foreground">Client</span>
+                      <span className="font-medium text-foreground">{(deviceInfo as { client_name?: string | null }).client_name || "—"}</span>
                       <span className="text-muted-foreground">Location</span>
                       <span className="font-medium text-foreground">{deviceInfo.site_name || "In warehouse"}</span>
                       {deviceInfo.warranty_status && (
@@ -1335,6 +1353,10 @@ export default function TicketsPage() {
                   <option value="">Select issue…</option>
                   {issueTypes.map((it) => <option key={it.id} value={it.id}>{it.name}</option>)}
                 </select>
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="complaint_by" className={labelClass}>Complaint By</label>
+                <input id="complaint_by" name="complaint_by" defaultValue={selected?.complaint_by ?? ""} className={inputClass} placeholder="e.g. client company, client staff, or internal person" />
               </div>
               <div className="grid gap-4 sm:grid-cols-3">
                 <div className="space-y-1.5">

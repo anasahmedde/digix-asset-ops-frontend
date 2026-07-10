@@ -93,19 +93,21 @@ export default function DashboardPage() {
   const [maintSites, setMaintSites] = useState<MaintenanceSiteMap[]>([]);
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [maintenance, setMaintenance] = useState<MaintenanceStats>({ total: 0, completed: 0, in_progress: 0, pending: 0 });
+  const [slaBreached, setSlaBreached] = useState(0);
   const [stock, setStock] = useState<{ id: string; sku: string; material_name: string | null; category_name: string | null; quantity: number; unit: string; reorder_level: number }[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function fetchAll() {
       try {
-        const [statsRes, mapRes, alertsRes, maintRes, maintMapRes, stockRes] = await Promise.allSettled([
+        const [statsRes, mapRes, alertsRes, maintRes, maintMapRes, stockRes, ticketsRes] = await Promise.allSettled([
           api.get("/assets/devices/dashboard_stats/"),
           api.get("/assets/devices/map_data/"),
           api.get("/analytics/alerts/", { params: { page_size: 5, ordering: "-created_at", is_dismissed: false } }),
           api.get("/maintenance/schedules/", { params: { page_size: 1000 } }),
           api.get("/maintenance/schedules/map_data/"),
           api.get("/inventory/items/", { params: { page_size: 6, ordering: "-quantity" } }),
+          api.get("/tickets/", { params: { page_size: 100 } }),
         ]);
 
         if (statsRes.status === "fulfilled") setStats(statsRes.value.data);
@@ -113,6 +115,10 @@ export default function DashboardPage() {
         if (maintMapRes.status === "fulfilled") setMaintSites(maintMapRes.value.data);
         if (alertsRes.status === "fulfilled") setAlerts(alertsRes.value.data.results ?? []);
         if (stockRes.status === "fulfilled") setStock(stockRes.value.data.results ?? []);
+        if (ticketsRes.status === "fulfilled") {
+          const ts = ticketsRes.value.data.results ?? [];
+          setSlaBreached(ts.filter((t: { escalated: boolean; is_response_overdue: boolean }) => t.escalated || t.is_response_overdue).length);
+        }
 
         if (maintRes.status === "fulfilled") {
           const schedules = maintRes.value.data.results ?? [];
@@ -173,6 +179,16 @@ export default function DashboardPage() {
         <h1 className="text-2xl font-bold text-foreground">Main Dashboard</h1>
         <p className="text-sm text-muted-foreground">Asset Overview</p>
       </div>
+
+      {slaBreached > 0 && (
+        <Link href="/tickets" className="flex items-center gap-3 rounded-xl border border-red-500/30 bg-red-500/5 px-4 py-3 transition-colors hover:bg-red-500/10">
+          <AlertCircle className="h-5 w-5 shrink-0 text-red-500" />
+          <p className="text-sm font-medium text-red-600">
+            {slaBreached} ticket{slaBreached > 1 ? "s" : ""} past the response SLA — needs attention
+          </p>
+          <span className="ml-auto text-xs font-semibold text-red-500">View →</span>
+        </Link>
+      )}
 
       {/* Top stat cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
