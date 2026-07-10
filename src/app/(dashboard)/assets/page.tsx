@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowLeft, Eye, HardDrive, ImagePlus, Pencil, Plus, Printer, QrCode, Trash2, X, Download, MapPin, Clock, Shield, Wrench, FileText, ChevronRight, Calendar, DollarSign, Package, Zap, Monitor, Sun } from "lucide-react";
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
@@ -155,6 +156,7 @@ export default function AssetsPage() {
   const [warranties, setWarranties] = useState<WarrantyItem[]>([]);
   const [maintSchedules, setMaintSchedules] = useState<MaintenanceItem[]>([]);
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
+  const [deviceTickets, setDeviceTickets] = useState<{ id: string; ticket_number: string; occurrence: number; title: string; status: string; created_at: string }[]>([]);
 
   const [deviceModels, setDeviceModels] = useState<Option[]>([]);
   const [assetTypes, setAssetTypes] = useState<Option[]>([]);
@@ -199,11 +201,13 @@ export default function AssetsPage() {
   }, [searchParams, loading]);
 
   async function fetchRelatedData(deviceId: string) {
-    const [warRes, maintRes, docRes] = await Promise.allSettled([
+    const [warRes, maintRes, docRes, tickRes] = await Promise.allSettled([
       api.get("/warranties/", { params: { device: deviceId } }),
       api.get("/maintenance/schedules/", { params: { device: deviceId } }),
       api.get("/infrastructure/documents/", { params: { device: deviceId } }),
+      api.get("/tickets/", { params: { device: deviceId, page_size: 100 } }),
     ]);
+    if (tickRes.status === "fulfilled") setDeviceTickets(tickRes.value.data.results ?? tickRes.value.data);
     if (warRes.status === "fulfilled") setWarranties(warRes.value.data.results ?? warRes.value.data);
     if (maintRes.status === "fulfilled") setMaintSchedules(maintRes.value.data.results ?? maintRes.value.data);
     if (docRes.status === "fulfilled") setDocuments(docRes.value.data.results ?? docRes.value.data);
@@ -515,6 +519,52 @@ export default function AssetsPage() {
                 {/* Product Details */}
                 {detailTab === "overview" && (
                   <div className="space-y-6">
+                    <div>
+                      <h4 className="text-sm font-semibold text-foreground mb-3">Service History</h4>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="rounded-xl border border-border p-4">
+                          <div className="flex items-center justify-between">
+                            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Tickets</p>
+                            <Link href={`/tickets?device=${d.id}`} className="text-[11px] font-medium text-primary hover:underline">View all →</Link>
+                          </div>
+                          <div className="mt-2 flex gap-4 text-sm">
+                            <span className="font-bold text-foreground">{deviceTickets.length} total</span>
+                            <span className="font-medium text-amber-500">{deviceTickets.filter((t) => !["closed", "approved", "rejected"].includes(t.status)).length} ongoing</span>
+                            <span className="font-medium text-emerald-600">{deviceTickets.filter((t) => ["closed", "approved"].includes(t.status)).length} completed</span>
+                          </div>
+                          <div className="mt-2 space-y-1">
+                            {deviceTickets.slice(0, 4).map((t) => (
+                              <Link key={t.id} href={`/tickets?open=${t.id}`} className="flex items-center justify-between rounded-md px-2 py-1 text-xs hover:bg-secondary/50">
+                                <span className="font-medium text-primary">{t.ticket_number}{t.occurrence ? ` · #${t.occurrence}` : ""}</span>
+                                <span className="truncate px-2 text-muted-foreground">{t.title}</span>
+                                <span className="shrink-0 text-muted-foreground">{t.status.replace(/_/g, " ")}</span>
+                              </Link>
+                            ))}
+                            {deviceTickets.length === 0 && <p className="text-xs text-muted-foreground">No tickets raised for this asset.</p>}
+                          </div>
+                        </div>
+                        <div className="rounded-xl border border-border p-4">
+                          <div className="flex items-center justify-between">
+                            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Maintenance</p>
+                            <Link href="/maintenance" className="text-[11px] font-medium text-primary hover:underline">View all →</Link>
+                          </div>
+                          <div className="mt-2 flex gap-4 text-sm">
+                            <span className="font-bold text-foreground">{maintSchedules.length} total</span>
+                            <span className="font-medium text-amber-500">{maintSchedules.filter((m) => !["completed"].includes((m as { status?: string }).status ?? "")).length} ongoing</span>
+                            <span className="font-medium text-emerald-600">{maintSchedules.filter((m) => (m as { status?: string }).status === "completed").length} completed</span>
+                          </div>
+                          <div className="mt-2 space-y-1">
+                            {maintSchedules.slice(0, 4).map((m) => (
+                              <Link key={m.id} href={`/maintenance?schedule=${m.id}`} className="flex items-center justify-between rounded-md px-2 py-1 text-xs hover:bg-secondary/50">
+                                <span className="truncate font-medium text-foreground">{(m as { title?: string }).title || "Schedule"}</span>
+                                <span className="shrink-0 text-muted-foreground">{((m as { status?: string }).status ?? "").replace(/_/g, " ")}</span>
+                              </Link>
+                            ))}
+                            {maintSchedules.length === 0 && <p className="text-xs text-muted-foreground">No maintenance scheduled for this asset.</p>}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                     <div>
                       <h4 className="text-sm font-semibold text-foreground mb-3">Device Information</h4>
                       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
