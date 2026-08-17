@@ -379,6 +379,7 @@ export default function AssetsPage() {
       purchase_date: fd.get("purchase_date") || null,
       purchase_price: fd.get("purchase_price") || null,
       installation_date: fd.get("installation_date") || null,
+      client_warranty_months: fd.get("client_warranty_months") || null,
     };
     try {
       let deviceId: string;
@@ -1172,6 +1173,18 @@ export default function AssetsPage() {
                 <label htmlFor="installation_date" className={labelClass}>Installation Date</label>
                 <input id="installation_date" name="installation_date" type="date" defaultValue={selected?.installation_date ?? ""} className={inputClass} />
               </div>
+              {modalMode === "create" && (
+                <div className="space-y-1.5">
+                  <label htmlFor="client_warranty_months" className={labelClass}>Client Warranty</label>
+                  <select id="client_warranty_months" name="client_warranty_months" defaultValue="" className={inputClass}>
+                    <option value="">None</option>
+                    <option value="3">3 months</option>
+                    <option value="6">6 months</option>
+                    <option value="12">12 months</option>
+                  </select>
+                  <p className="text-[10px] text-muted-foreground">Auto-converts to “Warranty Completed” when the term lapses; can be reissued from Warranties.</p>
+                </div>
+              )}
             </div>
           </div>
 
