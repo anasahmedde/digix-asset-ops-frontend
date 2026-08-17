@@ -33,6 +33,7 @@ import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 
+import { SegmentBar, StatTiles } from "@/components/ui/analytics-strip";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { ProgressStepper } from "@/components/ui/progress-stepper";
 import api from "@/lib/api";
@@ -1055,7 +1056,7 @@ export default function TicketsPage() {
   const [selected, setSelected] = useState<TicketItem | null>(null);
   const [detailTicket, setDetailTicket] = useState<TicketItem | null>(null);
   const [saving, setSaving] = useState(false);
-  const [filterValues, setFilterValues] = useState<Record<string, string>>({ status: "", priority: "", category: "" });
+  const [filterValues, setFilterValues] = useState<Record<string, string>>({ status: "", priority: "", category: "", flag: "" });
   const [search, setSearch] = useState("");
   const [deviceOptions, setDeviceOptions] = useState<{ id: string; label: string }[]>([]);
   const [issueTypes, setIssueTypes] = useState<{ id: string; name: string }[]>([]);
@@ -1074,7 +1075,7 @@ export default function TicketsPage() {
 
   const fetchTickets = useCallback(async () => {
     try {
-      const { data } = await api.get("/tickets/");
+      const { data } = await api.get("/tickets/", { params: { page_size: 1000 } });
       setTickets(data.results ?? data);
     } catch (err: unknown) {
       toast.error(getApiError(err, "Failed to load tickets"));
@@ -1226,6 +1227,39 @@ export default function TicketsPage() {
           </button>
         </div>
       )}
+      {(() => {
+        const isActive = (t: TicketItem) => !["closed", "approved", "rejected"].includes(t.status);
+        const todayIso = new Date().toISOString().split("T")[0];
+        const toggleFlag = (f: string) => setFilterValues((prev) => ({ ...prev, flag: prev.flag === f ? "" : f }));
+        const STATUS_HEX: Record<string, string> = {
+          open: "#3b82f6", in_progress: "#f59e0b", on_hold: "#6b7280", blocked: "#ef4444",
+          alignment_pending: "#06b6d4", pending_ops_approval: "#f97316", pending_client_approval: "#8b5cf6",
+          pending_review: "#a855f7", approved: "#10b981", rejected: "#f43f5e", closed: "#64748b",
+        };
+        return (
+          <div className="space-y-3 rounded-xl border border-border bg-card p-4">
+            <StatTiles
+              tiles={[
+                { key: "total", label: "Total Tickets", value: tickets.length, tone: "primary", active: !filterValues.flag && !filterValues.status, onClick: () => setFilterValues((prev) => ({ ...prev, status: "", flag: "" })) },
+                { key: "unassigned", label: "Unassigned", value: tickets.filter((t) => isActive(t) && !t.assigned_to).length, tone: "amber", active: filterValues.flag === "unassigned", onClick: () => toggleFlag("unassigned") },
+                { key: "sla", label: "SLA Breached", value: tickets.filter((t) => isActive(t) && (t.escalated || t.is_response_overdue)).length, tone: "red", active: filterValues.flag === "sla", onClick: () => toggleFlag("sla") },
+                { key: "overdue", label: "Past Due Date", value: tickets.filter((t) => isActive(t) && t.due_date && t.due_date < todayIso).length, tone: "red", active: filterValues.flag === "overdue", onClick: () => toggleFlag("overdue") },
+                { key: "in_review", label: "In Review", value: tickets.filter((t) => ["pending_review", "pending_ops_approval", "pending_client_approval"].includes(t.status)).length, tone: "violet", active: filterValues.flag === "in_review", onClick: () => toggleFlag("in_review") },
+                { key: "closed", label: "Closed", value: tickets.filter((t) => t.status === "closed").length, tone: "emerald", active: filterValues.flag === "closed_only", onClick: () => toggleFlag("closed_only") },
+              ]}
+            />
+            <SegmentBar
+              segments={Object.keys(statusBadge).map((s) => ({
+                key: s, label: formatLabel(s), color: STATUS_HEX[s] ?? "#94a3b8",
+                count: tickets.filter((t) => t.status === s).length,
+              }))}
+              active={filterValues.status || undefined}
+              onSelect={(s) => setFilterValues((prev) => ({ ...prev, status: prev.status === s ? "" : s }))}
+            />
+          </div>
+        );
+      })()}
+
       <FilterBar
         filters={[
           { key: "status", label: "Status", options: Object.keys(statusBadge).map((s) => ({ value: s, label: formatLabel(s) })) },
@@ -1240,11 +1274,18 @@ export default function TicketsPage() {
       />
 
       {(() => {
+        const isActive = (t: TicketItem) => !["closed", "approved", "rejected"].includes(t.status);
+        const todayIso = new Date().toISOString().split("T")[0];
         const filtered = tickets.filter((t) => {
           if (deviceFilter && t.device !== deviceFilter) return false;
           if (filterValues.status && t.status !== filterValues.status) return false;
           if (filterValues.priority && t.priority !== filterValues.priority) return false;
           if (filterValues.category && t.category !== filterValues.category) return false;
+          if (filterValues.flag === "unassigned" && !(isActive(t) && !t.assigned_to)) return false;
+          if (filterValues.flag === "sla" && !(isActive(t) && (t.escalated || t.is_response_overdue))) return false;
+          if (filterValues.flag === "overdue" && !(isActive(t) && t.due_date && t.due_date < todayIso)) return false;
+          if (filterValues.flag === "in_review" && !["pending_review", "pending_ops_approval", "pending_client_approval"].includes(t.status)) return false;
+          if (filterValues.flag === "closed_only" && t.status !== "closed") return false;
           if (search) {
             const q = search.toLowerCase();
             if (!t.title.toLowerCase().includes(q) && !(t.ticket_number || "").toLowerCase().includes(q) && !(t.site_name || "").toLowerCase().includes(q) && !(t.assigned_to_name || "").toLowerCase().includes(q)) return false;

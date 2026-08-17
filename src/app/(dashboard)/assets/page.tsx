@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
+import { SegmentBar, StatTiles } from "@/components/ui/analytics-strip";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { DeviceImage } from "@/components/ui/device-image";
 import { StatusBadge } from "@/components/ui/badge";
@@ -214,7 +215,7 @@ export default function AssetsPage() {
   const [clients, setClients] = useState<Option[]>([]);
   const [suppliers, setSuppliers] = useState<Option[]>([]);
   const [technicians, setTechnicians] = useState<Option[]>([]);
-  const [filterValues, setFilterValues] = useState<Record<string, string>>({ status: "" });
+  const [filterValues, setFilterValues] = useState<Record<string, string>>({ status: "", asset_type: "", client: "", site: "", warranty: "", flag: "" });
   const [search, setSearch] = useState("");
   const [imageFiles, setImageFiles] = useState<File[]>([]);
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
@@ -225,7 +226,7 @@ export default function AssetsPage() {
 
   const fetchDevices = useCallback(async () => {
     try {
-      const { data } = await api.get("/assets/devices/");
+      const { data } = await api.get("/assets/devices/", { params: { page_size: 1000 } });
       setDevices(data.results ?? data);
     } catch (err: unknown) {
       toast.error(getApiError(err, "Failed to load devices"));
@@ -427,9 +428,15 @@ export default function AssetsPage() {
 
   const filtered = devices.filter((d) => {
     if (filterValues.status && d.status !== filterValues.status) return false;
+    if (filterValues.asset_type && (d.asset_type_name || "") !== filterValues.asset_type) return false;
+    if (filterValues.client && (d.client_name || "") !== filterValues.client) return false;
+    if (filterValues.site && (d.site_name || "") !== filterValues.site) return false;
+    if (filterValues.warranty && (d.warranty_status || "none") !== filterValues.warranty) return false;
+    if (filterValues.flag === "operational" && !["active", "installed"].includes(d.status)) return false;
+    if (filterValues.flag === "warranty_expired" && d.warranty_status !== "expired") return false;
     if (search) {
       const q = search.toLowerCase();
-      if (!d.asset_code.toLowerCase().includes(q) && !d.serial_number.toLowerCase().includes(q) && !(d.device_model_name || "").toLowerCase().includes(q) && !(d.site_name || "").toLowerCase().includes(q)) return false;
+      if (!d.asset_code.toLowerCase().includes(q) && !d.serial_number.toLowerCase().includes(q) && !(d.display_name || "").toLowerCase().includes(q) && !(d.device_model_name || "").toLowerCase().includes(q) && !(d.site_name || "").toLowerCase().includes(q)) return false;
     }
     return true;
   });
@@ -931,15 +938,49 @@ export default function AssetsPage() {
         )}
       </div>
 
+      {(() => {
+        const toggleFlag = (f: string) => setFilterValues((prev) => ({ ...prev, flag: prev.flag === f ? "" : f }));
+        const STATUS_HEX: Record<string, string> = {
+          procured: "#8b5cf6", in_transit: "#ec4899", in_stock: "#6366f1", assigned: "#3b82f6",
+          installed: "#06b6d4", active: "#22c55e", under_maintenance: "#f59e0b",
+          client_property: "#14b8a6", decommissioned: "#ef4444", lost_stolen: "#dc2626", rma: "#f97316",
+        };
+        return (
+          <div className="space-y-3 rounded-xl border border-border bg-card p-4">
+            <StatTiles
+              tiles={[
+                { key: "total", label: "Total Assets", value: devices.length, tone: "primary", active: !filterValues.flag && !filterValues.status, onClick: () => setFilterValues((prev) => ({ ...prev, status: "", flag: "" })) },
+                { key: "operational", label: "Operational", value: devices.filter((d) => ["active", "installed"].includes(d.status)).length, tone: "emerald", active: filterValues.flag === "operational", onClick: () => toggleFlag("operational") },
+                { key: "in_stock", label: "In Stock", value: devices.filter((d) => d.status === "in_stock").length, tone: "default", active: filterValues.status === "in_stock", onClick: () => setFilterValues((prev) => ({ ...prev, status: prev.status === "in_stock" ? "" : "in_stock" })) },
+                { key: "maint", label: "Under Maintenance", value: devices.filter((d) => d.status === "under_maintenance").length, tone: "amber", active: filterValues.status === "under_maintenance", onClick: () => setFilterValues((prev) => ({ ...prev, status: prev.status === "under_maintenance" ? "" : "under_maintenance" })) },
+                { key: "warranty_expired", label: "Warranty Expired", value: devices.filter((d) => d.warranty_status === "expired").length, tone: "red", active: filterValues.flag === "warranty_expired", onClick: () => toggleFlag("warranty_expired") },
+              ]}
+            />
+            <SegmentBar
+              segments={STATUSES.map((s) => ({
+                key: s.value, label: s.label, color: STATUS_HEX[s.value] ?? "#94a3b8",
+                count: devices.filter((d) => d.status === s.value).length,
+              }))}
+              active={filterValues.status || undefined}
+              onSelect={(s) => setFilterValues((prev) => ({ ...prev, status: prev.status === s ? "" : s }))}
+            />
+          </div>
+        );
+      })()}
+
       <FilterBar
         filters={[
           { key: "status", label: "Status", options: STATUSES.map((s) => ({ value: s.value, label: s.label })) },
+          { key: "asset_type", label: "Type", options: Array.from(new Set(devices.map((d) => d.asset_type_name).filter(Boolean))).sort().map((t) => ({ value: t as string, label: t as string })) },
+          { key: "client", label: "Client", options: Array.from(new Set(devices.map((d) => d.client_name).filter(Boolean))).sort().map((c) => ({ value: c as string, label: c as string })) },
+          { key: "site", label: "Site", options: Array.from(new Set(devices.map((d) => d.site_name).filter(Boolean))).sort().map((s) => ({ value: s as string, label: s as string })) },
+          { key: "warranty", label: "Warranty", options: [{ value: "active", label: "Under Warranty" }, { value: "expired", label: "Expired" }, { value: "none", label: "No Warranty" }] },
         ]}
         values={filterValues}
         onChange={(k, v) => setFilterValues((prev) => ({ ...prev, [k]: v }))}
         search={search}
         onSearchChange={setSearch}
-        searchPlaceholder="Search by asset code, serial #..."
+        searchPlaceholder="Search by code, name, serial #..."
       />
 
       {loading ? (
