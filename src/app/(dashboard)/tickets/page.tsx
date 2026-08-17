@@ -57,6 +57,8 @@ interface TicketItem {
   response_due_at: string | null;
   escalated: boolean;
   is_response_overdue: boolean;
+  assignment_escalated: boolean;
+  due_date_escalated: boolean;
   title: string;
   description: string;
   priority: string;
@@ -276,8 +278,8 @@ function TicketDetailView({
 
   const isAssignee = ticket.assigned_to === currentUserId;
   const isReporter = ticket.reported_by === currentUserId;
-  const isAdmin = currentUserRole === "super_admin" || currentUserRole === "ops_manager";
-  const isMarketing = currentUserRole === "marketing";
+  const isAdmin = ["super_admin", "group_head", "ops_manager"].includes(currentUserRole);
+  const isMarketing = currentUserRole === "marketing" || currentUserRole === "marketing_head";
   const canReview = isReporter || isAdmin;
   // Managers can drive the work stages too (matches backend rules).
   const canAct = isAssignee || isAdmin;
@@ -465,9 +467,16 @@ function TicketDetailView({
             {ticket.issue_type_name && (
               <span className="rounded-full bg-rose-500/10 px-2 py-0.5 text-[10px] font-medium text-rose-500 ring-1 ring-rose-500/20">{ticket.issue_type_name}</span>
             )}
-            {(ticket.escalated || ticket.is_response_overdue) && (
+            {(ticket.escalated || ticket.is_response_overdue || ticket.assignment_escalated || ticket.due_date_escalated) && (
               <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-0.5 text-[10px] font-semibold text-red-500 ring-1 ring-red-500/20">
-                <AlertTriangle className="h-3 w-3" /> {ticket.escalated ? "Escalated" : "Response Overdue"}
+                <AlertTriangle className="h-3 w-3" />
+                {ticket.assignment_escalated
+                  ? "Escalated — Unassigned"
+                  : ticket.due_date_escalated
+                    ? "Escalated — Past Due"
+                    : ticket.escalated
+                      ? "Escalated"
+                      : "Response Overdue"}
               </span>
             )}
             <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ${priorityBadge[ticket.priority]}`}>
@@ -1242,7 +1251,7 @@ export default function TicketsPage() {
               tiles={[
                 { key: "total", label: "Total Tickets", value: tickets.length, tone: "primary", active: !filterValues.flag && !filterValues.status, onClick: () => setFilterValues((prev) => ({ ...prev, status: "", flag: "" })) },
                 { key: "unassigned", label: "Unassigned", value: tickets.filter((t) => isActive(t) && !t.assigned_to).length, tone: "amber", active: filterValues.flag === "unassigned", onClick: () => toggleFlag("unassigned") },
-                { key: "sla", label: "SLA Breached", value: tickets.filter((t) => isActive(t) && (t.escalated || t.is_response_overdue)).length, tone: "red", active: filterValues.flag === "sla", onClick: () => toggleFlag("sla") },
+                { key: "sla", label: "SLA Breached", value: tickets.filter((t) => isActive(t) && (t.escalated || t.is_response_overdue || t.assignment_escalated || t.due_date_escalated)).length, tone: "red", active: filterValues.flag === "sla", onClick: () => toggleFlag("sla") },
                 { key: "overdue", label: "Past Due Date", value: tickets.filter((t) => isActive(t) && t.due_date && t.due_date < todayIso).length, tone: "red", active: filterValues.flag === "overdue", onClick: () => toggleFlag("overdue") },
                 { key: "in_review", label: "In Review", value: tickets.filter((t) => ["pending_review", "pending_ops_approval", "pending_client_approval"].includes(t.status)).length, tone: "violet", active: filterValues.flag === "in_review", onClick: () => toggleFlag("in_review") },
                 { key: "closed", label: "Closed", value: tickets.filter((t) => t.status === "closed").length, tone: "emerald", active: filterValues.flag === "closed_only", onClick: () => toggleFlag("closed_only") },
@@ -1282,7 +1291,7 @@ export default function TicketsPage() {
           if (filterValues.priority && t.priority !== filterValues.priority) return false;
           if (filterValues.category && t.category !== filterValues.category) return false;
           if (filterValues.flag === "unassigned" && !(isActive(t) && !t.assigned_to)) return false;
-          if (filterValues.flag === "sla" && !(isActive(t) && (t.escalated || t.is_response_overdue))) return false;
+          if (filterValues.flag === "sla" && !(isActive(t) && (t.escalated || t.is_response_overdue || t.assignment_escalated || t.due_date_escalated))) return false;
           if (filterValues.flag === "overdue" && !(isActive(t) && t.due_date && t.due_date < todayIso)) return false;
           if (filterValues.flag === "in_review" && !["pending_review", "pending_ops_approval", "pending_client_approval"].includes(t.status)) return false;
           if (filterValues.flag === "closed_only" && t.status !== "closed") return false;

@@ -33,18 +33,18 @@ const UserContext = createContext<UserContextValue>({
 
 const WRITE_RULES: Record<string, string[]> = {
   users: ["super_admin"],
-  setup: ["super_admin", "ops_manager"],
-  devices: ["super_admin", "ops_manager"],
-  sites: ["super_admin", "ops_manager"],
-  tickets: ["super_admin", "ops_manager", "supervisor", "technician", "marketing"],
+  setup: ["super_admin", "group_head", "ops_manager"],
+  devices: ["super_admin", "group_head", "ops_manager"],
+  sites: ["super_admin", "group_head", "ops_manager"],
+  tickets: ["super_admin", "group_head", "ops_manager", "supervisor", "technician", "marketing", "marketing_head"],
   teams: ["super_admin"],
-  warranties: ["super_admin", "ops_manager"],
-  maintenance: ["super_admin", "ops_manager", "supervisor", "technician"],
-  inventory: ["super_admin", "ops_manager", "warehouse"],
-  suppliers: ["super_admin", "ops_manager"],
-  clients: ["super_admin", "ops_manager"],
-  procurement: ["super_admin", "ops_manager", "finance"],
-  finance: ["super_admin", "ops_manager", "finance"],
+  warranties: ["super_admin", "group_head", "ops_manager"],
+  maintenance: ["super_admin", "group_head", "ops_manager", "supervisor", "technician"],
+  inventory: ["super_admin", "group_head", "ops_manager", "warehouse"],
+  suppliers: ["super_admin", "group_head", "ops_manager"],
+  clients: ["super_admin", "group_head", "ops_manager"],
+  procurement: ["super_admin", "group_head", "ops_manager", "finance"],
+  finance: ["super_admin", "group_head", "ops_manager", "finance"],
 };
 
 export function UserProvider({ children }: { children: React.ReactNode }) {
