@@ -94,19 +94,21 @@ export default function DashboardPage() {
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [maintenance, setMaintenance] = useState<MaintenanceStats>({ total: 0, completed: 0, in_progress: 0, pending: 0 });
   const [slaBreached, setSlaBreached] = useState(0);
-  const [stock, setStock] = useState<{ id: string; sku: string; material_name: string | null; category_name: string | null; quantity: number; unit: string; reorder_level: number }[]>([]);
+  const [stock, setStock] = useState<{ id: string; sku: string; material_name: string | null; category_name: string | null; quantity: number; unit: string | null; is_low_stock: boolean }[]>([]);
+  const [stockSummary, setStockSummary] = useState<{ total_value: number; total_quantity: number; items: number; low_stock: number } | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function fetchAll() {
       try {
-        const [statsRes, mapRes, alertsRes, maintRes, maintMapRes, stockRes, ticketsRes] = await Promise.allSettled([
+        const [statsRes, mapRes, alertsRes, maintRes, maintMapRes, stockRes, stockSummaryRes, ticketsRes] = await Promise.allSettled([
           api.get("/assets/devices/dashboard_stats/"),
           api.get("/assets/devices/map_data/"),
           api.get("/analytics/alerts/", { params: { page_size: 5, ordering: "-created_at", is_dismissed: false } }),
           api.get("/maintenance/schedules/", { params: { page_size: 1000 } }),
           api.get("/maintenance/schedules/map_data/"),
           api.get("/inventory/items/", { params: { page_size: 6, ordering: "-quantity" } }),
+          api.get("/inventory/items/summary/"),
           api.get("/tickets/", { params: { page_size: 100 } }),
         ]);
 
@@ -115,6 +117,7 @@ export default function DashboardPage() {
         if (maintMapRes.status === "fulfilled") setMaintSites(maintMapRes.value.data);
         if (alertsRes.status === "fulfilled") setAlerts(alertsRes.value.data.results ?? []);
         if (stockRes.status === "fulfilled") setStock(stockRes.value.data.results ?? []);
+        if (stockSummaryRes.status === "fulfilled") setStockSummary(stockSummaryRes.value.data);
         if (ticketsRes.status === "fulfilled") {
           const ts = ticketsRes.value.data.results ?? [];
           setSlaBreached(ts.filter((t: { escalated: boolean; is_response_overdue: boolean }) => t.escalated || t.is_response_overdue).length);
@@ -259,10 +262,22 @@ export default function DashboardPage() {
                 View All
               </Link>
             </div>
+            {stockSummary && (
+              <Link href="/inventory" className="mb-3 flex items-end justify-between rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5 transition-colors hover:bg-primary/10">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Total Stock Value</p>
+                  <p className="text-lg font-bold text-foreground">PKR {Number(stockSummary.total_value).toLocaleString()}</p>
+                </div>
+                <div className="text-right text-[10px] text-muted-foreground">
+                  <p>{stockSummary.total_quantity.toLocaleString()} units · {stockSummary.items} items</p>
+                  {stockSummary.low_stock > 0 && <p className="font-semibold text-red-500">{stockSummary.low_stock} low stock</p>}
+                </div>
+              </Link>
+            )}
             {stock.length > 0 ? (
               <div className="space-y-2">
                 {stock.map((item) => {
-                  const low = item.quantity <= item.reorder_level;
+                  const low = item.is_low_stock;
                   return (
                     <Link key={item.id} href="/inventory" className="flex items-center justify-between gap-2 rounded-lg border border-border/60 px-3 py-2 transition-colors hover:border-primary/40 hover:bg-primary/5">
                       <div className="min-w-0">

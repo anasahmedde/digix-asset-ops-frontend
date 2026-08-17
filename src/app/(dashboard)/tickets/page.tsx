@@ -1060,9 +1060,11 @@ export default function TicketsPage() {
   const [deviceOptions, setDeviceOptions] = useState<{ id: string; label: string }[]>([]);
   const [issueTypes, setIssueTypes] = useState<{ id: string; name: string }[]>([]);
   const [deviceInfo, setDeviceInfo] = useState<{
+    id?: string;
     asset_code: string; display_name?: string; model_name?: string; device_model_name?: string;
     installation_date?: string | null; purchase_date?: string | null; supplier_name?: string | null;
     site_name?: string | null; current_site?: string | null; warranty_status?: string | null;
+    tickets_total?: number; tickets_open?: number;
   } | null>(null);
   const [faultFiles, setFaultFiles] = useState<File[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState("");
@@ -1383,6 +1385,16 @@ export default function TicketsPage() {
                           </span>
                         </>
                       )}
+                      <span className="text-muted-foreground">Previous Tickets</span>
+                      <span className="font-medium text-foreground">
+                        {(deviceInfo.tickets_total ?? 0) > 0 ? (
+                          <Link href={`/tickets?device=${deviceInfo.id}`} className="text-primary hover:underline" onClick={() => setModalMode(null)}>
+                            {deviceInfo.tickets_total} total{(deviceInfo.tickets_open ?? 0) > 0 ? ` · ${deviceInfo.tickets_open} open` : ""} →
+                          </Link>
+                        ) : (
+                          "None — first ticket for this asset"
+                        )}
+                      </span>
                     </div>
                   )}
                 </div>
