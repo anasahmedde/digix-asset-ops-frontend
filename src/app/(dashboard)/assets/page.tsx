@@ -30,6 +30,9 @@ interface Device {
   image: string | null;
   current_site: string | null;
   site_name: string | null;
+  project: string | null;
+  project_name: string | null;
+  components?: AssetComponent[];
   assigned_client: string | null;
   client_name: string | null;
   installation_date: string | null;
@@ -104,6 +107,16 @@ interface DocumentItem {
 }
 
 interface Option { id: string; label: string }
+
+interface AssetComponent {
+  id: string;
+  device: string;
+  name: string;
+  component_type: string;
+  serial_number: string;
+  quantity: number;
+  notes: string;
+}
 
 const STATUSES = [
   { value: "procured", label: "Procured" },
@@ -215,6 +228,7 @@ export default function AssetsPage() {
   const [clients, setClients] = useState<Option[]>([]);
   const [suppliers, setSuppliers] = useState<Option[]>([]);
   const [technicians, setTechnicians] = useState<Option[]>([]);
+  const [projects, setProjects] = useState<Option[]>([]);
   const [filterValues, setFilterValues] = useState<Record<string, string>>({ status: "", asset_type: "", client: "", site: "", warranty: "", flag: "" });
   const [search, setSearch] = useState("");
   const [imageFiles, setImageFiles] = useState<File[]>([]);
@@ -265,19 +279,21 @@ export default function AssetsPage() {
   }
 
   async function loadOptions() {
-    const [dm, at, st, cl, su, tech] = await Promise.allSettled([
+    const [dm, at, st, cl, su, tech, proj] = await Promise.allSettled([
       api.get("/assets/device-models/", { params: { page_size: 200 } }),
       api.get("/assets/asset-types/", { params: { page_size: 200 } }),
       api.get("/sites/sites/", { params: { page_size: 200 } }),
       api.get("/clients/", { params: { page_size: 200 } }),
       api.get("/suppliers/", { params: { page_size: 200 } }),
       api.get("/accounts/users/", { params: { is_field_staff: true, is_active: true, page_size: 200 } }),
+      api.get("/teams/projects/", { params: { page_size: 200 } }),
     ]);
     if (dm.status === "fulfilled") setDeviceModels((dm.value.data.results ?? dm.value.data).map((m: { id: string; name: string; brand_name?: string }) => ({ id: m.id, label: m.brand_name ? `${m.brand_name} ${m.name}` : m.name })));
     if (at.status === "fulfilled") setAssetTypes((at.value.data.results ?? at.value.data).map((t: { id: string; name: string }) => ({ id: t.id, label: t.name })));
     if (st.status === "fulfilled") setSites((st.value.data.results ?? st.value.data).map((s: { id: string; name: string }) => ({ id: s.id, label: s.name })));
     if (cl.status === "fulfilled") setClients((cl.value.data.results ?? cl.value.data).map((c: { id: string; name: string }) => ({ id: c.id, label: c.name })));
     if (su.status === "fulfilled") setSuppliers((su.value.data.results ?? su.value.data).map((s: { id: string; name: string }) => ({ id: s.id, label: s.name })));
+    if (proj.status === "fulfilled") setProjects((proj.value.data.results ?? proj.value.data).map((x: { id: string; name: string }) => ({ id: x.id, label: x.name })));
     if (tech.status === "fulfilled") setTechnicians((tech.value.data.results ?? tech.value.data).map((u: { id: string; first_name: string; last_name: string; username: string }) => ({
       id: u.id,
       label: u.first_name || u.last_name ? `${u.first_name} ${u.last_name}`.trim() : u.username,
@@ -302,6 +318,42 @@ export default function AssetsPage() {
       loadOptions();
     } catch (err: unknown) {
       toast.error(getApiError(err, "Failed to load device details"));
+    }
+  }
+
+  async function refreshDetail(deviceId: string) {
+    try {
+      const { data } = await api.get(`/assets/devices/${deviceId}/`);
+      setDetailView(data);
+    } catch { /* keep stale view */ }
+  }
+
+  async function handleAddComponent(e: React.FormEvent<HTMLFormElement>, deviceId: string) {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    try {
+      await api.post("/assets/components/", {
+        device: deviceId,
+        name: fd.get("comp_name"),
+        component_type: fd.get("comp_type") || "",
+        serial_number: fd.get("comp_serial") || "",
+        quantity: Number(fd.get("comp_qty") || 1),
+      });
+      (e.target as HTMLFormElement).reset();
+      toast.success("Component added");
+      refreshDetail(deviceId);
+    } catch (err: unknown) {
+      toast.error(getApiError(err, "Failed to add component"));
+    }
+  }
+
+  async function handleDeleteComponent(compId: string, deviceId: string) {
+    try {
+      await api.delete(`/assets/components/${compId}/`);
+      toast.success("Component removed");
+      refreshDetail(deviceId);
+    } catch (err: unknown) {
+      toast.error(getApiError(err, "Failed to remove component"));
     }
   }
 
@@ -374,6 +426,7 @@ export default function AssetsPage() {
       notes: fd.get("notes"),
       current_site: fd.get("current_site") || null,
       assigned_client: fd.get("assigned_client") || null,
+      project: fd.get("project") || null,
       assigned_technician: fd.get("assigned_technician") || null,
       supplier: fd.get("supplier") || null,
       purchase_date: fd.get("purchase_date") || null,
@@ -580,6 +633,57 @@ export default function AssetsPage() {
                     <div>
                       <h4 className="text-sm font-semibold text-foreground mb-3">Asset Lifecycle</h4>
                       <LifecycleStepper status={d.status} />
+                    </div>
+                    <div>
+                      <div className="mb-3 flex items-center justify-between">
+                        <h4 className="text-sm font-semibold text-foreground">Components</h4>
+                        {d.project_name && (
+                          <span className="text-xs text-muted-foreground">Project: <span className="font-medium text-foreground">{d.project_name}</span></span>
+                        )}
+                      </div>
+                      {(d.components ?? []).length > 0 ? (
+                        <div className="overflow-x-auto rounded-xl border border-border">
+                          <table className="w-full text-xs">
+                            <thead>
+                              <tr className="border-b border-border bg-secondary/50 text-left text-muted-foreground">
+                                <th className="px-3 py-2 font-medium">Component</th>
+                                <th className="px-3 py-2 font-medium">Type</th>
+                                <th className="px-3 py-2 font-medium">Serial #</th>
+                                <th className="px-3 py-2 font-medium">Qty</th>
+                                {canEdit && <th className="px-3 py-2" />}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {(d.components ?? []).map((cmp) => (
+                                <tr key={cmp.id} className="border-b border-border/60 last:border-0">
+                                  <td className="px-3 py-2 font-medium text-foreground">{cmp.name}</td>
+                                  <td className="px-3 py-2 text-muted-foreground">{cmp.component_type || "—"}</td>
+                                  <td className="px-3 py-2 font-mono text-muted-foreground">{cmp.serial_number || "—"}</td>
+                                  <td className="px-3 py-2 text-foreground">×{cmp.quantity}</td>
+                                  {canEdit && (
+                                    <td className="px-3 py-2 text-right">
+                                      <button onClick={() => handleDeleteComponent(cmp.id, d.id)} className="text-muted-foreground transition-colors hover:text-destructive" title="Remove component">
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                      </button>
+                                    </td>
+                                  )}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">No components recorded — single-unit asset.</p>
+                      )}
+                      {canEdit && (
+                        <form onSubmit={(e) => handleAddComponent(e, d.id)} className="mt-2 flex flex-wrap items-end gap-2">
+                          <input name="comp_name" required placeholder="Component name (e.g. SMD Cabinet P3.9)" className="h-8 w-56 rounded-lg border border-border bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground" />
+                          <input name="comp_type" placeholder="Type" className="h-8 w-28 rounded-lg border border-border bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground" />
+                          <input name="comp_serial" placeholder="Serial #" className="h-8 w-32 rounded-lg border border-border bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground" />
+                          <input name="comp_qty" type="number" min={1} defaultValue={1} className="h-8 w-16 rounded-lg border border-border bg-background px-2 text-xs text-foreground" />
+                          <button type="submit" className="h-8 rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90">Add</button>
+                        </form>
+                      )}
                     </div>
                     <div>
                       <h4 className="text-sm font-semibold text-foreground mb-3">Service History</h4>
@@ -928,13 +1032,13 @@ export default function AssetsPage() {
             <HardDrive className="h-5 w-5 text-primary" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-foreground">Device Registry</h1>
-            <p className="text-sm text-muted-foreground">Manage all devices from procurement to retirement</p>
+            <h1 className="text-2xl font-bold text-foreground">Asset Registry</h1>
+            <p className="text-sm text-muted-foreground">Manage all assets from procurement to retirement</p>
           </div>
         </div>
         {canEdit && (
           <button onClick={openCreate} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">
-            <Plus className="h-4 w-4" /> Add Device
+            <Plus className="h-4 w-4" /> Register Asset
           </button>
         )}
       </div>
@@ -991,8 +1095,8 @@ export default function AssetsPage() {
       ) : devices.length === 0 ? (
         <div className="rounded-xl border border-border bg-card p-12 text-center">
           <HardDrive className="mx-auto h-12 w-12 text-muted-foreground/30" />
-          <h3 className="mt-4 text-lg font-semibold text-foreground">No devices registered</h3>
-          <p className="mt-2 text-sm text-muted-foreground">Register your first device to start tracking your asset fleet.</p>
+          <h3 className="mt-4 text-lg font-semibold text-foreground">No assets registered</h3>
+          <p className="mt-2 text-sm text-muted-foreground">Register your first asset to start tracking your fleet.</p>
         </div>
       ) : (
         <div className="rounded-xl border border-border bg-card overflow-hidden">
@@ -1000,7 +1104,7 @@ export default function AssetsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
-                  <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Device</th>
+                  <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Asset Code</th>
                   <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Name</th>
                   <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Serial #</th>
                   <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Model</th>
@@ -1063,7 +1167,7 @@ export default function AssetsPage() {
       )}
 
       {/* Create/Edit Modal */}
-      <Modal open={!!modalMode} onClose={closeModal} title={modalMode === "create" ? "Register New Device" : "Edit Device"} size="xl">
+      <Modal open={!!modalMode} onClose={closeModal} title={modalMode === "create" ? "Register New Asset" : "Edit Asset"} size="xl">
         <form onSubmit={handleSubmit} className="max-h-[70vh] space-y-4 overflow-y-auto pr-1">
           {modalMode === "edit" && selected && (
             <div className="space-y-1.5">
@@ -1167,6 +1271,13 @@ export default function AssetsPage() {
                 <select id="assigned_technician" name="assigned_technician" defaultValue={selected?.assigned_technician ?? ""} className={inputClass}>
                   <option value="">None</option>
                   {technicians.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="project" className={labelClass}>Project (client order)</label>
+                <select id="project" name="project" defaultValue={selected?.project ?? ""} className={inputClass}>
+                  <option value="">None</option>
+                  {projects.map((pr) => <option key={pr.id} value={pr.id}>{pr.label}</option>)}
                 </select>
               </div>
               <div className="space-y-1.5">
