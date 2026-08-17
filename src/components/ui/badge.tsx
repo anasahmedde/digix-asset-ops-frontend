@@ -45,6 +45,7 @@ const STATUS_MAP: Record<string, BadgeVariant> = {
   in_progress: "warning",
   at_risk: "warning",
   under_maintenance: "warning",
+  client_property: "info",
   pending: "warning",
   delayed: "error",
   decommissioned: "error",

@@ -18,6 +18,7 @@ const STATUS_META: Record<string, { color: string; label: string; pulse?: boolea
   installed:          { color: "#06b6d4", label: "Installed",          pulse: true },
   in_stock:           { color: "#6366f1", label: "In Stock" },
   under_maintenance:  { color: "#f59e0b", label: "Under Maintenance",  pulse: true },
+  client_property:    { color: "#14b8a6", label: "Client Property" },
   procured:           { color: "#8b5cf6", label: "Procured" },
   assigned:           { color: "#3b82f6", label: "Assigned" },
   decommissioned:     { color: "#ef4444", label: "Decommissioned" },
@@ -34,18 +35,25 @@ const MAINT_TYPE_META: Record<string, { color: string; label: string }> = {
 
 const iconCache = new Map<string, L.DivIcon>();
 
-function getDeviceIcon(status: string, hasIssues = false): L.DivIcon {
-  const key = `device-${status}${hasIssues ? "-issues" : ""}`;
+// One marker per device: an open ticket outranks maintenance, which outranks the
+// lifecycle status — so a device can never render as a healthy dot while broken.
+type DeviceMarkerVariant = "plain" | "issue" | "maint";
+
+const WARN_SVG = `<svg class="map-dot-icon" viewBox="0 0 20 20" fill="white"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>`;
+const WRENCH_SVG = `<svg class="map-dot-icon" viewBox="0 0 16 16" fill="white"><path d="M14.25 11.75l-5.5-5.5a3.48 3.48 0 00-.88-3.55 3.5 3.5 0 00-4.65-.27L5.75 5l-1.5 1.5-2.53-2.53a3.5 3.5 0 004.63 4.9l5.5 5.5a.5.5 0 00.7 0l1.7-1.72a.5.5 0 000-.7z"/></svg>`;
+
+function getDeviceIcon(status: string, variant: DeviceMarkerVariant = "plain"): L.DivIcon {
+  const key = `device-${status}-${variant}`;
   if (iconCache.has(key)) return iconCache.get(key)!;
   const meta = STATUS_META[status] ?? { color: "#94a3b8", pulse: false };
-  const color = hasIssues ? "#ef4444" : meta.color;
-  const pulse = hasIssues || meta.pulse;
-  const html = hasIssues
-    ? `<span class="map-dot map-dot--pulse" style="--dot-color:${color}">
-  <svg class="map-dot-icon" viewBox="0 0 20 20" fill="white"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
-</span>`
-    : `<span class="map-dot${pulse ? " map-dot--pulse" : ""}" style="--dot-color:${color}"></span>`;
-  const icon = L.divIcon({ html, className: "map-dot-wrap", iconSize: hasIssues ? [26, 26] : [20, 20], iconAnchor: hasIssues ? [13, 13] : [10, 10], popupAnchor: [0, -12] });
+  const color = variant === "issue" ? "#ef4444" : variant === "maint" ? "#f59e0b" : meta.color;
+  const pulse = variant !== "plain" || meta.pulse;
+  const html =
+    variant === "plain"
+      ? `<span class="map-dot${pulse ? " map-dot--pulse" : ""}" style="--dot-color:${color}"></span>`
+      : `<span class="map-dot map-dot--pulse${variant === "maint" ? " map-dot--maint" : ""}" style="--dot-color:${color}">${variant === "issue" ? WARN_SVG : WRENCH_SVG}</span>`;
+  const big = variant !== "plain";
+  const icon = L.divIcon({ html, className: "map-dot-wrap", iconSize: big ? [26, 26] : [20, 20], iconAnchor: big ? [13, 13] : [10, 10], popupAnchor: [0, -12] });
   iconCache.set(key, icon);
   return icon;
 }
@@ -263,18 +271,21 @@ function HomeButton({ country }: { country: string }) {
   );
 }
 
-function DeviceMarker({ device, issueMode = false }: { device: MapDevice; issueMode?: boolean }) {
+function DeviceMarker({ device, maint = [], issueMode = false }: { device: MapDevice; maint?: MaintenanceSite[]; issueMode?: boolean }) {
   const [flyTarget, setFlyTarget] = useState<{ lat: number; lng: number } | null>(null);
   const lat = parseFloat(device.current_site__latitude);
   const lng = parseFloat(device.current_site__longitude);
   if (isNaN(lat) || isNaN(lng)) return null;
   const meta = STATUS_META[device.status] ?? { color: "#94a3b8", label: device.status };
   const openTickets = device.open_tickets ?? 0;
+  const hasMaint = maint.length > 0 || device.status === "under_maintenance";
+  const variant: DeviceMarkerVariant =
+    issueMode || openTickets > 0 ? "issue" : hasMaint ? "maint" : "plain";
 
   return (
     <>
       {flyTarget && <FlyTo lat={flyTarget.lat} lng={flyTarget.lng} />}
-      <Marker position={[lat, lng]} icon={getDeviceIcon(device.status, issueMode)} eventHandlers={{ click: () => setFlyTarget({ lat, lng }) }}>
+      <Marker position={[lat, lng]} icon={getDeviceIcon(device.status, variant)} eventHandlers={{ click: () => setFlyTarget({ lat, lng }) }}>
         <Popup className="device-popup" closeButton={false} autoPan maxWidth={280} minWidth={220}>
           <div className="dp-card">
             <div className="dp-header">
@@ -286,11 +297,24 @@ function DeviceMarker({ device, issueMode = false }: { device: MapDevice; issueM
             {openTickets > 0 && (
               <div className="dp-meta"><span style={{ color: "#dc2626", fontWeight: 600 }}>⚠ {openTickets} open ticket{openTickets > 1 ? "s" : ""}</span></div>
             )}
+            {maint.length > 0 && (
+              <div className="dp-meta">
+                <span style={{ color: "#d97706", fontWeight: 600 }}>
+                  🔧 {maint[0].title}{maint[0].next_due ? ` · due ${new Date(maint[0].next_due).toLocaleDateString()}` : ""}{maint.length > 1 ? ` (+${maint.length - 1} more)` : ""}
+                </span>
+              </div>
+            )}
             <div className="dp-actions">
               {openTickets > 0 && (
                 <a href={`/tickets?device=${device.id}`} className="dp-link dp-link--warn">
                   <svg viewBox="0 0 20 20" fill="currentColor" className="dp-link-icon"><path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd"/></svg>
                   View Open Tickets ({openTickets})
+                </a>
+              )}
+              {maint.length > 0 && (
+                <a href={`/maintenance?schedule=${maint[0].id}`} className="dp-link dp-link--warn">
+                  <svg viewBox="0 0 16 16" fill="currentColor" className="dp-link-icon"><path d="M14.25 11.75l-5.5-5.5a3.48 3.48 0 00-.88-3.55 3.5 3.5 0 00-4.65-.27L5.75 5l-1.5 1.5-2.53-2.53a3.5 3.5 0 004.63 4.9l5.5 5.5a.5.5 0 00.7 0l1.7-1.72a.5.5 0 000-.7z"/></svg>
+                  View Maintenance{maint.length > 1 ? ` (${maint.length})` : ""}
                 </a>
               )}
               <a href={`/tickets?create=1&device=${device.id}`} className="dp-link dp-link--primary">
@@ -385,6 +409,16 @@ export default function StatusMap({ devices, maintenanceSites = [], height = "50
     [filteredDevices],
   );
 
+  const maintBySite = useMemo(() => {
+    const m = new Map<string, MaintenanceSite[]>();
+    filteredMaint.forEach((s) => {
+      const list = m.get(s.site__id) ?? [];
+      list.push(s);
+      m.set(s.site__id, list);
+    });
+    return m;
+  }, [filteredMaint]);
+
   return (
     <div className={`map-wrapper ${className ?? ""}`} style={{ height, position: "relative" }}>
       <MapContainer
@@ -407,7 +441,7 @@ export default function StatusMap({ devices, maintenanceSites = [], height = "50
         <CountryLock country={selectedCountry} />
         <HomeButton country={selectedCountry} />
         {activeLayer === "devices" && filteredDevices.map((device) => (
-          <DeviceMarker key={`device-${device.id}`} device={device} />
+          <DeviceMarker key={`device-${device.id}`} device={device} maint={maintBySite.get(device.current_site__id)} />
         ))}
         {activeLayer === "issues" && issueDevices.map((device) => (
           <DeviceMarker key={`issue-${device.id}`} device={device} issueMode />

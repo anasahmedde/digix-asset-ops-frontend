@@ -106,16 +106,66 @@ interface Option { id: string; label: string }
 
 const STATUSES = [
   { value: "procured", label: "Procured" },
+  { value: "in_transit", label: "In Transit" },
   { value: "in_stock", label: "In Stock" },
   { value: "assigned", label: "Assigned" },
   { value: "installed", label: "Installed" },
   { value: "active", label: "Active" },
   { value: "under_maintenance", label: "Under Maintenance" },
+  { value: "client_property", label: "Client Property" },
   { value: "decommissioned", label: "Decommissioned" },
   { value: "lost_stolen", label: "Lost/Stolen" },
   { value: "rma", label: "RMA" },
-  { value: "in_transit", label: "In Transit" },
 ];
+
+// The canonical procure→decommission chain, in lifecycle order (the client's
+// requested lifecycle view). lost_stolen / rma sit outside the main flow.
+const LIFECYCLE_CHAIN = [
+  "procured", "in_transit", "in_stock", "assigned", "installed",
+  "active", "under_maintenance", "client_property", "decommissioned",
+] as const;
+
+function LifecycleStepper({ status }: { status: string }) {
+  const idx = LIFECYCLE_CHAIN.indexOf(status as (typeof LIFECYCLE_CHAIN)[number]);
+  const offTrack = idx === -1;
+  const label = (s: string) => STATUSES.find((x) => x.value === s)?.label ?? s;
+  return (
+    <div>
+      <div className="flex items-center gap-0 overflow-x-auto pb-1">
+        {LIFECYCLE_CHAIN.map((step, i) => {
+          const done = !offTrack && i < idx;
+          const current = !offTrack && i === idx;
+          return (
+            <div key={step} className="flex shrink-0 items-center">
+              {i > 0 && <div className={`h-0.5 w-4 sm:w-6 ${done || current ? "bg-primary" : "bg-border"}`} />}
+              <div className="flex flex-col items-center gap-1 px-0.5">
+                <div
+                  className={`flex h-5 w-5 items-center justify-center rounded-full text-[9px] font-bold ${
+                    current
+                      ? "bg-primary text-primary-foreground ring-2 ring-primary/30"
+                      : done
+                        ? "bg-primary/20 text-primary"
+                        : "bg-secondary text-muted-foreground"
+                  }`}
+                >
+                  {done ? "✓" : i + 1}
+                </div>
+                <span className={`whitespace-nowrap text-[9px] ${current ? "font-semibold text-primary" : "text-muted-foreground"}`}>
+                  {label(step)}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {offTrack && (
+        <p className="mt-1 text-xs font-medium text-red-500">
+          Out of normal lifecycle: {label(status)}
+        </p>
+      )}
+    </div>
+  );
+}
 
 const inputClass =
   "flex h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors";
@@ -520,6 +570,10 @@ export default function AssetsPage() {
                 {detailTab === "overview" && (
                   <div className="space-y-6">
                     <div>
+                      <h4 className="text-sm font-semibold text-foreground mb-3">Asset Lifecycle</h4>
+                      <LifecycleStepper status={d.status} />
+                    </div>
+                    <div>
                       <h4 className="text-sm font-semibold text-foreground mb-3">Service History</h4>
                       <div className="grid gap-3 sm:grid-cols-2">
                         <div className="rounded-xl border border-border p-4">
@@ -905,6 +959,7 @@ export default function AssetsPage() {
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
                   <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Device</th>
+                  <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Name</th>
                   <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Serial #</th>
                   <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Model</th>
                   <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Type</th>
@@ -924,6 +979,7 @@ export default function AssetsPage() {
                         <span className="font-mono text-sm font-medium text-primary">{d.asset_code}</span>
                       </div>
                     </td>
+                    <td className="px-5 py-3 text-foreground">{d.display_name || "—"}</td>
                     <td className="px-5 py-3 text-muted-foreground">{d.serial_number}</td>
                     <td className="px-5 py-3 text-foreground">{d.device_model_name || "—"}</td>
                     <td className="px-5 py-3 text-muted-foreground">{d.asset_type_name || "—"}</td>
