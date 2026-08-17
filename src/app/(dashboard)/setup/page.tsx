@@ -28,6 +28,27 @@ const ENTITY_OPTIONS = [
 ];
 
 const CURRENCY_OPTIONS = ["PKR", "AED", "SAR", "QAR", "USD", "EUR", "GBP"].map((c) => ({ value: c, label: c }));
+
+const ROLE_LABELS: Record<string, string> = {
+  super_admin: "Super Admin",
+  group_head: "Group Head",
+  ops_manager: "Operations Head",
+  marketing_head: "Marketing Head",
+  supervisor: "Supervisor",
+  technician: "Technician",
+  marketing: "Marketing",
+  finance: "Finance",
+  warehouse: "Warehouse Staff",
+  client_viewer: "Client Viewer",
+};
+const ESCALATION_ROLE_OPTIONS = ["group_head", "ops_manager", "marketing_head", "supervisor", "super_admin"].map(
+  (r) => ({ value: r, label: ROLE_LABELS[r] }),
+);
+const ESCALATION_TRIGGER_OPTIONS = [
+  { value: "assignment_sla", label: "Unassigned beyond window" },
+  { value: "response_sla", label: "No response within SLA" },
+  { value: "due_date", label: "Past due date" },
+];
 const TERMS_CATEGORY_OPTIONS = [
   { value: "work_order", label: "Work Order" },
   { value: "safety", label: "Safety Instructions" },
@@ -199,6 +220,28 @@ const SECTIONS: SectionConfig[] = [
     fields: [
       { name: "label", label: "Label", required: true, placeholder: "e.g. 1 Year" },
       { name: "months", label: "Duration (months)", type: "number", required: true, default: 12 },
+      { name: "is_active", label: "Active", type: "checkbox", default: true },
+    ],
+  },
+  {
+    key: "escalation",
+    label: "Escalation",
+    endpoint: "/setup/escalation-policies/",
+    singular: "Escalation Policy",
+    labelKey: "trigger_display",
+    searchKeys: ["trigger"],
+    columns: [
+      { key: "trigger_display", label: "Trigger", className: "font-medium text-foreground" },
+      { key: "hours", label: "Window", render: (r) => (r.hours != null && r.hours !== "" ? `${r.hours}h` : "Per-priority SLA") },
+      { key: "escalate_to_role", label: "Escalates To", render: (r) => ROLE_LABELS[String(r.escalate_to_role)] ?? String(r.escalate_to_role ?? "—") },
+      { key: "also_notify_role", label: "Also Notifies", render: (r) => (r.also_notify_role ? ROLE_LABELS[String(r.also_notify_role)] ?? String(r.also_notify_role) : "—") },
+      { key: "is_active", label: "Status", render: activeCell },
+    ],
+    fields: [
+      { name: "trigger", label: "Trigger", type: "select", options: ESCALATION_TRIGGER_OPTIONS, required: true, immutable: true },
+      { name: "hours", label: "Window (hours)", type: "number", help: "Assignment trigger: hours a ticket may sit unassigned (default 24). Leave blank for the response-SLA trigger (per-priority windows) and due-date trigger." },
+      { name: "escalate_to_role", label: "Escalate To", type: "select", options: ESCALATION_ROLE_OPTIONS, default: "group_head", required: true },
+      { name: "also_notify_role", label: "Also Notify", type: "select", options: [{ value: "", label: "None" }, ...ESCALATION_ROLE_OPTIONS], default: "ops_manager" },
       { name: "is_active", label: "Active", type: "checkbox", default: true },
     ],
   },

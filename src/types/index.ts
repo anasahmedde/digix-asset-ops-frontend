@@ -22,7 +22,9 @@ export interface User {
 
 export type UserRole =
   | "super_admin"
+  | "group_head"
   | "ops_manager"
+  | "marketing_head"
   | "supervisor"
   | "technician"
   | "finance"

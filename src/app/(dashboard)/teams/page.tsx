@@ -16,6 +16,7 @@ interface User {
   last_name: string;
   full_name: string;
   role: string;
+  job_title?: string;
   phone: string;
   is_field_staff: boolean;
   is_active: boolean;
@@ -24,7 +25,9 @@ interface User {
 
 const ROLES = [
   { value: "super_admin", label: "Super Admin" },
-  { value: "ops_manager", label: "Operations Manager" },
+  { value: "group_head", label: "Group Head" },
+  { value: "ops_manager", label: "Operations Head" },
+  { value: "marketing_head", label: "Marketing Head" },
   { value: "supervisor", label: "Supervisor" },
   { value: "technician", label: "Technician" },
   { value: "marketing", label: "Marketing" },
@@ -101,6 +104,7 @@ export default function TeamsPage() {
         first_name: fd.get("first_name"),
         last_name: fd.get("last_name"),
         role: fd.get("role"),
+        job_title: fd.get("job_title"),
         phone: fd.get("phone"),
         is_field_staff: fd.get("is_field_staff") === "on",
       });
@@ -132,6 +136,7 @@ export default function TeamsPage() {
         last_name: fd.get("last_name"),
         email: fd.get("email"),
         role: fd.get("role"),
+        job_title: fd.get("job_title"),
         phone: fd.get("phone"),
         is_field_staff: fd.get("is_field_staff") === "on",
       });
@@ -376,6 +381,10 @@ export default function TeamsPage() {
                   <div className="space-y-1.5">
                     <label htmlFor="phone" className={labelClass}>Phone</label>
                     <input id="phone" name="phone" type="tel" defaultValue={selected?.phone ?? ""} className={inputClass} />
+                  </div>
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <label htmlFor="job_title" className={labelClass}>Job Title (display only)</label>
+                    <input id="job_title" name="job_title" defaultValue={selected?.job_title ?? ""} className={inputClass} placeholder="e.g. Production Supervisor, Execution Supervisor" />
                   </div>
                 </div>
 
