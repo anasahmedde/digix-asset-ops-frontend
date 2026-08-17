@@ -1,6 +1,6 @@
 "use client";
 
-import { Pencil, Plus, Shield, Trash2, X } from "lucide-react";
+import { Pencil, Plus, RotateCcw, Shield, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -16,7 +16,11 @@ interface Warranty {
   supplier: string | null;
   supplier_name: string | null;
   warranty_type: string;
+  warranty_type_display?: string;
   status: string;
+  status_display?: string;
+  months?: number | null;
+  reissued_from?: string | null;
   start_date: string;
   end_date: string;
   coverage_details: string;
@@ -41,14 +45,24 @@ const tdClass = "px-5 py-3.5";
 const STATUS_BADGES: Record<string, string> = {
   active: "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20",
   expired: "bg-red-500/10 text-red-400 ring-red-500/20",
+  reissued: "bg-blue-500/10 text-blue-400 ring-blue-500/20",
   claimed: "bg-amber-500/10 text-amber-400 ring-amber-500/20",
   void: "bg-secondary/500/10 text-muted-foreground ring-gray-500/20",
+};
+
+const STATUS_LABELS: Record<string, string> = {
+  active: "Active",
+  expired: "Warranty Completed",
+  reissued: "Reissued",
+  claimed: "Claimed",
+  void: "Void",
 };
 
 const TYPE_BADGES: Record<string, string> = {
   manufacturer: "bg-blue-500/10 text-blue-400 ring-blue-500/20",
   extended: "bg-purple-500/10 text-purple-400 ring-purple-500/20",
   supplier: "bg-teal-500/10 text-teal-400 ring-teal-500/20",
+  client: "bg-cyan-500/10 text-cyan-400 ring-cyan-500/20",
 };
 
 export default function WarrantiesPage() {
@@ -125,6 +139,23 @@ export default function WarrantiesPage() {
     }
   }
 
+  async function handleReissue(w: Warranty) {
+    const raw = window.prompt("Reissue as client warranty for how many months? (3, 6 or 12)", "12");
+    if (raw === null) return;
+    const months = parseInt(raw.trim(), 10);
+    if (![3, 6, 12].includes(months)) {
+      toast.error("Term must be 3, 6 or 12 months.");
+      return;
+    }
+    try {
+      await api.post(`/warranties/${w.id}/reissue/`, { months });
+      toast.success(`Warranty reissued for ${months} months`);
+      fetchWarranties();
+    } catch (err: unknown) {
+      toast.error(getApiError(err, "Failed to reissue warranty"));
+    }
+  }
+
   async function handleDelete(w: Warranty) {
     if (
       !confirm(
@@ -170,7 +201,7 @@ export default function WarrantiesPage() {
 
       <FilterBar
         filters={[
-          { key: "status", label: "Status", options: Object.keys(STATUS_BADGES).map((s) => ({ value: s, label: s.charAt(0).toUpperCase() + s.slice(1) })) },
+          { key: "status", label: "Status", options: Object.keys(STATUS_BADGES).map((s) => ({ value: s, label: STATUS_LABELS[s] ?? s })) },
           { key: "type", label: "Type", options: Object.keys(TYPE_BADGES).map((t) => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) })) },
         ]}
         values={filterValues}
@@ -230,14 +261,14 @@ export default function WarrantiesPage() {
                       <span
                         className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${TYPE_BADGES[w.warranty_type] ?? "bg-secondary/500/10 text-muted-foreground ring-gray-500/20"}`}
                       >
-                        {w.warranty_type}
+                        {w.warranty_type_display ?? w.warranty_type}
                       </span>
                     </td>
                     <td className={tdClass}>
                       <span
                         className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${STATUS_BADGES[w.status] ?? "bg-secondary/500/10 text-muted-foreground ring-gray-500/20"}`}
                       >
-                        {w.status}
+                        {(w.status_display ?? STATUS_LABELS[w.status]) || w.status}{w.months ? ` · ${w.months}mo` : ""}
                       </span>
                     </td>
                     <td className={`${tdClass} text-muted-foreground`}>
@@ -255,6 +286,15 @@ export default function WarrantiesPage() {
                     <td className={tdClass} onClick={(e) => e.stopPropagation()}>
                       {canEdit ? (
                         <div className="flex items-center gap-1">
+                          {["expired", "active"].includes(w.status) && (
+                            <button
+                              onClick={() => handleReissue(w)}
+                              className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-primary"
+                              title="Reissue as client warranty (3/6/12 months)"
+                            >
+                              <RotateCcw className="h-3.5 w-3.5" />
+                            </button>
+                          )}
                           <button
                             onClick={() => { setSelected(w); setModalMode("edit"); }}
                             className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
