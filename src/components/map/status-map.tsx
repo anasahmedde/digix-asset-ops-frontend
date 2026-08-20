@@ -140,6 +140,7 @@ export interface MaintenanceSite {
   maintenance_type: string;
   frequency: string;
   next_due: string | null;
+  device: string | null;
   site__id: string;
   site__name: string;
   site__city: string;
@@ -385,6 +386,7 @@ type ActiveLayer = "devices" | "issues" | "maintenance";
 export default function StatusMap({ devices, maintenanceSites = [], height = "500px", className }: StatusMapProps) {
   const [activeLayer, setActiveLayer] = useState<ActiveLayer>("devices");
   const [selectedCountry, setSelectedCountry] = useState(DEFAULT_COUNTRY);
+  const [showLegend, setShowLegend] = useState(false);
 
   const countries = useMemo(() => {
     const set = new Set<string>();
@@ -409,15 +411,37 @@ export default function StatusMap({ devices, maintenanceSites = [], height = "50
     [filteredDevices],
   );
 
-  const maintBySite = useMemo(() => {
+  // Wrench precision: a schedule that targets a specific device flags only that
+  // device; schedules without a device apply to every device at their site.
+  const maintByDevice = useMemo(() => {
     const m = new Map<string, MaintenanceSite[]>();
     filteredMaint.forEach((s) => {
+      if (!s.device) return;
+      const list = m.get(s.device) ?? [];
+      list.push(s);
+      m.set(s.device, list);
+    });
+    return m;
+  }, [filteredMaint]);
+
+  const siteWideMaint = useMemo(() => {
+    const m = new Map<string, MaintenanceSite[]>();
+    filteredMaint.forEach((s) => {
+      if (s.device) return;
       const list = m.get(s.site__id) ?? [];
       list.push(s);
       m.set(s.site__id, list);
     });
     return m;
   }, [filteredMaint]);
+
+  const maintFor = useCallback(
+    (device: MapDevice) => [
+      ...(maintByDevice.get(device.id) ?? []),
+      ...(siteWideMaint.get(device.current_site__id) ?? []),
+    ],
+    [maintByDevice, siteWideMaint],
+  );
 
   return (
     <div className={`map-wrapper ${className ?? ""}`} style={{ height, position: "relative" }}>
@@ -441,10 +465,10 @@ export default function StatusMap({ devices, maintenanceSites = [], height = "50
         <CountryLock country={selectedCountry} />
         <HomeButton country={selectedCountry} />
         {activeLayer === "devices" && filteredDevices.map((device) => (
-          <DeviceMarker key={`device-${device.id}`} device={device} maint={maintBySite.get(device.current_site__id)} />
+          <DeviceMarker key={`device-${device.id}`} device={device} maint={maintFor(device)} />
         ))}
         {activeLayer === "issues" && issueDevices.map((device) => (
-          <DeviceMarker key={`issue-${device.id}`} device={device} issueMode />
+          <DeviceMarker key={`issue-${device.id}`} device={device} maint={maintFor(device)} issueMode />
         ))}
         {activeLayer === "maintenance" && filteredMaint.map((site) => (
           <MaintenanceMarker key={`maint-${site.id}`} site={site} />
@@ -496,7 +520,51 @@ export default function StatusMap({ devices, maintenanceSites = [], height = "50
             <span className="map-layer-count">{filteredMaint.length}</span>
           </button>
         )}
+        <button
+          onClick={() => setShowLegend((v) => !v)}
+          className={`map-layer-chip ${showLegend ? "map-layer-chip--active" : ""}`}
+          title="What do the markers mean?"
+        >
+          <svg viewBox="0 0 20 20" fill="currentColor" style={{ width: 12, height: 12, flexShrink: 0 }}>
+            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+          </svg>
+          Legend
+        </button>
       </div>
+
+      {showLegend && (
+        <div className="map-legend">
+          <div className="map-legend-row">
+            <span className="map-legend-marker" style={{ background: "#ef4444" }}>!</span>
+            <div>
+              <p className="map-legend-title">Issue</p>
+              <p className="map-legend-desc">Asset has one or more open tickets. Overrides everything else.</p>
+            </div>
+          </div>
+          <div className="map-legend-row">
+            <span className="map-legend-marker" style={{ background: "#f59e0b" }}>🔧</span>
+            <div>
+              <p className="map-legend-title">Maintenance</p>
+              <p className="map-legend-desc">Active maintenance scheduled for this asset (or its site), or status is Under Maintenance. Shown only when there is no open ticket.</p>
+            </div>
+          </div>
+          <div className="map-legend-row">
+            <span className="map-legend-marker map-legend-marker--dot" style={{ background: "#22c55e" }} />
+            <div>
+              <p className="map-legend-title">Status dot</p>
+              <p className="map-legend-desc">No open tickets or maintenance — color shows the asset&apos;s lifecycle status:</p>
+              <div className="map-legend-statuses">
+                {Object.entries(STATUS_META).map(([key, m]) => (
+                  <span key={key} className="map-legend-status">
+                    <span className="map-layer-dot" style={{ background: m.color }} />
+                    {m.label}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
