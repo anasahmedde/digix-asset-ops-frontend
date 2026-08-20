@@ -7,6 +7,7 @@ import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import { SegmentBar, StatTiles } from "@/components/ui/analytics-strip";
+import { CopyButton } from "@/components/ui/copy-button";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { DeviceImage } from "@/components/ui/device-image";
 import { StatusBadge } from "@/components/ui/badge";
@@ -214,6 +215,7 @@ export default function AssetsPage() {
   const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
   const [selected, setSelected] = useState<DeviceDetail | null>(null);
   const [detailView, setDetailView] = useState<DeviceDetail | null>(null);
+  const [returnToDetailId, setReturnToDetailId] = useState<string | null>(null);
   const [detailTab, setDetailTab] = useState("overview");
   const [saving, setSaving] = useState(false);
   const [labelModal, setLabelModal] = useState<{ url: string; format: "qr" | "code128" } | null>(null);
@@ -318,6 +320,13 @@ export default function AssetsPage() {
       setImagePreviews([]);
       setModalMode("edit");
       loadOptions();
+      // The edit modal only exists in the list render; leaving the detail
+      // view mounted would swallow it (Edit appeared to do nothing). Close
+      // detail and remember it so we can return after save/cancel.
+      if (detailView) {
+        setReturnToDetailId(detailView.id);
+        setDetailView(null);
+      }
     } catch (err: unknown) {
       toast.error(getApiError(err, "Failed to load device details"));
     }
@@ -370,7 +379,21 @@ export default function AssetsPage() {
     }
   }
 
-  function closeModal() { setModalMode(null); setSelected(null); setImageFiles([]); setImagePreviews([]); }
+  function closeModal() {
+    setModalMode(null);
+    setSelected(null);
+    setImageFiles([]);
+    setImagePreviews([]);
+    // If the edit was launched from the detail view, take the user back there.
+    if (returnToDetailId) {
+      const id = returnToDetailId;
+      setReturnToDetailId(null);
+      api.get(`/assets/devices/${id}/`).then(({ data }) => {
+        setDetailView(data);
+        fetchRelatedData(id);
+      }).catch(() => { /* stay on list */ });
+    }
+  }
 
   async function generateLabel(deviceId: string, format: "qr" | "code128") {
     setLabelLoading(true);
@@ -570,8 +593,14 @@ export default function AssetsPage() {
                     </div>
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-6 gap-y-3">
-                    <MetaField label="Asset ID" value={d.asset_code} mono />
-                    <MetaField label="Serial Number" value={d.serial_number} />
+                    <div className="flex items-end gap-1">
+                      <MetaField label="Asset ID" value={d.asset_code} mono />
+                      <CopyButton text={d.asset_code} label="asset code" className="mb-0.5" />
+                    </div>
+                    <div className="flex items-end gap-1">
+                      <MetaField label="Serial Number" value={d.serial_number} />
+                      <CopyButton text={d.serial_number} label="serial number" className="mb-0.5" />
+                    </div>
                     <MetaField label="Asset Type" value={d.asset_type_name || d.screen_type || (specs.asset_type as string)} />
                     <MetaField label="Model / Series" value={d.device_model_name} />
                     <MetaField label="Manufacturer" value={d.brand_name} />
@@ -1125,7 +1154,10 @@ export default function AssetsPage() {
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-3">
                         <DeviceImage src={d.image} alt={d.asset_code} size="sm" />
-                        <span className="font-mono text-sm font-medium text-primary">{d.asset_code}</span>
+                        <span className="inline-flex items-center gap-1 font-mono text-sm font-medium text-primary">
+                          {d.asset_code}
+                          <CopyButton text={d.asset_code} label="asset code" />
+                        </span>
                       </div>
                     </td>
                     <td className="px-5 py-3 text-foreground">{d.display_name || "—"}</td>

@@ -272,10 +272,52 @@ function HomeButton({ country }: { country: string }) {
   );
 }
 
-function DeviceMarker({ device, maint = [], issueMode = false }: { device: MapDevice; maint?: MaintenanceSite[]; issueMode?: boolean }) {
+// Several devices usually share one site (identical coordinates), which makes
+// N markers render as a single dot — the layer count then looks wrong. Fan
+// co-located markers out in small rings around the site point so each device
+// stays individually visible and clickable.
+function spreadPositions(devices: MapDevice[]): Map<string, [number, number]> {
+  const bySpot = new Map<string, MapDevice[]>();
+  devices.forEach((d) => {
+    const lat = parseFloat(d.current_site__latitude);
+    const lng = parseFloat(d.current_site__longitude);
+    if (isNaN(lat) || isNaN(lng)) return;
+    const key = `${lat.toFixed(6)},${lng.toFixed(6)}`;
+    const list = bySpot.get(key) ?? [];
+    list.push(d);
+    bySpot.set(key, list);
+  });
+  const out = new Map<string, [number, number]>();
+  bySpot.forEach((group) => {
+    const lat = parseFloat(group[0].current_site__latitude);
+    const lng = parseFloat(group[0].current_site__longitude);
+    if (group.length === 1) {
+      out.set(group[0].id, [lat, lng]);
+      return;
+    }
+    group.forEach((d, i) => {
+      if (i === 0) {
+        out.set(d.id, [lat, lng]);
+        return;
+      }
+      const ring = Math.ceil(i / 8);
+      const slot = (i - 1) % 8;
+      const angle = (slot / 8) * 2 * Math.PI + ring * 0.4;
+      const r = 0.0012 * ring;
+      out.set(d.id, [lat + r * Math.sin(angle), lng + r * Math.cos(angle)]);
+    });
+  });
+  return out;
+}
+
+function hasCoords(d: MapDevice): boolean {
+  return !isNaN(parseFloat(d.current_site__latitude)) && !isNaN(parseFloat(d.current_site__longitude));
+}
+
+function DeviceMarker({ device, position, maint = [], issueMode = false }: { device: MapDevice; position?: [number, number]; maint?: MaintenanceSite[]; issueMode?: boolean }) {
   const [flyTarget, setFlyTarget] = useState<{ lat: number; lng: number } | null>(null);
-  const lat = parseFloat(device.current_site__latitude);
-  const lng = parseFloat(device.current_site__longitude);
+  const lat = position?.[0] ?? parseFloat(device.current_site__latitude);
+  const lng = position?.[1] ?? parseFloat(device.current_site__longitude);
   if (isNaN(lat) || isNaN(lng)) return null;
   const meta = STATUS_META[device.status] ?? { color: "#94a3b8", label: device.status };
   const openTickets = device.open_tickets ?? 0;
@@ -396,8 +438,10 @@ export default function StatusMap({ devices, maintenanceSites = [], height = "50
     return Array.from(set).sort();
   }, [devices, maintenanceSites]);
 
+  // Count only devices that can actually be plotted, so the chip counts
+  // always match the markers on the map.
   const filteredDevices = useMemo(
-    () => devices.filter((d) => d.current_site__country === selectedCountry),
+    () => devices.filter((d) => d.current_site__country === selectedCountry && hasCoords(d)),
     [devices, selectedCountry],
   );
 
@@ -410,6 +454,9 @@ export default function StatusMap({ devices, maintenanceSites = [], height = "50
     () => filteredDevices.filter((d) => (d.open_tickets ?? 0) > 0),
     [filteredDevices],
   );
+
+  const devicePositions = useMemo(() => spreadPositions(filteredDevices), [filteredDevices]);
+  const issuePositions = useMemo(() => spreadPositions(issueDevices), [issueDevices]);
 
   // Wrench precision: a schedule that targets a specific device flags only that
   // device; schedules without a device apply to every device at their site.
@@ -465,10 +512,10 @@ export default function StatusMap({ devices, maintenanceSites = [], height = "50
         <CountryLock country={selectedCountry} />
         <HomeButton country={selectedCountry} />
         {activeLayer === "devices" && filteredDevices.map((device) => (
-          <DeviceMarker key={`device-${device.id}`} device={device} maint={maintFor(device)} />
+          <DeviceMarker key={`device-${device.id}`} device={device} position={devicePositions.get(device.id)} maint={maintFor(device)} />
         ))}
         {activeLayer === "issues" && issueDevices.map((device) => (
-          <DeviceMarker key={`issue-${device.id}`} device={device} maint={maintFor(device)} issueMode />
+          <DeviceMarker key={`issue-${device.id}`} device={device} position={issuePositions.get(device.id)} maint={maintFor(device)} issueMode />
         ))}
         {activeLayer === "maintenance" && filteredMaint.map((site) => (
           <MaintenanceMarker key={`maint-${site.id}`} site={site} />

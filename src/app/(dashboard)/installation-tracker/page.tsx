@@ -7,6 +7,7 @@ import {
   FileText,
   Layers,
   Play,
+  Plus,
   RotateCcw,
   Download,
   X,
@@ -18,6 +19,7 @@ import { toast } from "sonner";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
+import { CopyButton } from "@/components/ui/copy-button";
 import { DeviceImage } from "@/components/ui/device-image";
 import { StatusBadge } from "@/components/ui/badge";
 import { FilterBar } from "@/components/ui/filter-bar";
@@ -109,6 +111,15 @@ const DELAY_CAUSES = [
   { value: "other", label: "Other" },
 ];
 
+interface Option {
+  id: string;
+  label: string;
+}
+
+const createInputClass =
+  "h-9 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none";
+const createLabelClass = "mb-1 block text-xs font-medium text-muted-foreground";
+
 // ProgressStepper has no "not_started" style; map it to its "pending" look.
 function stepperStatus(status: string): "completed" | "in_progress" | "pending" | "skipped" {
   if (status === "completed" || status === "in_progress" || status === "skipped") return status;
@@ -155,6 +166,13 @@ export default function InstallationTrackerPage() {
   const [delayCause, setDelayCause] = useState("client");
   const [delayNote, setDelayNote] = useState("");
   const [savingDelay, setSavingDelay] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [deviceOptions, setDeviceOptions] = useState<Option[]>([]);
+  const [siteOptions, setSiteOptions] = useState<Option[]>([]);
+  const [installerOptions, setInstallerOptions] = useState<Option[]>([]);
+  const [zoneOptions, setZoneOptions] = useState<Option[]>([]);
+  const [createSite, setCreateSite] = useState("");
 
   const isManager = canWrite("sites");
 
@@ -238,6 +256,66 @@ export default function InstallationTrackerPage() {
       toast.error(getApiError(err, "Failed to log delay"));
     } finally {
       setSavingDelay(false);
+    }
+  }
+
+  async function openCreate() {
+    setCreateSite("");
+    setZoneOptions([]);
+    setCreateOpen(true);
+    const [dev, sites, users] = await Promise.allSettled([
+      api.get("/assets/devices/", { params: { page_size: 1000 } }),
+      api.get("/sites/sites/", { params: { page_size: 1000 } }),
+      api.get("/accounts/users/", { params: { is_field_staff: true, is_active: true, page_size: 200 } }),
+    ]);
+    if (dev.status === "fulfilled")
+      setDeviceOptions((dev.value.data.results ?? []).map((d: { id: string; asset_code: string; display_name: string | null }) => ({
+        id: d.id,
+        label: d.display_name ? `${d.asset_code} — ${d.display_name}` : d.asset_code,
+      })));
+    if (sites.status === "fulfilled")
+      setSiteOptions((sites.value.data.results ?? []).map((s: { id: string; name: string }) => ({ id: s.id, label: s.name })));
+    if (users.status === "fulfilled")
+      setInstallerOptions((users.value.data.results ?? []).map((u: { id: string; first_name: string; last_name: string; username: string }) => ({
+        id: u.id,
+        label: u.first_name || u.last_name ? `${u.first_name} ${u.last_name}`.trim() : u.username,
+      })));
+  }
+
+  useEffect(() => {
+    if (!createSite) {
+      setZoneOptions([]);
+      return;
+    }
+    api
+      .get("/sites/zones/", { params: { site: createSite, page_size: 200 } })
+      .then(({ data }) => setZoneOptions((data.results ?? []).map((z: { id: string; name: string }) => ({ id: z.id, label: z.name }))))
+      .catch(() => setZoneOptions([]));
+  }, [createSite]);
+
+  async function handleCreate(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setCreating(true);
+    const fd = new FormData(e.currentTarget);
+    try {
+      const { data } = await api.post("/sites/installations/", {
+        device: fd.get("device"),
+        site: fd.get("site"),
+        zone: fd.get("zone") || null,
+        installed_by: fd.get("installed_by") || null,
+        installed_at: new Date(String(fd.get("installed_at"))).toISOString(),
+        due_date: fd.get("due_date") || null,
+        position_label: fd.get("position_label") || "",
+        notes: fd.get("notes") || "",
+      });
+      toast.success("Installation created");
+      setCreateOpen(false);
+      await refreshList();
+      loadDetail(data.id);
+    } catch (err) {
+      toast.error(getApiError(err, "Failed to create installation"));
+    } finally {
+      setCreating(false);
     }
   }
 
@@ -662,14 +740,24 @@ export default function InstallationTrackerPage() {
             <p className="text-sm text-muted-foreground">Track installation progress in different stages</p>
           </div>
         </div>
-        {filtered.length > 0 && (
-          <button
-            onClick={() => exportCsv(filtered)}
-            className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-          >
-            <Download className="h-4 w-4" /> Export CSV
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {filtered.length > 0 && (
+            <button
+              onClick={() => exportCsv(filtered)}
+              className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            >
+              <Download className="h-4 w-4" /> Export CSV
+            </button>
+          )}
+          {isManager && (
+            <button
+              onClick={openCreate}
+              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition-all"
+            >
+              <Plus className="h-4 w-4" /> New Installation
+            </button>
+          )}
+        </div>
       </div>
 
       <FilterBar
@@ -724,7 +812,10 @@ export default function InstallationTrackerPage() {
                       className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30"
                     >
                       <td className="px-4 py-3.5">
-                        <span className="font-mono font-medium text-primary">{inst.device_code}</span>
+                        <span className="inline-flex items-center gap-1 font-mono font-medium text-primary">
+                          {inst.device_code}
+                          <CopyButton text={inst.device_code} label="asset code" />
+                        </span>
                         {inst.asset_name && <span className="block text-xs text-muted-foreground">{inst.asset_name}</span>}
                       </td>
                       <td className="px-4 py-3.5 text-foreground">{inst.client_names.length > 0 ? inst.client_names.join(", ") : "—"}</td>
@@ -766,6 +857,93 @@ export default function InstallationTrackerPage() {
                 })}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* New Installation modal */}
+      {createOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg rounded-xl border border-border bg-card p-5">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-foreground">New Installation</h3>
+              <button onClick={() => setCreateOpen(false)} className="text-muted-foreground hover:text-foreground">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <form onSubmit={handleCreate} className="space-y-3">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="sm:col-span-2">
+                  <label htmlFor="ci-device" className={createLabelClass}>Asset</label>
+                  <select id="ci-device" name="device" required defaultValue="" className={createInputClass}>
+                    <option value="">Select an asset</option>
+                    {deviceOptions.map((d) => (
+                      <option key={d.id} value={d.id}>{d.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="ci-site" className={createLabelClass}>Site</label>
+                  <select id="ci-site" name="site" required value={createSite} onChange={(e) => setCreateSite(e.target.value)} className={createInputClass}>
+                    <option value="">Select a site</option>
+                    {siteOptions.map((s) => (
+                      <option key={s.id} value={s.id}>{s.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="ci-zone" className={createLabelClass}>Zone (optional)</label>
+                  <select id="ci-zone" name="zone" defaultValue="" className={createInputClass} disabled={zoneOptions.length === 0}>
+                    <option value="">{zoneOptions.length === 0 ? "No zones for this site" : "None"}</option>
+                    {zoneOptions.map((z) => (
+                      <option key={z.id} value={z.id}>{z.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="ci-installer" className={createLabelClass}>Assigned Installer</label>
+                  <select id="ci-installer" name="installed_by" defaultValue="" className={createInputClass}>
+                    <option value="">Unassigned</option>
+                    {installerOptions.map((u) => (
+                      <option key={u.id} value={u.id}>{u.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="ci-installed-at" className={createLabelClass}>Start / Installed At</label>
+                  <input
+                    id="ci-installed-at"
+                    name="installed_at"
+                    type="datetime-local"
+                    required
+                    defaultValue={new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)}
+                    className={createInputClass}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="ci-due" className={createLabelClass}>Due Date (optional)</label>
+                  <input id="ci-due" name="due_date" type="date" className={createInputClass} />
+                </div>
+                <div>
+                  <label htmlFor="ci-position" className={createLabelClass}>Position / Location Label</label>
+                  <input id="ci-position" name="position_label" placeholder="e.g. Main entrance, 2nd floor" className={createInputClass} />
+                </div>
+              </div>
+              <div>
+                <label htmlFor="ci-notes" className={createLabelClass}>Notes</label>
+                <textarea id="ci-notes" name="notes" rows={2} className={`${createInputClass} h-auto py-2`} />
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                The 6-step pipeline (Survey → Handover) is created automatically.
+              </p>
+              <button
+                type="submit"
+                disabled={creating}
+                className="w-full rounded-lg bg-primary py-2 text-sm font-medium text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
+              >
+                {creating ? "Creating..." : "Create Installation"}
+              </button>
+            </form>
           </div>
         </div>
       )}

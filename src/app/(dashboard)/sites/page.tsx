@@ -7,6 +7,7 @@ import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import { ContactsEditor } from "@/components/ui/contacts-editor";
+import { CopyButton } from "@/components/ui/copy-button";
 import { FilterBar } from "@/components/ui/filter-bar";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
@@ -261,7 +262,12 @@ export default function SitesPage() {
               <tbody>
                 {filtered.map((s) => (
                   <tr key={s.id} onClick={() => openEdit(s)} className="border-b border-border/30 cursor-pointer transition-colors hover:bg-secondary/30">
-                    <td className={`${tdClass} font-medium text-foreground`}>{s.name}</td>
+                    <td className={`${tdClass} font-medium text-foreground`}>
+                      <span className="inline-flex items-center gap-1">
+                        {s.name}
+                        <CopyButton text={s.name} label="site name" />
+                      </span>
+                    </td>
                     <td className={`${tdClass} text-muted-foreground`}>{s.client_name || "-"}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{s.city || "-"}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{s.country}</td>

@@ -407,7 +407,9 @@
 }
 
 /* ── Map layer toggle ── */
-.map-wrapper { position: relative; }
+/* isolation keeps Leaflet's internal z-indexes (up to 1000) trapped inside the
+   map box, so dialogs/modals opened anywhere on the page always cover the map. */
+.map-wrapper { position: relative; isolation: isolate; z-index: 0; }
 .map-layer-toggle {
   position: absolute;
   top: 12px;

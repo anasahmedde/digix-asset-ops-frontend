@@ -4,6 +4,7 @@ import { Pencil, Plus, RotateCcw, Shield, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { CopyButton } from "@/components/ui/copy-button";
 import { FilterBar } from "@/components/ui/filter-bar";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
@@ -275,7 +276,10 @@ export default function WarrantiesPage() {
                     className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30"
                   >
                     <td className={`${tdClass} font-medium text-foreground`}>
-                      {w.device_code || "-"}
+                      <span className="inline-flex items-center gap-1">
+                        {w.device_code || "-"}
+                        {w.device_code && <CopyButton text={w.device_code} label="device code" />}
+                      </span>
                       {w.device_name && (
                         <span className="block text-xs font-normal text-muted-foreground">{w.device_name}</span>
                       )}
