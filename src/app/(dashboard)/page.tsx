@@ -60,6 +60,7 @@ interface MaintenanceSiteMap {
   maintenance_type: string;
   frequency: string;
   next_due: string | null;
+  device: string | null;
   site__id: string;
   site__name: string;
   site__city: string;
@@ -94,20 +95,21 @@ export default function DashboardPage() {
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [maintenance, setMaintenance] = useState<MaintenanceStats>({ total: 0, completed: 0, in_progress: 0, pending: 0 });
   const [slaBreached, setSlaBreached] = useState(0);
-  const [stock, setStock] = useState<{ id: string; sku: string; material_name: string | null; category_name: string | null; quantity: number; unit: string | null; is_low_stock: boolean }[]>([]);
-  const [stockSummary, setStockSummary] = useState<{ total_value: number; total_quantity: number; items: number; low_stock: number } | null>(null);
+  const [stock, setStock] = useState<{ id: string; sku: string; material_name: string | null; category_name: string | null; quantity: number; unit: string | null; total_value: number | null; is_low_stock: boolean }[]>([]);
+  const [stockSummary, setStockSummary] = useState<{ total_value: number; total_quantity: number; items: number; low_stock: number; unpriced_items: number } | null>(null);
+  const [stockSortField, setStockSortField] = useState<"quantity" | "total_value" | "material_type__name">("quantity");
+  const [stockSortDesc, setStockSortDesc] = useState(true);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function fetchAll() {
       try {
-        const [statsRes, mapRes, alertsRes, maintRes, maintMapRes, stockRes, stockSummaryRes, ticketsRes] = await Promise.allSettled([
+        const [statsRes, mapRes, alertsRes, maintRes, maintMapRes, stockSummaryRes, ticketsRes] = await Promise.allSettled([
           api.get("/assets/devices/dashboard_stats/"),
           api.get("/assets/devices/map_data/"),
           api.get("/analytics/alerts/", { params: { page_size: 5, ordering: "-created_at", is_dismissed: false } }),
           api.get("/maintenance/schedules/", { params: { page_size: 1000 } }),
           api.get("/maintenance/schedules/map_data/"),
-          api.get("/inventory/items/", { params: { page_size: 6, ordering: "-quantity" } }),
           api.get("/inventory/items/summary/"),
           api.get("/tickets/", { params: { page_size: 100 } }),
         ]);
@@ -116,7 +118,6 @@ export default function DashboardPage() {
         if (mapRes.status === "fulfilled") setMapDevices(mapRes.value.data);
         if (maintMapRes.status === "fulfilled") setMaintSites(maintMapRes.value.data);
         if (alertsRes.status === "fulfilled") setAlerts(alertsRes.value.data.results ?? []);
-        if (stockRes.status === "fulfilled") setStock(stockRes.value.data.results ?? []);
         if (stockSummaryRes.status === "fulfilled") setStockSummary(stockSummaryRes.value.data);
         if (ticketsRes.status === "fulfilled") {
           const ts = ticketsRes.value.data.results ?? [];
@@ -139,6 +140,14 @@ export default function DashboardPage() {
     }
     fetchAll();
   }, []);
+
+  useEffect(() => {
+    const ordering = `${stockSortDesc ? "-" : ""}${stockSortField}`;
+    api
+      .get("/inventory/items/", { params: { page_size: 6, ordering } })
+      .then(({ data }) => setStock(data.results ?? []))
+      .catch(() => {});
+  }, [stockSortField, stockSortDesc]);
 
   const total = stats?.total ?? 0;
   const working = stats?.working ?? 0;
@@ -267,6 +276,9 @@ export default function DashboardPage() {
                 <div>
                   <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Total Stock Value</p>
                   <p className="text-lg font-bold text-foreground">PKR {Number(stockSummary.total_value).toLocaleString()}</p>
+                  {stockSummary.unpriced_items > 0 && (
+                    <p className="text-[10px] text-muted-foreground">{stockSummary.unpriced_items} unpriced item{stockSummary.unpriced_items > 1 ? "s" : ""} excluded</p>
+                  )}
                 </div>
                 <div className="text-right text-[10px] text-muted-foreground">
                   <p>{stockSummary.total_quantity.toLocaleString()} units · {stockSummary.items} items</p>
@@ -274,6 +286,25 @@ export default function DashboardPage() {
                 </div>
               </Link>
             )}
+            <div className="mb-2 flex items-center gap-1.5">
+              <select
+                value={stockSortField}
+                onChange={(e) => setStockSortField(e.target.value as typeof stockSortField)}
+                className="h-6 rounded-md border border-border bg-background px-1.5 text-[10px] text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                aria-label="Sort stock by"
+              >
+                <option value="quantity">Sort: Quantity</option>
+                <option value="total_value">Sort: Value</option>
+                <option value="material_type__name">Sort: Name</option>
+              </select>
+              <button
+                onClick={() => setStockSortDesc((v) => !v)}
+                className="flex h-6 items-center gap-1 rounded-md border border-border bg-background px-1.5 text-[10px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+                title={stockSortDesc ? "Descending — click for ascending" : "Ascending — click for descending"}
+              >
+                {stockSortDesc ? "↓ Desc" : "↑ Asc"}
+              </button>
+            </div>
             {stock.length > 0 ? (
               <div className="space-y-2">
                 {stock.map((item) => {
@@ -284,9 +315,14 @@ export default function DashboardPage() {
                         <p className="truncate text-xs font-medium text-foreground">{item.material_name || item.sku}</p>
                         <p className="text-[10px] text-muted-foreground">{item.sku}{item.category_name ? ` · ${item.category_name}` : ""}</p>
                       </div>
-                      <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${low ? "bg-red-500/10 text-red-500" : "bg-emerald-500/10 text-emerald-600"}`}>
-                        {item.quantity} {item.unit}
-                      </span>
+                      <div className="shrink-0 text-right">
+                        <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${low ? "bg-red-500/10 text-red-500" : "bg-emerald-500/10 text-emerald-600"}`}>
+                          {item.quantity} {item.unit}
+                        </span>
+                        <p className="mt-0.5 text-[10px] text-muted-foreground">
+                          {item.total_value != null ? `PKR ${Number(item.total_value).toLocaleString()}` : "unpriced"}
+                        </p>
+                      </div>
                     </Link>
                   );
                 })}
