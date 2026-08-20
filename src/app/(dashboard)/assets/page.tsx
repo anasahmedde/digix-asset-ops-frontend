@@ -35,6 +35,7 @@ interface Device {
   components?: AssetComponent[];
   assigned_client: string | null;
   client_name: string | null;
+  client_names: string[];
   installation_date: string | null;
   created_at: string;
 }
@@ -43,6 +44,7 @@ interface DeviceDetail extends Device {
   mobile_id: string;
   mac_address: string;
   imei: string;
+  clients: string[];
   brand_name: string | null;
   screen_type: string | null;
   screen_size: string | null;
@@ -426,6 +428,7 @@ export default function AssetsPage() {
       notes: fd.get("notes"),
       current_site: fd.get("current_site") || null,
       assigned_client: fd.get("assigned_client") || null,
+      clients: fd.getAll("clients"),
       project: fd.get("project") || null,
       assigned_technician: fd.get("assigned_technician") || null,
       supplier: fd.get("supplier") || null,
@@ -483,7 +486,7 @@ export default function AssetsPage() {
   const filtered = devices.filter((d) => {
     if (filterValues.status && d.status !== filterValues.status) return false;
     if (filterValues.asset_type && (d.asset_type_name || "") !== filterValues.asset_type) return false;
-    if (filterValues.client && (d.client_name || "") !== filterValues.client) return false;
+    if (filterValues.client && !(d.client_names ?? []).includes(filterValues.client) && (d.client_name || "") !== filterValues.client) return false;
     if (filterValues.site && (d.site_name || "") !== filterValues.site) return false;
     if (filterValues.warranty && (d.warranty_status || "none") !== filterValues.warranty) return false;
     if (filterValues.flag === "operational" && !["active", "installed"].includes(d.status)) return false;
@@ -759,7 +762,7 @@ export default function AssetsPage() {
                       <h4 className="text-sm font-semibold text-foreground mb-3">Assignment</h4>
                       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                         <InfoCard label="Site" value={d.site_name} />
-                        <InfoCard label="Client" value={d.client_name} />
+                        <InfoCard label="Client" value={(d.client_names ?? []).length > 0 ? d.client_names.join(", ") : d.client_name} />
                         <InfoCard label="Technician" value={d.technician_name} />
                         <InfoCard label="Installation Date" value={d.installation_date ? formatDate(d.installation_date) : null} />
                       </div>
@@ -1077,7 +1080,7 @@ export default function AssetsPage() {
         filters={[
           { key: "status", label: "Status", options: STATUSES.map((s) => ({ value: s.value, label: s.label })) },
           { key: "asset_type", label: "Type", options: Array.from(new Set(devices.map((d) => d.asset_type_name).filter(Boolean))).sort().map((t) => ({ value: t as string, label: t as string })) },
-          { key: "client", label: "Client", options: Array.from(new Set(devices.map((d) => d.client_name).filter(Boolean))).sort().map((c) => ({ value: c as string, label: c as string })) },
+          { key: "client", label: "Client", options: Array.from(new Set(devices.flatMap((d) => (d.client_names ?? []).length > 0 ? d.client_names : d.client_name ? [d.client_name] : []))).sort().map((c) => ({ value: c, label: c })) },
           { key: "site", label: "Site", options: Array.from(new Set(devices.map((d) => d.site_name).filter(Boolean))).sort().map((s) => ({ value: s as string, label: s as string })) },
           { key: "warranty", label: "Warranty", options: [{ value: "active", label: "Under Warranty" }, { value: "expired", label: "Expired" }, { value: "none", label: "No Warranty" }] },
         ]}
@@ -1140,7 +1143,7 @@ export default function AssetsPage() {
                       )}
                     </td>
                     <td className="px-5 py-3 text-muted-foreground">{d.site_name || "—"}</td>
-                    <td className="px-5 py-3 text-muted-foreground">{d.client_name || "—"}</td>
+                    <td className="px-5 py-3 text-muted-foreground">{(d.client_names ?? []).length > 0 ? d.client_names.join(", ") : d.client_name || "—"}</td>
                     <td className="px-5 py-3" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center gap-1">
                         <button onClick={() => openDetail(d)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground" title="View">
@@ -1263,6 +1266,20 @@ export default function AssetsPage() {
                   <option value="">None</option>
                   {clients.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
                 </select>
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <label htmlFor="clients" className={labelClass}>Additional Clients (shared asset)</label>
+                <select
+                  id="clients"
+                  name="clients"
+                  multiple
+                  size={3}
+                  defaultValue={selected?.clients ?? []}
+                  className={`${inputClass} h-auto`}
+                >
+                  {clients.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+                </select>
+                <p className="text-[10px] text-muted-foreground">Hold Ctrl/Cmd to select more than one.</p>
               </div>
             </div>
             <div className="grid gap-4 sm:grid-cols-2 mt-4">
