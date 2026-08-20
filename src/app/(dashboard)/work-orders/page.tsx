@@ -4,6 +4,7 @@ import { FileDown, Pencil, Plus, ScrollText, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { CopyButton } from "@/components/ui/copy-button";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
@@ -285,7 +286,12 @@ export default function WorkOrdersPage() {
               <tbody>
                 {orders.map((wo) => (
                   <tr key={wo.id} onClick={() => openEdit(wo.id)} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
-                    <td className={`${tdClass} font-mono text-foreground`}>{wo.wo_number}</td>
+                    <td className={`${tdClass} font-mono text-foreground`}>
+                      <span className="inline-flex items-center gap-1">
+                        {wo.wo_number}
+                        <CopyButton text={wo.wo_number} label="WO #" />
+                      </span>
+                    </td>
                     <td className={`${tdClass} font-medium text-foreground`}>{wo.title}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{wo.order_type_display ?? label(wo.order_type)}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{wo.supplier_name ?? "-"}</td>

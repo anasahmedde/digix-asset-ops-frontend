@@ -4,6 +4,7 @@ import { ArrowDownToLine, ArrowUpFromLine, Package, Pencil, Plus, Trash2, X } fr
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { CopyButton } from "@/components/ui/copy-button";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { Modal } from "@/components/ui/modal";
 import api from "@/lib/api";
@@ -217,7 +218,12 @@ export default function InventoryPage() {
               <tbody>
                 {filtered.map((item) => (
                   <tr key={item.id} onClick={() => { setSelected(item); setItemModal("edit"); }} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
-                    <td className={`${tdClass} font-mono text-foreground`}>{item.sku}</td>
+                    <td className={`${tdClass} font-mono text-foreground`}>
+                      <span className="inline-flex items-center gap-1">
+                        {item.sku}
+                        <CopyButton text={item.sku} label="SKU" />
+                      </span>
+                    </td>
                     <td className={`${tdClass} text-muted-foreground`}>{item.material_name || "-"}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{item.category_name || "-"}</td>
                     <td className={tdClass}>

@@ -4,6 +4,7 @@ import { Building2, Pencil, Plus, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { CopyButton } from "@/components/ui/copy-button";
 import { FilterBar } from "@/components/ui/filter-bar";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
@@ -167,7 +168,12 @@ export default function ClientsPage() {
               <tbody>
                 {filtered.map((c) => (
                   <tr key={c.id} onClick={() => { setSelected(c); setModalMode("edit"); }} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
-                    <td className={`${tdClass} font-medium text-foreground`}>{c.name}</td>
+                    <td className={`${tdClass} font-medium text-foreground`}>
+                      <span className="inline-flex items-center gap-1">
+                        {c.name}
+                        <CopyButton text={c.name} label="client name" />
+                      </span>
+                    </td>
                     <td className={`${tdClass} text-muted-foreground`}>{c.code}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{c.contact_person || "-"}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{c.contact_email || "-"}</td>

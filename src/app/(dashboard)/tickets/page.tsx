@@ -34,6 +34,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import { SegmentBar, StatTiles } from "@/components/ui/analytics-strip";
+import { CopyButton } from "@/components/ui/copy-button";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { ProgressStepper } from "@/components/ui/progress-stepper";
 import api from "@/lib/api";
@@ -1329,7 +1330,12 @@ export default function TicketsPage() {
                 <tbody>
                   {filtered.map((t) => (
                     <tr key={t.id} onClick={() => openDetail(t)} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
-                      <td className={`${tdClass} whitespace-nowrap font-medium text-primary`}>{t.ticket_number || `#${t.id.slice(0, 8)}`}</td>
+                      <td className={`${tdClass} whitespace-nowrap font-medium text-primary`}>
+                        <span className="inline-flex items-center gap-1">
+                          {t.ticket_number || `#${t.id.slice(0, 8)}`}
+                          <CopyButton text={t.ticket_number || t.id} label="ticket #" />
+                        </span>
+                      </td>
                       <td className={`${tdClass} font-medium text-foreground`}>
                         <div className="flex items-center gap-2">
                           {t.title}
