@@ -6,6 +6,7 @@ import {
   Check,
   FileText,
   Layers,
+  Pencil,
   Play,
   Plus,
   RotateCcw,
@@ -21,6 +22,8 @@ import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
 import { CopyButton } from "@/components/ui/copy-button";
 import { DeviceImage } from "@/components/ui/device-image";
+import { Modal } from "@/components/ui/modal";
+import { SearchSelect } from "@/components/ui/search-select";
 import { StatusBadge } from "@/components/ui/badge";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { ProgressStepper } from "@/components/ui/progress-stepper";
@@ -41,6 +44,8 @@ interface Delay {
 interface Installation {
   id: string;
   device: string;
+  installed_by: string | null;
+  zone: string | null;
   device_code: string;
   device_name: string;
   asset_name: string | null;
@@ -57,6 +62,7 @@ interface Installation {
   notes: string;
   installed_at: string;
   installed_by_name: string | null;
+  installed_by_phone: string | null;
   due_date: string | null;
   completed_at: string | null;
   progress: number;
@@ -89,6 +95,7 @@ interface InstallationListItem {
   client_names: string[];
   site_name: string;
   installed_by_name: string | null;
+  installed_by_phone: string | null;
   poc_name: string | null;
   installed_at: string;
   due_date: string | null;
@@ -116,9 +123,26 @@ interface Option {
   label: string;
 }
 
+// Matches the input styling used by the other list pages' modals.
 const createInputClass =
-  "h-9 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none";
+  "flex h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors";
 const createLabelClass = "mb-1 block text-xs font-medium text-muted-foreground";
+
+interface AssetInfo {
+  asset_code: string;
+  display_name: string | null;
+  status: string;
+  client_names: string[];
+  site_name: string | null;
+  current_site: string | null;
+}
+
+function toLocalInputValue(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}
 
 // ProgressStepper has no "not_started" style; map it to its "pending" look.
 function stepperStatus(status: string): "completed" | "in_progress" | "pending" | "skipped" {
@@ -173,6 +197,12 @@ export default function InstallationTrackerPage() {
   const [installerOptions, setInstallerOptions] = useState<Option[]>([]);
   const [zoneOptions, setZoneOptions] = useState<Option[]>([]);
   const [createSite, setCreateSite] = useState("");
+  const [createDevice, setCreateDevice] = useState("");
+  const [createInstaller, setCreateInstaller] = useState("");
+  const [assetInfo, setAssetInfo] = useState<AssetInfo | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editInstaller, setEditInstaller] = useState("");
 
   const isManager = canWrite("sites");
 
@@ -259,10 +289,7 @@ export default function InstallationTrackerPage() {
     }
   }
 
-  async function openCreate() {
-    setCreateSite("");
-    setZoneOptions([]);
-    setCreateOpen(true);
+  async function loadFormOptions() {
     const [dev, sites, users] = await Promise.allSettled([
       api.get("/assets/devices/", { params: { page_size: 1000 } }),
       api.get("/sites/sites/", { params: { page_size: 1000 } }),
@@ -280,6 +307,69 @@ export default function InstallationTrackerPage() {
         id: u.id,
         label: u.first_name || u.last_name ? `${u.first_name} ${u.last_name}`.trim() : u.username,
       })));
+  }
+
+  function openCreate() {
+    setCreateSite("");
+    setCreateDevice("");
+    setCreateInstaller("");
+    setAssetInfo(null);
+    setZoneOptions([]);
+    setCreateOpen(true);
+    loadFormOptions();
+  }
+
+  function openEdit() {
+    if (!selected) return;
+    setEditInstaller(selected.installed_by ?? "");
+    setEditOpen(true);
+    loadFormOptions();
+    api
+      .get("/sites/zones/", { params: { site: selected.site, page_size: 200 } })
+      .then(({ data }) => setZoneOptions((data.results ?? []).map((z: { id: string; name: string }) => ({ id: z.id, label: z.name }))))
+      .catch(() => setZoneOptions([]));
+  }
+
+  async function handleEditSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!selected) return;
+    setEditSaving(true);
+    const fd = new FormData(e.currentTarget);
+    try {
+      await api.patch(`/sites/installations/${selected.id}/`, {
+        installed_by: fd.get("installed_by") || null,
+        installed_at: new Date(String(fd.get("installed_at"))).toISOString(),
+        due_date: fd.get("due_date") || null,
+        zone: fd.get("zone") || null,
+        position_label: fd.get("position_label") || "",
+        notes: fd.get("notes") || "",
+      });
+      toast.success("Installation updated");
+      setEditOpen(false);
+      await loadDetail(selected.id);
+      refreshList();
+    } catch (err) {
+      toast.error(getApiError(err, "Failed to update installation"));
+    } finally {
+      setEditSaving(false);
+    }
+  }
+
+  // Choosing an asset pre-fills the site from where the asset currently lives
+  // and shows its client/site context, mirroring the ticket-create flow.
+  async function handleDeviceChange(id: string) {
+    setCreateDevice(id);
+    if (!id) {
+      setAssetInfo(null);
+      return;
+    }
+    try {
+      const { data } = await api.get(`/assets/devices/${id}/`);
+      setAssetInfo(data);
+      if (data.current_site) setCreateSite(data.current_site);
+    } catch {
+      setAssetInfo(null);
+    }
   }
 
   useEffect(() => {
@@ -366,6 +456,14 @@ export default function InstallationTrackerPage() {
             <h1 className="text-2xl font-bold text-foreground">Asset Installation Tracker</h1>
             <p className="text-sm text-muted-foreground">Track installation progress in different stages</p>
           </div>
+          {isManager && (
+            <button
+              onClick={openEdit}
+              className="ml-auto inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            >
+              <Pencil className="h-4 w-4" /> Edit
+            </button>
+          )}
         </div>
 
         {/* Asset Header Card */}
@@ -403,7 +501,10 @@ export default function InstallationTrackerPage() {
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Installer</p>
-                  <p className="font-medium text-foreground">{selected.installed_by_name || "—"}</p>
+                  <p className="font-medium text-foreground">
+                    {selected.installed_by_name || "—"}
+                    {selected.installed_by_phone && <span className="block text-xs text-muted-foreground">{selected.installed_by_phone}</span>}
+                  </p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Location</p>
@@ -702,6 +803,64 @@ export default function InstallationTrackerPage() {
             </div>
           </div>
         )}
+
+        {/* Edit installation modal */}
+        <Modal open={editOpen} onClose={() => setEditOpen(false)} title={`Edit Installation — ${selected.device_code}`} size="lg">
+          <form onSubmit={handleEditSubmit} className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className={createLabelClass}>Assigned Installer</label>
+                <SearchSelect
+                  options={installerOptions}
+                  value={editInstaller}
+                  onChange={setEditInstaller}
+                  name="installed_by"
+                  placeholder="Search installer…"
+                />
+              </div>
+              <div>
+                <label htmlFor="ei-zone" className={createLabelClass}>Zone</label>
+                <select id="ei-zone" name="zone" defaultValue={selected.zone ?? ""} className={createInputClass} disabled={zoneOptions.length === 0}>
+                  <option value="">{zoneOptions.length === 0 ? "No zones for this site" : "None"}</option>
+                  {zoneOptions.map((z) => (
+                    <option key={z.id} value={z.id}>{z.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="ei-installed-at" className={createLabelClass}>Start / Installed At</label>
+                <input
+                  id="ei-installed-at"
+                  name="installed_at"
+                  type="datetime-local"
+                  required
+                  defaultValue={toLocalInputValue(selected.installed_at)}
+                  className={createInputClass}
+                />
+              </div>
+              <div>
+                <label htmlFor="ei-due" className={createLabelClass}>Due Date</label>
+                <input id="ei-due" name="due_date" type="date" defaultValue={selected.due_date ?? ""} className={createInputClass} />
+              </div>
+              <div className="sm:col-span-2">
+                <label htmlFor="ei-position" className={createLabelClass}>Position / Location Label</label>
+                <input id="ei-position" name="position_label" defaultValue={selected.position_label} placeholder="e.g. Main entrance, 2nd floor" className={createInputClass} />
+              </div>
+            </div>
+            <div>
+              <label htmlFor="ei-notes" className={createLabelClass}>Notes</label>
+              <textarea id="ei-notes" name="notes" rows={2} defaultValue={selected.notes} className={`${createInputClass} h-auto py-2`} />
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+              <button type="button" onClick={() => setEditOpen(false)} className="inline-flex h-10 items-center rounded-lg border border-border bg-transparent px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
+                Cancel
+              </button>
+              <button type="submit" disabled={editSaving} className="inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-medium text-white transition-all disabled:opacity-50">
+                {editSaving ? "Saving..." : "Save Changes"}
+              </button>
+            </div>
+          </form>
+        </Modal>
       </div>
     );
   }
@@ -820,7 +979,10 @@ export default function InstallationTrackerPage() {
                       </td>
                       <td className="px-4 py-3.5 text-foreground">{inst.client_names.length > 0 ? inst.client_names.join(", ") : "—"}</td>
                       <td className="px-4 py-3.5 text-foreground">{inst.site_name}</td>
-                      <td className="px-4 py-3.5 text-foreground">{inst.installed_by_name || "—"}</td>
+                      <td className="px-4 py-3.5 text-foreground">
+                        {inst.installed_by_name || "—"}
+                        {inst.installed_by_phone && <span className="block text-xs text-muted-foreground">{inst.installed_by_phone}</span>}
+                      </td>
                       <td className="px-4 py-3.5 text-muted-foreground">{inst.poc_name || "—"}</td>
                       <td className={`px-4 py-3.5 ${rowOverdue ? "font-semibold text-red-500" : "text-muted-foreground"}`}>
                         {inst.due_date ? formatDate(inst.due_date) : "—"}
@@ -862,34 +1024,42 @@ export default function InstallationTrackerPage() {
       )}
 
       {/* New Installation modal */}
-      {createOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-lg rounded-xl border border-border bg-card p-5">
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-foreground">New Installation</h3>
-              <button onClick={() => setCreateOpen(false)} className="text-muted-foreground hover:text-foreground">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <form onSubmit={handleCreate} className="space-y-3">
-              <div className="grid gap-3 sm:grid-cols-2">
+      <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="New Installation" size="lg">
+        <form onSubmit={handleCreate} className="space-y-4">
+              <div className="grid gap-4 sm:grid-cols-2">
                 <div className="sm:col-span-2">
-                  <label htmlFor="ci-device" className={createLabelClass}>Asset</label>
-                  <select id="ci-device" name="device" required defaultValue="" className={createInputClass}>
-                    <option value="">Select an asset</option>
-                    {deviceOptions.map((d) => (
-                      <option key={d.id} value={d.id}>{d.label}</option>
-                    ))}
-                  </select>
+                  <label className={createLabelClass}>Asset</label>
+                  <SearchSelect
+                    options={deviceOptions}
+                    value={createDevice}
+                    onChange={handleDeviceChange}
+                    name="device"
+                    required
+                    placeholder="Search asset by code or name…"
+                  />
+                  {assetInfo && (
+                    <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 rounded-lg border border-primary/20 bg-primary/5 p-3 text-xs sm:grid-cols-4">
+                      <span className="text-muted-foreground">Asset Name</span>
+                      <span className="font-medium text-foreground">{assetInfo.display_name || assetInfo.asset_code}</span>
+                      <span className="text-muted-foreground">Status</span>
+                      <span className="font-medium capitalize text-foreground">{assetInfo.status.replace(/_/g, " ")}</span>
+                      <span className="text-muted-foreground">Client(s)</span>
+                      <span className="font-medium text-foreground">{(assetInfo.client_names ?? []).join(", ") || "—"}</span>
+                      <span className="text-muted-foreground">Current Site</span>
+                      <span className="font-medium text-foreground">{assetInfo.site_name || "In warehouse"}</span>
+                    </div>
+                  )}
                 </div>
                 <div>
-                  <label htmlFor="ci-site" className={createLabelClass}>Site</label>
-                  <select id="ci-site" name="site" required value={createSite} onChange={(e) => setCreateSite(e.target.value)} className={createInputClass}>
-                    <option value="">Select a site</option>
-                    {siteOptions.map((s) => (
-                      <option key={s.id} value={s.id}>{s.label}</option>
-                    ))}
-                  </select>
+                  <label className={createLabelClass}>Site</label>
+                  <SearchSelect
+                    options={siteOptions}
+                    value={createSite}
+                    onChange={setCreateSite}
+                    name="site"
+                    required
+                    placeholder="Search site…"
+                  />
                 </div>
                 <div>
                   <label htmlFor="ci-zone" className={createLabelClass}>Zone (optional)</label>
@@ -901,13 +1071,14 @@ export default function InstallationTrackerPage() {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="ci-installer" className={createLabelClass}>Assigned Installer</label>
-                  <select id="ci-installer" name="installed_by" defaultValue="" className={createInputClass}>
-                    <option value="">Unassigned</option>
-                    {installerOptions.map((u) => (
-                      <option key={u.id} value={u.id}>{u.label}</option>
-                    ))}
-                  </select>
+                  <label className={createLabelClass}>Assigned Installer</label>
+                  <SearchSelect
+                    options={installerOptions}
+                    value={createInstaller}
+                    onChange={setCreateInstaller}
+                    name="installed_by"
+                    placeholder="Search installer…"
+                  />
                 </div>
                 <div>
                   <label htmlFor="ci-installed-at" className={createLabelClass}>Start / Installed At</label>
@@ -936,17 +1107,24 @@ export default function InstallationTrackerPage() {
               <p className="text-[11px] text-muted-foreground">
                 The 6-step pipeline (Survey → Handover) is created automatically.
               </p>
-              <button
-                type="submit"
-                disabled={creating}
-                className="w-full rounded-lg bg-primary py-2 text-sm font-medium text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
-              >
-                {creating ? "Creating..." : "Create Installation"}
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setCreateOpen(false)}
+                  className="inline-flex h-10 items-center rounded-lg border border-border bg-transparent px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={creating}
+                  className="inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-medium text-white transition-all disabled:opacity-50"
+                >
+                  {creating ? "Creating..." : "Create Installation"}
+                </button>
+              </div>
+        </form>
+      </Modal>
     </div>
   );
 }

@@ -173,11 +173,19 @@ function getStepperSteps(status: TicketStatus) {
       return { key: s, label: formatLabel(s), status: "pending" as const };
     });
   }
+  // The last stage (closed) is terminal — reaching it means done, not "in progress".
+  const terminal = idx === MAIN_FLOW.length - 1;
   return MAIN_FLOW.map((s, i) => ({
     key: s,
     label: formatLabel(s),
     status:
-      i < idx ? ("completed" as const) : i === idx ? ("in_progress" as const) : ("pending" as const),
+      i < idx
+        ? ("completed" as const)
+        : i === idx
+          ? terminal
+            ? ("completed" as const)
+            : ("in_progress" as const)
+          : ("pending" as const),
   }));
 }
 

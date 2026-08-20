@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { SegmentBar, StatTiles } from "@/components/ui/analytics-strip";
 import { CopyButton } from "@/components/ui/copy-button";
 import { FilterBar } from "@/components/ui/filter-bar";
+import { MultiSelect } from "@/components/ui/multi-select";
 import { DeviceImage } from "@/components/ui/device-image";
 import { StatusBadge } from "@/components/ui/badge";
 import { Tabs } from "@/components/ui/tabs";
@@ -216,6 +217,7 @@ export default function AssetsPage() {
   const [selected, setSelected] = useState<DeviceDetail | null>(null);
   const [detailView, setDetailView] = useState<DeviceDetail | null>(null);
   const [returnToDetailId, setReturnToDetailId] = useState<string | null>(null);
+  const [additionalClients, setAdditionalClients] = useState<string[]>([]);
   const [detailTab, setDetailTab] = useState("overview");
   const [saving, setSaving] = useState(false);
   const [labelModal, setLabelModal] = useState<{ url: string; format: "qr" | "code128" } | null>(null);
@@ -308,6 +310,7 @@ export default function AssetsPage() {
     setSelected(null);
     setImageFiles([]);
     setImagePreviews([]);
+    setAdditionalClients([]);
     setModalMode("create");
     loadOptions();
   }
@@ -318,6 +321,7 @@ export default function AssetsPage() {
       setSelected(data);
       setImageFiles([]);
       setImagePreviews([]);
+      setAdditionalClients(data.clients ?? []);
       setModalMode("edit");
       loadOptions();
       // The edit modal only exists in the list render; leaving the detail
@@ -1300,18 +1304,14 @@ export default function AssetsPage() {
                 </select>
               </div>
               <div className="space-y-1.5 sm:col-span-2">
-                <label htmlFor="clients" className={labelClass}>Additional Clients (shared asset)</label>
-                <select
-                  id="clients"
+                <label className={labelClass}>Additional Clients (shared asset)</label>
+                <MultiSelect
+                  options={clients.map((c) => ({ id: c.id, label: c.label }))}
+                  values={additionalClients}
+                  onChange={setAdditionalClients}
                   name="clients"
-                  multiple
-                  size={3}
-                  defaultValue={selected?.clients ?? []}
-                  className={`${inputClass} h-auto`}
-                >
-                  {clients.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-                </select>
-                <p className="text-[10px] text-muted-foreground">Hold Ctrl/Cmd to select more than one.</p>
+                  placeholder="Select additional clients…"
+                />
               </div>
             </div>
             <div className="grid gap-4 sm:grid-cols-2 mt-4">
