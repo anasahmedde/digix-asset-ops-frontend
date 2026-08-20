@@ -13,6 +13,7 @@ interface Warranty {
   id: string;
   device: string;
   device_code: string | null;
+  device_name: string | null;
   supplier: string | null;
   supplier_name: string | null;
   warranty_type: string;
@@ -33,6 +34,12 @@ interface Warranty {
 interface DeviceOption {
   id: string;
   asset_code: string;
+  display_name: string | null;
+}
+
+interface SupplierOption {
+  id: string;
+  name: string;
 }
 
 const inputClass =
@@ -70,6 +77,7 @@ export default function WarrantiesPage() {
   const canEdit = canWrite("warranties");
   const [warranties, setWarranties] = useState<Warranty[]>([]);
   const [devices, setDevices] = useState<DeviceOption[]>([]);
+  const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
   const [selected, setSelected] = useState<Warranty | null>(null);
@@ -90,17 +98,27 @@ export default function WarrantiesPage() {
 
   const fetchDevices = useCallback(async () => {
     try {
-      const { data } = await api.get("/assets/devices/");
+      const { data } = await api.get("/assets/devices/", { params: { page_size: 1000 } });
       setDevices(data.results ?? data);
     } catch (err: unknown) {
       toast.error(getApiError(err, "Failed to load devices"));
     }
   }, []);
 
+  const fetchSuppliers = useCallback(async () => {
+    try {
+      const { data } = await api.get("/suppliers/", { params: { page_size: 1000 } });
+      setSuppliers(data.results ?? data);
+    } catch {
+      // supplier select degrades to "None" options only
+    }
+  }, []);
+
   useEffect(() => {
     fetchWarranties();
     fetchDevices();
-  }, [fetchWarranties, fetchDevices]);
+    fetchSuppliers();
+  }, [fetchWarranties, fetchDevices, fetchSuppliers]);
 
   function closeModal() {
     setModalMode(null);
@@ -111,8 +129,7 @@ export default function WarrantiesPage() {
     e.preventDefault();
     setSaving(true);
     const fd = new FormData(e.currentTarget);
-    const payload = {
-      device: fd.get("device"),
+    const payload: Record<string, unknown> = {
       supplier: fd.get("supplier") || null,
       warranty_type: fd.get("warranty_type"),
       status: fd.get("status"),
@@ -124,6 +141,9 @@ export default function WarrantiesPage() {
     };
     try {
       if (modalMode === "create") {
+        // The device is chosen at creation only; it stays fixed for the
+        // warranty's lifetime (server enforces this too).
+        payload.device = fd.get("device");
         await api.post("/warranties/", payload);
         toast.success("Warranty created");
       } else if (selected) {
@@ -217,7 +237,7 @@ export default function WarrantiesPage() {
           if (filterValues.type && w.warranty_type !== filterValues.type) return false;
           if (search) {
             const q = search.toLowerCase();
-            if (!(w.device_code || "").toLowerCase().includes(q) && !(w.supplier_name || "").toLowerCase().includes(q) && !(w.reference_number || "").toLowerCase().includes(q)) return false;
+            if (!(w.device_code || "").toLowerCase().includes(q) && !(w.device_name || "").toLowerCase().includes(q) && !(w.supplier_name || "").toLowerCase().includes(q) && !(w.reference_number || "").toLowerCase().includes(q)) return false;
           }
           return true;
         });
@@ -237,7 +257,7 @@ export default function WarrantiesPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
-                  <th className={thClass}>Device Code</th>
+                  <th className={thClass}>Device</th>
                   <th className={thClass}>Type</th>
                   <th className={thClass}>Status</th>
                   <th className={thClass}>Start Date</th>
@@ -256,6 +276,9 @@ export default function WarrantiesPage() {
                   >
                     <td className={`${tdClass} font-medium text-foreground`}>
                       {w.device_code || "-"}
+                      {w.device_name && (
+                        <span className="block text-xs font-normal text-muted-foreground">{w.device_name}</span>
+                      )}
                     </td>
                     <td className={tdClass}>
                       <span
@@ -345,32 +368,48 @@ export default function WarrantiesPage() {
                   <label htmlFor="device" className={labelClass}>
                     Device
                   </label>
-                  <select
-                    id="device"
-                    name="device"
-                    required
-                    defaultValue={selected?.device ?? ""}
-                    className={inputClass}
-                  >
-                    <option value="">Select a device</option>
-                    {devices.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.asset_code}
-                      </option>
-                    ))}
-                  </select>
+                  {modalMode === "edit" && selected ? (
+                    <div className="flex h-10 w-full items-center rounded-lg border border-border bg-secondary/40 px-3 text-sm text-foreground">
+                      <span className="truncate">
+                        {selected.device_code || "—"}
+                        {selected.device_name ? ` — ${selected.device_name}` : ""}
+                      </span>
+                    </div>
+                  ) : (
+                    <select
+                      id="device"
+                      name="device"
+                      required
+                      defaultValue=""
+                      className={inputClass}
+                    >
+                      <option value="">Select a device</option>
+                      {devices.map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.asset_code}{d.display_name ? ` — ${d.display_name}` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </div>
                 <div className="space-y-1.5">
                   <label htmlFor="supplier" className={labelClass}>
                     Supplier
                   </label>
-                  <input
+                  <select
                     id="supplier"
                     name="supplier"
                     defaultValue={selected?.supplier ?? ""}
                     className={inputClass}
-                    placeholder="Supplier name"
-                  />
+                  >
+                    <option value="">None</option>
+                    {suppliers.map((s) => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                    {selected?.supplier && !suppliers.some((s) => s.id === selected.supplier) && (
+                      <option value={selected.supplier}>{selected.supplier_name ?? "Current supplier"}</option>
+                    )}
+                  </select>
                 </div>
               </div>
 
@@ -388,6 +427,7 @@ export default function WarrantiesPage() {
                     <option value="manufacturer">Manufacturer</option>
                     <option value="extended">Extended</option>
                     <option value="supplier">Supplier</option>
+                    <option value="client">Client</option>
                   </select>
                 </div>
                 <div className="space-y-1.5">
@@ -401,7 +441,8 @@ export default function WarrantiesPage() {
                     className={inputClass}
                   >
                     <option value="active">Active</option>
-                    <option value="expired">Expired</option>
+                    <option value="expired">Warranty Completed</option>
+                    <option value="reissued">Reissued</option>
                     <option value="claimed">Claimed</option>
                     <option value="void">Void</option>
                   </select>
