@@ -27,6 +27,7 @@ interface MaintenanceSchedule {
   assigned_to_name: string | null;
   vendors: string[];
   vendor_names: string[];
+  required_components: { name: string; quantity: number }[];
   next_due: string;
   instructions: string;
   status: string;
@@ -82,6 +83,7 @@ export default function MaintenancePage() {
   const [formDevice, setFormDevice] = useState("");
   const [formAssignee, setFormAssignee] = useState("");
   const [formVendors, setFormVendors] = useState<string[]>([]);
+  const [reqComponents, setReqComponents] = useState<{ name: string; quantity: number }[]>([]);
   const [supplierOptions, setSupplierOptions] = useState<Option[]>([]);
   const [formAssetInfo, setFormAssetInfo] = useState<{
     components: { name: string; quantity: number }[];
@@ -218,6 +220,7 @@ export default function MaintenancePage() {
       handleFormDeviceChange(found.device ?? "");
       setFormAssignee(found.assigned_to ?? "");
       setFormVendors(found.vendors ?? []);
+      setReqComponents(found.required_components ?? []);
       setModalMode("edit");
     }
   }, [searchParams, loading, schedules]);
@@ -240,6 +243,7 @@ export default function MaintenancePage() {
       site: fd.get("site") || null,
       assigned_to: fd.get("assigned_to") || null,
       vendors: fd.getAll("vendors"),
+      required_components: reqComponents.filter((r) => r.name.trim()),
       next_due: fd.get("next_due"),
       instructions: fd.get("instructions"),
       status: fd.get("status"),
@@ -295,6 +299,7 @@ export default function MaintenancePage() {
               setFormAssetInfo(null);
               setFormAssignee("");
               setFormVendors([]);
+              setReqComponents([]);
               setModalMode("create");
             }}
             className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-all"
@@ -360,7 +365,7 @@ export default function MaintenancePage() {
                 {filtered.map((s) => (
                   <tr
                     key={s.id}
-                    onClick={() => { setSelected(s); handleFormDeviceChange(s.device ?? ""); setFormAssignee(s.assigned_to ?? ""); setFormVendors(s.vendors ?? []); setModalMode("edit"); }}
+                    onClick={() => { setSelected(s); handleFormDeviceChange(s.device ?? ""); setFormAssignee(s.assigned_to ?? ""); setFormVendors(s.vendors ?? []); setReqComponents(s.required_components ?? []); setModalMode("edit"); }}
                     className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30"
                   >
                     <td className={`${tdClass} font-medium text-foreground`}>
@@ -440,7 +445,7 @@ export default function MaintenancePage() {
                           )}
                           {canEdit && (
                           <button
-                            onClick={() => { setSelected(s); handleFormDeviceChange(s.device ?? ""); setFormAssignee(s.assigned_to ?? ""); setFormVendors(s.vendors ?? []); setModalMode("edit"); }}
+                            onClick={() => { setSelected(s); handleFormDeviceChange(s.device ?? ""); setFormAssignee(s.assigned_to ?? ""); setFormVendors(s.vendors ?? []); setReqComponents(s.required_components ?? []); setModalMode("edit"); }}
                             className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                             title="Edit"
                           >
@@ -471,8 +476,8 @@ export default function MaintenancePage() {
       })()}
 
       {modalMode && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 py-8 backdrop-blur-sm">
+          <div className="my-auto max-h-none w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl sm:max-h-[90vh] sm:overflow-y-auto">
             <div className="mb-5 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-foreground">
                 {modalMode === "create"
@@ -602,6 +607,50 @@ export default function MaintenancePage() {
                 </div>
               )}
               <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className={labelClass}>Components required for this maintenance</label>
+                  <button
+                    type="button"
+                    onClick={() => setReqComponents((rows) => [...rows, { name: "", quantity: 1 }])}
+                    className="inline-flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[11px] font-medium text-primary transition-colors hover:bg-primary/5"
+                  >
+                    <Plus className="h-3 w-3" /> Add
+                  </button>
+                </div>
+                {reqComponents.length === 0 ? (
+                  <p className="text-[11px] text-muted-foreground">None added — list what the visit needs (e.g. SMD Module ×6, sealant ×2).</p>
+                ) : (
+                  <div className="space-y-2">
+                    {reqComponents.map((row, i) => (
+                      <div key={i} className="flex gap-2">
+                        <input
+                          value={row.name}
+                          onChange={(e) => setReqComponents((rows) => rows.map((r, j) => (j === i ? { ...r, name: e.target.value } : r)))}
+                          placeholder="Component name"
+                          className={`${inputClass} h-9 flex-1`}
+                        />
+                        <input
+                          type="number"
+                          min={1}
+                          value={row.quantity}
+                          onChange={(e) => setReqComponents((rows) => rows.map((r, j) => (j === i ? { ...r, quantity: Number(e.target.value) || 1 } : r)))}
+                          title="Quantity"
+                          className={`${inputClass} h-9 w-20`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setReqComponents((rows) => rows.filter((_, j) => j !== i))}
+                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:text-destructive"
+                          title="Remove"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="space-y-1.5">
                 <label htmlFor="next_due" className={labelClass}>
                   Next Due Date
                 </label>
@@ -665,8 +714,8 @@ export default function MaintenancePage() {
 
       {/* Complete-maintenance modal */}
       {completeFor && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 py-8 backdrop-blur-sm">
+          <div className="my-auto max-h-none w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl sm:max-h-[90vh] sm:overflow-y-auto">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-foreground">Complete — {completeFor.title}</h2>
               <button onClick={() => setCompleteFor(null)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
@@ -674,6 +723,18 @@ export default function MaintenancePage() {
               </button>
             </div>
             <form onSubmit={submitComplete} className="space-y-4">
+              {(completeFor.required_components ?? []).length > 0 && (
+                <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
+                  <p className="mb-1 text-xs font-semibold text-foreground">Required for this maintenance</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {completeFor.required_components.map((rc, i) => (
+                      <span key={i} className="rounded-full bg-card px-2 py-0.5 text-[11px] text-muted-foreground ring-1 ring-border">
+                        {rc.name} ×{rc.quantity}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
               {completeComponents.length > 0 && (
                 <div className="space-y-1.5">
                   <label className={labelClass}>Components used / serviced</label>
