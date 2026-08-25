@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import { FilterBar } from "@/components/ui/filter-bar";
+import { MultiSelect } from "@/components/ui/multi-select";
 import { SearchSelect } from "@/components/ui/search-select";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
@@ -24,6 +25,8 @@ interface MaintenanceSchedule {
   site_name: string | null;
   assigned_to: string | null;
   assigned_to_name: string | null;
+  vendors: string[];
+  vendor_names: string[];
   next_due: string;
   instructions: string;
   status: string;
@@ -78,6 +81,12 @@ export default function MaintenancePage() {
   const [userOptions, setUserOptions] = useState<Option[]>([]);
   const [formDevice, setFormDevice] = useState("");
   const [formAssignee, setFormAssignee] = useState("");
+  const [formVendors, setFormVendors] = useState<string[]>([]);
+  const [supplierOptions, setSupplierOptions] = useState<Option[]>([]);
+  const [formAssetInfo, setFormAssetInfo] = useState<{
+    components: { name: string; quantity: number }[];
+    dims: string | null;
+  } | null>(null);
   const [completeFor, setCompleteFor] = useState<MaintenanceSchedule | null>(null);
   const [completeComponents, setCompleteComponents] = useState<{ id: string; name: string }[]>([]);
   const [usedComponents, setUsedComponents] = useState<string[]>([]);
@@ -98,10 +107,11 @@ export default function MaintenancePage() {
   }, []);
 
   const loadOptions = useCallback(async () => {
-    const [dev, sites, users] = await Promise.allSettled([
+    const [dev, sites, users, sups] = await Promise.allSettled([
       api.get("/assets/devices/", { params: { page_size: 1000 } }),
       api.get("/sites/sites/", { params: { page_size: 1000 } }),
       api.get("/accounts/users/", { params: { is_field_staff: true, is_active: true, page_size: 200 } }),
+      api.get("/suppliers/", { params: { page_size: 1000 } }),
     ]);
     if (dev.status === "fulfilled")
       setDeviceOptions((dev.value.data.results ?? []).map((d: { id: string; asset_code: string; display_name: string | null }) => ({
@@ -115,12 +125,32 @@ export default function MaintenancePage() {
         id: u.id,
         label: u.first_name || u.last_name ? `${u.first_name} ${u.last_name}`.trim() : u.username,
       })));
+    if (sups.status === "fulfilled")
+      setSupplierOptions((sups.value.data.results ?? []).map((v: { id: string; name: string }) => ({ id: v.id, label: v.name })));
   }, []);
 
   useEffect(() => {
     fetchSchedules();
     loadOptions();
   }, [fetchSchedules, loadOptions]);
+
+  async function handleFormDeviceChange(id: string) {
+    setFormDevice(id);
+    setFormAssetInfo(null);
+    if (!id) return;
+    try {
+      const { data } = await api.get(`/assets/devices/${id}/`);
+      const dims = data.length_in && data.width_in
+        ? `${data.length_in} × ${data.width_in}${data.depth_in ? ` × ${data.depth_in}` : ""} in`
+        : data.diagonal_inches
+          ? `${data.diagonal_inches}"`
+          : null;
+      setFormAssetInfo({
+        components: (data.components ?? []).map((c: { name: string; quantity: number }) => ({ name: c.name, quantity: c.quantity })),
+        dims,
+      });
+    } catch { /* card stays hidden */ }
+  }
 
   async function startWork(s: MaintenanceSchedule) {
     try {
@@ -185,8 +215,9 @@ export default function MaintenancePage() {
     const found = schedules.find((s) => s.id === scheduleId);
     if (found) {
       setSelected(found);
-      setFormDevice(found.device ?? "");
+      handleFormDeviceChange(found.device ?? "");
       setFormAssignee(found.assigned_to ?? "");
+      setFormVendors(found.vendors ?? []);
       setModalMode("edit");
     }
   }, [searchParams, loading, schedules]);
@@ -208,6 +239,7 @@ export default function MaintenancePage() {
       device: fd.get("device") || null,
       site: fd.get("site") || null,
       assigned_to: fd.get("assigned_to") || null,
+      vendors: fd.getAll("vendors"),
       next_due: fd.get("next_due"),
       instructions: fd.get("instructions"),
       status: fd.get("status"),
@@ -260,7 +292,9 @@ export default function MaintenancePage() {
             onClick={() => {
               setSelected(null);
               setFormDevice("");
+              setFormAssetInfo(null);
               setFormAssignee("");
+              setFormVendors([]);
               setModalMode("create");
             }}
             className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-all"
@@ -326,7 +360,7 @@ export default function MaintenancePage() {
                 {filtered.map((s) => (
                   <tr
                     key={s.id}
-                    onClick={() => { setSelected(s); setFormDevice(s.device ?? ""); setFormAssignee(s.assigned_to ?? ""); setModalMode("edit"); }}
+                    onClick={() => { setSelected(s); handleFormDeviceChange(s.device ?? ""); setFormAssignee(s.assigned_to ?? ""); setFormVendors(s.vendors ?? []); setModalMode("edit"); }}
                     className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30"
                   >
                     <td className={`${tdClass} font-medium text-foreground`}>
@@ -363,6 +397,9 @@ export default function MaintenancePage() {
                     </td>
                     <td className={`${tdClass} text-muted-foreground`}>
                       {s.assigned_to_name || "-"}
+                      {(s.vendor_names ?? []).length > 0 && (
+                        <span className="block text-xs">Vendors: {s.vendor_names.join(", ")}</span>
+                      )}
                     </td>
                     <td className={tdClass}>
                       {(() => {
@@ -403,7 +440,7 @@ export default function MaintenancePage() {
                           )}
                           {canEdit && (
                           <button
-                            onClick={() => { setSelected(s); setFormDevice(s.device ?? ""); setFormAssignee(s.assigned_to ?? ""); setModalMode("edit"); }}
+                            onClick={() => { setSelected(s); handleFormDeviceChange(s.device ?? ""); setFormAssignee(s.assigned_to ?? ""); setFormVendors(s.vendors ?? []); setModalMode("edit"); }}
                             className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                             title="Edit"
                           >
@@ -504,7 +541,7 @@ export default function MaintenancePage() {
                   <SearchSelect
                     options={deviceOptions}
                     value={formDevice}
-                    onChange={setFormDevice}
+                    onChange={handleFormDeviceChange}
                     name="device"
                     placeholder="Search asset…"
                   />
@@ -526,6 +563,16 @@ export default function MaintenancePage() {
                     placeholder="Search person…"
                   />
                 </div>
+                <div className="space-y-1.5 sm:col-span-2">
+                  <label className={labelClass}>Vendors (can be multiple)</label>
+                  <MultiSelect
+                    options={supplierOptions}
+                    values={formVendors}
+                    onChange={setFormVendors}
+                    name="vendors"
+                    placeholder="Select vendors…"
+                  />
+                </div>
                 <div className="space-y-1.5">
                   <label htmlFor="m-priority" className={labelClass}>Priority</label>
                   <select id="m-priority" name="priority" defaultValue={selected?.priority ?? "medium"} className={inputClass}>
@@ -535,6 +582,25 @@ export default function MaintenancePage() {
                   </select>
                 </div>
               </div>
+              {formAssetInfo && (
+                <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-xs">
+                  <p className="mb-1 font-semibold text-foreground">
+                    Asset components: {formAssetInfo.components.length}
+                    {formAssetInfo.dims ? ` · dimensions ${formAssetInfo.dims}` : ""}
+                  </p>
+                  {formAssetInfo.components.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {formAssetInfo.components.map((c, i) => (
+                        <span key={i} className="rounded-full bg-card px-2 py-0.5 text-[11px] text-muted-foreground ring-1 ring-border">
+                          {c.name} ×{c.quantity}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-muted-foreground">Single-unit asset — no components recorded.</p>
+                  )}
+                </div>
+              )}
               <div className="space-y-1.5">
                 <label htmlFor="next_due" className={labelClass}>
                   Next Due Date
