@@ -1,11 +1,12 @@
 "use client";
 
-import { Pencil, Plus, Trash2, Wrench, X } from "lucide-react";
+import { Check, Pencil, Play, Plus, Trash2, Wrench, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import { FilterBar } from "@/components/ui/filter-bar";
+import { SearchSelect } from "@/components/ui/search-select";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
@@ -15,8 +16,10 @@ interface MaintenanceSchedule {
   title: string;
   maintenance_type: string;
   frequency: string;
+  priority: string;
   device: string | null;
   device_code: string | null;
+  device_name: string | null;
   site: string | null;
   site_name: string | null;
   assigned_to: string | null;
@@ -29,6 +32,14 @@ interface MaintenanceSchedule {
   is_active: boolean;
   created_at: string;
 }
+
+interface Option { id: string; label: string }
+
+const PRIORITY_BADGES: Record<string, string> = {
+  low: "bg-slate-500/10 text-slate-400 ring-slate-500/20",
+  medium: "bg-amber-500/10 text-amber-500 ring-amber-500/20",
+  high: "bg-red-500/10 text-red-500 ring-red-500/20",
+};
 
 const inputClass =
   "flex h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors";
@@ -53,7 +64,7 @@ const FREQ_LABEL: Record<string, string> = {
 };
 
 export default function MaintenancePage() {
-  const { canWrite } = useUser();
+  const { user, canWrite } = useUser();
   const canEdit = canWrite("maintenance");
   const [schedules, setSchedules] = useState<MaintenanceSchedule[]>([]);
   const [loading, setLoading] = useState(true);
@@ -62,12 +73,22 @@ export default function MaintenancePage() {
   const [saving, setSaving] = useState(false);
   const [filterValues, setFilterValues] = useState<Record<string, string>>({ type: "", frequency: "", active: "" });
   const [search, setSearch] = useState("");
+  const [deviceOptions, setDeviceOptions] = useState<Option[]>([]);
+  const [siteOptions, setSiteOptions] = useState<Option[]>([]);
+  const [userOptions, setUserOptions] = useState<Option[]>([]);
+  const [formDevice, setFormDevice] = useState("");
+  const [formAssignee, setFormAssignee] = useState("");
+  const [completeFor, setCompleteFor] = useState<MaintenanceSchedule | null>(null);
+  const [completeComponents, setCompleteComponents] = useState<{ id: string; name: string }[]>([]);
+  const [usedComponents, setUsedComponents] = useState<string[]>([]);
+  const [completePhotos, setCompletePhotos] = useState<File[]>([]);
+  const [completing, setCompleting] = useState(false);
   const searchParams = useSearchParams();
   const autoOpenedRef = useRef(false);
 
   const fetchSchedules = useCallback(async () => {
     try {
-      const { data } = await api.get("/maintenance/schedules/");
+      const { data } = await api.get("/maintenance/schedules/", { params: { page_size: 1000 } });
       setSchedules(data.results ?? data);
     } catch (err: unknown) {
       toast.error(getApiError(err, "Failed to load maintenance schedules"));
@@ -76,9 +97,85 @@ export default function MaintenancePage() {
     }
   }, []);
 
+  const loadOptions = useCallback(async () => {
+    const [dev, sites, users] = await Promise.allSettled([
+      api.get("/assets/devices/", { params: { page_size: 1000 } }),
+      api.get("/sites/sites/", { params: { page_size: 1000 } }),
+      api.get("/accounts/users/", { params: { is_field_staff: true, is_active: true, page_size: 200 } }),
+    ]);
+    if (dev.status === "fulfilled")
+      setDeviceOptions((dev.value.data.results ?? []).map((d: { id: string; asset_code: string; display_name: string | null }) => ({
+        id: d.id,
+        label: d.display_name ? `${d.asset_code} — ${d.display_name}` : d.asset_code,
+      })));
+    if (sites.status === "fulfilled")
+      setSiteOptions((sites.value.data.results ?? []).map((s: { id: string; name: string }) => ({ id: s.id, label: s.name })));
+    if (users.status === "fulfilled")
+      setUserOptions((users.value.data.results ?? []).map((u: { id: string; first_name: string; last_name: string; username: string }) => ({
+        id: u.id,
+        label: u.first_name || u.last_name ? `${u.first_name} ${u.last_name}`.trim() : u.username,
+      })));
+  }, []);
+
   useEffect(() => {
     fetchSchedules();
-  }, [fetchSchedules]);
+    loadOptions();
+  }, [fetchSchedules, loadOptions]);
+
+  async function startWork(s: MaintenanceSchedule) {
+    try {
+      await api.patch(`/maintenance/schedules/${s.id}/`, { status: "in_process" });
+      toast.success("Maintenance started");
+      fetchSchedules();
+    } catch (err) {
+      toast.error(getApiError(err, "Failed to start maintenance"));
+    }
+  }
+
+  async function openComplete(s: MaintenanceSchedule) {
+    setCompleteFor(s);
+    setUsedComponents([]);
+    setCompletePhotos([]);
+    setCompleteComponents([]);
+    if (s.device) {
+      try {
+        const { data } = await api.get(`/assets/devices/${s.device}/`);
+        setCompleteComponents((data.components ?? []).map((c: { id: string; name: string }) => ({ id: c.id, name: c.name })));
+      } catch { /* components stay empty */ }
+    }
+  }
+
+  async function submitComplete(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!completeFor) return;
+    setCompleting(true);
+    const fd = new FormData(e.currentTarget);
+    try {
+      const { data: record } = await api.post("/maintenance/records/", {
+        schedule: completeFor.id,
+        performed_at: new Date().toISOString(),
+        status: "completed",
+        notes: fd.get("notes") || "",
+        cost: fd.get("cost") || null,
+        components_used: usedComponents,
+      });
+      for (const photo of completePhotos) {
+        const photoForm = new FormData();
+        photoForm.append("record", record.id);
+        photoForm.append("image", photo);
+        await api.post("/maintenance/record-photos/", photoForm, {
+          headers: { "Content-Type": "multipart/form-data" },
+        });
+      }
+      toast.success("Maintenance completed — schedule rolled to next cycle");
+      setCompleteFor(null);
+      fetchSchedules();
+    } catch (err) {
+      toast.error(getApiError(err, "Failed to complete maintenance"));
+    } finally {
+      setCompleting(false);
+    }
+  }
 
   useEffect(() => {
     if (autoOpenedRef.current || loading) return;
@@ -88,6 +185,8 @@ export default function MaintenancePage() {
     const found = schedules.find((s) => s.id === scheduleId);
     if (found) {
       setSelected(found);
+      setFormDevice(found.device ?? "");
+      setFormAssignee(found.assigned_to ?? "");
       setModalMode("edit");
     }
   }, [searchParams, loading, schedules]);
@@ -105,6 +204,10 @@ export default function MaintenancePage() {
       title: fd.get("title"),
       maintenance_type: fd.get("maintenance_type"),
       frequency: fd.get("frequency"),
+      priority: fd.get("priority"),
+      device: fd.get("device") || null,
+      site: fd.get("site") || null,
+      assigned_to: fd.get("assigned_to") || null,
       next_due: fd.get("next_due"),
       instructions: fd.get("instructions"),
       status: fd.get("status"),
@@ -156,6 +259,8 @@ export default function MaintenancePage() {
           <button
             onClick={() => {
               setSelected(null);
+              setFormDevice("");
+              setFormAssignee("");
               setModalMode("create");
             }}
             className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-all"
@@ -208,6 +313,7 @@ export default function MaintenancePage() {
                   <th className={thClass}>Title</th>
                   <th className={thClass}>Type</th>
                   <th className={thClass}>Frequency</th>
+                  <th className={thClass}>Priority</th>
                   <th className={thClass}>Next Due</th>
                   <th className={thClass}>Device</th>
                   <th className={thClass}>Site</th>
@@ -220,7 +326,7 @@ export default function MaintenancePage() {
                 {filtered.map((s) => (
                   <tr
                     key={s.id}
-                    onClick={() => { setSelected(s); setModalMode("edit"); }}
+                    onClick={() => { setSelected(s); setFormDevice(s.device ?? ""); setFormAssignee(s.assigned_to ?? ""); setModalMode("edit"); }}
                     className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30"
                   >
                     <td className={`${tdClass} font-medium text-foreground`}>
@@ -238,6 +344,11 @@ export default function MaintenancePage() {
                         {FREQ_LABEL[s.frequency] ?? s.frequency}
                       </span>
                     </td>
+                    <td className={tdClass}>
+                      <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ring-1 ${PRIORITY_BADGES[s.priority] ?? PRIORITY_BADGES.medium}`}>
+                        {s.priority || "medium"}
+                      </span>
+                    </td>
                     <td className={`${tdClass} text-muted-foreground`}>
                       {s.next_due
                         ? new Date(s.next_due).toLocaleDateString()
@@ -245,6 +356,7 @@ export default function MaintenancePage() {
                     </td>
                     <td className={`${tdClass} text-muted-foreground`}>
                       {s.device_code || "-"}
+                      {s.device_name && <span className="block text-xs">{s.device_name}</span>}
                     </td>
                     <td className={`${tdClass} text-muted-foreground`}>
                       {s.site_name || "-"}
@@ -269,15 +381,36 @@ export default function MaintenancePage() {
                       })()}
                     </td>
                     <td className={tdClass} onClick={(e) => e.stopPropagation()}>
-                      {canEdit ? (
+                      {(canEdit || user?.id === s.assigned_to) ? (
                         <div className="flex items-center gap-1">
+                          {["active", "pending", "overdue"].includes(s.effective_status || s.status) && (
+                            <button
+                              onClick={() => startWork(s)}
+                              className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 px-2 py-1 text-[11px] font-medium text-amber-600 transition-colors hover:bg-amber-500/20"
+                              title="Start maintenance"
+                            >
+                              <Play className="h-3 w-3" /> Start
+                            </button>
+                          )}
+                          {(s.effective_status || s.status) !== "completed" && (
+                            <button
+                              onClick={() => openComplete(s)}
+                              className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-1 text-[11px] font-medium text-emerald-600 transition-colors hover:bg-emerald-500/20"
+                              title="Complete this cycle"
+                            >
+                              <Check className="h-3 w-3" /> Complete
+                            </button>
+                          )}
+                          {canEdit && (
                           <button
-                            onClick={() => { setSelected(s); setModalMode("edit"); }}
+                            onClick={() => { setSelected(s); setFormDevice(s.device ?? ""); setFormAssignee(s.assigned_to ?? ""); setModalMode("edit"); }}
                             className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                             title="Edit"
                           >
                             <Pencil className="h-3.5 w-3.5" />
                           </button>
+                          )}
+                          {canEdit && (
                           <button
                             onClick={() => handleDelete(s)}
                             className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-destructive"
@@ -285,6 +418,7 @@ export default function MaintenancePage() {
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
+                          )}
                         </div>
                       ) : (
                         <span className="text-xs text-muted-foreground">—</span>
@@ -364,6 +498,43 @@ export default function MaintenancePage() {
                   </select>
                 </div>
               </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <label className={labelClass}>Asset</label>
+                  <SearchSelect
+                    options={deviceOptions}
+                    value={formDevice}
+                    onChange={setFormDevice}
+                    name="device"
+                    placeholder="Search asset…"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="m-site" className={labelClass}>Site</label>
+                  <select id="m-site" name="site" defaultValue={selected?.site ?? ""} className={inputClass}>
+                    <option value="">None</option>
+                    {siteOptions.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <label className={labelClass}>Assign To</label>
+                  <SearchSelect
+                    options={userOptions}
+                    value={formAssignee}
+                    onChange={setFormAssignee}
+                    name="assigned_to"
+                    placeholder="Search person…"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="m-priority" className={labelClass}>Priority</label>
+                  <select id="m-priority" name="priority" defaultValue={selected?.priority ?? "medium"} className={inputClass}>
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                  </select>
+                </div>
+              </div>
               <div className="space-y-1.5">
                 <label htmlFor="next_due" className={labelClass}>
                   Next Due Date
@@ -419,6 +590,80 @@ export default function MaintenancePage() {
                     : modalMode === "create"
                       ? "Create Schedule"
                       : "Save Changes"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Complete-maintenance modal */}
+      {completeFor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-foreground">Complete — {completeFor.title}</h2>
+              <button onClick={() => setCompleteFor(null)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <form onSubmit={submitComplete} className="space-y-4">
+              {completeComponents.length > 0 && (
+                <div className="space-y-1.5">
+                  <label className={labelClass}>Components used / serviced</label>
+                  <div className="flex flex-wrap gap-2">
+                    {completeComponents.map((c) => {
+                      const on = usedComponents.includes(c.id);
+                      return (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => setUsedComponents((cur) => (on ? cur.filter((v) => v !== c.id) : [...cur, c.id]))}
+                          className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                            on ? "border-primary/50 bg-primary/10 text-primary" : "border-border bg-card text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          {on && <Check className="h-3 w-3" />}
+                          {c.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              <div className="space-y-1.5">
+                <label htmlFor="mc-notes" className={labelClass}>Work done / notes</label>
+                <textarea id="mc-notes" name="notes" rows={3} className={`${inputClass} h-auto py-2`} placeholder="What was done, parts replaced, observations…" />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <label htmlFor="mc-cost" className={labelClass}>Cost (optional)</label>
+                  <input id="mc-cost" name="cost" type="number" step="0.01" className={inputClass} placeholder="0.00" />
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="mc-photos" className={labelClass}>Photos</label>
+                  <input
+                    id="mc-photos"
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(e) => setCompletePhotos(Array.from(e.target.files ?? []))}
+                    className="block w-full text-xs text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-primary/10 file:px-3 file:py-2 file:text-xs file:font-medium file:text-primary"
+                  />
+                  {completePhotos.length > 0 && (
+                    <p className="text-[10px] text-muted-foreground">{completePhotos.length} photo{completePhotos.length > 1 ? "s" : ""} selected</p>
+                  )}
+                </div>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Completing logs a maintenance record and rolls the schedule to its next {FREQ_LABEL[completeFor.frequency]?.toLowerCase() ?? ""} cycle{completeFor.frequency === "one_time" ? " (one-time schedules close out)" : ""}.
+              </p>
+              <div className="flex justify-end gap-3 pt-2">
+                <button type="button" onClick={() => setCompleteFor(null)} className="inline-flex h-10 items-center rounded-lg border border-border bg-transparent px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
+                  Cancel
+                </button>
+                <button type="submit" disabled={completing} className="inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-medium text-white transition-all disabled:opacity-50">
+                  {completing ? "Saving..." : "Complete Maintenance"}
                 </button>
               </div>
             </form>
