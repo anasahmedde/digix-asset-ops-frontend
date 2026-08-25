@@ -74,9 +74,17 @@ const TYPE_BADGES: Record<string, string> = {
   client: "bg-cyan-500/10 text-cyan-400 ring-cyan-500/20",
 };
 
+const CLIENT_SIDE_ROLES = ["marketing", "marketing_head", "client_viewer"];
+const SUPPLIER_SIDE_ROLES = ["ops_manager", "supervisor", "technician", "warehouse"];
+
 export default function WarrantiesPage() {
-  const { canWrite } = useUser();
+  const { user, canWrite } = useUser();
   const canEdit = canWrite("warranties");
+  const role = user?.role ?? "";
+  const clientSideOnly = CLIENT_SIDE_ROLES.includes(role);
+  const supplierSideOnly = SUPPLIER_SIDE_ROLES.includes(role);
+  const seesBoth = !clientSideOnly && !supplierSideOnly;
+  const [warrantySide, setWarrantySide] = useState<"client" | "supplier">(clientSideOnly ? "client" : "supplier");
   const [warranties, setWarranties] = useState<Warranty[]>([]);
   const [devices, setDevices] = useState<DeviceOption[]>([]);
   const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
@@ -121,6 +129,11 @@ export default function WarrantiesPage() {
     fetchDevices();
     fetchSuppliers();
   }, [fetchWarranties, fetchDevices, fetchSuppliers]);
+
+  // The user profile loads async; snap client-side roles onto their tab.
+  useEffect(() => {
+    if (clientSideOnly) setWarrantySide("client");
+  }, [clientSideOnly]);
 
   function closeModal() {
     setModalMode(null);
@@ -221,6 +234,24 @@ export default function WarrantiesPage() {
         )}
       </div>
 
+      {seesBoth && (
+        <div className="flex gap-2">
+          {([["client", "Client Warranties"], ["supplier", "Supplier Warranties"]] as const).map(([side, label]) => (
+            <button
+              key={side}
+              onClick={() => setWarrantySide(side)}
+              className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
+                warrantySide === side
+                  ? "border-primary/50 bg-primary/10 text-primary"
+                  : "border-border bg-card text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
       <FilterBar
         filters={[
           { key: "status", label: "Status", options: Object.keys(STATUS_BADGES).map((s) => ({ value: s, label: STATUS_LABELS[s] ?? s })) },
@@ -235,6 +266,7 @@ export default function WarrantiesPage() {
 
       {(() => {
         const filtered = warranties.filter((w) => {
+          if (seesBoth && (warrantySide === "client" ? w.warranty_type !== "client" : w.warranty_type === "client")) return false;
           if (filterValues.status && w.status !== filterValues.status) return false;
           if (filterValues.type && w.warranty_type !== filterValues.type) return false;
           if (search) {
