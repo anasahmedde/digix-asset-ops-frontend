@@ -6,6 +6,7 @@ import {
   Check,
   FileText,
   Layers,
+  Pause,
   Pencil,
   Play,
   Plus,
@@ -20,6 +21,7 @@ import { toast } from "sonner";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
+import { SegmentBar, StatTiles } from "@/components/ui/analytics-strip";
 import { CopyButton } from "@/components/ui/copy-button";
 import { DeviceImage } from "@/components/ui/device-image";
 import { Modal } from "@/components/ui/modal";
@@ -118,6 +120,23 @@ const DELAY_CAUSES = [
   { value: "other", label: "Other" },
 ];
 
+const STEP_TYPES = [
+  { value: "survey", label: "Survey" },
+  { value: "wiring", label: "Wiring" },
+  { value: "structure", label: "Metal Structure" },
+  { value: "programming", label: "Programming" },
+  { value: "testing", label: "Testing & Commissioning" },
+  { value: "handover", label: "Handover" },
+];
+
+type TrackBucket = "not_started" | "in_progress" | "completed" | "overdue";
+
+function trackBucket(i: { progress: number; due_date: string | null; completed_at: string | null }): TrackBucket {
+  if (i.completed_at) return "completed";
+  if (i.due_date && new Date(i.due_date) < new Date()) return "overdue";
+  return i.progress > 0 ? "in_progress" : "not_started";
+}
+
 interface Option {
   id: string;
   label: string;
@@ -178,7 +197,7 @@ function exportCsv(rows: InstallationListItem[]) {
 }
 
 export default function InstallationTrackerPage() {
-  const { canWrite } = useUser();
+  const { user, canWrite } = useUser();
   const [installations, setInstallations] = useState<InstallationListItem[]>([]);
   const [selected, setSelected] = useState<Installation | null>(null);
   const [documents, setDocuments] = useState<RelatedDocument[]>([]);
@@ -186,7 +205,7 @@ export default function InstallationTrackerPage() {
   const [updatingStep, setUpdatingStep] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [filterValues, setFilterValues] = useState<Record<string, string>>({ client: "", site: "", installer: "" });
-  const [delayFor, setDelayFor] = useState<{ stepId: string | null; label: string } | null>(null);
+  const [delayFor, setDelayFor] = useState<{ stepId: string | null; label: string; hold?: boolean } | null>(null);
   const [delayCause, setDelayCause] = useState("client");
   const [delayNote, setDelayNote] = useState("");
   const [savingDelay, setSavingDelay] = useState(false);
@@ -198,6 +217,7 @@ export default function InstallationTrackerPage() {
   const [zoneOptions, setZoneOptions] = useState<Option[]>([]);
   const [createSite, setCreateSite] = useState("");
   const [createDevice, setCreateDevice] = useState("");
+  const [createSteps, setCreateSteps] = useState<string[]>(STEP_TYPES.map((s) => s.value));
   const [createInstaller, setCreateInstaller] = useState("");
   const [assetInfo, setAssetInfo] = useState<AssetInfo | null>(null);
   const [editOpen, setEditOpen] = useState(false);
@@ -205,6 +225,10 @@ export default function InstallationTrackerPage() {
   const [editInstaller, setEditInstaller] = useState("");
 
   const isManager = canWrite("sites");
+  // Step actions on desktop are super-admin only; the assigned installer
+  // works the steps from the mobile app (backend enforces both).
+  const isSuperAdmin = user?.role === "super_admin";
+  const [trackFilter, setTrackFilter] = useState("");
 
   useEffect(() => {
     async function fetchInstallations() {
@@ -276,7 +300,10 @@ export default function InstallationTrackerPage() {
         cause: delayCause,
         description: delayNote,
       });
-      toast.success("Delay logged");
+      if (delayFor.hold && delayFor.stepId) {
+        await api.patch(`/sites/installation-steps/${delayFor.stepId}/`, { status: "on_hold" });
+      }
+      toast.success(delayFor.hold ? "Step put on hold" : "Delay logged");
       setDelayFor(null);
       setDelayNote("");
       setDelayCause("client");
@@ -315,6 +342,7 @@ export default function InstallationTrackerPage() {
     setCreateInstaller("");
     setAssetInfo(null);
     setZoneOptions([]);
+    setCreateSteps(STEP_TYPES.map((s) => s.value));
     setCreateOpen(true);
     loadFormOptions();
   }
@@ -385,6 +413,10 @@ export default function InstallationTrackerPage() {
 
   async function handleCreate(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (createSteps.length === 0) {
+      toast.error("Select at least one installation step.");
+      return;
+    }
     setCreating(true);
     const fd = new FormData(e.currentTarget);
     try {
@@ -397,6 +429,7 @@ export default function InstallationTrackerPage() {
         due_date: fd.get("due_date") || null,
         position_label: fd.get("position_label") || "",
         notes: fd.get("notes") || "",
+        step_types: createSteps,
       });
       toast.success("Installation created");
       setCreateOpen(false);
@@ -604,27 +637,34 @@ export default function InstallationTrackerPage() {
                         </div>
                       )}
                     </div>
-                    {/* Advance actions */}
-                    <div className="mt-3 flex flex-wrap gap-1.5 border-t border-border pt-3">
-                      {step.status !== "in_progress" && step.status !== "completed" && (
-                        <button disabled={updatingStep === step.id} onClick={() => updateStep(step.id, "in_progress")} className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 px-2 py-1 text-[11px] font-medium text-amber-600 transition-colors hover:bg-amber-500/20 disabled:opacity-50">
-                          <Play className="h-3 w-3" /> Start
+                    {/* Advance actions — desktop: super admin only (installer works via mobile) */}
+                    {isSuperAdmin && (
+                      <div className="mt-3 flex flex-wrap gap-1.5 border-t border-border pt-3">
+                        {step.status !== "in_progress" && step.status !== "completed" && (
+                          <button disabled={updatingStep === step.id} onClick={() => updateStep(step.id, "in_progress")} className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 px-2 py-1 text-[11px] font-medium text-amber-600 transition-colors hover:bg-amber-500/20 disabled:opacity-50">
+                            <Play className="h-3 w-3" /> Start
+                          </button>
+                        )}
+                        {step.status !== "completed" && (
+                          <button disabled={updatingStep === step.id} onClick={() => updateStep(step.id, "completed")} className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-1 text-[11px] font-medium text-emerald-600 transition-colors hover:bg-emerald-500/20 disabled:opacity-50">
+                            <Check className="h-3 w-3" /> Complete
+                          </button>
+                        )}
+                        {step.status !== "on_hold" && step.status !== "completed" && (
+                          <button onClick={() => { setDelayCause("client"); setDelayFor({ stepId: step.id, label: `${step.step_number}. ${step.step_type_display}`, hold: true }); }} className="inline-flex items-center gap-1 rounded-md bg-orange-500/10 px-2 py-1 text-[11px] font-medium text-orange-500 transition-colors hover:bg-orange-500/20">
+                            <Pause className="h-3 w-3" /> Hold
+                          </button>
+                        )}
+                        {step.status !== "not_started" && (
+                          <button disabled={updatingStep === step.id} onClick={() => updateStep(step.id, "not_started")} className="inline-flex items-center gap-1 rounded-md bg-secondary px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-secondary/70 disabled:opacity-50">
+                            <RotateCcw className="h-3 w-3" /> Reset
+                          </button>
+                        )}
+                        <button onClick={() => setDelayFor({ stepId: step.id, label: `${step.step_number}. ${step.step_type_display}` })} className="inline-flex items-center gap-1 rounded-md bg-red-500/10 px-2 py-1 text-[11px] font-medium text-red-500 transition-colors hover:bg-red-500/20">
+                          <AlertTriangle className="h-3 w-3" /> Flag Delay
                         </button>
-                      )}
-                      {step.status !== "completed" && (
-                        <button disabled={updatingStep === step.id} onClick={() => updateStep(step.id, "completed")} className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-1 text-[11px] font-medium text-emerald-600 transition-colors hover:bg-emerald-500/20 disabled:opacity-50">
-                          <Check className="h-3 w-3" /> Complete
-                        </button>
-                      )}
-                      {step.status !== "not_started" && (
-                        <button disabled={updatingStep === step.id} onClick={() => updateStep(step.id, "not_started")} className="inline-flex items-center gap-1 rounded-md bg-secondary px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-secondary/70 disabled:opacity-50">
-                          <RotateCcw className="h-3 w-3" /> Reset
-                        </button>
-                      )}
-                      <button onClick={() => setDelayFor({ stepId: step.id, label: `${step.step_number}. ${step.step_type_display}` })} className="inline-flex items-center gap-1 rounded-md bg-red-500/10 px-2 py-1 text-[11px] font-medium text-red-500 transition-colors hover:bg-red-500/20">
-                        <AlertTriangle className="h-3 w-3" /> Flag Delay
-                      </button>
-                    </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -658,12 +698,14 @@ export default function InstallationTrackerPage() {
             <div className="rounded-xl border border-border bg-card p-5">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-semibold text-foreground">Delay Log</h3>
-                <button
-                  onClick={() => setDelayFor({ stepId: null, label: "Whole installation" })}
-                  className="text-[10px] font-medium text-red-500 hover:underline"
-                >
-                  + Flag Delay
-                </button>
+                {isSuperAdmin && (
+                  <button
+                    onClick={() => setDelayFor({ stepId: null, label: "Whole installation" })}
+                    className="text-[10px] font-medium text-red-500 hover:underline"
+                  >
+                    + Flag Delay
+                  </button>
+                )}
               </div>
               {selected.delays.length > 0 ? (
                 <div className="space-y-3">
@@ -866,6 +908,11 @@ export default function InstallationTrackerPage() {
   }
 
   const filtered = installations.filter((i) => {
+    if (trackFilter === "delayed") {
+      if (i.client_delays === 0) return false;
+    } else if (trackFilter && trackBucket(i) !== trackFilter) {
+      return false;
+    }
     if (filterValues.client && !i.client_names.includes(filterValues.client)) return false;
     if (filterValues.site && i.site_name !== filterValues.site) return false;
     if (filterValues.installer && (i.installed_by_name || "") !== filterValues.installer) return false;
@@ -918,6 +965,37 @@ export default function InstallationTrackerPage() {
           )}
         </div>
       </div>
+
+      {(() => {
+        const counts = { not_started: 0, in_progress: 0, completed: 0, overdue: 0 };
+        installations.forEach((i) => { counts[trackBucket(i)] += 1; });
+        const delayed = installations.filter((i) => i.client_delays > 0).length;
+        const toggle = (key: string) => setTrackFilter((v) => (v === key ? "" : key));
+        return (
+          <div className="space-y-3">
+            <StatTiles
+              tiles={[
+                { key: "total", label: "Total", value: installations.length, tone: "default", active: false, onClick: () => setTrackFilter("") },
+                { key: "not_started", label: "Not Started", value: counts.not_started, tone: "violet", active: trackFilter === "not_started", onClick: () => toggle("not_started") },
+                { key: "in_progress", label: "In Progress", value: counts.in_progress, tone: "amber", active: trackFilter === "in_progress", onClick: () => toggle("in_progress") },
+                { key: "completed", label: "Completed", value: counts.completed, tone: "emerald", active: trackFilter === "completed", onClick: () => toggle("completed") },
+                { key: "overdue", label: "Overdue", value: counts.overdue, tone: "red", active: trackFilter === "overdue", onClick: () => toggle("overdue") },
+                { key: "delayed", label: "Client Delays", value: delayed, tone: "red", active: trackFilter === "delayed", onClick: () => toggle("delayed") },
+              ]}
+            />
+            <SegmentBar
+              segments={[
+                { key: "not_started", label: "Not Started", count: counts.not_started, color: "#8b5cf6" },
+                { key: "in_progress", label: "In Progress", count: counts.in_progress, color: "#f59e0b" },
+                { key: "completed", label: "Completed", count: counts.completed, color: "#10b981" },
+                { key: "overdue", label: "Overdue", count: counts.overdue, color: "#ef4444" },
+              ]}
+              active={trackFilter || undefined}
+              onSelect={(key) => toggle(key)}
+            />
+          </div>
+        );
+      })()}
 
       <FilterBar
         filters={[
@@ -1104,9 +1182,34 @@ export default function InstallationTrackerPage() {
                 <label htmlFor="ci-notes" className={createLabelClass}>Notes</label>
                 <textarea id="ci-notes" name="notes" rows={2} className={`${createInputClass} h-auto py-2`} />
               </div>
-              <p className="text-[11px] text-muted-foreground">
-                The 6-step pipeline (Survey → Handover) is created automatically.
-              </p>
+              <div>
+                <label className={createLabelClass}>Installation Steps (customize the pipeline for this asset)</label>
+                <div className="flex flex-wrap gap-2">
+                  {STEP_TYPES.map((s) => {
+                    const on = createSteps.includes(s.value);
+                    return (
+                      <button
+                        key={s.value}
+                        type="button"
+                        onClick={() =>
+                          setCreateSteps((cur) => (on ? cur.filter((v) => v !== s.value) : [...STEP_TYPES.map((t) => t.value).filter((v) => cur.includes(v) || v === s.value)]))
+                        }
+                        className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                          on
+                            ? "border-primary/50 bg-primary/10 text-primary"
+                            : "border-border bg-card text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        {on && <Check className="h-3 w-3" />}
+                        {s.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="mt-1 text-[10px] text-muted-foreground">
+                  Untick steps that don&apos;t apply — some installations need only 3, others all 6.
+                </p>
+              </div>
               <div className="flex justify-end gap-3 pt-2">
                 <button
                   type="button"
