@@ -6,6 +6,7 @@ import { toast } from "sonner";
 
 import { CopyButton } from "@/components/ui/copy-button";
 import { FilterBar } from "@/components/ui/filter-bar";
+import { SearchSelect } from "@/components/ui/search-select";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
@@ -63,7 +64,7 @@ const STATUS_LABELS: Record<string, string> = {
   active: "Active",
   expired: "Warranty Completed",
   reissued: "Reissued",
-  claimed: "Claimed",
+  claimed: "Pending",
   void: "Void",
 };
 
@@ -85,6 +86,7 @@ export default function WarrantiesPage() {
   const supplierSideOnly = SUPPLIER_SIDE_ROLES.includes(role);
   const seesBoth = !clientSideOnly && !supplierSideOnly;
   const [warrantySide, setWarrantySide] = useState<"client" | "supplier">(clientSideOnly ? "client" : "supplier");
+  const [createDevice, setCreateDevice] = useState("");
   const [warranties, setWarranties] = useState<Warranty[]>([]);
   const [devices, setDevices] = useState<DeviceOption[]>([]);
   const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
@@ -225,6 +227,7 @@ export default function WarrantiesPage() {
           <button
             onClick={() => {
               setSelected(null);
+              setCreateDevice("");
               setModalMode("create");
             }}
             className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-all"
@@ -291,7 +294,8 @@ export default function WarrantiesPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
-                  <th className={thClass}>Device</th>
+                  <th className={thClass}>Device ID</th>
+                  <th className={thClass}>Device Name</th>
                   <th className={thClass}>Type</th>
                   <th className={thClass}>Status</th>
                   <th className={thClass}>Start Date</th>
@@ -309,14 +313,15 @@ export default function WarrantiesPage() {
                     className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30"
                   >
                     <td className={`${tdClass} font-medium text-foreground`}>
-                      <span className="inline-flex items-center gap-1">
+                      <span className="inline-flex items-center gap-1 font-mono text-primary">
                         {w.device_code || "-"}
                         {w.device_code && <CopyButton text={w.device_code} label="device code" />}
                       </span>
-                      {(w.device_name || w.component_name) && (
-                        <span className="block text-xs font-normal text-muted-foreground">
-                          {w.device_name}{w.component_name ? `${w.device_name ? " · " : ""}${w.component_name}` : ""}
-                        </span>
+                    </td>
+                    <td className={`${tdClass} text-foreground`}>
+                      {w.device_name || "—"}
+                      {w.component_name && (
+                        <span className="block text-xs text-muted-foreground">Component: {w.component_name}</span>
                       )}
                     </td>
                     <td className={tdClass}>
@@ -415,20 +420,14 @@ export default function WarrantiesPage() {
                       </span>
                     </div>
                   ) : (
-                    <select
-                      id="device"
+                    <SearchSelect
+                      options={devices.map((d) => ({ id: d.id, label: d.display_name ? `${d.asset_code} — ${d.display_name}` : d.asset_code }))}
+                      value={createDevice}
+                      onChange={setCreateDevice}
                       name="device"
                       required
-                      defaultValue=""
-                      className={inputClass}
-                    >
-                      <option value="">Select a device</option>
-                      {devices.map((d) => (
-                        <option key={d.id} value={d.id}>
-                          {d.asset_code}{d.display_name ? ` — ${d.display_name}` : ""}
-                        </option>
-                      ))}
-                    </select>
+                      placeholder="Search device by code or name…"
+                    />
                   )}
                 </div>
                 <div className="space-y-1.5">
@@ -482,7 +481,7 @@ export default function WarrantiesPage() {
                     <option value="active">Active</option>
                     <option value="expired">Warranty Completed</option>
                     <option value="reissued">Reissued</option>
-                    <option value="claimed">Claimed</option>
+                    <option value="claimed">Pending</option>
                     <option value="void">Void</option>
                   </select>
                 </div>

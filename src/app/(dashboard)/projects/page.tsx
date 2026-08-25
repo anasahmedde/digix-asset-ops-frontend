@@ -59,7 +59,7 @@ const OFF_RAMP_PHASES = [
 ];
 const emptyForm = {
   name: "", location: "", description: "", status: "planning", phase: "query",
-  client: "", start_date: "", target_date: "", budget: "",
+  client: "", site: "", manager: "", start_date: "", target_date: "", budget: "",
 };
 
 interface ScopeItem {
@@ -164,6 +164,7 @@ export default function ProjectsPage() {
   const [linkedAssets, setLinkedAssets] = useState<LinkedAsset[]>([]);
   const [deviceOptions, setDeviceOptions] = useState<Option[]>([]);
   const [siteOptions, setSiteOptions] = useState<Option[]>([]);
+  const [managerOptions, setManagerOptions] = useState<Option[]>([]);
   const [scopeDevice, setScopeDevice] = useState("");
   const [scopeComponents, setScopeComponents] = useState<Option[]>([]);
   const [addingScope, setAddingScope] = useState(false);
@@ -301,6 +302,8 @@ export default function ProjectsPage() {
       status: p.status,
       phase: p.phase,
       client: p.client ?? "",
+      site: p.site ?? "",
+      manager: p.manager ?? "",
       start_date: p.start_date ?? "",
       target_date: p.target_date ?? "",
       budget: p.budget ? String(p.budget) : "",
@@ -327,6 +330,15 @@ export default function ProjectsPage() {
     api.get("/clients/", { params: { page_size: 200 } })
       .then((r) => setClients((r.data.results ?? r.data).map((c: ClientOpt) => ({ id: c.id, name: c.name }))))
       .catch(() => {});
+    api.get("/sites/sites/", { params: { page_size: 1000 } })
+      .then((r) => setSiteOptions((r.data.results ?? []).map((st: { id: string; name: string }) => ({ id: st.id, label: st.name }))))
+      .catch(() => {});
+    api.get("/accounts/users/", { params: { is_active: true, page_size: 200 } })
+      .then((r) => setManagerOptions((r.data.results ?? []).map((u: { id: string; first_name: string; last_name: string; username: string }) => ({
+        id: u.id,
+        label: u.first_name || u.last_name ? `${u.first_name} ${u.last_name}`.trim() : u.username,
+      }))))
+      .catch(() => {});
   }, [fetchAll]);
 
   async function createProject(e: React.FormEvent) {
@@ -340,6 +352,8 @@ export default function ProjectsPage() {
       status: form.status,
       phase: form.phase,
       client: form.client || null,
+      site: form.site || null,
+      manager: form.manager || null,
       start_date: form.start_date || null,
       target_date: form.target_date || null,
       budget: form.budget ? Number(form.budget) : null,

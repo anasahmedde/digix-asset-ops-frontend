@@ -65,10 +65,13 @@ interface Installation {
   installed_at: string;
   installed_by_name: string | null;
   installed_by_phone: string | null;
+  vendor: string | null;
+  vendor_name: string | null;
   due_date: string | null;
   completed_at: string | null;
   progress: number;
   client_delays: number;
+  on_hold_steps: number;
   steps: {
     id: string;
     step_type: string;
@@ -98,12 +101,14 @@ interface InstallationListItem {
   site_name: string;
   installed_by_name: string | null;
   installed_by_phone: string | null;
+  vendor_name: string | null;
   poc_name: string | null;
   installed_at: string;
   due_date: string | null;
   completed_at: string | null;
   progress: number;
   client_delays: number;
+  on_hold_steps: number;
 }
 
 interface RelatedDocument {
@@ -129,10 +134,11 @@ const STEP_TYPES = [
   { value: "handover", label: "Handover" },
 ];
 
-type TrackBucket = "not_started" | "in_progress" | "completed" | "overdue";
+type TrackBucket = "not_started" | "in_progress" | "on_hold" | "completed" | "overdue";
 
-function trackBucket(i: { progress: number; due_date: string | null; completed_at: string | null }): TrackBucket {
+function trackBucket(i: { progress: number; due_date: string | null; completed_at: string | null; on_hold_steps: number }): TrackBucket {
   if (i.completed_at) return "completed";
+  if (i.on_hold_steps > 0) return "on_hold";
   if (i.due_date && new Date(i.due_date) < new Date()) return "overdue";
   return i.progress > 0 ? "in_progress" : "not_started";
 }
@@ -214,10 +220,14 @@ export default function InstallationTrackerPage() {
   const [deviceOptions, setDeviceOptions] = useState<Option[]>([]);
   const [siteOptions, setSiteOptions] = useState<Option[]>([]);
   const [installerOptions, setInstallerOptions] = useState<Option[]>([]);
+  const [supplierOptions, setSupplierOptions] = useState<Option[]>([]);
   const [zoneOptions, setZoneOptions] = useState<Option[]>([]);
   const [createSite, setCreateSite] = useState("");
   const [createDevice, setCreateDevice] = useState("");
   const [createSteps, setCreateSteps] = useState<string[]>(STEP_TYPES.map((s) => s.value));
+  const [customStep, setCustomStep] = useState("");
+  const [createVendor, setCreateVendor] = useState("");
+  const [editVendor, setEditVendor] = useState("");
   const [createInstaller, setCreateInstaller] = useState("");
   const [assetInfo, setAssetInfo] = useState<AssetInfo | null>(null);
   const [editOpen, setEditOpen] = useState(false);
@@ -317,10 +327,11 @@ export default function InstallationTrackerPage() {
   }
 
   async function loadFormOptions() {
-    const [dev, sites, users] = await Promise.allSettled([
+    const [dev, sites, users, sups] = await Promise.allSettled([
       api.get("/assets/devices/", { params: { page_size: 1000 } }),
       api.get("/sites/sites/", { params: { page_size: 1000 } }),
       api.get("/accounts/users/", { params: { is_field_staff: true, is_active: true, page_size: 200 } }),
+      api.get("/suppliers/", { params: { page_size: 1000 } }),
     ]);
     if (dev.status === "fulfilled")
       setDeviceOptions((dev.value.data.results ?? []).map((d: { id: string; asset_code: string; display_name: string | null }) => ({
@@ -334,6 +345,8 @@ export default function InstallationTrackerPage() {
         id: u.id,
         label: u.first_name || u.last_name ? `${u.first_name} ${u.last_name}`.trim() : u.username,
       })));
+    if (sups.status === "fulfilled")
+      setSupplierOptions((sups.value.data.results ?? []).map((v: { id: string; name: string }) => ({ id: v.id, label: v.name })));
   }
 
   function openCreate() {
@@ -343,6 +356,8 @@ export default function InstallationTrackerPage() {
     setAssetInfo(null);
     setZoneOptions([]);
     setCreateSteps(STEP_TYPES.map((s) => s.value));
+    setCustomStep("");
+    setCreateVendor("");
     setCreateOpen(true);
     loadFormOptions();
   }
@@ -350,6 +365,7 @@ export default function InstallationTrackerPage() {
   function openEdit() {
     if (!selected) return;
     setEditInstaller(selected.installed_by ?? "");
+    setEditVendor(selected.vendor ?? "");
     setEditOpen(true);
     loadFormOptions();
     api
@@ -366,6 +382,7 @@ export default function InstallationTrackerPage() {
     try {
       await api.patch(`/sites/installations/${selected.id}/`, {
         installed_by: fd.get("installed_by") || null,
+        vendor: fd.get("vendor") || null,
         installed_at: new Date(String(fd.get("installed_at"))).toISOString(),
         due_date: fd.get("due_date") || null,
         zone: fd.get("zone") || null,
@@ -425,6 +442,7 @@ export default function InstallationTrackerPage() {
         site: fd.get("site"),
         zone: fd.get("zone") || null,
         installed_by: fd.get("installed_by") || null,
+        vendor: fd.get("vendor") || null,
         installed_at: new Date(String(fd.get("installed_at"))).toISOString(),
         due_date: fd.get("due_date") || null,
         position_label: fd.get("position_label") || "",
@@ -540,6 +558,10 @@ export default function InstallationTrackerPage() {
                   </p>
                 </div>
                 <div>
+                  <p className="text-xs text-muted-foreground">Vendor</p>
+                  <p className="font-medium text-foreground">{selected.vendor_name || "—"}</p>
+                </div>
+                <div>
                   <p className="text-xs text-muted-foreground">Location</p>
                   <p className="font-medium text-foreground">{selected.position_label || selected.site_city || "—"}</p>
                 </div>
@@ -618,21 +640,33 @@ export default function InstallationTrackerPage() {
                         <p className="text-muted-foreground mt-2 pt-2 border-t border-border">{step.description}</p>
                       )}
                       {stepDelays.length > 0 && (
-                        <div className="mt-2 flex flex-wrap gap-1 border-t border-border pt-2">
+                        <div className="mt-2 space-y-1.5 border-t border-border pt-2">
                           {stepDelays.map((d) => (
-                            <span
+                            <div
                               key={d.id}
-                              title={d.description}
-                              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                              className={`rounded-md px-2 py-1.5 ${
                                 d.resolved_at
-                                  ? "bg-secondary text-muted-foreground line-through"
+                                  ? "bg-secondary/60"
                                   : d.cause === "client"
-                                  ? "bg-red-500/10 text-red-500"
-                                  : "bg-amber-500/10 text-amber-600"
+                                  ? "bg-red-500/5"
+                                  : "bg-amber-500/5"
                               }`}
                             >
-                              <AlertTriangle className="h-2.5 w-2.5" /> {d.cause_display} delay
-                            </span>
+                              <p className={`inline-flex items-center gap-1 text-[10px] font-semibold ${
+                                d.resolved_at ? "text-muted-foreground line-through" : d.cause === "client" ? "text-red-500" : "text-amber-600"
+                              }`}>
+                                <AlertTriangle className="h-2.5 w-2.5" />
+                                {step.status === "on_hold" && !d.resolved_at ? "On hold" : "Delay"} — caused by {d.cause_display}
+                              </p>
+                              {d.cause === "client" && selected.client_names.length > 0 && (
+                                <p className="text-[10px] text-muted-foreground">Client: {selected.client_names.join(", ")}</p>
+                              )}
+                              {d.description && <p className="text-[10px] text-foreground">{d.description}</p>}
+                              <p className="text-[10px] text-muted-foreground">
+                                {d.reported_by_name ? `By ${d.reported_by_name} · ` : ""}{formatDate(d.created_at)}
+                                {d.resolved_at ? ` · resolved ${formatDate(d.resolved_at)}` : ""}
+                              </p>
+                            </div>
                           ))}
                         </div>
                       )}
@@ -861,6 +895,16 @@ export default function InstallationTrackerPage() {
                 />
               </div>
               <div>
+                <label className={createLabelClass}>Vendor</label>
+                <SearchSelect
+                  options={supplierOptions}
+                  value={editVendor}
+                  onChange={setEditVendor}
+                  name="vendor"
+                  placeholder="Search vendor…"
+                />
+              </div>
+              <div>
                 <label htmlFor="ei-zone" className={createLabelClass}>Zone</label>
                 <select id="ei-zone" name="zone" defaultValue={selected.zone ?? ""} className={createInputClass} disabled={zoneOptions.length === 0}>
                   <option value="">{zoneOptions.length === 0 ? "No zones for this site" : "None"}</option>
@@ -967,7 +1011,7 @@ export default function InstallationTrackerPage() {
       </div>
 
       {(() => {
-        const counts = { not_started: 0, in_progress: 0, completed: 0, overdue: 0 };
+        const counts = { not_started: 0, in_progress: 0, on_hold: 0, completed: 0, overdue: 0 };
         installations.forEach((i) => { counts[trackBucket(i)] += 1; });
         const delayed = installations.filter((i) => i.client_delays > 0).length;
         const toggle = (key: string) => setTrackFilter((v) => (v === key ? "" : key));
@@ -978,6 +1022,7 @@ export default function InstallationTrackerPage() {
                 { key: "total", label: "Total", value: installations.length, tone: "default", active: false, onClick: () => setTrackFilter("") },
                 { key: "not_started", label: "Not Started", value: counts.not_started, tone: "violet", active: trackFilter === "not_started", onClick: () => toggle("not_started") },
                 { key: "in_progress", label: "In Progress", value: counts.in_progress, tone: "amber", active: trackFilter === "in_progress", onClick: () => toggle("in_progress") },
+                { key: "on_hold", label: "On Hold", value: counts.on_hold, tone: "amber", active: trackFilter === "on_hold", onClick: () => toggle("on_hold") },
                 { key: "completed", label: "Completed", value: counts.completed, tone: "emerald", active: trackFilter === "completed", onClick: () => toggle("completed") },
                 { key: "overdue", label: "Overdue", value: counts.overdue, tone: "red", active: trackFilter === "overdue", onClick: () => toggle("overdue") },
                 { key: "delayed", label: "Client Delays", value: delayed, tone: "red", active: trackFilter === "delayed", onClick: () => toggle("delayed") },
@@ -987,6 +1032,7 @@ export default function InstallationTrackerPage() {
               segments={[
                 { key: "not_started", label: "Not Started", count: counts.not_started, color: "#8b5cf6" },
                 { key: "in_progress", label: "In Progress", count: counts.in_progress, color: "#f59e0b" },
+                { key: "on_hold", label: "On Hold", count: counts.on_hold, color: "#f97316" },
                 { key: "completed", label: "Completed", count: counts.completed, color: "#10b981" },
                 { key: "overdue", label: "Overdue", count: counts.overdue, color: "#ef4444" },
               ]}
@@ -1159,6 +1205,16 @@ export default function InstallationTrackerPage() {
                   />
                 </div>
                 <div>
+                  <label className={createLabelClass}>Vendor (optional)</label>
+                  <SearchSelect
+                    options={supplierOptions}
+                    value={createVendor}
+                    onChange={setCreateVendor}
+                    name="vendor"
+                    placeholder="Search vendor…"
+                  />
+                </div>
+                <div>
                   <label htmlFor="ci-installed-at" className={createLabelClass}>Start / Installed At</label>
                   <input
                     id="ci-installed-at"
@@ -1192,7 +1248,12 @@ export default function InstallationTrackerPage() {
                         key={s.value}
                         type="button"
                         onClick={() =>
-                          setCreateSteps((cur) => (on ? cur.filter((v) => v !== s.value) : [...STEP_TYPES.map((t) => t.value).filter((v) => cur.includes(v) || v === s.value)]))
+                          setCreateSteps((cur) => {
+                            if (on) return cur.filter((v) => v !== s.value);
+                            const customs = cur.filter((v) => !STEP_TYPES.some((t) => t.value === v));
+                            const knowns = STEP_TYPES.map((t) => t.value).filter((v) => cur.includes(v) || v === s.value);
+                            return [...knowns, ...customs];
+                          })
                         }
                         className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
                           on
@@ -1205,9 +1266,51 @@ export default function InstallationTrackerPage() {
                       </button>
                     );
                   })}
+                  {createSteps
+                    .filter((v) => !STEP_TYPES.some((t) => t.value === v))
+                    .map((custom) => (
+                      <button
+                        key={custom}
+                        type="button"
+                        onClick={() => setCreateSteps((cur) => cur.filter((v) => v !== custom))}
+                        title="Click to remove this custom step"
+                        className="inline-flex items-center gap-1.5 rounded-full border border-primary/50 border-dashed bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary"
+                      >
+                        <Check className="h-3 w-3" />
+                        {custom}
+                        <X className="h-3 w-3" />
+                      </button>
+                    ))}
+                </div>
+                <div className="mt-2 flex gap-2">
+                  <input
+                    value={customStep}
+                    onChange={(e) => setCustomStep(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        const v = customStep.trim();
+                        if (v && !createSteps.includes(v)) setCreateSteps((cur) => [...cur, v]);
+                        setCustomStep("");
+                      }
+                    }}
+                    placeholder="Add a custom step (e.g. Crane lift)"
+                    className={`${createInputClass} h-9 max-w-xs`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const v = customStep.trim();
+                      if (v && !createSteps.includes(v)) setCreateSteps((cur) => [...cur, v]);
+                      setCustomStep("");
+                    }}
+                    className="inline-flex h-9 items-center gap-1 rounded-lg border border-border px-3 text-xs font-medium text-primary transition-colors hover:bg-primary/5"
+                  >
+                    <Plus className="h-3.5 w-3.5" /> Add Step
+                  </button>
                 </div>
                 <p className="mt-1 text-[10px] text-muted-foreground">
-                  Untick steps that don&apos;t apply — some installations need only 3, others all 6.
+                  Untick steps that don&apos;t apply, or add your own with the + button — pipelines can be 3 steps or 10.
                 </p>
               </div>
               <div className="flex justify-end gap-3 pt-2">
