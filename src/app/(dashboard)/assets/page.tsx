@@ -51,8 +51,9 @@ interface DeviceDetail extends Device {
   screen_type: string | null;
   screen_size: string | null;
   asset_type: string | null;
-  length_cm: string | null;
-  width_cm: string | null;
+  length_in: string | null;
+  width_in: string | null;
+  depth_in: string | null;
   diagonal_inches: string | null;
   specifications: Record<string, unknown>;
   firmware_version: string;
@@ -119,8 +120,25 @@ interface AssetComponent {
   component_type: string;
   serial_number: string;
   quantity: number;
+  supplier: string | null;
+  supplier_name: string | null;
+  active_warranty: { warranty_type: string; status: string; start_date: string; end_date: string; months: number | null } | null;
   notes: string;
 }
+
+interface NewComponentRow {
+  name: string;
+  component_type: string;
+  serial_number: string;
+  quantity: number;
+  supplier: string;
+  warranty_type: string;
+  warranty_months: string;
+}
+
+const EMPTY_COMPONENT: NewComponentRow = {
+  name: "", component_type: "", serial_number: "", quantity: 1, supplier: "", warranty_type: "supplier", warranty_months: "",
+};
 
 const STATUSES = [
   { value: "procured", label: "Procured" },
@@ -218,6 +236,7 @@ export default function AssetsPage() {
   const [detailView, setDetailView] = useState<DeviceDetail | null>(null);
   const [returnToDetailId, setReturnToDetailId] = useState<string | null>(null);
   const [additionalClients, setAdditionalClients] = useState<string[]>([]);
+  const [newComponents, setNewComponents] = useState<NewComponentRow[]>([]);
   const [detailTab, setDetailTab] = useState("overview");
   const [saving, setSaving] = useState(false);
   const [labelModal, setLabelModal] = useState<{ url: string; format: "qr" | "code128" } | null>(null);
@@ -311,6 +330,7 @@ export default function AssetsPage() {
     setImageFiles([]);
     setImagePreviews([]);
     setAdditionalClients([]);
+    setNewComponents([]);
     setModalMode("create");
     loadOptions();
   }
@@ -347,12 +367,16 @@ export default function AssetsPage() {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     try {
+      const months = fd.get("comp_warranty_months");
       await api.post("/assets/components/", {
         device: deviceId,
         name: fd.get("comp_name"),
         component_type: fd.get("comp_type") || "",
         serial_number: fd.get("comp_serial") || "",
         quantity: Number(fd.get("comp_qty") || 1),
+        supplier: fd.get("comp_supplier") || null,
+        warranty_type: months ? fd.get("comp_warranty_type") || "supplier" : null,
+        warranty_months: months ? Number(months) : null,
       });
       (e.target as HTMLFormElement).reset();
       toast.success("Component added");
@@ -378,6 +402,7 @@ export default function AssetsPage() {
       setDetailView(data);
       setDetailTab("overview");
       fetchRelatedData(data.id);
+      loadOptions();
     } catch (err: unknown) {
       toast.error(getApiError(err, "Failed to load device details"));
     }
@@ -445,8 +470,9 @@ export default function AssetsPage() {
       device_model: fd.get("device_model") || undefined,
       asset_type: fd.get("asset_type") || null,
       display_name: fd.get("display_name") || "",
-      length_cm: fd.get("length_cm") || null,
-      width_cm: fd.get("width_cm") || null,
+      length_in: fd.get("length_in") || null,
+      width_in: fd.get("width_in") || null,
+      depth_in: fd.get("depth_in") || null,
       diagonal_inches: fd.get("diagonal_inches") || null,
       mobile_id: fd.get("mobile_id"),
       mac_address: fd.get("mac_address"),
@@ -476,6 +502,22 @@ export default function AssetsPage() {
         toast.success("Device updated");
       } else {
         return;
+      }
+
+      if (modalMode === "create" && newComponents.length > 0) {
+        for (const row of newComponents) {
+          if (!row.name.trim()) continue;
+          await api.post("/assets/components/", {
+            device: deviceId,
+            name: row.name,
+            component_type: row.component_type,
+            serial_number: row.serial_number,
+            quantity: row.quantity || 1,
+            supplier: row.supplier || null,
+            warranty_type: row.warranty_months ? row.warranty_type : null,
+            warranty_months: row.warranty_months ? Number(row.warranty_months) : null,
+          });
+        }
       }
 
       if (imageFiles.length > 0) {
@@ -612,7 +654,7 @@ export default function AssetsPage() {
                     <MetaField label="Location" value={d.site_name} highlight />
                     <MetaField label="Status" value={d.status?.replace(/_/g, " ")} capitalize />
                     <MetaField label="Screen Size" value={d.screen_size || (specs.screen_size as string)} />
-                    <MetaField label="Dimensions" value={d.length_cm && d.width_cm ? `${d.length_cm} × ${d.width_cm} cm` : d.diagonal_inches ? `${d.diagonal_inches}"` : null} />
+                    <MetaField label="Dimensions" value={d.length_in && d.width_in ? `${d.length_in} × ${d.width_in}${d.depth_in ? ` × ${d.depth_in}` : ""} in` : d.diagonal_inches ? `${d.diagonal_inches}"` : null} />
                     <MetaField label="Resolution" value={specs.resolution as string} />
                     <MetaField label="Pixel Pitch" value={specs.pixel_pitch as string} />
                     <MetaField label="Brightness" value={specs.brightness as string} />
@@ -686,6 +728,8 @@ export default function AssetsPage() {
                                 <th className="px-3 py-2 font-medium">Type</th>
                                 <th className="px-3 py-2 font-medium">Serial #</th>
                                 <th className="px-3 py-2 font-medium">Qty</th>
+                                <th className="px-3 py-2 font-medium">Supplier</th>
+                                <th className="px-3 py-2 font-medium">Warranty</th>
                                 {canEdit && <th className="px-3 py-2" />}
                               </tr>
                             </thead>
@@ -696,6 +740,21 @@ export default function AssetsPage() {
                                   <td className="px-3 py-2 text-muted-foreground">{cmp.component_type || "—"}</td>
                                   <td className="px-3 py-2 font-mono text-muted-foreground">{cmp.serial_number || "—"}</td>
                                   <td className="px-3 py-2 text-foreground">×{cmp.quantity}</td>
+                                  <td className="px-3 py-2 text-muted-foreground">{cmp.supplier_name || "—"}</td>
+                                  <td className="px-3 py-2">
+                                    {cmp.active_warranty ? (
+                                      <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ${
+                                        ["active", "reissued"].includes(cmp.active_warranty.status)
+                                          ? "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20"
+                                          : "bg-secondary text-muted-foreground ring-border"
+                                      }`}>
+                                        {cmp.active_warranty.months ? `${cmp.active_warranty.months}mo ` : ""}
+                                        {cmp.active_warranty.warranty_type} · till {cmp.active_warranty.end_date}
+                                      </span>
+                                    ) : (
+                                      <span className="text-muted-foreground">—</span>
+                                    )}
+                                  </td>
                                   {canEdit && (
                                     <td className="px-3 py-2 text-right">
                                       <button onClick={() => handleDeleteComponent(cmp.id, d.id)} className="text-muted-foreground transition-colors hover:text-destructive" title="Remove component">
@@ -717,6 +776,20 @@ export default function AssetsPage() {
                           <input name="comp_type" placeholder="Type" className="h-8 w-28 rounded-lg border border-border bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground" />
                           <input name="comp_serial" placeholder="Serial #" className="h-8 w-32 rounded-lg border border-border bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground" />
                           <input name="comp_qty" type="number" min={1} defaultValue={1} className="h-8 w-16 rounded-lg border border-border bg-background px-2 text-xs text-foreground" />
+                          <select name="comp_supplier" defaultValue="" className="h-8 w-36 rounded-lg border border-border bg-background px-2 text-xs text-muted-foreground">
+                            <option value="">Supplier: none</option>
+                            {suppliers.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+                          </select>
+                          <select name="comp_warranty_months" defaultValue="" className="h-8 w-32 rounded-lg border border-border bg-background px-2 text-xs text-muted-foreground">
+                            <option value="">No warranty</option>
+                            {[3, 6, 12, 24, 36].map((m) => <option key={m} value={m}>{m} mo warranty</option>)}
+                          </select>
+                          <select name="comp_warranty_type" defaultValue="supplier" className="h-8 w-28 rounded-lg border border-border bg-background px-2 text-xs text-muted-foreground">
+                            <option value="supplier">Supplier</option>
+                            <option value="manufacturer">Manufacturer</option>
+                            <option value="extended">Extended</option>
+                            <option value="client">Client</option>
+                          </select>
                           <button type="submit" className="h-8 rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90">Add</button>
                         </form>
                       )}
@@ -1243,14 +1316,18 @@ export default function AssetsPage() {
             </div>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-4">
             <div className="space-y-1.5">
-              <label htmlFor="length_cm" className={labelClass}>Length (cm)</label>
-              <input id="length_cm" name="length_cm" type="number" step="0.01" defaultValue={selected?.length_cm ?? ""} className={inputClass} />
+              <label htmlFor="length_in" className={labelClass}>Length (in)</label>
+              <input id="length_in" name="length_in" type="number" step="0.01" defaultValue={selected?.length_in ?? ""} className={inputClass} />
             </div>
             <div className="space-y-1.5">
-              <label htmlFor="width_cm" className={labelClass}>Width (cm)</label>
-              <input id="width_cm" name="width_cm" type="number" step="0.01" defaultValue={selected?.width_cm ?? ""} className={inputClass} />
+              <label htmlFor="width_in" className={labelClass}>Width (in)</label>
+              <input id="width_in" name="width_in" type="number" step="0.01" defaultValue={selected?.width_in ?? ""} className={inputClass} />
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="depth_in" className={labelClass}>Depth (in)</label>
+              <input id="depth_in" name="depth_in" type="number" step="0.01" defaultValue={selected?.depth_in ?? ""} className={inputClass} />
             </div>
             <div className="space-y-1.5">
               <label htmlFor="diagonal_inches" className={labelClass}>Diagonal (in)</label>
@@ -1410,6 +1487,105 @@ export default function AssetsPage() {
               />
             </div>
           </div>
+
+          {modalMode === "create" && (
+            <div className="border-t border-border pt-4">
+              <div className="mb-1 flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Components</p>
+                <button
+                  type="button"
+                  onClick={() => setNewComponents((rows) => [...rows, { ...EMPTY_COMPONENT }])}
+                  className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/5"
+                >
+                  <Plus className="h-3.5 w-3.5" /> Add Component
+                </button>
+              </div>
+              <p className="mb-3 text-[10px] text-muted-foreground">
+                CMS, stand, SMD modules, receiving cards, frame, accessories… each with its own supplier and optional warranty.
+              </p>
+              {newComponents.length === 0 && (
+                <p className="text-xs text-muted-foreground">No components added — single-unit asset.</p>
+              )}
+              <div className="space-y-3">
+                {newComponents.map((row, i) => (
+                  <div key={i} className="rounded-lg border border-border/70 p-3">
+                    <div className="grid gap-2 sm:grid-cols-4">
+                      <input
+                        value={row.name}
+                        onChange={(e) => setNewComponents((rows) => rows.map((r, j) => (j === i ? { ...r, name: e.target.value } : r)))}
+                        placeholder="Component name *"
+                        className={`${inputClass} h-9 sm:col-span-2`}
+                      />
+                      <input
+                        value={row.component_type}
+                        onChange={(e) => setNewComponents((rows) => rows.map((r, j) => (j === i ? { ...r, component_type: e.target.value } : r)))}
+                        placeholder="Type (e.g. SMD Module)"
+                        className={`${inputClass} h-9`}
+                      />
+                      <input
+                        value={row.serial_number}
+                        onChange={(e) => setNewComponents((rows) => rows.map((r, j) => (j === i ? { ...r, serial_number: e.target.value } : r)))}
+                        placeholder="Serial #"
+                        className={`${inputClass} h-9`}
+                      />
+                    </div>
+                    <div className="mt-2 grid gap-2 sm:grid-cols-5">
+                      <input
+                        type="number"
+                        min={1}
+                        value={row.quantity}
+                        onChange={(e) => setNewComponents((rows) => rows.map((r, j) => (j === i ? { ...r, quantity: Number(e.target.value) } : r)))}
+                        placeholder="Qty"
+                        title="Quantity"
+                        className={`${inputClass} h-9`}
+                      />
+                      <select
+                        value={row.supplier}
+                        onChange={(e) => setNewComponents((rows) => rows.map((r, j) => (j === i ? { ...r, supplier: e.target.value } : r)))}
+                        className={`${inputClass} h-9 sm:col-span-2`}
+                        title="Supplier"
+                      >
+                        <option value="">Supplier: none</option>
+                        {suppliers.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+                      </select>
+                      <select
+                        value={row.warranty_months}
+                        onChange={(e) => setNewComponents((rows) => rows.map((r, j) => (j === i ? { ...r, warranty_months: e.target.value } : r)))}
+                        className={`${inputClass} h-9`}
+                        title="Warranty term"
+                      >
+                        <option value="">No warranty</option>
+                        {[3, 6, 12, 24, 36].map((m) => <option key={m} value={m}>{m} mo warranty</option>)}
+                      </select>
+                      <div className="flex items-center gap-2">
+                        {row.warranty_months && (
+                          <select
+                            value={row.warranty_type}
+                            onChange={(e) => setNewComponents((rows) => rows.map((r, j) => (j === i ? { ...r, warranty_type: e.target.value } : r)))}
+                            className={`${inputClass} h-9`}
+                            title="Warranty type"
+                          >
+                            <option value="supplier">Supplier</option>
+                            <option value="manufacturer">Manufacturer</option>
+                            <option value="extended">Extended</option>
+                            <option value="client">Client</option>
+                          </select>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setNewComponents((rows) => rows.filter((_, j) => j !== i))}
+                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:text-destructive"
+                          title="Remove component"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="space-y-1.5">
             <label htmlFor="notes" className={labelClass}>Notes</label>

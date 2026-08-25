@@ -15,6 +15,7 @@ interface Warranty {
   device: string;
   device_code: string | null;
   device_name: string | null;
+  component_name: string | null;
   supplier: string | null;
   supplier_name: string | null;
   warranty_type: string;
@@ -280,8 +281,10 @@ export default function WarrantiesPage() {
                         {w.device_code || "-"}
                         {w.device_code && <CopyButton text={w.device_code} label="device code" />}
                       </span>
-                      {w.device_name && (
-                        <span className="block text-xs font-normal text-muted-foreground">{w.device_name}</span>
+                      {(w.device_name || w.component_name) && (
+                        <span className="block text-xs font-normal text-muted-foreground">
+                          {w.device_name}{w.component_name ? `${w.device_name ? " · " : ""}${w.component_name}` : ""}
+                        </span>
                       )}
                     </td>
                     <td className={tdClass}>
