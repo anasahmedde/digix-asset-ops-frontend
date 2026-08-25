@@ -1529,7 +1529,7 @@ export default function AssetsPage() {
                         className={`${inputClass} h-9`}
                       />
                     </div>
-                    <div className="mt-2 grid gap-2 sm:grid-cols-5">
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
                       <input
                         type="number"
                         min={1}
@@ -1537,12 +1537,12 @@ export default function AssetsPage() {
                         onChange={(e) => setNewComponents((rows) => rows.map((r, j) => (j === i ? { ...r, quantity: Number(e.target.value) } : r)))}
                         placeholder="Qty"
                         title="Quantity"
-                        className={`${inputClass} h-9`}
+                        className={`${inputClass} h-9 w-20 shrink-0`}
                       />
                       <select
                         value={row.supplier}
                         onChange={(e) => setNewComponents((rows) => rows.map((r, j) => (j === i ? { ...r, supplier: e.target.value } : r)))}
-                        className={`${inputClass} h-9 sm:col-span-2`}
+                        className={`${inputClass} h-9 min-w-40 flex-1`}
                         title="Supplier"
                       >
                         <option value="">Supplier: none</option>
@@ -1551,7 +1551,7 @@ export default function AssetsPage() {
                       <select
                         value={row.warranty_months}
                         onChange={(e) => setNewComponents((rows) => rows.map((r, j) => (j === i ? { ...r, warranty_months: e.target.value } : r)))}
-                        className={`${inputClass} h-9`}
+                        className={`${inputClass} h-9 w-36 shrink-0`}
                         title="Warranty term"
                       >
                         <option value="">No warranty</option>
@@ -1562,7 +1562,7 @@ export default function AssetsPage() {
                           <select
                             value={row.warranty_type}
                             onChange={(e) => setNewComponents((rows) => rows.map((r, j) => (j === i ? { ...r, warranty_type: e.target.value } : r)))}
-                            className={`${inputClass} h-9`}
+                            className={`${inputClass} h-9 w-36`}
                             title="Warranty type"
                           >
                             <option value="supplier">Supplier</option>

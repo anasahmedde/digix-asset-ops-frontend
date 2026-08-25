@@ -611,14 +611,14 @@ export default function ProjectsPage() {
                       {scopeComponents.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
                     </select>
                   </div>
-                  <div className="grid gap-2 sm:grid-cols-4">
-                    <input name="scope_qty" type="number" min={1} defaultValue={1} title="Quantity" className="h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground focus:outline-none" />
-                    <select name="scope_site" defaultValue="" title="Deployment location" className="h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-muted-foreground focus:outline-none">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input name="scope_qty" type="number" min={1} defaultValue={1} title="Quantity" placeholder="Qty" className="h-10 w-20 shrink-0 rounded-lg border border-border bg-card px-3 text-sm text-foreground focus:outline-none" />
+                    <select name="scope_site" defaultValue="" title="Deployment location" className="h-10 min-w-40 flex-1 rounded-lg border border-border bg-card px-3 text-sm text-muted-foreground focus:outline-none">
                       <option value="">Location: none</option>
                       {siteOptions.map((st) => <option key={st.id} value={st.id}>{st.label}</option>)}
                     </select>
-                    <input name="scope_start" type="date" title="Start date at this location" className="h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-muted-foreground focus:outline-none" />
-                    <input name="scope_notes" placeholder="Notes" className="h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none" />
+                    <input name="scope_start" type="date" title="Start date at this location" className="h-10 w-40 shrink-0 rounded-lg border border-border bg-card px-3 text-sm text-muted-foreground focus:outline-none" />
+                    <input name="scope_notes" placeholder="Notes" className="h-10 min-w-40 flex-1 rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none" />
                   </div>
                   <button type="submit" disabled={addingScope} className="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-primary/90 disabled:opacity-50">
                     <Plus className="h-3.5 w-3.5" /> Add to Scope
