@@ -96,6 +96,7 @@ interface Installation {
 interface InstallationListItem {
   id: string;
   device_code: string;
+  device_name: string | null;
   asset_name: string | null;
   client_names: string[];
   site_name: string;
@@ -176,11 +177,12 @@ function stepperStatus(status: string): "completed" | "in_progress" | "pending" 
 }
 
 function exportCsv(rows: InstallationListItem[]) {
-  const header = ["Asset Code", "Asset Name", "Client(s)", "Site", "Installer", "POC", "Installed At", "Due Date", "Completed At", "Progress %", "Client Delays"];
+  const header = ["Asset Code", "Device Name", "Asset Name", "Client(s)", "Site", "Installer", "POC", "Installed At", "Due Date", "Completed At", "Progress %", "Client Delays"];
   const escape = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
   const lines = rows.map((r) =>
     [
       r.device_code,
+      r.device_name ?? "",
       r.asset_name ?? "",
       r.client_names.join("; "),
       r.site_name,
@@ -965,6 +967,7 @@ export default function InstallationTrackerPage() {
       if (
         !i.device_code.toLowerCase().includes(q) &&
         !(i.asset_name || "").toLowerCase().includes(q) &&
+        !(i.device_name || "").toLowerCase().includes(q) &&
         !i.client_names.some((c) => c.toLowerCase().includes(q)) &&
         !(i.installed_by_name || "").toLowerCase().includes(q) &&
         !(i.poc_name || "").toLowerCase().includes(q) &&
@@ -1074,7 +1077,8 @@ export default function InstallationTrackerPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
-                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Asset</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Asset ID</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Device Name</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Client(s)</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Site</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Installer</th>
@@ -1099,7 +1103,12 @@ export default function InstallationTrackerPage() {
                           {inst.device_code}
                           <CopyButton text={inst.device_code} label="asset code" />
                         </span>
-                        {inst.asset_name && <span className="block text-xs text-muted-foreground">{inst.asset_name}</span>}
+                      </td>
+                      <td className="px-4 py-3.5 text-foreground">
+                        {inst.asset_name || inst.device_name || "—"}
+                        {inst.asset_name && inst.device_name && (
+                          <span className="block text-xs text-muted-foreground">{inst.device_name}</span>
+                        )}
                       </td>
                       <td className="px-4 py-3.5 text-foreground">{inst.client_names.length > 0 ? inst.client_names.join(", ") : "—"}</td>
                       <td className="px-4 py-3.5 text-foreground">{inst.site_name}</td>
