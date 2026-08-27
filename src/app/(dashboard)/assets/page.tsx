@@ -1537,12 +1537,12 @@ export default function AssetsPage() {
                         onChange={(e) => setNewComponents((rows) => rows.map((r, j) => (j === i ? { ...r, quantity: Number(e.target.value) } : r)))}
                         placeholder="Qty"
                         title="Quantity"
-                        className={`${inputClass} h-9 w-20 shrink-0`}
+                        className="flex h-9 w-20 shrink-0 rounded-lg border border-border bg-card px-3 text-sm text-foreground focus:border-primary/50 focus:outline-none"
                       />
                       <select
                         value={row.supplier}
                         onChange={(e) => setNewComponents((rows) => rows.map((r, j) => (j === i ? { ...r, supplier: e.target.value } : r)))}
-                        className={`${inputClass} h-9 min-w-40 flex-1`}
+                        className="flex h-9 min-w-40 flex-1 rounded-lg border border-border bg-card px-3 text-sm text-foreground focus:border-primary/50 focus:outline-none"
                         title="Supplier"
                       >
                         <option value="">Supplier: none</option>
@@ -1551,7 +1551,7 @@ export default function AssetsPage() {
                       <select
                         value={row.warranty_months}
                         onChange={(e) => setNewComponents((rows) => rows.map((r, j) => (j === i ? { ...r, warranty_months: e.target.value } : r)))}
-                        className={`${inputClass} h-9 w-36 shrink-0`}
+                        className="flex h-9 w-36 shrink-0 rounded-lg border border-border bg-card px-3 text-sm text-foreground focus:border-primary/50 focus:outline-none"
                         title="Warranty term"
                       >
                         <option value="">No warranty</option>
@@ -1562,7 +1562,7 @@ export default function AssetsPage() {
                           <select
                             value={row.warranty_type}
                             onChange={(e) => setNewComponents((rows) => rows.map((r, j) => (j === i ? { ...r, warranty_type: e.target.value } : r)))}
-                            className={`${inputClass} h-9 w-36`}
+                            className="flex h-9 w-36 rounded-lg border border-border bg-card px-3 text-sm text-foreground focus:border-primary/50 focus:outline-none"
                             title="Warranty type"
                           >
                             <option value="supplier">Supplier</option>

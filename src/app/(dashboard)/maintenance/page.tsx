@@ -626,8 +626,8 @@ export default function MaintenancePage() {
                         <input
                           value={row.name}
                           onChange={(e) => setReqComponents((rows) => rows.map((r, j) => (j === i ? { ...r, name: e.target.value } : r)))}
-                          placeholder="Component name"
-                          className={`${inputClass} h-9 flex-1`}
+                          placeholder="Component name (e.g. SMD Module)"
+                          className="h-9 min-w-0 flex-1 rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
                         />
                         <input
                           type="number"
@@ -635,7 +635,8 @@ export default function MaintenancePage() {
                           value={row.quantity}
                           onChange={(e) => setReqComponents((rows) => rows.map((r, j) => (j === i ? { ...r, quantity: Number(e.target.value) || 1 } : r)))}
                           title="Quantity"
-                          className={`${inputClass} h-9 w-20`}
+                          placeholder="Qty"
+                          className="h-9 w-20 shrink-0 rounded-lg border border-border bg-card px-3 text-sm text-foreground focus:border-primary/50 focus:outline-none"
                         />
                         <button
                           type="button"
