@@ -80,9 +80,9 @@ interface CountryConfig {
 const COUNTRY_CONFIGS: Record<string, CountryConfig> = {
   Pakistan: {
     center: [30.3753, 69.3451],
-    zoom: 6,
+    zoom: 5,
     bounds: [[23.5, 60.8], [37.5, 77.8]],
-    minZoom: 5,
+    minZoom: 4,
   },
   India: {
     center: [20.5937, 78.9629],
