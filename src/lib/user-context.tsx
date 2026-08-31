@@ -44,6 +44,7 @@ const WRITE_RULES: Record<string, string[]> = {
   suppliers: ["super_admin", "group_head", "ops_manager"],
   clients: ["super_admin", "group_head", "ops_manager"],
   procurement: ["super_admin", "group_head", "ops_manager", "finance"],
+  quotations: ["super_admin", "group_head", "ops_manager"],
   finance: ["super_admin", "group_head", "ops_manager", "finance"],
 };
 
