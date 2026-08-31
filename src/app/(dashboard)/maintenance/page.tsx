@@ -39,6 +39,22 @@ interface MaintenanceSchedule {
 
 interface Option { id: string; label: string }
 
+interface BillingDefaults {
+  is_billable: boolean;
+  charge_to: string; // "" | "company" | "client" | "vendor"
+}
+
+interface MaintenanceRecordRow {
+  id: string;
+  performed_at: string;
+  status: string;
+  notes: string;
+  cost: string | null;
+  is_billable: boolean;
+  charge_to: string;
+  performed_by_name: string | null;
+}
+
 const PRIORITY_BADGES: Record<string, string> = {
   low: "bg-slate-500/10 text-slate-400 ring-slate-500/20",
   medium: "bg-amber-500/10 text-amber-500 ring-amber-500/20",
@@ -67,6 +83,26 @@ const FREQ_LABEL: Record<string, string> = {
   one_time: "One-time",
 };
 
+// Supplier-side warranty types (mirrors backend derive_billability).
+const SUPPLIER_SIDE_TYPES = ["supplier", "manufacturer", "extended"];
+
+function BillingChip({ billable, chargeTo }: { billable: boolean; chargeTo: string }) {
+  const label = billable
+    ? `Billable${chargeTo ? ` to ${chargeTo}` : ""}`
+    : `Covered by warranty${chargeTo ? ` — ${chargeTo}` : ""}`;
+  return (
+    <span
+      className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-medium ring-1 ${
+        billable
+          ? "bg-amber-500/10 text-amber-500 ring-amber-500/20"
+          : "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20"
+      }`}
+    >
+      {label}
+    </span>
+  );
+}
+
 export default function MaintenancePage() {
   const { user, canWrite } = useUser();
   const canEdit = canWrite("maintenance");
@@ -94,6 +130,15 @@ export default function MaintenancePage() {
   const [usedComponents, setUsedComponents] = useState<string[]>([]);
   const [completePhotos, setCompletePhotos] = useState<File[]>([]);
   const [completing, setCompleting] = useState(false);
+  // MW-01/02 billing: derived defaults from the asset's active warranties
+  // (null = unknown → server derives on save) and the user's explicit edits
+  // (null = untouched → omitted from the payload).
+  const [completeBilling, setCompleteBilling] = useState<BillingDefaults | null>(null);
+  const [billingEdit, setBillingEdit] = useState<BillingDefaults | null>(null);
+  const [pastRecords, setPastRecords] = useState<MaintenanceRecordRow[]>([]);
+  // Guards openEdit's past-records fetch against out-of-order responses from
+  // a previously opened schedule (null = no edit modal open).
+  const openScheduleIdRef = useRef<string | null>(null);
   const searchParams = useSearchParams();
   const autoOpenedRef = useRef(false);
 
@@ -169,11 +214,28 @@ export default function MaintenancePage() {
     setUsedComponents([]);
     setCompletePhotos([]);
     setCompleteComponents([]);
+    setCompleteBilling(null);
+    setBillingEdit(null);
     if (s.device) {
       try {
         const { data } = await api.get(`/assets/devices/${s.device}/`);
         setCompleteComponents((data.components ?? []).map((c: { id: string; name: string }) => ({ id: c.id, name: c.name })));
       } catch { /* components stay empty */ }
+      try {
+        // Mirror the backend default: active client warranty → company (or
+        // vendor when a supplier-side warranty is also active); none → client.
+        const { data } = await api.get("/warranties/", {
+          params: { device: s.device, status: "active", page_size: 100 },
+        });
+        const list: { warranty_type: string }[] = data.results ?? data;
+        const hasClient = list.some((w) => w.warranty_type === "client");
+        const hasSupplierSide = list.some((w) => SUPPLIER_SIDE_TYPES.includes(w.warranty_type));
+        setCompleteBilling(
+          hasClient
+            ? { is_billable: false, charge_to: hasSupplierSide ? "vendor" : "company" }
+            : { is_billable: true, charge_to: "client" }
+        );
+      } catch { /* unknown — billing derived server-side, shown after submit */ }
     }
   }
 
@@ -190,6 +252,8 @@ export default function MaintenancePage() {
         notes: fd.get("notes") || "",
         cost: fd.get("cost") || null,
         components_used: usedComponents,
+        // Omit billing when untouched so the warranty-derived server defaults apply.
+        ...(billingEdit ? { is_billable: billingEdit.is_billable, charge_to: billingEdit.charge_to } : {}),
       });
       for (const photo of completePhotos) {
         const photoForm = new FormData();
@@ -199,7 +263,11 @@ export default function MaintenancePage() {
           headers: { "Content-Type": "multipart/form-data" },
         });
       }
-      toast.success("Maintenance completed — schedule rolled to next cycle");
+      toast.success("Maintenance completed — schedule rolled to next cycle", {
+        description: record.is_billable
+          ? `Billable${record.charge_to ? ` to ${record.charge_to}` : ""}`
+          : `Covered by warranty${record.charge_to ? ` — charged to ${record.charge_to}` : ""}`,
+      });
       setCompleteFor(null);
       fetchSchedules();
     } catch (err) {
@@ -209,25 +277,40 @@ export default function MaintenancePage() {
     }
   }
 
+  async function openEdit(s: MaintenanceSchedule) {
+    setSelected(s);
+    handleFormDeviceChange(s.device ?? "");
+    setFormAssignee(s.assigned_to ?? "");
+    setFormVendors(s.vendors ?? []);
+    setReqComponents(s.required_components ?? []);
+    setPastRecords([]);
+    setModalMode("edit");
+    const scheduleId = s.id;
+    openScheduleIdRef.current = scheduleId;
+    try {
+      const { data } = await api.get("/maintenance/records/", {
+        params: { schedule: scheduleId, ordering: "-performed_at", page_size: 50 },
+      });
+      // Discard out-of-order responses once another schedule (or none) is open.
+      if (openScheduleIdRef.current !== scheduleId) return;
+      setPastRecords(data.results ?? data);
+    } catch { /* past-records section stays hidden */ }
+  }
+
   useEffect(() => {
     if (autoOpenedRef.current || loading) return;
     const scheduleId = searchParams.get("schedule");
     if (!scheduleId) return;
     autoOpenedRef.current = true;
     const found = schedules.find((s) => s.id === scheduleId);
-    if (found) {
-      setSelected(found);
-      handleFormDeviceChange(found.device ?? "");
-      setFormAssignee(found.assigned_to ?? "");
-      setFormVendors(found.vendors ?? []);
-      setReqComponents(found.required_components ?? []);
-      setModalMode("edit");
-    }
+    if (found) openEdit(found);
   }, [searchParams, loading, schedules]);
 
   function closeModal() {
+    openScheduleIdRef.current = null;
     setModalMode(null);
     setSelected(null);
+    setPastRecords([]);
   }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -365,7 +448,7 @@ export default function MaintenancePage() {
                 {filtered.map((s) => (
                   <tr
                     key={s.id}
-                    onClick={() => { setSelected(s); handleFormDeviceChange(s.device ?? ""); setFormAssignee(s.assigned_to ?? ""); setFormVendors(s.vendors ?? []); setReqComponents(s.required_components ?? []); setModalMode("edit"); }}
+                    onClick={() => openEdit(s)}
                     className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30"
                   >
                     <td className={`${tdClass} font-medium text-foreground`}>
@@ -445,7 +528,7 @@ export default function MaintenancePage() {
                           )}
                           {canEdit && (
                           <button
-                            onClick={() => { setSelected(s); handleFormDeviceChange(s.device ?? ""); setFormAssignee(s.assigned_to ?? ""); setFormVendors(s.vendors ?? []); setReqComponents(s.required_components ?? []); setModalMode("edit"); }}
+                            onClick={() => openEdit(s)}
                             className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                             title="Edit"
                           >
@@ -709,6 +792,31 @@ export default function MaintenancePage() {
                 </button>
               </div>
             </form>
+            {modalMode === "edit" && pastRecords.length > 0 && (
+              <div className="mt-5 border-t border-border pt-4">
+                <p className="mb-2 text-xs font-semibold text-foreground">
+                  Past records ({pastRecords.length})
+                </p>
+                <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
+                  {pastRecords.map((r) => (
+                    <div key={r.id} className="rounded-lg border border-border bg-secondary/20 p-3 text-xs">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="font-medium text-foreground">
+                          {new Date(r.performed_at).toLocaleDateString()}
+                        </span>
+                        <BillingChip billable={r.is_billable} chargeTo={r.charge_to} />
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-muted-foreground">
+                        <span className="capitalize">{r.status.replace(/_/g, " ")}</span>
+                        {r.performed_by_name && <span>by {r.performed_by_name}</span>}
+                        {r.cost && <span>Cost: {r.cost}</span>}
+                      </div>
+                      {r.notes && <p className="mt-1 text-muted-foreground">{r.notes}</p>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -782,6 +890,53 @@ export default function MaintenancePage() {
                     <p className="text-[10px] text-muted-foreground">{completePhotos.length} photo{completePhotos.length > 1 ? "s" : ""} selected</p>
                   )}
                 </div>
+              </div>
+              <div className="space-y-2.5 rounded-lg border border-border p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs font-semibold text-foreground">Billing</p>
+                  {completeBilling ? (
+                    <BillingChip billable={completeBilling.is_billable} chargeTo={completeBilling.charge_to} />
+                  ) : (
+                    <span className="text-[10px] text-muted-foreground">Derived from the asset&apos;s warranty on save</span>
+                  )}
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="flex h-10 cursor-pointer items-center gap-2 rounded-lg border border-border bg-card px-3 text-sm text-foreground">
+                    <input
+                      type="checkbox"
+                      checked={(billingEdit ?? completeBilling)?.is_billable ?? false}
+                      onChange={(e) =>
+                        setBillingEdit({
+                          charge_to: (billingEdit ?? completeBilling)?.charge_to ?? "",
+                          is_billable: e.target.checked,
+                        })
+                      }
+                      className="h-4 w-4 accent-primary"
+                    />
+                    Billable
+                  </label>
+                  <select
+                    value={(billingEdit ?? completeBilling)?.charge_to ?? ""}
+                    onChange={(e) =>
+                      setBillingEdit({
+                        is_billable: (billingEdit ?? completeBilling)?.is_billable ?? false,
+                        charge_to: e.target.value,
+                      })
+                    }
+                    title="Charge to"
+                    className={inputClass}
+                  >
+                    <option value="">Charge to — auto</option>
+                    <option value="company">Company</option>
+                    <option value="client">Client</option>
+                    <option value="vendor">Vendor</option>
+                  </select>
+                </div>
+                {!billingEdit && (
+                  <p className="text-[10px] text-muted-foreground">
+                    Left untouched, billing is derived from the asset&apos;s warranty automatically.
+                  </p>
+                )}
               </div>
               <p className="text-[11px] text-muted-foreground">
                 Completing logs a maintenance record and rolls the schedule to its next {FREQ_LABEL[completeFor.frequency]?.toLowerCase() ?? ""} cycle{completeFor.frequency === "one_time" ? " (one-time schedules close out)" : ""}.

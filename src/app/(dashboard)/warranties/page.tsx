@@ -1,7 +1,9 @@
 "use client";
 
-import { Pencil, Plus, RotateCcw, Shield, Trash2, X } from "lucide-react";
+import { Pencil, Plus, RotateCcw, Shield, Ticket, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import { CopyButton } from "@/components/ui/copy-button";
@@ -10,6 +12,7 @@ import { SearchSelect } from "@/components/ui/search-select";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
+import { formatDate } from "@/lib/utils";
 
 interface Warranty {
   id: string;
@@ -31,6 +34,20 @@ interface Warranty {
   reference_number: string;
   notes: string;
   is_expired: boolean;
+  created_at: string;
+}
+
+// Warranty-claim tickets listed on the Claims tab (WF-14) — fields come from
+// the tickets list serializer.
+interface ClaimTicket {
+  id: string;
+  ticket_number: string;
+  title: string;
+  status: string;
+  device: string | null;
+  device_code: string | null;
+  is_billable: boolean;
+  charge_to: string;
   created_at: string;
 }
 
@@ -75,6 +92,24 @@ const TYPE_BADGES: Record<string, string> = {
   client: "bg-cyan-500/10 text-cyan-400 ring-cyan-500/20",
 };
 
+const TICKET_STATUS_BADGES: Record<string, string> = {
+  open: "bg-blue-500/10 text-blue-400 ring-blue-500/20",
+  in_progress: "bg-amber-500/10 text-amber-400 ring-amber-500/20",
+  on_hold: "bg-gray-500/10 text-gray-400 ring-gray-500/20",
+  blocked: "bg-red-500/10 text-red-400 ring-red-500/20",
+  alignment_pending: "bg-cyan-500/10 text-cyan-400 ring-cyan-500/20",
+  pending_ops_approval: "bg-orange-500/10 text-orange-400 ring-orange-500/20",
+  pending_client_approval: "bg-violet-500/10 text-violet-400 ring-violet-500/20",
+  pending_review: "bg-purple-500/10 text-purple-400 ring-purple-500/20",
+  approved: "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20",
+  rejected: "bg-rose-500/10 text-rose-400 ring-rose-500/20",
+  closed: "bg-slate-500/10 text-slate-400 ring-slate-500/20",
+};
+
+function formatLabel(value: string) {
+  return value.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 const CLIENT_SIDE_ROLES = ["marketing", "marketing_head", "client_viewer"];
 const SUPPLIER_SIDE_ROLES = ["ops_manager", "supervisor", "technician", "warehouse"];
 
@@ -85,8 +120,12 @@ export default function WarrantiesPage() {
   const clientSideOnly = CLIENT_SIDE_ROLES.includes(role);
   const supplierSideOnly = SUPPLIER_SIDE_ROLES.includes(role);
   const seesBoth = !clientSideOnly && !supplierSideOnly;
-  const [warrantySide, setWarrantySide] = useState<"client" | "supplier">(clientSideOnly ? "client" : "supplier");
+  const router = useRouter();
+  const [warrantySide, setWarrantySide] = useState<"client" | "supplier" | "claims">(clientSideOnly ? "client" : "supplier");
   const [createDevice, setCreateDevice] = useState("");
+  const [claims, setClaims] = useState<ClaimTicket[]>([]);
+  const [claimsLoading, setClaimsLoading] = useState(false);
+  const [claimsLoaded, setClaimsLoaded] = useState(false);
   const [warranties, setWarranties] = useState<Warranty[]>([]);
   const [devices, setDevices] = useState<DeviceOption[]>([]);
   const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
@@ -126,15 +165,36 @@ export default function WarrantiesPage() {
     }
   }, []);
 
+  const fetchClaims = useCallback(async () => {
+    setClaimsLoading(true);
+    try {
+      const { data } = await api.get("/tickets/", {
+        params: { category: "warranty_claim", page_size: 500 },
+      });
+      setClaims(data.results ?? data);
+      setClaimsLoaded(true);
+    } catch (err: unknown) {
+      toast.error(getApiError(err, "Failed to load warranty claims"));
+    } finally {
+      setClaimsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchWarranties();
     fetchDevices();
     fetchSuppliers();
   }, [fetchWarranties, fetchDevices, fetchSuppliers]);
 
-  // The user profile loads async; snap client-side roles onto their tab.
+  // Claims load lazily, the first time the tab is opened.
   useEffect(() => {
-    if (clientSideOnly) setWarrantySide("client");
+    if (warrantySide === "claims" && !claimsLoaded && !claimsLoading) fetchClaims();
+  }, [warrantySide, claimsLoaded, claimsLoading, fetchClaims]);
+
+  // The user profile loads async; snap client-side roles onto their tab
+  // (without yanking them off the Claims tab).
+  useEffect(() => {
+    if (clientSideOnly) setWarrantySide((s) => (s === "supplier" ? "client" : s));
   }, [clientSideOnly]);
 
   function closeModal() {
@@ -223,7 +283,14 @@ export default function WarrantiesPage() {
             </p>
           </div>
         </div>
-        {canEdit && (
+        {canEdit && (warrantySide === "claims" ? (
+          <Link
+            href="/tickets?create=1&category=warranty_claim"
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-all"
+          >
+            <Plus className="h-4 w-4" /> Raise Claim
+          </Link>
+        ) : (
           <button
             onClick={() => {
               setSelected(null);
@@ -234,27 +301,40 @@ export default function WarrantiesPage() {
           >
             <Plus className="h-4 w-4" /> Add Warranty
           </button>
-        )}
+        ))}
       </div>
 
-      {seesBoth && (
-        <div className="flex gap-2">
-          {([["client", "Client Warranties"], ["supplier", "Supplier Warranties"]] as const).map(([side, label]) => (
-            <button
-              key={side}
-              onClick={() => setWarrantySide(side)}
-              className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
-                warrantySide === side
-                  ? "border-primary/50 bg-primary/10 text-primary"
-                  : "border-border bg-card text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      )}
+      {(() => {
+        const tabs: { key: "client" | "supplier" | "claims"; label: string }[] = seesBoth
+          ? [
+              { key: "client", label: "Client Warranties" },
+              { key: "supplier", label: "Supplier Warranties" },
+              { key: "claims", label: "Claims" },
+            ]
+          : [
+              { key: clientSideOnly ? "client" : "supplier", label: "Warranties" },
+              { key: "claims", label: "Claims" },
+            ];
+        return (
+          <div className="flex gap-2">
+            {tabs.map((t) => (
+              <button
+                key={t.key}
+                onClick={() => setWarrantySide(t.key)}
+                className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
+                  warrantySide === t.key
+                    ? "border-primary/50 bg-primary/10 text-primary"
+                    : "border-border bg-card text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        );
+      })()}
 
+      {warrantySide !== "claims" && (
       <FilterBar
         filters={[
           { key: "status", label: "Status", options: Object.keys(STATUS_BADGES).map((s) => ({ value: s, label: STATUS_LABELS[s] ?? s })) },
@@ -266,8 +346,70 @@ export default function WarrantiesPage() {
         onSearchChange={setSearch}
         searchPlaceholder="Search by device code, supplier..."
       />
+      )}
 
-      {(() => {
+      {/* ── Claims tab: warranty-claim tickets (WF-14) ─────────── */}
+      {warrantySide === "claims" && (
+        claimsLoading ? (
+          <div className="flex items-center justify-center py-20">
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+          </div>
+        ) : claims.length === 0 ? (
+          <div className="rounded-xl border border-border bg-card p-12 text-center">
+            <Ticket className="mx-auto h-12 w-12 text-muted-foreground/30" />
+            <h3 className="mt-4 text-lg font-semibold text-foreground">No warranty claims</h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Raise a ticket with category &ldquo;Warranty Claim&rdquo; to track one here.
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-hidden rounded-xl border border-border bg-card">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-secondary/50">
+                    <th className={thClass}>Ticket #</th>
+                    <th className={thClass}>Title</th>
+                    <th className={thClass}>Device</th>
+                    <th className={thClass}>Status</th>
+                    <th className={thClass}>Billing</th>
+                    <th className={thClass}>Created</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {claims.map((t) => (
+                    <tr
+                      key={t.id}
+                      onClick={() => router.push(`/tickets?open=${t.id}`)}
+                      className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30"
+                    >
+                      <td className={`${tdClass} whitespace-nowrap font-medium text-primary`}>
+                        {t.ticket_number || `#${t.id.slice(0, 8)}`}
+                      </td>
+                      <td className={`${tdClass} font-medium text-foreground`}>{t.title}</td>
+                      <td className={`${tdClass} font-mono text-muted-foreground`}>{t.device_code || "—"}</td>
+                      <td className={tdClass}>
+                        <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${TICKET_STATUS_BADGES[t.status] ?? "bg-secondary text-muted-foreground ring-border"}`}>
+                          {formatLabel(t.status)}
+                        </span>
+                      </td>
+                      <td className={tdClass}>
+                        <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${t.is_billable ? "bg-amber-500/10 text-amber-400 ring-amber-500/20" : "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20"}`}>
+                          {t.is_billable ? "Billable" : "Covered"}
+                          {t.charge_to ? ` · ${formatLabel(t.charge_to)}` : ""}
+                        </span>
+                      </td>
+                      <td className={`${tdClass} text-muted-foreground`}>{formatDate(t.created_at)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )
+      )}
+
+      {warrantySide !== "claims" && (() => {
         const filtered = warranties.filter((w) => {
           if (seesBoth && (warrantySide === "client" ? w.warranty_type !== "client" : w.warranty_type === "client")) return false;
           if (filterValues.status && w.status !== filterValues.status) return false;
