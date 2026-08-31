@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   ChevronRight,
   Clock,
+  Download,
   FileText,
   ImageIcon,
   MapPin,
@@ -1334,6 +1335,39 @@ export default function TicketsPage() {
   const [extraAssets, setExtraAssets] = useState<{ id: string; label: string }[]>([]);
   const [extraQuery, setExtraQuery] = useState("");
   const [extraListOpen, setExtraListOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  async function exportExcel() {
+    setExporting(true);
+    try {
+      const params: Record<string, string> = {};
+      if (search) params.search = search;
+      if (filterValues.status) params.status = filterValues.status;
+      if (filterValues.priority) params.priority = filterValues.priority;
+      if (filterValues.category) params.category = filterValues.category;
+      if (deviceFilter) params.device = deviceFilter;
+      // Stat-tile flags → backend ?flag=…; the Closed tile is a plain status.
+      const FLAG_PARAM: Record<string, string> = {
+        unassigned: "unassigned",
+        sla: "sla_breached",
+        overdue: "past_due",
+        in_review: "in_review",
+      };
+      if (filterValues.flag === "closed_only") params.status = "closed";
+      else if (FLAG_PARAM[filterValues.flag]) params.flag = FLAG_PARAM[filterValues.flag];
+      const res = await api.get("/tickets/export/", { params, responseType: "blob" });
+      const url = URL.createObjectURL(res.data as Blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `tickets-export-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err: unknown) {
+      toast.error(getApiError(err, "Export failed"));
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const fetchTickets = useCallback(async () => {
     try {
@@ -1515,11 +1549,16 @@ export default function TicketsPage() {
             <p className="text-muted-foreground">Track, complete, and approve field tasks</p>
           </div>
         </div>
-        {canEdit && (
-          <button onClick={() => openCreate()} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-all">
-            <Plus className="h-4 w-4" /> Add Ticket
+        <div className="flex items-center gap-2">
+          <button onClick={exportExcel} disabled={exporting} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-60">
+            <Download className="h-4 w-4" /> {exporting ? "Exporting…" : "Export Excel"}
           </button>
-        )}
+          {canEdit && (
+            <button onClick={() => openCreate()} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-all">
+              <Plus className="h-4 w-4" /> Add Ticket
+            </button>
+          )}
+        </div>
       </div>
 
       {deviceFilter && (

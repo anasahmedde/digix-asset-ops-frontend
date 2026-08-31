@@ -237,6 +237,28 @@ export default function InstallationTrackerPage() {
   const [updatingStep, setUpdatingStep] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [filterValues, setFilterValues] = useState<Record<string, string>>({ client: "", site: "", installer: "" });
+  const [exporting, setExporting] = useState(false);
+
+  async function exportExcel() {
+    setExporting(true);
+    try {
+      const params: Record<string, string> = {};
+      if (search) params.search = search;
+      if (trackFilter === "escalated") params.escalated = "true";
+      else if (trackFilter) params.bucket = trackFilter;
+      const res = await api.get("/sites/installations/export/", { params, responseType: "blob" });
+      const url = URL.createObjectURL(res.data as Blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `installation-tracker-export-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err: unknown) {
+      toast.error(getApiError(err, "Export failed"));
+    } finally {
+      setExporting(false);
+    }
+  }
   const [delayFor, setDelayFor] = useState<{ stepId: string | null; label: string; hold?: boolean } | null>(null);
   const [delayCause, setDelayCause] = useState("client");
   const [delayNote, setDelayNote] = useState("");
@@ -1272,6 +1294,13 @@ export default function InstallationTrackerPage() {
               <Download className="h-4 w-4" /> Export CSV
             </button>
           )}
+          <button
+            onClick={exportExcel}
+            disabled={exporting}
+            className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-60"
+          >
+            <Download className="h-4 w-4" /> {exporting ? "Exporting…" : "Export Excel"}
+          </button>
           {isManager && (
             <button
               onClick={openCreate}

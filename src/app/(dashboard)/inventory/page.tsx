@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDownToLine, ArrowUpFromLine, Package, Pencil, Plus, Trash2, X } from "lucide-react";
+import { ArrowDownToLine, ArrowUpFromLine, Download, Package, Pencil, Plus, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -55,6 +55,30 @@ export default function InventoryPage() {
   const [saving, setSaving] = useState(false);
   const [filterValues, setFilterValues] = useState<Record<string, string>>({ location: "", category: "", lowStock: "" });
   const [search, setSearch] = useState("");
+  const [exporting, setExporting] = useState(false);
+
+  async function exportExcel() {
+    setExporting(true);
+    try {
+      const params: Record<string, string> = {};
+      if (search) params.search = search;
+      if (filterValues.location) params.location = filterValues.location;
+      if (filterValues.category) params.category = filterValues.category;
+      if (filterValues.lowStock === "low") params.low_stock = "true";
+      else if (filterValues.lowStock === "ok") params.low_stock = "false";
+      const res = await api.get("/inventory/items/export/", { params, responseType: "blob" });
+      const url = URL.createObjectURL(res.data as Blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `inventory-export-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast.error(getApiError(err, "Export failed"));
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const fetchItems = useCallback(async () => {
     setLoading(true);
@@ -169,11 +193,16 @@ export default function InventoryPage() {
             <p className="text-muted-foreground">Warehouse stock — receive against work orders, issue to sites</p>
           </div>
         </div>
-        {canEdit && (
-          <button onClick={() => { setSelected(null); setItemModal("create"); }} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-all">
-            <Plus className="h-4 w-4" /> Add Item
+        <div className="flex items-center gap-2">
+          <button onClick={exportExcel} disabled={exporting} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-60">
+            <Download className="h-4 w-4" /> {exporting ? "Exporting…" : "Export Excel"}
           </button>
-        )}
+          {canEdit && (
+            <button onClick={() => { setSelected(null); setItemModal("create"); }} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-all">
+              <Plus className="h-4 w-4" /> Add Item
+            </button>
+          )}
+        </div>
       </div>
 
       <FilterBar
