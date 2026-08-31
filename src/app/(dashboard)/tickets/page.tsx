@@ -75,6 +75,8 @@ interface TicketItem {
   is_response_overdue: boolean;
   assignment_escalated: boolean;
   due_date_escalated: boolean;
+  /** Wave 4 multi-stage escalation: "<trigger>:<stage>" -> ISO timestamp when that stage fired. */
+  escalation_state?: Record<string, string>;
   title: string;
   description: string;
   priority: string;
@@ -168,6 +170,37 @@ const statusIcon: Record<string, React.ReactNode> = {
 
 function formatLabel(value: string) {
   return value.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/* ─── Multi-stage escalation (Wave 4) ──────────────────────────────── */
+
+// Reason wording per trigger, matching the legacy single-stage badges.
+// response_sla has no suffix (the plain "Escalated" wording).
+const ESCALATION_REASONS: Record<string, string> = {
+  assignment_sla: "Unassigned",
+  due_date: "Past Due",
+};
+
+/** Derive the highest fired stage (+ reason where derivable) from
+ *  escalation_state keys shaped "<trigger>:<stage>". */
+function deriveEscalation(
+  state?: Record<string, string> | null,
+): { stage: number; reason: string | null } | null {
+  if (!state) return null;
+  let stage = 0;
+  let reason: string | null = null;
+  for (const key of Object.keys(state).sort()) {
+    const [trigger, rawStage] = key.split(":");
+    const s = Number(rawStage);
+    if (!Number.isFinite(s) || s <= 0) continue;
+    if (s > stage) {
+      stage = s;
+      reason = ESCALATION_REASONS[trigger] ?? null;
+    } else if (s === stage && !reason) {
+      reason = ESCALATION_REASONS[trigger] ?? null;
+    }
+  }
+  return stage > 0 ? { stage, reason } : null;
 }
 
 const CATEGORY_OPTIONS = [
@@ -332,6 +365,8 @@ function TicketDetailView({
   const [costSaving, setCostSaving] = useState(false);
 
   const isAssignee = ticket.assigned_to === currentUserId;
+  // Highest fired escalation stage from escalation_state ("trigger:stage" keys).
+  const escalation = deriveEscalation(ticket.escalation_state);
   const isReporter = ticket.reported_by === currentUserId;
   const isAdmin = ["super_admin", "group_head", "ops_manager"].includes(currentUserRole);
   const isMarketing = currentUserRole === "marketing" || currentUserRole === "marketing_head";
@@ -547,16 +582,18 @@ function TicketDetailView({
             {ticket.issue_type_name && (
               <span className="rounded-full bg-rose-500/10 px-2 py-0.5 text-[10px] font-medium text-rose-500 ring-1 ring-rose-500/20">{ticket.issue_type_name}</span>
             )}
-            {(ticket.escalated || ticket.is_response_overdue || ticket.assignment_escalated || ticket.due_date_escalated) && (
+            {(escalation || ticket.escalated || ticket.is_response_overdue || ticket.assignment_escalated || ticket.due_date_escalated) && (
               <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-0.5 text-[10px] font-semibold text-red-500 ring-1 ring-red-500/20">
                 <AlertTriangle className="h-3 w-3" />
-                {ticket.assignment_escalated
-                  ? "Escalated — Unassigned"
-                  : ticket.due_date_escalated
-                    ? "Escalated — Past Due"
-                    : ticket.escalated
-                      ? "Escalated"
-                      : "Response Overdue"}
+                {escalation
+                  ? `Escalated — L${escalation.stage}${escalation.reason ? ` · ${escalation.reason}` : ""}`
+                  : ticket.assignment_escalated
+                    ? "Escalated — Unassigned"
+                    : ticket.due_date_escalated
+                      ? "Escalated — Past Due"
+                      : ticket.escalated
+                        ? "Escalated"
+                        : "Response Overdue"}
               </span>
             )}
             <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ${priorityBadge[ticket.priority]}`}>
