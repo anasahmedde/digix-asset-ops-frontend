@@ -40,11 +40,25 @@ import { FilterBar } from "@/components/ui/filter-bar";
 import { ProgressStepper } from "@/components/ui/progress-stepper";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
+import { formatCurrency } from "@/lib/currency";
 import { useUser } from "@/lib/user-context";
 import { formatDateTime, formatDate } from "@/lib/utils";
 import type { TicketAttachment, TicketComment, TicketStatus } from "@/types";
 
 /* ─── Types ────────────────────────────────────────────────────────── */
+
+interface TicketDeviceInfo {
+  id: string;
+  asset_code: string;
+  display_name: string | null;
+}
+
+interface TicketWarrantyInfo {
+  id: string;
+  warranty_type: string;
+  end_date: string;
+  status: string;
+}
 
 interface TicketItem {
   id: string;
@@ -68,6 +82,15 @@ interface TicketItem {
   category: string;
   device: string | null;
   device_code: string | null;
+  // Multi-asset + cost liability (WF-14/15, MW-03) — the light list
+  // serializer omits some of these, so they stay optional.
+  devices?: string[];
+  devices_info?: TicketDeviceInfo[];
+  warranty?: string | null;
+  warranty_info?: TicketWarrantyInfo | null;
+  is_billable?: boolean;
+  charge_to?: string;
+  repair_cost?: string | null;
   site: string | null;
   site_name: string | null;
   assigned_to: string | null;
@@ -146,6 +169,24 @@ const statusIcon: Record<string, React.ReactNode> = {
 function formatLabel(value: string) {
   return value.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
+
+const CATEGORY_OPTIONS = [
+  "installation",
+  "repair",
+  "replacement",
+  "inspection",
+  "relocation",
+  "warranty_claim",
+  "preventive_maintenance",
+  "other",
+];
+
+// Categories where the backend derives cost liability from the asset's
+// warranty (mirrors Ticket.WARRANTY_AWARE_CATEGORIES).
+const BILLING_CATEGORIES = ["repair", "replacement", "warranty_claim"];
+
+// Supplier-side warranty types (mirrors backend derive_billability).
+const SUPPLIER_SIDE_TYPES = ["supplier", "manufacturer", "extended"];
 
 /* ─── Status Stepper ───────────────────────────────────────────────── */
 
@@ -286,6 +327,9 @@ function TicketDetailView({
   const [commentLoading, setCommentLoading] = useState(false);
   const [lightboxImg, setLightboxImg] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [editingCost, setEditingCost] = useState(false);
+  const [costInput, setCostInput] = useState("");
+  const [costSaving, setCostSaving] = useState(false);
 
   const isAssignee = ticket.assigned_to === currentUserId;
   const isReporter = ticket.reported_by === currentUserId;
@@ -444,6 +488,24 @@ function TicketDetailView({
     }
   }
 
+  async function handleSaveCost() {
+    setCostSaving(true);
+    try {
+      const trimmed = costInput.trim();
+      const { data } = await api.patch(`/tickets/${ticket.id}/`, {
+        repair_cost: trimmed === "" ? null : trimmed,
+      });
+      setTicket(data);
+      setEditingCost(false);
+      onRefresh();
+      toast.success("Repair cost updated");
+    } catch (err: unknown) {
+      toast.error(getApiError(err, "Failed to update repair cost"));
+    } finally {
+      setCostSaving(false);
+    }
+  }
+
   function handleImageSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files || []);
     setCompletionImages((prev) => [...prev, ...files]);
@@ -557,6 +619,28 @@ function TicketDetailView({
                   {ticket.description || "No description provided."}
                 </p>
               </div>
+
+              {/* Linked assets (multi-asset tickets, e.g. preventive maintenance) */}
+              {ticket.devices_info && ticket.devices_info.length > 1 && (
+                <div className="rounded-xl border border-border bg-card p-5">
+                  <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground mb-3">
+                    <Monitor className="h-4 w-4 text-muted-foreground" /> Assets Covered ({ticket.devices_info.length})
+                  </h3>
+                  <div className="flex flex-wrap gap-2">
+                    {ticket.devices_info.map((d) => (
+                      <Link
+                        key={d.id}
+                        href={`/assets?device=${d.id}`}
+                        className="inline-flex items-center gap-1.5 rounded-full border border-border bg-secondary/40 px-3 py-1 text-xs font-medium text-foreground transition-colors hover:border-primary/40 hover:text-primary"
+                      >
+                        <Monitor className="h-3 w-3" />
+                        {d.asset_code}
+                        {d.display_name && <span className="text-muted-foreground">— {d.display_name}</span>}
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Completion Submission — always visible when data exists */}
               {ticket.completion_notes && (
@@ -816,6 +900,80 @@ function TicketDetailView({
                   )}
                 </div>
               </div>
+
+              {/* ── BILLING CARD (WF-14/15) ──────────────────────── */}
+              {(BILLING_CATEGORIES.includes(ticket.category) || !!ticket.charge_to || ticket.repair_cost != null) && (
+                <div className="rounded-xl border border-border bg-card p-5">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-4">Billing</h3>
+                  <div className="space-y-4">
+                    {ticket.warranty_info && (
+                      <span
+                        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ${
+                          ticket.warranty_info.status === "active"
+                            ? "bg-emerald-500/10 text-emerald-500 ring-emerald-500/20"
+                            : "bg-amber-500/10 text-amber-500 ring-amber-500/20"
+                        }`}
+                      >
+                        <ShieldCheck className="h-3.5 w-3.5" />
+                        {formatLabel(ticket.warranty_info.warranty_type)} warranty · {formatLabel(ticket.warranty_info.status)} · ends {formatDate(ticket.warranty_info.end_date)}
+                      </span>
+                    )}
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">Billable</span>
+                      <span
+                        className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ${
+                          ticket.is_billable
+                            ? "bg-amber-500/10 text-amber-500 ring-amber-500/20"
+                            : "bg-emerald-500/10 text-emerald-500 ring-emerald-500/20"
+                        }`}
+                      >
+                        {ticket.is_billable ? "Billable" : "Not Billable"}
+                      </span>
+                    </div>
+                    <div className="h-px bg-border" />
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">Charge To</span>
+                      <span className="text-sm font-medium text-foreground">{ticket.charge_to ? formatLabel(ticket.charge_to) : "—"}</span>
+                    </div>
+                    <div className="h-px bg-border" />
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs text-muted-foreground">Repair Cost</span>
+                      {editingCost ? (
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            value={costInput}
+                            onChange={(e) => setCostInput(e.target.value)}
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            placeholder="0.00"
+                            className={`${inputClass} h-8 w-28 text-xs`}
+                          />
+                          <button onClick={handleSaveCost} disabled={costSaving} className="flex h-8 items-center rounded-lg bg-primary px-2.5 text-xs font-medium text-white disabled:opacity-50">
+                            {costSaving ? "…" : "Save"}
+                          </button>
+                          <button onClick={() => setEditingCost(false)} className="flex h-8 w-8 items-center justify-center rounded-lg border border-border text-muted-foreground hover:bg-secondary">
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                          {ticket.repair_cost != null ? formatCurrency(ticket.repair_cost) : "Not set"}
+                          {isAdmin && (
+                            <button
+                              onClick={() => { setCostInput(ticket.repair_cost ?? ""); setEditingCost(true); }}
+                              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                              title="Edit repair cost"
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </button>
+                          )}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* ── ACTION CARD ──────────────────────────────────── */}
               <div className="rounded-xl border border-border bg-card p-5">
@@ -1125,6 +1283,20 @@ export default function TicketsPage() {
   const [deviceQuery, setDeviceQuery] = useState("");
   const [deviceListOpen, setDeviceListOpen] = useState(false);
   const [deviceFilter, setDeviceFilter] = useState("");
+  // Category drives the billing context + multi-asset UI, so it is controlled.
+  const [categoryValue, setCategoryValue] = useState("other");
+  // Cost liability (WF-14/15) — sent only when the user overrides the
+  // warranty-derived defaults, so the backend derivation stays authoritative.
+  const [billingEdited, setBillingEdited] = useState(false);
+  const [billingBillable, setBillingBillable] = useState(true);
+  const [billingChargeTo, setBillingChargeTo] = useState("client");
+  // Defaults derived from the asset's active warranties (mirrors backend
+  // derive_billability); null = unknown → server derives on save.
+  const [warrantyBilling, setWarrantyBilling] = useState<{ is_billable: boolean; charge_to: string } | null>(null);
+  // Extra assets linked to the same ticket (MW-03).
+  const [extraAssets, setExtraAssets] = useState<{ id: string; label: string }[]>([]);
+  const [extraQuery, setExtraQuery] = useState("");
+  const [extraListOpen, setExtraListOpen] = useState(false);
 
   const fetchTickets = useCallback(async () => {
     try {
@@ -1143,7 +1315,7 @@ export default function TicketsPage() {
     const createParam = searchParams.get("create");
     const deviceParam = searchParams.get("device");
     if (createParam) {
-      openCreate(deviceParam ?? undefined);
+      openCreate(deviceParam ?? undefined, searchParams.get("category") ?? undefined);
       router.replace("/tickets", { scroll: false });
       return;
     }
@@ -1173,20 +1345,54 @@ export default function TicketsPage() {
   }
 
   async function onDeviceSelect(deviceId: string) {
-    if (!deviceId) { setDeviceInfo(null); return; }
+    if (!deviceId) { setDeviceInfo(null); setWarrantyBilling(null); return; }
     try {
       const { data } = await api.get(`/assets/devices/${deviceId}/`);
       setDeviceInfo(data);
     } catch { setDeviceInfo(null); }
+    // Re-derive the billing defaults from this asset's active warranties
+    // (mirrors backend derive_billability: only an active *client* warranty
+    // covers the cost — charged to the vendor when a supplier-side warranty
+    // is also active); any prior manual override resets with the asset.
+    setBillingEdited(false);
+    setWarrantyBilling(null);
+    setBillingBillable(true);
+    setBillingChargeTo("client");
+    try {
+      const { data } = await api.get("/warranties/", {
+        params: { device: deviceId, status: "active", page_size: 100 },
+      });
+      const list: { warranty_type: string }[] = data.results ?? data;
+      const hasClient = list.some((w) => w.warranty_type === "client");
+      const hasSupplierSide = list.some((w) => SUPPLIER_SIDE_TYPES.includes(w.warranty_type));
+      const derived = hasClient
+        ? { is_billable: false, charge_to: hasSupplierSide ? "vendor" : "company" }
+        : { is_billable: true, charge_to: "client" };
+      setWarrantyBilling(derived);
+      setBillingBillable(derived.is_billable);
+      setBillingChargeTo(derived.charge_to);
+    } catch { /* unknown — billing derived server-side on save */ }
   }
 
-  function openCreate(presetDeviceId?: string) {
+  function resetBillingAndExtras() {
+    setBillingEdited(false); setBillingBillable(true); setBillingChargeTo("client");
+    setWarrantyBilling(null);
+    setExtraAssets([]); setExtraQuery(""); setExtraListOpen(false);
+  }
+
+  function openCreate(presetDeviceId?: string, presetCategory?: string) {
     setSelected(null); setDeviceInfo(null); setFaultFiles([]); setDeviceQuery(""); setDeviceListOpen(false);
+    setCategoryValue(presetCategory && CATEGORY_OPTIONS.includes(presetCategory) ? presetCategory : "other");
+    resetBillingAndExtras();
     setSelectedDeviceId(presetDeviceId ?? "");
     if (presetDeviceId) onDeviceSelect(presetDeviceId);
     setModalMode("create"); loadFormOptions();
   }
-  function openEdit(t: TicketItem) { setSelected(t); setDeviceInfo(null); setFaultFiles([]); setModalMode("edit"); loadFormOptions(); }
+  function openEdit(t: TicketItem) {
+    setSelected(t); setDeviceInfo(null); setFaultFiles([]);
+    setCategoryValue(t.category); resetBillingAndExtras();
+    setModalMode("edit"); loadFormOptions();
+  }
   function openDetail(t: TicketItem) {
     api.get(`/tickets/${t.id}/`).then(({ data }) => setDetailTicket(data)).catch(() => setDetailTicket(t));
     router.replace(`/tickets?open=${t.id}`, { scroll: false });
@@ -1207,6 +1413,15 @@ export default function TicketsPage() {
     if (modalMode === "create") {
       payload.device = fd.get("device") || null;
       payload.site = deviceInfo?.current_site || null;
+      // Only send billing overrides the user actually made — otherwise the
+      // backend derives them from the asset's warranty (WF-14/15).
+      if (billingEdited && selectedDeviceId && BILLING_CATEGORIES.includes(categoryValue)) {
+        payload.is_billable = billingBillable;
+        payload.charge_to = billingChargeTo;
+      }
+      if (extraAssets.length > 0 && selectedDeviceId) {
+        payload.devices = [selectedDeviceId, ...extraAssets.map((a) => a.id)];
+      }
     }
     try {
       if (modalMode === "create") {
@@ -1317,7 +1532,7 @@ export default function TicketsPage() {
         filters={[
           { key: "status", label: "Status", options: Object.keys(statusBadge).map((s) => ({ value: s, label: formatLabel(s) })) },
           { key: "priority", label: "Priority", options: Object.keys(priorityBadge).map((p) => ({ value: p, label: formatLabel(p) })) },
-          { key: "category", label: "Category", options: ["installation", "repair", "replacement", "inspection", "relocation", "other"].map((c) => ({ value: c, label: formatLabel(c) })) },
+          { key: "category", label: "Category", options: CATEGORY_OPTIONS.map((c) => ({ value: c, label: formatLabel(c) })) },
         ]}
         values={filterValues}
         onChange={(k, v) => setFilterValues((prev) => ({ ...prev, [k]: v }))}
@@ -1498,6 +1713,105 @@ export default function TicketsPage() {
                   )}
                 </div>
               )}
+              {/* Warranty context + cost liability (WF-14/15) — shown only for
+                  the categories where the backend derives billability. */}
+              {modalMode === "create" && deviceInfo && BILLING_CATEGORIES.includes(categoryValue) && (
+                <div className="space-y-3 rounded-lg border border-border bg-secondary/20 p-3">
+                  {warrantyBilling === null ? (
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-secondary px-2.5 py-1 text-xs font-medium text-muted-foreground ring-1 ring-border">
+                      <ShieldCheck className="h-3.5 w-3.5" /> Billing derives from the asset&apos;s warranty on save
+                    </span>
+                  ) : warrantyBilling.is_billable ? (
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-500 ring-1 ring-amber-500/20">
+                      <ShieldX className="h-3.5 w-3.5" /> No active client warranty — billable to client
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-500 ring-1 ring-emerald-500/20">
+                      <ShieldCheck className="h-3.5 w-3.5" /> Client warranty active — {warrantyBilling.charge_to === "vendor" ? "vendor" : "company"} bears cost
+                    </span>
+                  )}
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="flex h-10 cursor-pointer items-center gap-2 rounded-lg border border-border bg-card px-3 text-sm text-foreground">
+                      <input
+                        type="checkbox"
+                        checked={billingBillable}
+                        onChange={(e) => { setBillingBillable(e.target.checked); setBillingEdited(true); }}
+                        className="h-4 w-4"
+                      />
+                      Billable
+                    </label>
+                    <select
+                      aria-label="Charge to"
+                      value={billingChargeTo}
+                      onChange={(e) => { setBillingChargeTo(e.target.value); setBillingEdited(true); }}
+                      className={inputClass}
+                    >
+                      <option value="">Charge to…</option>
+                      <option value="company">Company</option>
+                      <option value="client">Client</option>
+                      <option value="vendor">Vendor</option>
+                    </select>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Defaults derive from the asset&apos;s warranty — change only if this ticket differs.
+                  </p>
+                </div>
+              )}
+              {/* Extra assets on the same ticket (MW-03, e.g. preventive maintenance rounds) */}
+              {modalMode === "create" && selectedDeviceId && (
+                <div className="space-y-1.5">
+                  <label className={labelClass}>
+                    Additional Assets<span className="font-normal text-muted-foreground/70"> (optional — covers several assets with one ticket)</span>
+                  </label>
+                  {extraAssets.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {extraAssets.map((a) => (
+                        <span key={a.id} className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
+                          {a.label}
+                          <button
+                            type="button"
+                            onClick={() => setExtraAssets((prev) => prev.filter((x) => x.id !== a.id))}
+                            className="rounded-full p-0.5 hover:bg-primary/20"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <div className="relative">
+                    <input
+                      value={extraQuery}
+                      onChange={(e) => { setExtraQuery(e.target.value); setExtraListOpen(true); }}
+                      onFocus={() => setExtraListOpen(true)}
+                      onBlur={() => setTimeout(() => setExtraListOpen(false), 150)}
+                      placeholder="Search to add more assets…"
+                      className={inputClass}
+                      autoComplete="off"
+                    />
+                    {extraListOpen && (
+                      <div className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-border bg-card shadow-xl">
+                        {deviceOptions
+                          .filter((d) => d.id !== selectedDeviceId && !extraAssets.some((a) => a.id === d.id) && d.label.toLowerCase().includes(extraQuery.toLowerCase()))
+                          .slice(0, 50)
+                          .map((d) => (
+                            <button
+                              key={d.id}
+                              type="button"
+                              onMouseDown={() => { setExtraAssets((prev) => [...prev, { id: d.id, label: d.label }]); setExtraQuery(""); setExtraListOpen(false); }}
+                              className="block w-full px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-primary/10"
+                            >
+                              {d.label}
+                            </button>
+                          ))}
+                        {deviceOptions.filter((d) => d.id !== selectedDeviceId && !extraAssets.some((a) => a.id === d.id) && d.label.toLowerCase().includes(extraQuery.toLowerCase())).length === 0 && (
+                          <p className="px-3 py-2 text-xs text-muted-foreground">No more assets match</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
                   <label htmlFor="issue_type" className={labelClass}>Issue Type</label>
@@ -1520,9 +1834,8 @@ export default function TicketsPage() {
                 </div>
                 <div className="space-y-1.5">
                   <label htmlFor="category" className={labelClass}>Category</label>
-                  <select id="category" name="category" defaultValue={selected?.category ?? "other"} className={inputClass}>
-                    <option value="installation">Installation</option><option value="repair">Repair</option><option value="replacement">Replacement</option>
-                    <option value="inspection">Inspection</option><option value="relocation">Relocation</option><option value="other">Other</option>
+                  <select id="category" name="category" value={categoryValue} onChange={(e) => setCategoryValue(e.target.value)} className={inputClass}>
+                    {CATEGORY_OPTIONS.map((c) => <option key={c} value={c}>{formatLabel(c)}</option>)}
                   </select>
                 </div>
                 <div className="space-y-1.5">

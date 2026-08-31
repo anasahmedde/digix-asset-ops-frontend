@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   Check,
+  ClipboardCheck,
   FileText,
   Layers,
   Pause,
@@ -41,6 +42,18 @@ interface Delay {
   reported_by_name: string | null;
   resolved_at: string | null;
   created_at: string;
+}
+
+interface Handover {
+  id: string;
+  handover_date: string;
+  accepted_by_name: string;
+  acceptance_notes: string;
+  signature: string | null;
+  client: string;
+  client_name: string;
+  site_name: string;
+  performed_by_name: string | null;
 }
 
 interface Installation {
@@ -91,6 +104,7 @@ interface Installation {
     caption: string;
   }[];
   delays: Delay[];
+  handover: Handover | null;
 }
 
 interface InstallationListItem {
@@ -235,6 +249,10 @@ export default function InstallationTrackerPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
   const [editInstaller, setEditInstaller] = useState("");
+  const [handoverOpen, setHandoverOpen] = useState(false);
+  const [handoverSaving, setHandoverSaving] = useState(false);
+  const [clientOptions, setClientOptions] = useState<Option[]>([]);
+  const [handoverClient, setHandoverClient] = useState("");
 
   const isManager = canWrite("sites");
   // Step actions on desktop are super-admin only; the assigned installer
@@ -462,6 +480,57 @@ export default function InstallationTrackerPage() {
     }
   }
 
+  function openHandover() {
+    if (!selected) return;
+    setHandoverClient("");
+    setHandoverOpen(true);
+    api
+      .get("/clients/", { params: { page_size: 200 } })
+      .then(({ data }) => setClientOptions((data.results ?? []).map((c: { id: string; name: string }) => ({ id: c.id, label: c.name }))))
+      .catch(() => setClientOptions([]));
+    // Default the client select to the client the asset is already assigned to.
+    api
+      .get(`/assets/devices/${selected.device}/`)
+      .then(({ data }) => setHandoverClient(data.assigned_client ?? ""))
+      .catch(() => {});
+  }
+
+  async function handleHandoverSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!selected || handoverSaving) return;
+    const form = e.currentTarget;
+    const fields = new FormData(form);
+    const fd = new FormData();
+    fd.append("accepted_by_name", String(fields.get("accepted_by_name") ?? "").trim());
+    if (handoverClient) fd.append("client", handoverClient);
+    if (fields.get("handover_date")) fd.append("handover_date", String(fields.get("handover_date")));
+    if (fields.get("acceptance_notes")) fd.append("acceptance_notes", String(fields.get("acceptance_notes")));
+    const signature = (form.elements.namedItem("signature") as HTMLInputElement | null)?.files?.[0];
+    if (signature) fd.append("signature", signature);
+    const photoFiles = (form.elements.namedItem("photos") as HTMLInputElement | null)?.files;
+    if (photoFiles) Array.from(photoFiles).forEach((f) => fd.append("photos", f));
+    setHandoverSaving(true);
+    try {
+      const { data } = await api.post(`/sites/installations/${selected.id}/handover/`, fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      toast.success("Handover recorded — asset is now active");
+      setHandoverOpen(false);
+      setSelected(data);
+      refreshList();
+    } catch (err) {
+      const resp = (err as { response?: { data?: { detail?: string; client?: string | string[] } } }).response;
+      const clientErr = resp?.data?.client;
+      toast.error(
+        clientErr
+          ? Array.isArray(clientErr) ? clientErr[0] : clientErr
+          : getApiError(err, "Failed to record handover")
+      );
+    } finally {
+      setHandoverSaving(false);
+    }
+  }
+
   async function resolveDelay(delayId: string) {
     if (!selected) return;
     try {
@@ -495,6 +564,18 @@ export default function InstallationTrackerPage() {
       delaysByStep.set(d.step, list);
     });
     const overdue = selected.due_date && !selected.completed_at && new Date(selected.due_date) < new Date();
+    // Handover unlocks once every non-handover step is completed or skipped
+    // (mirrors the backend gate); the button is for admin/ops/supervisor
+    // roles or the assigned installer (mirrors the backend role check).
+    const stepsReadyForHandover = selected.steps
+      .filter((s) => s.step_type !== "handover")
+      .every((s) => s.status === "completed" || s.status === "skipped");
+    const canHandover =
+      !selected.handover &&
+      stepsReadyForHandover &&
+      user != null &&
+      (["super_admin", "group_head", "ops_manager", "supervisor"].includes(user.role) ||
+        user.id === selected.installed_by);
 
     return (
       <div className="space-y-6">
@@ -509,14 +590,24 @@ export default function InstallationTrackerPage() {
             <h1 className="text-2xl font-bold text-foreground">Asset Installation Tracker</h1>
             <p className="text-sm text-muted-foreground">Track installation progress in different stages</p>
           </div>
-          {isManager && (
-            <button
-              onClick={openEdit}
-              className="ml-auto inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-            >
-              <Pencil className="h-4 w-4" /> Edit
-            </button>
-          )}
+          <div className="ml-auto flex items-center gap-2">
+            {canHandover && (
+              <button
+                onClick={openHandover}
+                className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700"
+              >
+                <ClipboardCheck className="h-4 w-4" /> Handover
+              </button>
+            )}
+            {isManager && (
+              <button
+                onClick={openEdit}
+                className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              >
+                <Pencil className="h-4 w-4" /> Edit
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Asset Header Card */}
@@ -530,6 +621,11 @@ export default function InstallationTrackerPage() {
                 </Link>
                 {selected.asset_name && <span className="text-sm font-semibold text-foreground">{selected.asset_name}</span>}
                 <StatusBadge status={selected.device_status} />
+                {selected.handover && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-600">
+                    <ClipboardCheck className="h-3 w-3" /> Handed over
+                  </span>
+                )}
                 {selected.client_delays > 0 && (
                   <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-0.5 text-[11px] font-semibold text-red-500">
                     <AlertTriangle className="h-3 w-3" /> {selected.client_delays} client delay{selected.client_delays > 1 ? "s" : ""}
@@ -730,6 +826,49 @@ export default function InstallationTrackerPage() {
 
           {/* Right rail */}
           <div className="space-y-4">
+            {/* Handover record */}
+            {selected.handover && (
+              <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-5">
+                <div className="mb-3 flex items-center gap-2">
+                  <ClipboardCheck className="h-4 w-4 text-emerald-600" />
+                  <h3 className="text-sm font-semibold text-foreground">Handover</h3>
+                </div>
+                <div className="space-y-2 text-xs">
+                  <div className="flex justify-between gap-2">
+                    <span className="text-muted-foreground">Date</span>
+                    <span className="font-medium text-foreground">{formatDate(selected.handover.handover_date)}</span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-muted-foreground">Accepted by</span>
+                    <span className="font-medium text-foreground">{selected.handover.accepted_by_name}</span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-muted-foreground">Client</span>
+                    <span className="font-medium text-foreground">{selected.handover.client_name}</span>
+                  </div>
+                  {selected.handover.performed_by_name && (
+                    <div className="flex justify-between gap-2">
+                      <span className="text-muted-foreground">Performed by</span>
+                      <span className="font-medium text-foreground">{selected.handover.performed_by_name}</span>
+                    </div>
+                  )}
+                  {selected.handover.acceptance_notes && (
+                    <p className="border-t border-emerald-500/20 pt-2 text-muted-foreground">{selected.handover.acceptance_notes}</p>
+                  )}
+                  {selected.handover.signature && (
+                    <div className="border-t border-emerald-500/20 pt-2">
+                      <p className="mb-1 text-muted-foreground">Signature</p>
+                      <img
+                        src={selected.handover.signature}
+                        alt={`Signature — ${selected.handover.accepted_by_name}`}
+                        className="h-20 rounded-lg border border-border bg-white object-contain p-1"
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Delay Log */}
             <div className="rounded-xl border border-border bg-card p-5">
               <div className="flex items-center justify-between mb-3">
@@ -945,6 +1084,95 @@ export default function InstallationTrackerPage() {
               </button>
               <button type="submit" disabled={editSaving} className="inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-medium text-white transition-all disabled:opacity-50">
                 {editSaving ? "Saving..." : "Save Changes"}
+              </button>
+            </div>
+          </form>
+        </Modal>
+
+        {/* Handover modal */}
+        <Modal open={handoverOpen} onClose={() => setHandoverOpen(false)} title={`Handover — ${selected.device_code}`} size="lg">
+          <form onSubmit={handleHandoverSubmit} className="space-y-4">
+            <p className="text-xs text-muted-foreground">
+              Recording the handover assigns the asset to the client, completes the handover step and moves the asset to Active.
+            </p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label htmlFor="ho-accepted-by" className={createLabelClass}>Accepted By (client-side name) *</label>
+                <input
+                  id="ho-accepted-by"
+                  name="accepted_by_name"
+                  required
+                  placeholder="e.g. Ali Raza — Facilities Manager"
+                  className={createInputClass}
+                />
+              </div>
+              <div>
+                <label className={createLabelClass}>Client *</label>
+                <SearchSelect
+                  options={clientOptions}
+                  value={handoverClient}
+                  onChange={setHandoverClient}
+                  name="client"
+                  placeholder="Search client…"
+                />
+              </div>
+              <div>
+                <label htmlFor="ho-date" className={createLabelClass}>Handover Date</label>
+                <input
+                  id="ho-date"
+                  name="handover_date"
+                  type="date"
+                  defaultValue={new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10)}
+                  className={createInputClass}
+                />
+              </div>
+              <div>
+                <label htmlFor="ho-signature" className={createLabelClass}>Signature (image)</label>
+                <input
+                  id="ho-signature"
+                  name="signature"
+                  type="file"
+                  accept="image/*"
+                  className={`${createInputClass} h-auto py-2 file:mr-3 file:rounded-md file:border-0 file:bg-secondary file:px-3 file:py-1 file:text-xs file:font-medium file:text-foreground`}
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label htmlFor="ho-photos" className={createLabelClass}>Additional Photos</label>
+                <input
+                  id="ho-photos"
+                  name="photos"
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className={`${createInputClass} h-auto py-2 file:mr-3 file:rounded-md file:border-0 file:bg-secondary file:px-3 file:py-1 file:text-xs file:font-medium file:text-foreground`}
+                />
+              </div>
+            </div>
+            <div>
+              <label htmlFor="ho-notes" className={createLabelClass}>Acceptance Notes</label>
+              <textarea
+                id="ho-notes"
+                name="acceptance_notes"
+                rows={2}
+                placeholder="e.g. Accepted with minor snag list attached"
+                className={`${createInputClass} h-auto py-2`}
+              />
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setHandoverOpen(false)}
+                className="inline-flex h-10 items-center rounded-lg border border-border bg-transparent px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={handoverSaving}
+                className="inline-flex h-10 items-center gap-2 rounded-lg bg-emerald-600 px-5 text-sm font-medium text-white transition-colors hover:bg-emerald-700 disabled:opacity-50"
+              >
+                <ClipboardCheck className="h-4 w-4" />
+                {handoverSaving ? "Recording..." : "Record Handover"}
               </button>
             </div>
           </form>
