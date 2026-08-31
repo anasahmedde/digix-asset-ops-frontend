@@ -24,6 +24,7 @@ import { useUser } from "@/lib/user-context";
 import { StatCard } from "@/components/ui/stat-card";
 import { StatusBadge } from "@/components/ui/badge";
 import { CopyButton } from "@/components/ui/copy-button";
+import { FilterBar } from "@/components/ui/filter-bar";
 import { Modal } from "@/components/ui/modal";
 import { SearchSelect } from "@/components/ui/search-select";
 import { DonutChart } from "@/components/charts/donut-chart";
@@ -57,10 +58,32 @@ const OFF_RAMP_PHASES = [
   { value: "on_hold", label: "On Hold" },
   { value: "lost", label: "Lost" },
 ];
+const CONTRACT_TYPES = [
+  { value: "sold", label: "Sold Outright" },
+  { value: "rental", label: "Rental" },
+];
 const emptyForm = {
   name: "", location: "", description: "", status: "planning", phase: "query",
   client: "", site: "", manager: "", start_date: "", target_date: "", budget: "",
+  contract_type: "", rental_end_date: "",
 };
+
+function ContractBadge({ contractType, rentalEndDate, compact = false }: { contractType: string; rentalEndDate: string | null; compact?: boolean }) {
+  if (!contractType) return null;
+  const isRental = contractType === "rental";
+  const label = compact
+    ? (isRental ? "Rental" : "Sold")
+    : isRental
+      ? `Rental${rentalEndDate ? ` until ${rentalEndDate}` : ""}`
+      : "Sold Outright";
+  return (
+    <span className={`inline-flex items-center rounded-full font-semibold ${compact ? "px-2 py-0.5 text-[10px]" : "px-3 py-1 text-xs"} ${
+      isRental ? "bg-blue-500/10 text-blue-500 ring-1 ring-blue-500/20" : "bg-emerald-500/10 text-emerald-500 ring-1 ring-emerald-500/20"
+    }`}>
+      {label}
+    </span>
+  );
+}
 
 interface ScopeItem {
   id: string;
@@ -104,6 +127,8 @@ interface ProjectDetail {
   manager: string | null;
   manager_name: string | null;
   budget: string | null;
+  contract_type: string;
+  rental_end_date: string | null;
   notes: string;
   scope_items: ScopeItem[];
   milestones: Milestone[];
@@ -146,6 +171,8 @@ interface Project {
   progress: number;
   start_date: string | null;
   target_date: string | null;
+  contract_type: string;
+  rental_end_date: string | null;
   bottleneck_count: number;
 }
 
@@ -168,6 +195,7 @@ export default function ProjectsPage() {
   const [scopeDevice, setScopeDevice] = useState("");
   const [scopeComponents, setScopeComponents] = useState<Option[]>([]);
   const [addingScope, setAddingScope] = useState(false);
+  const [contractFilter, setContractFilter] = useState("");
 
   async function loadDetail(id: string) {
     try {
@@ -307,6 +335,8 @@ export default function ProjectsPage() {
       start_date: p.start_date ?? "",
       target_date: p.target_date ?? "",
       budget: p.budget ? String(p.budget) : "",
+      contract_type: p.contract_type ?? "",
+      rental_end_date: p.rental_end_date ?? "",
     });
     setEditingId(p.id);
     setModalOpen(true);
@@ -357,6 +387,8 @@ export default function ProjectsPage() {
       start_date: form.start_date || null,
       target_date: form.target_date || null,
       budget: form.budget ? Number(form.budget) : null,
+      contract_type: form.contract_type,
+      rental_end_date: form.contract_type === "rental" && form.rental_end_date ? form.rental_end_date : null,
     };
     try {
       if (editingId) {
@@ -409,6 +441,25 @@ export default function ProjectsPage() {
         <div>
           <label className="mb-1 block text-xs font-medium text-muted-foreground">Location</label>
           <input value={form.location} onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))} placeholder="City / mall / area" className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none" />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">Contract Type</label>
+            <select
+              value={form.contract_type}
+              onChange={(e) => setForm((f) => ({ ...f, contract_type: e.target.value, rental_end_date: e.target.value === "rental" ? f.rental_end_date : "" }))}
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none"
+            >
+              <option value="">—</option>
+              {CONTRACT_TYPES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+            </select>
+          </div>
+          {form.contract_type === "rental" && (
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">Rental end date</label>
+              <input type="date" value={form.rental_end_date} onChange={(e) => setForm((f) => ({ ...f, rental_end_date: e.target.value }))} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none" />
+            </div>
+          )}
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -470,6 +521,7 @@ export default function ProjectsPage() {
             </p>
           </div>
           <div className="ml-auto flex items-center gap-2">
+            <ContractBadge contractType={d.contract_type} rentalEndDate={d.rental_end_date} />
             <StatusBadge status={d.status} label={d.status_display} />
             {canEdit && (
               <button onClick={() => openEdit(d)} className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
@@ -740,7 +792,9 @@ export default function ProjectsPage() {
     { name: "Delayed", value: delayed },
   ];
 
-  const ongoing = projects.filter((p) => !["completed", "on_hold"].includes(p.status));
+  const ongoing = projects.filter(
+    (p) => !["completed", "on_hold"].includes(p.status) && (!contractFilter || p.contract_type === contractFilter),
+  );
 
   function daysLeft(targetDate: string | null): string {
     if (!targetDate) return "—";
@@ -777,11 +831,18 @@ export default function ProjectsPage() {
 
       {/* Ongoing Projects Table */}
       <div className="rounded-xl border border-border bg-card overflow-hidden">
-        <div className="flex items-center justify-between border-b border-border p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-5">
           <h2 className="text-base font-semibold text-foreground">Ongoing Projects</h2>
-          <Link href="/projects" className="text-xs font-medium text-primary hover:underline">
-            View All Projects
-          </Link>
+          <div className="flex items-center gap-3">
+            <FilterBar
+              filters={[{ key: "contract", label: "Contract", options: CONTRACT_TYPES }]}
+              values={{ contract: contractFilter }}
+              onChange={(_, v) => setContractFilter(v)}
+            />
+            <Link href="/projects" className="text-xs font-medium text-primary hover:underline">
+              View All Projects
+            </Link>
+          </div>
         </div>
         {ongoing.length > 0 ? (
           <div className="overflow-x-auto">
@@ -803,7 +864,10 @@ export default function ProjectsPage() {
                   <tr key={project.id} onClick={() => loadDetail(project.id)} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
                     <td className="px-5 py-3.5">
                       <div>
-                        <p className="font-medium text-foreground">{project.name}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium text-foreground">{project.name}</p>
+                          <ContractBadge contractType={project.contract_type} rentalEndDate={project.rental_end_date} compact />
+                        </div>
                         <p className="text-xs text-muted-foreground">{project.location}</p>
                       </div>
                     </td>
