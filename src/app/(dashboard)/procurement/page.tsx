@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, ChevronRight, Pencil, Plus, ShoppingCart, Trash2, X } from "lucide-react";
+import { ChevronDown, ChevronRight, PackageCheck, Pencil, Plus, ShoppingCart, Trash2, X } from "lucide-react";
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -51,6 +51,51 @@ interface PurchaseOrder {
 interface Option {
   id: string;
   label: string;
+}
+
+// --- Goods receipt (WF-04) types ---
+
+interface ReceiveRow {
+  po_item: string;
+  description: string;
+  serialized: boolean; // device_model set → serials required, one per unit
+  ordered: number;
+  received: number;
+  outstanding: number;
+  quantity: string;
+  batch_number: string;
+  serials: string; // textarea raw value, one serial per line
+}
+
+interface CreatedDevice {
+  id: string;
+  asset_code: string;
+  serial_number: string;
+}
+
+interface ReceiveResult {
+  grn_number: string;
+  created_devices: CreatedDevice[];
+}
+
+interface ReceiptLine {
+  id: string;
+  po_item: string | null;
+  po_item_description: string | null;
+  inventory_item_name: string | null;
+  quantity: number;
+  batch_number: string;
+  serial_numbers: string[] | null;
+}
+
+interface GoodsReceipt {
+  id: string;
+  grn_number: string;
+  reference: string;
+  notes: string;
+  received_by_name: string | null;
+  lines: ReceiptLine[];
+  created_at: string;
 }
 
 type ItemKind = "custom" | "asset" | "material";
@@ -111,7 +156,7 @@ const STATUS_BADGES: Record<string, string> = {
 };
 
 // Guarded transitions per current status (mirrors backend VALID_TRANSITIONS).
-// Receiving (ordered → partially_received → received) happens via goods receipts (GRN) in Wave 2 — no manual button.
+// Receiving (ordered → partially_received → received) happens via goods receipts (GRN) — no manual button.
 const TRANSITIONS: Record<POStatus, Array<{ status: POStatus; label: string }>> = {
   draft: [
     { status: "pending_approval", label: "Submit for Approval" },
@@ -132,10 +177,49 @@ const TRANSITIONS: Record<POStatus, Array<{ status: POStatus; label: string }>> 
   cancelled: [],
 };
 
-const RECEIVING_HINT_STATUSES: POStatus[] = ["ordered", "partially_received"];
+const RECEIVABLE_STATUSES: POStatus[] = ["ordered", "partially_received"];
+const RECEIPT_HISTORY_STATUSES: POStatus[] = ["ordered", "partially_received", "received"];
 
 function statusLabel(status: string): string {
   return status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function parseSerials(raw: string): string[] {
+  return raw
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+// The receive endpoint raises DRF ValidationErrors keyed "lines[<i>]" (payload
+// index), plus top-level keys like "status" / "serial_numbers" / "detail".
+// Split them so per-line errors can be pinned to the offending row.
+function parseReceiveErrors(err: unknown): { general: string[]; perLine: Record<number, string> } {
+  const general: string[] = [];
+  const perLine: Record<number, string> = {};
+  if (err && typeof err === "object" && "response" in err) {
+    const resp = (err as { response?: { status?: number; data?: unknown } }).response;
+    if (resp?.status === 403) {
+      return { general: ["You do not have permission to perform this action."], perLine };
+    }
+    const data = resp?.data;
+    if (Array.isArray(data)) {
+      general.push(data.map(String).join(" "));
+    } else if (data && typeof data === "object") {
+      for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
+        const msg = Array.isArray(value) ? value.map(String).join(" ") : String(value);
+        const lineMatch = key.match(/^lines\[(\d+)\]$/);
+        if (lineMatch) {
+          perLine[Number(lineMatch[1])] = msg;
+        } else if (key === "detail" || key === "non_field_errors") {
+          general.push(msg);
+        } else {
+          general.push(`${statusLabel(key)}: ${msg}`);
+        }
+      }
+    }
+  }
+  return { general, perLine };
 }
 
 export default function ProcurementPage() {
@@ -153,6 +237,21 @@ export default function ProcurementPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [filterValues, setFilterValues] = useState<Record<string, string>>({ status: "" });
   const [search, setSearch] = useState("");
+
+  // Receive-against-PO (WF-04) modal state
+  const [receivePO, setReceivePO] = useState<PurchaseOrder | null>(null);
+  const [receiveRows, setReceiveRows] = useState<ReceiveRow[]>([]);
+  const [receiveReference, setReceiveReference] = useState("");
+  const [receiveNotes, setReceiveNotes] = useState("");
+  const [receiveSaving, setReceiveSaving] = useState(false);
+  const [receiveResult, setReceiveResult] = useState<ReceiveResult | null>(null);
+  const [receiveRowErrors, setReceiveRowErrors] = useState<Record<string, string>>({});
+  const [receiveError, setReceiveError] = useState<string | null>(null);
+
+  // Receipts history for the expanded PO
+  const [receipts, setReceipts] = useState<GoodsReceipt[] | null>(null);
+  const [receiptsLoading, setReceiptsLoading] = useState(false);
+  const [receiptsVersion, setReceiptsVersion] = useState(0);
 
   const fetchOrders = useCallback(async () => {
     try {
@@ -188,6 +287,29 @@ export default function ProcurementPage() {
       )
       .catch(() => {});
   }, [fetchOrders]);
+
+  // Load goods receipts whenever a PO row is expanded (and after a new GRN).
+  useEffect(() => {
+    if (!expandedId) {
+      setReceipts(null);
+      return;
+    }
+    let cancelled = false;
+    setReceiptsLoading(true);
+    api.get("/inventory/goods-receipts/", { params: { purchase_order: expandedId, page_size: 100 } })
+      .then((r) => {
+        if (!cancelled) setReceipts(r.data.results ?? r.data);
+      })
+      .catch(() => {
+        if (!cancelled) setReceipts([]);
+      })
+      .finally(() => {
+        if (!cancelled) setReceiptsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [expandedId, receiptsVersion]);
 
   function openCreate() {
     setSelected(null);
@@ -349,6 +471,123 @@ export default function ProcurementPage() {
     }
   }
 
+  async function openReceive(id: string) {
+    try {
+      // Fresh detail fetch so received_quantity/outstanding are current.
+      const { data } = await api.get<PurchaseOrder>(`/procurement/purchase-orders/${id}/`);
+      closeModal();
+      setReceivePO(data);
+      setReceiveRows(
+        (data.items ?? [])
+          .filter((i): i is POItem & { id: string } => Boolean(i.id))
+          .map((i) => {
+            const received = i.received_quantity ?? 0;
+            return {
+              po_item: i.id,
+              description: i.description,
+              serialized: Boolean(i.device_model),
+              ordered: i.quantity,
+              received,
+              outstanding: Math.max(i.quantity - received, 0),
+              quantity: "0",
+              batch_number: "",
+              serials: "",
+            };
+          })
+      );
+      setReceiveReference("");
+      setReceiveNotes("");
+      setReceiveResult(null);
+      setReceiveRowErrors({});
+      setReceiveError(null);
+    } catch (err: unknown) {
+      toast.error(getApiError(err, "Failed to load purchase order"));
+    }
+  }
+
+  function closeReceive() {
+    setReceivePO(null);
+    setReceiveRows([]);
+    setReceiveResult(null);
+    setReceiveRowErrors({});
+    setReceiveError(null);
+  }
+
+  function updateReceiveRow(poItem: string, patch: Partial<ReceiveRow>) {
+    setReceiveRows((rows) => rows.map((r) => (r.po_item === poItem ? { ...r, ...patch } : r)));
+    setReceiveRowErrors((errs) => {
+      if (!(poItem in errs)) return errs;
+      const next = { ...errs };
+      delete next[poItem];
+      return next;
+    });
+  }
+
+  // Client-side blockers per row: over-receiving, or serial count ≠ quantity.
+  function receiveRowProblem(r: ReceiveRow): string | null {
+    const qty = Number(r.quantity) || 0;
+    if (qty <= 0) return null;
+    if (qty > r.outstanding) return `Only ${r.outstanding} outstanding on this line.`;
+    if (r.serialized) {
+      const count = parseSerials(r.serials).length;
+      if (count !== qty) return `Enter exactly ${qty} serial number(s), one per line — currently ${count}.`;
+    }
+    return null;
+  }
+
+  const receiveActiveRows = receiveRows.filter((r) => (Number(r.quantity) || 0) > 0);
+  const receiveBlocked =
+    receiveActiveRows.length === 0 || receiveRows.some((r) => receiveRowProblem(r) !== null);
+
+  async function handleReceiveSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!receivePO || receiveBlocked) return;
+    // Payload order matters: the backend keys per-line errors "lines[<i>]".
+    const rows = receiveActiveRows;
+    const lines = rows.map((r) => ({
+      po_item: r.po_item,
+      quantity: Number(r.quantity),
+      ...(r.batch_number.trim() ? { batch_number: r.batch_number.trim() } : {}),
+      ...(r.serialized ? { serial_numbers: parseSerials(r.serials) } : {}),
+    }));
+    setReceiveSaving(true);
+    setReceiveError(null);
+    setReceiveRowErrors({});
+    try {
+      const { data } = await api.post<ReceiveResult>(
+        `/procurement/purchase-orders/${receivePO.id}/receive/`,
+        {
+          reference: receiveReference.trim(),
+          notes: receiveNotes.trim(),
+          lines,
+        }
+      );
+      setReceiveResult({ grn_number: data.grn_number, created_devices: data.created_devices ?? [] });
+      toast.success(`Goods receipt ${data.grn_number} recorded`);
+      fetchOrders();
+      setReceiptsVersion((v) => v + 1);
+    } catch (err: unknown) {
+      const { general, perLine } = parseReceiveErrors(err);
+      const rowErrs: Record<string, string> = {};
+      for (const [idx, msg] of Object.entries(perLine)) {
+        const row = rows[Number(idx)];
+        if (row) rowErrs[row.po_item] = msg;
+        else general.push(msg);
+      }
+      setReceiveRowErrors(rowErrs);
+      const summary =
+        general.length > 0
+          ? general.join(" ")
+          : Object.keys(rowErrs).length > 0
+            ? "Fix the highlighted line(s) and try again."
+            : getApiError(err, "Failed to record goods receipt");
+      setReceiveError(summary);
+      toast.error(Object.values(rowErrs)[0] ?? summary);
+    } finally {
+      setReceiveSaving(false);
+    }
+  }
+
   async function handleDelete(po: PurchaseOrder) {
     if (!confirm(`Delete PO "${po.po_number}"? This cannot be undone.`)) return;
     try {
@@ -362,12 +601,21 @@ export default function ProcurementPage() {
 
   function renderTransitionBar(po: PurchaseOrder) {
     const actions = TRANSITIONS[po.status] ?? [];
-    const showHint = RECEIVING_HINT_STATUSES.includes(po.status);
-    if (!canEdit && !showHint) return null;
-    if (actions.length === 0 && !showHint) return null;
+    const receivable = RECEIVABLE_STATUSES.includes(po.status);
+    if (!canEdit) return null;
+    if (actions.length === 0 && !receivable) return null;
     return (
       <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-secondary/30 p-3">
-        {canEdit && actions.length > 0 && (
+        {receivable && (
+          <button
+            type="button"
+            onClick={() => openReceive(po.id)}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white transition-all"
+          >
+            <PackageCheck className="h-3.5 w-3.5" /> Receive items
+          </button>
+        )}
+        {actions.length > 0 && (
           <>
             <span className="text-xs font-medium text-muted-foreground">Advance status:</span>
             {actions.map((a) => (
@@ -383,11 +631,6 @@ export default function ProcurementPage() {
               </button>
             ))}
           </>
-        )}
-        {showHint && (
-          <span className="text-xs italic text-muted-foreground">
-            Receiving against this PO arrives with goods receipts (GRN) in a later update.
-          </span>
         )}
       </div>
     );
@@ -538,6 +781,30 @@ export default function ProcurementPage() {
                             <p className="text-sm text-muted-foreground">No line items on this purchase order.</p>
                           )}
                           {po.notes && <p className="text-sm text-muted-foreground"><span className="font-medium text-foreground">Notes:</span> {po.notes}</p>}
+                          {RECEIPT_HISTORY_STATUSES.includes(po.status) && (
+                            <div className="rounded-lg border border-border bg-card/60 p-3">
+                              <h4 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Goods Receipts</h4>
+                              {receiptsLoading ? (
+                                <p className="mt-2 text-xs text-muted-foreground">Loading receipts…</p>
+                              ) : receipts && receipts.length > 0 ? (
+                                <ul className="mt-2 space-y-1.5">
+                                  {receipts.map((g) => (
+                                    <li key={g.id} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-sm">
+                                      <span className="font-medium text-foreground">{g.grn_number}</span>
+                                      <span className="text-xs text-muted-foreground">{new Date(g.created_at).toLocaleDateString()}</span>
+                                      {g.reference && <span className="text-xs text-muted-foreground">Ref: {g.reference}</span>}
+                                      {g.received_by_name && <span className="text-xs text-muted-foreground">by {g.received_by_name}</span>}
+                                      <span className="text-xs text-muted-foreground">
+                                        {g.lines.map((l) => `${l.quantity} × ${l.po_item_description ?? l.inventory_item_name ?? "item"}`).join(", ")}
+                                      </span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              ) : (
+                                <p className="mt-2 text-xs text-muted-foreground">No goods receipts recorded yet.</p>
+                              )}
+                            </div>
+                          )}
                           {renderTransitionBar(po)}
                         </div>
                       </td>
@@ -670,6 +937,206 @@ export default function ProcurementPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {receivePO && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/60 py-8 backdrop-blur-sm">
+          <div className="w-full max-w-3xl rounded-2xl border border-border bg-card p-6 shadow-2xl">
+            <div className="mb-5 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <h2 className="text-lg font-semibold text-foreground">Receive items — {receivePO.po_number}</h2>
+                <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${STATUS_BADGES[receivePO.status] ?? ""}`}>
+                  {statusLabel(receivePO.status)}
+                </span>
+              </div>
+              <button onClick={closeReceive} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {receiveResult ? (
+              <div className="space-y-4">
+                <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4">
+                  <p className="text-sm font-semibold text-emerald-500">
+                    Goods receipt {receiveResult.grn_number} recorded
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Stock and received quantities have been updated on {receivePO.po_number}.
+                  </p>
+                </div>
+                {receiveResult.created_devices.length > 0 && (
+                  <div className="space-y-2">
+                    <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                      Devices created ({receiveResult.created_devices.length})
+                    </h3>
+                    <div className="max-h-64 overflow-y-auto rounded-lg border border-border">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-border bg-secondary/40">
+                            <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">Asset Code</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">Serial Number</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {receiveResult.created_devices.map((d) => (
+                            <tr key={d.id} className="border-b border-border last:border-0">
+                              <td className="px-4 py-2 font-medium text-foreground">{d.asset_code}</td>
+                              <td className="px-4 py-2 text-muted-foreground">{d.serial_number}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={closeReceive}
+                    className="inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-medium text-white transition-all"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={handleReceiveSubmit} className="space-y-4">
+                {receiveError && (
+                  <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">
+                    {receiveError}
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <label className={labelClass}>Lines in this delivery</label>
+                  {receiveRows.map((r) => {
+                    const qty = Number(r.quantity) || 0;
+                    const problem = receiveRowProblem(r);
+                    const serverError = receiveRowErrors[r.po_item];
+                    const serialCount = parseSerials(r.serials).length;
+                    const fullyReceived = r.outstanding === 0;
+                    return (
+                      <div
+                        key={r.po_item}
+                        className={`space-y-2 rounded-lg border p-3 ${
+                          serverError ? "border-red-500/50" : "border-border"
+                        } ${fullyReceived ? "opacity-60" : ""}`}
+                      >
+                        <div className="flex flex-wrap items-start gap-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium text-foreground">{r.description}</p>
+                            <p className="mt-0.5 text-xs text-muted-foreground">
+                              Ordered {r.ordered} · Received {r.received} · Outstanding {r.outstanding}
+                              {r.serialized && (
+                                <span className="ml-2 inline-flex rounded-full bg-indigo-500/10 px-2 py-0.5 text-[10px] font-medium text-indigo-400 ring-1 ring-indigo-500/20">
+                                  Serialized
+                                </span>
+                              )}
+                            </p>
+                          </div>
+                          {fullyReceived ? (
+                            <span className="text-xs font-medium text-emerald-500">Fully received</span>
+                          ) : (
+                            <>
+                              <div className="w-24 space-y-1">
+                                <label className={labelClass}>Qty to receive</label>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max={r.outstanding}
+                                  value={r.quantity}
+                                  onChange={(e) => updateReceiveRow(r.po_item, { quantity: e.target.value })}
+                                  className={inputClass}
+                                />
+                              </div>
+                              <div className="w-40 space-y-1">
+                                <label className={labelClass}>Batch number</label>
+                                <input
+                                  value={r.batch_number}
+                                  onChange={(e) => updateReceiveRow(r.po_item, { batch_number: e.target.value })}
+                                  placeholder="Optional"
+                                  className={inputClass}
+                                />
+                              </div>
+                            </>
+                          )}
+                        </div>
+                        {r.serialized && !fullyReceived && qty > 0 && (
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between">
+                              <label className={labelClass}>Serial numbers (one per line)</label>
+                              <span className={`text-xs font-medium ${serialCount === qty ? "text-emerald-500" : "text-amber-500"}`}>
+                                {serialCount} / {qty}
+                              </span>
+                            </div>
+                            <textarea
+                              rows={Math.min(Math.max(qty, 2), 6)}
+                              value={r.serials}
+                              onChange={(e) => updateReceiveRow(r.po_item, { serials: e.target.value })}
+                              placeholder={"SN-0001\nSN-0002"}
+                              className={`${inputClass} h-auto py-2 font-mono text-xs`}
+                            />
+                          </div>
+                        )}
+                        {problem && qty > 0 && <p className="text-xs text-amber-500">{problem}</p>}
+                        {serverError && <p className="text-xs text-red-400">{serverError}</p>}
+                      </div>
+                    );
+                  })}
+                  {receiveRows.length === 0 && (
+                    <p className="text-sm text-muted-foreground">This purchase order has no line items.</p>
+                  )}
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <label htmlFor="receive_reference" className={labelClass}>Reference</label>
+                    <input
+                      id="receive_reference"
+                      value={receiveReference}
+                      onChange={(e) => setReceiveReference(e.target.value)}
+                      placeholder="Delivery note / invoice no. (optional)"
+                      className={inputClass}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label htmlFor="receive_notes" className={labelClass}>Notes</label>
+                    <input
+                      id="receive_notes"
+                      value={receiveNotes}
+                      onChange={(e) => setReceiveNotes(e.target.value)}
+                      placeholder="Optional"
+                      className={inputClass}
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-3 pt-2">
+                  {receiveActiveRows.length === 0 && receiveRows.length > 0 && (
+                    <span className="mr-auto text-xs text-muted-foreground">
+                      Enter a quantity on at least one line to record a receipt.
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={closeReceive}
+                    className="inline-flex h-10 items-center rounded-lg border border-border bg-transparent px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={receiveSaving || receiveBlocked}
+                    className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-5 text-sm font-medium text-white transition-all disabled:opacity-50"
+                  >
+                    <PackageCheck className="h-4 w-4" />
+                    {receiveSaving ? "Recording…" : "Record Receipt"}
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}
