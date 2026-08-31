@@ -10,16 +10,18 @@ import {
   Eye,
   Pencil,
   Plus,
+  ShoppingCart,
   Trash2,
   Truck,
   XCircle,
 } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
+import { CURRENCIES } from "@/lib/currency";
 import { useUser } from "@/lib/user-context";
 import { StatCard } from "@/components/ui/stat-card";
 import { StatusBadge } from "@/components/ui/badge";
@@ -143,6 +145,72 @@ interface LinkedAsset {
   site_name: string | null;
 }
 
+interface BOMAllocationRow {
+  id: string;
+  bom_line: string;
+  device: string | null;
+  device_code: string | null;
+  device_serial: string | null;
+  inventory_item: string | null;
+  item_name: string | null;
+  quantity: number;
+  status: string; // allocated | issued | cancelled
+  allocated_by_name: string | null;
+  created_at: string;
+}
+
+interface BOMLine {
+  id: string;
+  project: string;
+  asset_type: string | null;
+  asset_type_name: string | null;
+  device_model: string | null;
+  device_model_name: string | null;
+  material_type: string | null;
+  material_type_name: string | null;
+  description: string;
+  quantity: number;
+  unit_price: string;
+  allocated_quantity: number;
+  issued_quantity: number;
+  shortage: number;
+  allocations: BOMAllocationRow[];
+}
+
+interface BOMTotals {
+  required: number;
+  allocated: number;
+  issued: number;
+  shortage: number;
+}
+
+interface InventoryItemOpt {
+  id: string;
+  material_name: string | null;
+  sku: string;
+  quantity: number;
+  unit: string | null;
+}
+
+interface SupplierOpt {
+  id: string;
+  name: string;
+}
+
+/** Wave-2 endpoints return field-keyed 400s ({"quantity": "..."}); flatten the first message. */
+function bomApiError(err: unknown, fallback: string): string {
+  if (err && typeof err === "object" && "response" in err) {
+    const data = (err as { response?: { data?: unknown } }).response?.data;
+    if (data && typeof data === "object") {
+      for (const value of Object.values(data as Record<string, unknown>)) {
+        if (typeof value === "string") return value;
+        if (Array.isArray(value) && typeof value[0] === "string") return value[0];
+      }
+    }
+  }
+  return getApiError(err, fallback);
+}
+
 interface ProjectStats {
   total: number;
   on_track: number;
@@ -196,11 +264,34 @@ export default function ProjectsPage() {
   const [scopeComponents, setScopeComponents] = useState<Option[]>([]);
   const [addingScope, setAddingScope] = useState(false);
   const [contractFilter, setContractFilter] = useState("");
+  // BOM tab (WF-02 / WF-03)
+  const [bomLines, setBomLines] = useState<BOMLine[]>([]);
+  const [bomTotals, setBomTotals] = useState<BOMTotals | null>(null);
+  const [allocLine, setAllocLine] = useState<BOMLine | null>(null);
+  const [allocMode, setAllocMode] = useState<"device" | "stock">("device");
+  const [allocDevice, setAllocDevice] = useState("");
+  const [allocDeviceOptions, setAllocDeviceOptions] = useState<Option[]>([]);
+  const [allocItems, setAllocItems] = useState<InventoryItemOpt[]>([]);
+  const [allocItem, setAllocItem] = useState("");
+  const [allocQty, setAllocQty] = useState("1");
+  const [allocSaving, setAllocSaving] = useState(false);
+  const [issuingId, setIssuingId] = useState<string | null>(null);
+  const [poModalOpen, setPoModalOpen] = useState(false);
+  const [suppliers, setSuppliers] = useState<SupplierOpt[]>([]);
+  const [poSupplier, setPoSupplier] = useState("");
+  const [poCurrency, setPoCurrency] = useState("PKR");
+  const [poSaving, setPoSaving] = useState(false);
 
   async function loadDetail(id: string) {
     try {
       const { data } = await api.get(`/teams/projects/${id}/`);
       setDetail(data);
+      api.get("/teams/bom-lines/", { params: { project: id, page_size: 500 } })
+        .then((r) => setBomLines(r.data.results ?? r.data ?? []))
+        .catch(() => setBomLines([]));
+      api.get(`/teams/projects/${id}/bom-summary/`)
+        .then((r) => setBomTotals(r.data?.totals ?? null))
+        .catch(() => setBomTotals(null));
       api.get("/assets/devices/", { params: { project: id, page_size: 1000 } })
         .then((r) => setLinkedAssets(r.data.results ?? []))
         .catch(() => setLinkedAssets([]));
@@ -277,6 +368,111 @@ export default function ProjectsPage() {
       loadDetail(detail.id);
     } catch (err) {
       toast.error(getApiError(err, "Failed to remove scope item"));
+    }
+  }
+
+  /* ─── BOM (WF-02 / WF-03) ─── */
+  function openAllocate(line: BOMLine) {
+    setAllocLine(line);
+    setAllocMode(line.material_type && !line.device_model ? "stock" : "device");
+    setAllocDevice("");
+    setAllocItem("");
+    setAllocQty(String(Math.max(1, line.shortage || 1)));
+    api.get("/assets/devices/", {
+      params: {
+        status: "in_stock",
+        page_size: 1000,
+        ...(line.device_model ? { device_model: line.device_model } : {}),
+      },
+    })
+      .then((r) => setAllocDeviceOptions((r.data.results ?? []).map((d: { id: string; asset_code: string; display_name: string | null }) => ({
+        id: d.id,
+        label: d.display_name ? `${d.asset_code} — ${d.display_name}` : d.asset_code,
+      }))))
+      .catch(() => setAllocDeviceOptions([]));
+    api.get("/inventory/items/", {
+      params: {
+        page_size: 1000,
+        ...(line.material_type ? { material_type: line.material_type } : {}),
+      },
+    })
+      .then((r) => setAllocItems(r.data.results ?? []))
+      .catch(() => setAllocItems([]));
+  }
+
+  async function submitAllocate(e: React.FormEvent) {
+    e.preventDefault();
+    if (!allocLine || !detail) return;
+    if (allocMode === "device" && !allocDevice) { toast.error("Pick a device to allocate"); return; }
+    if (allocMode === "stock" && !allocItem) { toast.error("Pick a stock item to allocate"); return; }
+    setAllocSaving(true);
+    try {
+      if (allocMode === "device") {
+        await api.post(`/teams/bom-lines/${allocLine.id}/allocate/`, { device: allocDevice });
+      } else {
+        await api.post(`/teams/bom-lines/${allocLine.id}/allocate/`, {
+          inventory_item: allocItem,
+          quantity: Number(allocQty || 0),
+        });
+      }
+      toast.success(allocMode === "device" ? "Device allocated to BOM line" : "Stock allocated to BOM line");
+      setAllocLine(null);
+      loadDetail(detail.id);
+    } catch (err) {
+      toast.error(bomApiError(err, "Failed to allocate"));
+    } finally {
+      setAllocSaving(false);
+    }
+  }
+
+  async function issueAllocation(line: BOMLine, allocationId: string) {
+    if (!detail) return;
+    setIssuingId(allocationId);
+    try {
+      await api.post(`/teams/bom-lines/${line.id}/issue/`, { allocation: allocationId });
+      toast.success("Stock issued to project");
+      loadDetail(detail.id);
+    } catch (err) {
+      toast.error(bomApiError(err, "Failed to issue stock"));
+    } finally {
+      setIssuingId(null);
+    }
+  }
+
+  function openPoModal() {
+    setPoSupplier("");
+    setPoCurrency("PKR");
+    setPoModalOpen(true);
+    if (suppliers.length === 0) {
+      api.get("/suppliers/", { params: { page_size: 200 } })
+        .then((r) => setSuppliers((r.data.results ?? r.data ?? []).map((s: SupplierOpt) => ({ id: s.id, name: s.name }))))
+        .catch(() => {});
+    }
+  }
+
+  async function raisePoForShortages(e: React.FormEvent) {
+    e.preventDefault();
+    if (!detail) return;
+    if (!poSupplier) { toast.error("Pick a supplier"); return; }
+    setPoSaving(true);
+    try {
+      const { data } = await api.post<{ po_number?: string }>("/procurement/purchase-orders/from-shortage/", {
+        project: detail.id,
+        supplier: poSupplier,
+        currency: poCurrency,
+      });
+      setPoModalOpen(false);
+      toast.success(
+        <span>
+          Draft PO {data?.po_number ?? ""} raised —{" "}
+          <Link href="/procurement" className="font-medium underline">open Procurement</Link>
+        </span>,
+      );
+      loadDetail(detail.id);
+    } catch (err) {
+      toast.error(bomApiError(err, "Failed to raise purchase order"));
+    } finally {
+      setPoSaving(false);
     }
   }
 
@@ -679,6 +875,113 @@ export default function ProjectsPage() {
               )}
             </div>
 
+            {/* BOM (WF-02 / WF-03) */}
+            <div className="rounded-xl border border-border bg-card p-5">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold text-foreground">BOM — bill of materials & fulfilment</h3>
+                {canEdit && (
+                  <button
+                    onClick={openPoModal}
+                    disabled={!bomLines.some((l) => l.shortage > 0)}
+                    title={bomLines.some((l) => l.shortage > 0) ? "Raise a draft purchase order covering shortage lines" : "No shortages to cover"}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <ShoppingCart className="h-3.5 w-3.5" /> Raise PO for shortages
+                  </button>
+                )}
+              </div>
+              {bomTotals && (
+                <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {[
+                    { label: "Required", value: bomTotals.required, alert: false },
+                    { label: "Allocated", value: bomTotals.allocated, alert: false },
+                    { label: "Issued", value: bomTotals.issued, alert: false },
+                    { label: "Shortage", value: bomTotals.shortage, alert: bomTotals.shortage > 0 },
+                  ].map((t) => (
+                    <div key={t.label} className="rounded-lg border border-border/70 px-3 py-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{t.label}</p>
+                      <p className={`text-sm font-semibold ${t.alert ? "text-red-500" : "text-foreground"}`}>{t.value}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {bomLines.length > 0 ? (
+                <div className="overflow-x-auto rounded-xl border border-border">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-border bg-secondary/50 text-left text-muted-foreground">
+                        <th className="px-3 py-2 font-medium">Description</th>
+                        <th className="px-3 py-2 font-medium">Model / Material</th>
+                        <th className="px-3 py-2 font-medium">Qty</th>
+                        <th className="px-3 py-2 font-medium">Unit Price</th>
+                        <th className="px-3 py-2 font-medium">Allocated</th>
+                        <th className="px-3 py-2 font-medium">Issued</th>
+                        <th className="px-3 py-2 font-medium">Shortage</th>
+                        {canEdit && <th className="px-3 py-2" />}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {bomLines.map((l) => {
+                        const activeAllocations = l.allocations.filter((a) => a.status !== "cancelled");
+                        return (
+                          <Fragment key={l.id}>
+                            <tr className="border-b border-border/60 last:border-0">
+                              <td className="px-3 py-2 font-medium text-foreground">{l.description}</td>
+                              <td className="px-3 py-2 text-muted-foreground">{l.device_model_name || l.material_type_name || l.asset_type_name || "—"}</td>
+                              <td className="px-3 py-2 text-foreground">×{l.quantity}</td>
+                              <td className="px-3 py-2 text-muted-foreground">{Number(l.unit_price).toLocaleString()}</td>
+                              <td className="px-3 py-2 text-foreground">{l.allocated_quantity}</td>
+                              <td className="px-3 py-2 text-foreground">{l.issued_quantity}</td>
+                              <td className={`px-3 py-2 font-semibold ${l.shortage > 0 ? "text-red-500" : "text-muted-foreground"}`}>{l.shortage}</td>
+                              {canEdit && (
+                                <td className="px-3 py-2 text-right">
+                                  <button
+                                    onClick={() => openAllocate(l)}
+                                    className="rounded-md border border-border px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                                  >
+                                    Allocate
+                                  </button>
+                                </td>
+                              )}
+                            </tr>
+                            {activeAllocations.length > 0 && (
+                              <tr className="border-b border-border/60 bg-secondary/20 last:border-0">
+                                <td colSpan={canEdit ? 8 : 7} className="px-3 py-2">
+                                  <div className="flex flex-wrap gap-2">
+                                    {activeAllocations.map((a) => (
+                                      <span key={a.id} className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-card px-2.5 py-1">
+                                        <span className="font-medium text-foreground">{a.device_code || a.item_name || "—"}</span>
+                                        <span className="text-muted-foreground">×{a.quantity}</span>
+                                        <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold capitalize ${
+                                          a.status === "issued" ? "bg-emerald-500/10 text-emerald-500" : "bg-blue-500/10 text-blue-500"
+                                        }`}>{a.status}</span>
+                                        {canEdit && a.inventory_item && a.status === "allocated" && (
+                                          <button
+                                            onClick={() => issueAllocation(l, a.id)}
+                                            disabled={issuingId === a.id}
+                                            title="Issue this stock out of the warehouse to the project"
+                                            className="rounded-md bg-primary px-2 py-0.5 text-[10px] font-medium text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
+                                          >
+                                            {issuingId === a.id ? "Issuing…" : "Issue"}
+                                          </button>
+                                        )}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">No BOM lines yet — they are created when a quotation is accepted.</p>
+              )}
+            </div>
+
             {/* Linked assets */}
             <div className="rounded-xl border border-border bg-card p-5">
               <h3 className="mb-3 text-sm font-semibold text-foreground">Assets on this Project ({linkedAssets.length})</h3>
@@ -769,6 +1072,115 @@ export default function ProjectsPage() {
             )}
           </div>
         </div>
+
+        {/* Allocate modal (device or stock) */}
+        <Modal open={!!allocLine} onClose={() => setAllocLine(null)} title={allocLine ? `Allocate — ${allocLine.description}` : "Allocate"} size="md">
+          {allocLine && (
+            <form onSubmit={submitAllocate} className="space-y-4">
+              <div className="flex gap-1 rounded-lg border border-border p-1">
+                {(["device", "stock"] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setAllocMode(m)}
+                    className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                      allocMode === m ? "bg-primary text-white" : "text-muted-foreground hover:bg-secondary"
+                    }`}
+                  >
+                    {m === "device" ? "Device (unique asset)" : "Stock (warehouse)"}
+                  </button>
+                ))}
+              </div>
+              {allocMode === "device" ? (
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                    In-stock device{allocLine.device_model_name ? ` — ${allocLine.device_model_name}` : ""}
+                  </label>
+                  <SearchSelect options={allocDeviceOptions} value={allocDevice} onChange={setAllocDevice} placeholder="Search in-stock devices…" />
+                  {allocDeviceOptions.length === 0 && (
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      No in-stock devices{allocLine.device_model_name ? ` of model ${allocLine.device_model_name}` : ""} available.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                      Inventory item{allocLine.material_type_name ? ` — ${allocLine.material_type_name}` : ""}
+                    </label>
+                    <select
+                      value={allocItem}
+                      onChange={(e) => setAllocItem(e.target.value)}
+                      className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none"
+                    >
+                      <option value="">Select stock item…</option>
+                      {allocItems.map((it) => (
+                        <option key={it.id} value={it.id}>
+                          {it.material_name || it.sku || "Item"}{it.sku ? ` (${it.sku})` : ""} — {it.quantity} {it.unit || "pcs"} in stock
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-muted-foreground">Quantity</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={allocQty}
+                      onChange={(e) => setAllocQty(e.target.value)}
+                      className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none"
+                    />
+                  </div>
+                </>
+              )}
+              <div className="flex justify-end gap-3 pt-2">
+                <button type="button" onClick={() => setAllocLine(null)} className="rounded-lg border border-border px-4 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary">Cancel</button>
+                <button type="submit" disabled={allocSaving} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition-all hover:opacity-90 disabled:opacity-60">
+                  {allocSaving ? "Allocating…" : "Allocate"}
+                </button>
+              </div>
+            </form>
+          )}
+        </Modal>
+
+        {/* Raise PO for shortages modal */}
+        <Modal open={poModalOpen} onClose={() => setPoModalOpen(false)} title="Raise PO for Shortages" size="sm">
+          <form onSubmit={raisePoForShortages} className="space-y-4">
+            <p className="text-xs text-muted-foreground">
+              Creates a draft purchase order with one line per BOM shortage
+              {" "}({bomLines.filter((l) => l.shortage > 0).length} line{bomLines.filter((l) => l.shortage > 0).length !== 1 ? "s" : ""}, {bomTotals?.shortage ?? 0} unit(s) total).
+            </p>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">Supplier *</label>
+              <select
+                value={poSupplier}
+                onChange={(e) => setPoSupplier(e.target.value)}
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none"
+              >
+                <option value="">Select supplier…</option>
+                {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">Currency</label>
+              <select
+                value={poCurrency}
+                onChange={(e) => setPoCurrency(e.target.value)}
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none"
+              >
+                {CURRENCIES.map((c) => <option key={c.code} value={c.code}>{c.code} — {c.name}</option>)}
+              </select>
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+              <button type="button" onClick={() => setPoModalOpen(false)} className="rounded-lg border border-border px-4 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary">Cancel</button>
+              <button type="submit" disabled={poSaving} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition-all hover:opacity-90 disabled:opacity-60">
+                {poSaving ? "Raising…" : "Raise Draft PO"}
+              </button>
+            </div>
+          </form>
+        </Modal>
+
         {projectFormModal}
       </div>
     );
