@@ -46,6 +46,8 @@ interface DeviceDetail extends Device {
   mobile_id: string;
   mac_address: string;
   imei: string;
+  source: string;
+  allowed_transitions?: string[];
   clients: string[];
   brand_name: string | null;
   screen_type: string | null;
@@ -143,6 +145,7 @@ const EMPTY_COMPONENT: NewComponentRow = {
 const STATUSES = [
   { value: "procured", label: "Procured" },
   { value: "in_transit", label: "In Transit" },
+  { value: "in_production", label: "In Production" },
   { value: "in_stock", label: "In Stock" },
   { value: "assigned", label: "Assigned" },
   { value: "installed", label: "Installed" },
@@ -157,9 +160,16 @@ const STATUSES = [
 // The canonical procure→decommission chain, in lifecycle order (the client's
 // requested lifecycle view). lost_stolen / rma sit outside the main flow.
 const LIFECYCLE_CHAIN = [
-  "procured", "in_transit", "in_stock", "assigned", "installed",
+  "procured", "in_transit", "in_production", "in_stock", "assigned", "installed",
   "active", "under_maintenance", "client_property", "decommissioned",
 ] as const;
+
+const statusLabel = (s: string) => STATUSES.find((x) => x.value === s)?.label ?? s.replace(/_/g, " ");
+
+const SOURCE_LABELS: Record<string, string> = {
+  inhouse: "In-house Production",
+  third_party: "Third Party",
+};
 
 function LifecycleStepper({ status }: { status: string }) {
   const idx = LIFECYCLE_CHAIN.indexOf(status as (typeof LIFECYCLE_CHAIN)[number]);
@@ -241,6 +251,9 @@ export default function AssetsPage() {
   const [saving, setSaving] = useState(false);
   const [labelModal, setLabelModal] = useState<{ url: string; format: "qr" | "code128" } | null>(null);
   const [labelLoading, setLabelLoading] = useState(false);
+  const [transitionTarget, setTransitionTarget] = useState<string | null>(null);
+  const [transitionReason, setTransitionReason] = useState("");
+  const [transitionLoading, setTransitionLoading] = useState(false);
 
   const [warranties, setWarranties] = useState<WarrantyItem[]>([]);
   const [maintSchedules, setMaintSchedules] = useState<MaintenanceItem[]>([]);
@@ -401,10 +414,32 @@ export default function AssetsPage() {
       const { data } = await api.get(`/assets/devices/${device.id}/`);
       setDetailView(data);
       setDetailTab("overview");
+      setTransitionTarget(null);
+      setTransitionReason("");
       fetchRelatedData(data.id);
       loadOptions();
     } catch (err: unknown) {
       toast.error(getApiError(err, "Failed to load device details"));
+    }
+  }
+
+  async function handleStatusTransition(deviceId: string) {
+    if (!transitionTarget || !transitionReason.trim()) return;
+    setTransitionLoading(true);
+    try {
+      await api.post(`/assets/devices/${deviceId}/transition/`, {
+        status: transitionTarget,
+        reason: transitionReason.trim(),
+      });
+      toast.success(`Status changed to ${statusLabel(transitionTarget)}`);
+      setTransitionTarget(null);
+      setTransitionReason("");
+      refreshDetail(deviceId);
+      fetchDevices();
+    } catch (err: unknown) {
+      toast.error(getApiError(err, "Status change failed"));
+    } finally {
+      setTransitionLoading(false);
     }
   }
 
@@ -466,7 +501,8 @@ export default function AssetsPage() {
     const fd = new FormData(e.currentTarget);
     const payload: Record<string, unknown> = {
       serial_number: fd.get("serial_number"),
-      status: fd.get("status"),
+      source: fd.get("source"),
+      batch_number: fd.get("batch_number") || "",
       device_model: fd.get("device_model") || undefined,
       asset_type: fd.get("asset_type") || null,
       display_name: fd.get("display_name") || "",
@@ -490,6 +526,9 @@ export default function AssetsPage() {
       installation_date: fd.get("installation_date") || null,
       client_warranty_months: fd.get("client_warranty_months") || null,
     };
+    // Status is read-only on update — existing assets change status only via
+    // the guarded /transition/ action in the detail view.
+    if (modalMode === "create") payload.status = fd.get("status");
     try {
       let deviceId: string;
       if (modalMode === "create") {
@@ -584,7 +623,7 @@ export default function AssetsPage() {
       <div className="space-y-6">
         {/* Top bar */}
         <div className="flex items-center gap-3">
-          <button onClick={() => { setDetailView(null); setWarranties([]); setMaintSchedules([]); setDocuments([]); }} className="flex h-9 items-center gap-2 rounded-lg border border-border px-3 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
+          <button onClick={() => { setDetailView(null); setWarranties([]); setMaintSchedules([]); setDocuments([]); setTransitionTarget(null); setTransitionReason(""); }} className="flex h-9 items-center gap-2 rounded-lg border border-border px-3 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
             <ArrowLeft className="h-4 w-4" />
             Back to Assets
           </button>
@@ -711,6 +750,60 @@ export default function AssetsPage() {
                     <div>
                       <h4 className="text-sm font-semibold text-foreground mb-3">Asset Lifecycle</h4>
                       <LifecycleStepper status={d.status} />
+                      {canEdit && (
+                        <div className="mt-4 rounded-lg border border-border bg-secondary/20 p-3">
+                          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Change Status</p>
+                          {(d.allowed_transitions ?? []).length > 0 ? (
+                            <>
+                              <div className="flex flex-wrap gap-2">
+                                {(d.allowed_transitions ?? []).map((s) => (
+                                  <button
+                                    key={s}
+                                    type="button"
+                                    onClick={() => { setTransitionTarget(transitionTarget === s ? null : s); setTransitionReason(""); }}
+                                    className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold ring-1 transition-colors ${transitionTarget === s ? "bg-primary/10 text-primary ring-primary/30" : "text-muted-foreground ring-border hover:bg-secondary"}`}
+                                  >
+                                    <ChevronRight className="h-3 w-3" /> {statusLabel(s)}
+                                  </button>
+                                ))}
+                              </div>
+                              {transitionTarget && (
+                                <div className="mt-3 space-y-2">
+                                  <p className="text-xs font-medium text-foreground">
+                                    Move from “{statusLabel(d.status)}” to “{statusLabel(transitionTarget)}”
+                                  </p>
+                                  <textarea
+                                    value={transitionReason}
+                                    onChange={(e) => setTransitionReason(e.target.value)}
+                                    placeholder="Reason for status change (required)"
+                                    rows={2}
+                                    className={`${inputClass} h-auto py-2 text-xs`}
+                                  />
+                                  <div className="flex gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => { setTransitionTarget(null); setTransitionReason(""); }}
+                                      className="h-8 flex-1 rounded-lg border border-border text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary"
+                                    >
+                                      Cancel
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleStatusTransition(d.id)}
+                                      disabled={transitionLoading || !transitionReason.trim()}
+                                      className="h-8 flex-1 rounded-lg bg-primary text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+                                    >
+                                      {transitionLoading ? "..." : "Confirm"}
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            <p className="text-xs text-muted-foreground">No further transitions available from “{statusLabel(d.status)}”.</p>
+                          )}
+                        </div>
+                      )}
                     </div>
                     <div>
                       <div className="mb-3 flex items-center justify-between">
@@ -845,6 +938,8 @@ export default function AssetsPage() {
                       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                         <InfoCard label="Asset Code" value={d.asset_code} />
                         <InfoCard label="Serial Number" value={d.serial_number} />
+                        <InfoCard label="Source" value={d.source ? (SOURCE_LABELS[d.source] ?? d.source) : null} />
+                        <InfoCard label="Batch Number" value={d.batch_number} />
                         <InfoCard label="Model" value={d.device_model_name} />
                         <InfoCard label="Brand" value={d.brand_name} />
                         <InfoCard label="Screen Type" value={d.screen_type} />
@@ -1155,7 +1250,7 @@ export default function AssetsPage() {
       {(() => {
         const toggleFlag = (f: string) => setFilterValues((prev) => ({ ...prev, flag: prev.flag === f ? "" : f }));
         const STATUS_HEX: Record<string, string> = {
-          procured: "#8b5cf6", in_transit: "#ec4899", in_stock: "#6366f1", assigned: "#3b82f6",
+          procured: "#8b5cf6", in_transit: "#ec4899", in_production: "#eab308", in_stock: "#6366f1", assigned: "#3b82f6",
           installed: "#06b6d4", active: "#22c55e", under_maintenance: "#f59e0b",
           client_property: "#14b8a6", decommissioned: "#ef4444", lost_stolen: "#dc2626", rma: "#f97316",
         };
@@ -1335,11 +1430,26 @@ export default function AssetsPage() {
             </div>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2">
+            {modalMode === "create" ? (
+              <div className="space-y-1.5">
+                <label htmlFor="status" className={labelClass}>Status</label>
+                <select id="status" name="status" defaultValue="procured" className={inputClass}>
+                  {STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+                </select>
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                <label className={labelClass}>Status</label>
+                <input type="text" value={statusLabel(selected?.status ?? "")} disabled className="flex h-10 w-full rounded-lg border border-border bg-secondary px-3 text-sm text-foreground" />
+                <p className="text-[10px] text-muted-foreground">Status changes go through the guarded “Change Status” action on the asset detail view.</p>
+              </div>
+            )}
             <div className="space-y-1.5">
-              <label htmlFor="status" className={labelClass}>Status</label>
-              <select id="status" name="status" defaultValue={selected?.status ?? "procured"} className={inputClass}>
-                {STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+              <label htmlFor="source" className={labelClass}>Source</label>
+              <select id="source" name="source" defaultValue={selected?.source ?? "third_party"} className={inputClass}>
+                <option value="third_party">Third Party</option>
+                <option value="inhouse">In-house Production</option>
               </select>
             </div>
             <div className="space-y-1.5">
@@ -1442,6 +1552,10 @@ export default function AssetsPage() {
               <div className="space-y-1.5">
                 <label htmlFor="purchase_price" className={labelClass}>Purchase Price</label>
                 <input id="purchase_price" name="purchase_price" type="number" step="0.01" defaultValue={selected?.purchase_price ?? ""} className={inputClass} />
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="batch_number" className={labelClass}>Batch Number</label>
+                <input id="batch_number" name="batch_number" defaultValue={selected?.batch_number ?? ""} className={inputClass} placeholder="e.g. B-2026-014" />
               </div>
             </div>
           </div>

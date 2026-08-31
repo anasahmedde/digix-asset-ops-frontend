@@ -47,6 +47,8 @@ export interface Device {
   firmware_version: string;
   hardware_revision: string;
   status: DeviceStatus;
+  source: DeviceSource;
+  allowed_transitions?: DeviceStatus[];
   image: string | null;
   images: DeviceImage[];
   purchase_date: string | null;
@@ -100,15 +102,19 @@ export interface DeviceImage {
 
 export type DeviceStatus =
   | "procured"
+  | "in_production"
   | "in_stock"
   | "assigned"
   | "installed"
   | "active"
   | "under_maintenance"
+  | "client_property"
   | "decommissioned"
   | "lost_stolen"
   | "rma"
   | "in_transit";
+
+export type DeviceSource = "inhouse" | "third_party";
 
 export interface Site {
   id: string;
