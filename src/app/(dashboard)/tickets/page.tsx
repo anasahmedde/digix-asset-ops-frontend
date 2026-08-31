@@ -19,6 +19,7 @@ import {
   Pencil,
   Play,
   Plus,
+  RotateCcw,
   Send,
   ShieldCheck,
   ShieldX,
@@ -75,6 +76,7 @@ interface TicketItem {
   reported_by_name: string | null;
   due_date: string | null;
   resolved_at: string | null;
+  closed_at: string | null;
   resolution_notes: string;
   completion_notes: string;
   completed_by_name: string | null;
@@ -294,6 +296,13 @@ function TicketDetailView({
   const canAct = isAssignee || isAdmin;
   const isClosed = ["approved", "closed"].includes(ticket.status);
   const isOverdue = ticket.due_date && new Date(ticket.due_date) < new Date() && !isClosed;
+  // Reopen: closed → in_progress, gated to admins + the reporter, within 7 days of closure (mirrors backend rule).
+  const REOPEN_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+  const canReopen =
+    ticket.status === "closed" &&
+    (isAdmin || isReporter) &&
+    !!ticket.closed_at &&
+    Date.now() - new Date(ticket.closed_at).getTime() <= REOPEN_WINDOW_MS;
 
   const completionAttachments = ticket.attachments?.filter((a) => a.attachment_type === "completion") || [];
   const generalAttachments = ticket.attachments?.filter((a) => a.attachment_type === "general" || a.attachment_type === "fault") || [];
@@ -796,6 +805,15 @@ function TicketDetailView({
                       </div>
                     </>
                   )}
+                  {ticket.closed_at && (
+                    <>
+                      <div className="h-px bg-border" />
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-muted-foreground">Closed</span>
+                        <span className="text-xs text-foreground">{formatDate(ticket.closed_at)}</span>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -879,6 +897,17 @@ function TicketDetailView({
                     <div className="flex gap-2">
                       <button onClick={() => setActiveAction(null)} className="flex-1 h-8 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-secondary">Cancel</button>
                       <button onClick={() => handleTransition("on_hold", transitionNotes)} disabled={actionLoading || !transitionNotes.trim()} className="flex-1 h-8 rounded-lg bg-amber-500 text-xs font-medium text-white disabled:opacity-50">{actionLoading ? "..." : "Confirm"}</button>
+                    </div>
+                  </div>
+                )}
+                {activeAction === "reopen" && (
+                  <div className="mb-4 space-y-3 rounded-lg border border-blue-500/20 bg-blue-500/5 p-3">
+                    <p className="text-xs font-semibold text-blue-500">Reopen Ticket</p>
+                    <p className="text-[11px] text-muted-foreground">Moves the ticket back to In Progress. Available within 7 days of closure.</p>
+                    <textarea value={transitionNotes} onChange={(e) => setTransitionNotes(e.target.value)} placeholder="Why is this being reopened? (required)" rows={2} className={`${inputClass} h-auto py-2 text-xs`} />
+                    <div className="flex gap-2">
+                      <button onClick={() => setActiveAction(null)} className="flex-1 h-8 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-secondary">Cancel</button>
+                      <button onClick={() => handleTransition("in_progress", transitionNotes)} disabled={actionLoading || !transitionNotes.trim()} className="flex-1 h-8 rounded-lg bg-blue-500 text-xs font-medium text-white disabled:opacity-50">{actionLoading ? "..." : "Reopen"}</button>
                     </div>
                   </div>
                 )}
@@ -1003,6 +1032,12 @@ function TicketDetailView({
                         className="flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-slate-500/30 bg-slate-500/10 text-xs font-medium text-slate-500 hover:bg-slate-500/20 disabled:opacity-50"
                       >
                         <Check className="h-3.5 w-3.5" /> Close Ticket
+                      </button>
+                    )}
+
+                    {canReopen && (
+                      <button onClick={() => setActiveAction("reopen")} className="flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-blue-500/30 bg-blue-500/10 text-sm font-medium text-blue-600 hover:bg-blue-500/20">
+                        <RotateCcw className="h-4 w-4" /> Reopen Ticket
                       </button>
                     )}
 
@@ -1491,8 +1526,13 @@ export default function TicketsPage() {
                   </select>
                 </div>
                 <div className="space-y-1.5">
-                  <label htmlFor="due_date" className={labelClass}>Due Date</label>
+                  <label htmlFor="due_date" className={labelClass}>
+                    Due Date{modalMode === "create" && <span className="font-normal text-muted-foreground/70"> (optional)</span>}
+                  </label>
                   <input id="due_date" name="due_date" type="date" defaultValue={selected?.due_date ?? ""} className={inputClass} />
+                  {modalMode === "create" && (
+                    <p className="text-[11px] text-muted-foreground">Auto-set from priority if left empty (critical 24h · high 48h · medium 5bd · low 10bd)</p>
+                  )}
                 </div>
               </div>
               {modalMode === "create" && (

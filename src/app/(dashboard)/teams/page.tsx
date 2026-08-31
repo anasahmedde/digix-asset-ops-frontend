@@ -21,6 +21,16 @@ interface User {
   is_field_staff: boolean;
   is_active: boolean;
   date_joined: string;
+  employee_id?: string;
+  cnic?: string;
+  join_date?: string | null;
+  leaving_date?: string | null;
+}
+
+const CNIC_RE = /^\d{5}-\d{7}-\d$/;
+
+function hasLeft(user: User): boolean {
+  return !!user.leaving_date && new Date(user.leaving_date).getTime() < Date.now();
 }
 
 const ROLES = [
@@ -56,6 +66,7 @@ export default function TeamsPage() {
   const [saving, setSaving] = useState(false);
   const [filterValues, setFilterValues] = useState<Record<string, string>>({ role: "", status: "" });
   const [search, setSearch] = useState("");
+  const [cnicInvalid, setCnicInvalid] = useState(false);
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -74,11 +85,13 @@ export default function TeamsPage() {
 
   function openCreate() {
     setSelected(null);
+    setCnicInvalid(false);
     setModalMode("create");
   }
 
   function openEdit(user: User) {
     setSelected(user);
+    setCnicInvalid(user.cnic ? !CNIC_RE.test(user.cnic) : false);
     setModalMode("edit");
   }
 
@@ -90,6 +103,7 @@ export default function TeamsPage() {
   function closeModal() {
     setModalMode(null);
     setSelected(null);
+    setCnicInvalid(false);
   }
 
   async function handleCreate(e: React.FormEvent<HTMLFormElement>) {
@@ -107,6 +121,10 @@ export default function TeamsPage() {
         job_title: fd.get("job_title"),
         phone: fd.get("phone"),
         is_field_staff: fd.get("is_field_staff") === "on",
+        employee_id: fd.get("employee_id"),
+        cnic: fd.get("cnic"),
+        join_date: (fd.get("join_date") as string) || null,
+        leaving_date: (fd.get("leaving_date") as string) || null,
       });
       toast.success("User created successfully");
       closeModal();
@@ -139,6 +157,10 @@ export default function TeamsPage() {
         job_title: fd.get("job_title"),
         phone: fd.get("phone"),
         is_field_staff: fd.get("is_field_staff") === "on",
+        employee_id: fd.get("employee_id"),
+        cnic: fd.get("cnic"),
+        join_date: (fd.get("join_date") as string) || null,
+        leaving_date: (fd.get("leaving_date") as string) || null,
       });
       toast.success("User updated successfully");
       closeModal();
@@ -236,6 +258,7 @@ export default function TeamsPage() {
             <thead>
               <tr className="border-b border-border bg-secondary/50">
                 <th className={thClass}>Name</th>
+                <th className={thClass}>Employee ID</th>
                 <th className={thClass}>Username</th>
                 <th className={thClass}>Email</th>
                 <th className={thClass}>Role</th>
@@ -247,7 +270,7 @@ export default function TeamsPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="px-5 py-10 text-center text-muted-foreground">
+                  <td colSpan={8} className="px-5 py-10 text-center text-muted-foreground">
                     <div className="flex items-center justify-center gap-2">
                       <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
                       Loading...
@@ -256,12 +279,13 @@ export default function TeamsPage() {
                 </tr>
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-5 py-10 text-center text-muted-foreground">{users.length > 0 ? "No users match your filters" : "No users found"}</td>
+                  <td colSpan={8} className="px-5 py-10 text-center text-muted-foreground">{users.length > 0 ? "No users match your filters" : "No users found"}</td>
                 </tr>
               ) : (
                 filtered.map((user) => (
                   <tr key={user.id} onClick={() => openEdit(user)} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
                     <td className={`${tdClass} font-medium text-foreground`}>{user.full_name || "-"}</td>
+                    <td className={`${tdClass} text-muted-foreground`}>{user.employee_id || "—"}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{user.username}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{user.email}</td>
                     <td className={tdClass}>
@@ -271,9 +295,16 @@ export default function TeamsPage() {
                     </td>
                     <td className={`${tdClass} text-muted-foreground`}>{user.is_field_staff ? "Yes" : "No"}</td>
                     <td className={tdClass}>
-                      <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${user.is_active ? "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20" : "bg-red-500/10 text-red-400 ring-red-500/20"}`}>
-                        {user.is_active ? "Active" : "Inactive"}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${user.is_active ? "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20" : "bg-red-500/10 text-red-400 ring-red-500/20"}`}>
+                          {user.is_active ? "Active" : "Inactive"}
+                        </span>
+                        {hasLeft(user) && (
+                          <span className="inline-flex rounded-full bg-slate-500/10 px-2.5 py-0.5 text-xs font-medium text-slate-400 ring-1 ring-slate-500/20" title={`Left on ${user.leaving_date}`}>
+                            Left
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className={tdClass} onClick={(e) => e.stopPropagation()}>
                       {isAdmin ? (
@@ -385,6 +416,34 @@ export default function TeamsPage() {
                   <div className="space-y-1.5 sm:col-span-2">
                     <label htmlFor="job_title" className={labelClass}>Job Title (display only)</label>
                     <input id="job_title" name="job_title" defaultValue={selected?.job_title ?? ""} className={inputClass} placeholder="e.g. Production Supervisor, Execution Supervisor" />
+                  </div>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <label htmlFor="employee_id" className={labelClass}>Employee ID</label>
+                    <input id="employee_id" name="employee_id" defaultValue={selected?.employee_id ?? ""} className={inputClass} placeholder="e.g. EMP-0042" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label htmlFor="cnic" className={labelClass}>CNIC</label>
+                    <input
+                      id="cnic"
+                      name="cnic"
+                      defaultValue={selected?.cnic ?? ""}
+                      maxLength={15}
+                      className={inputClass}
+                      placeholder="#####-#######-#"
+                      onChange={(e) => setCnicInvalid(e.target.value !== "" && !CNIC_RE.test(e.target.value))}
+                    />
+                    <p className={`text-xs ${cnicInvalid ? "text-amber-400" : "text-muted-foreground/70"}`}>Format: #####-#######-# (e.g. 42101-1234567-1)</p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label htmlFor="join_date" className={labelClass}>Join Date</label>
+                    <input id="join_date" name="join_date" type="date" defaultValue={selected?.join_date ?? ""} className={inputClass} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label htmlFor="leaving_date" className={labelClass}>Leaving Date</label>
+                    <input id="leaving_date" name="leaving_date" type="date" defaultValue={selected?.leaving_date ?? ""} className={inputClass} />
                   </div>
                 </div>
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Settings2 } from "lucide-react";
+import { ArrowRight, Check, Settings2 } from "lucide-react";
 import { useState } from "react";
 
 import { ActiveBadge, ColumnSpec, CrudManager, FieldSpec } from "@/components/setup/crud-manager";
@@ -268,6 +268,67 @@ const SECTIONS: SectionConfig[] = [
   },
 ];
 
+/* ── SLA & Escalation Matrix (display-only reference, shown with the Escalation tab) ── */
+
+const SLA_ROWS = [
+  { priority: "Critical", response: "4 hours", resolution: "24 hours", badge: "bg-red-500/10 text-red-400 ring-red-500/20" },
+  { priority: "High", response: "8 hours", resolution: "48 hours", badge: "bg-orange-500/10 text-orange-400 ring-orange-500/20" },
+  { priority: "Medium", response: "24 hours", resolution: "5 business days", badge: "bg-yellow-500/10 text-yellow-500 ring-yellow-500/20" },
+  { priority: "Low", response: "48 hours", resolution: "10 business days", badge: "bg-gray-500/10 text-gray-400 ring-gray-500/20" },
+];
+
+function SlaMatrixCard() {
+  const thClass = "px-4 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground";
+  const tdClass = "px-4 py-2.5";
+  return (
+    <div className="rounded-xl border border-border bg-card p-5">
+      <div className="flex items-center gap-2">
+        <h3 className="text-sm font-semibold text-foreground">SLA &amp; Escalation Matrix</h3>
+        <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-muted-foreground">Reference</span>
+      </div>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Ticket response and resolution targets by priority. The resolution target auto-sets a ticket&apos;s due date when it is created without one.
+      </p>
+      <div className="mt-4 overflow-x-auto rounded-lg border border-border">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border bg-secondary/50">
+              <th className={thClass}>Priority</th>
+              <th className={thClass}>Response SLA</th>
+              <th className={thClass}>Resolution SLA</th>
+            </tr>
+          </thead>
+          <tbody>
+            {SLA_ROWS.map((row, i) => (
+              <tr key={row.priority} className={i < SLA_ROWS.length - 1 ? "border-b border-border" : ""}>
+                <td className={tdClass}>
+                  <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ${row.badge}`}>{row.priority}</span>
+                </td>
+                <td className={`${tdClass} text-foreground`}>{row.response}</td>
+                <td className={`${tdClass} text-foreground`}>{row.resolution}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="mt-4 rounded-lg border border-border bg-secondary/20 p-3">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Escalation Ladder</p>
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+          <span className="inline-flex items-center gap-1.5 rounded-lg border border-orange-500/30 bg-orange-500/10 px-2.5 py-1 font-medium text-orange-600">
+            L1 · Operations Head
+            <span className="font-normal text-muted-foreground">at SLA breach</span>
+          </span>
+          <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+          <span className="inline-flex items-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/10 px-2.5 py-1 font-medium text-red-600">
+            L2 · Group Head
+            <span className="font-normal text-muted-foreground">+24h unresolved</span>
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function SetupPage() {
   const { canWrite, loading } = useUser();
   const [active, setActive] = useState(SECTIONS[0].key);
@@ -313,6 +374,7 @@ export default function SetupPage() {
             hasActiveFilter={section.hasActiveFilter}
             resource={section.resource}
           />
+          {active === "escalation" && <SlaMatrixCard />}
         </>
       )}
     </div>
