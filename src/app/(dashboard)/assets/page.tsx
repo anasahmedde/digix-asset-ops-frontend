@@ -49,6 +49,8 @@ interface DeviceDetail extends Device {
   source: string;
   allowed_transitions?: string[];
   clients: string[];
+  project_contract_type: "sold" | "rental" | "" | null;
+  project_rental_end_date: string | null;
   brand_name: string | null;
   screen_type: string | null;
   screen_size: string | null;
@@ -251,6 +253,9 @@ export default function AssetsPage() {
   const [saving, setSaving] = useState(false);
   const [labelModal, setLabelModal] = useState<{ url: string; format: "qr" | "code128" } | null>(null);
   const [labelLoading, setLabelLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkLabelLoading, setBulkLabelLoading] = useState(false);
   const [transitionTarget, setTransitionTarget] = useState<string | null>(null);
   const [transitionReason, setTransitionReason] = useState("");
   const [transitionLoading, setTransitionLoading] = useState(false);
@@ -279,7 +284,15 @@ export default function AssetsPage() {
   const fetchDevices = useCallback(async () => {
     try {
       const { data } = await api.get("/assets/devices/", { params: { page_size: 1000 } });
-      setDevices(data.results ?? data);
+      const rows: Device[] = data.results ?? data;
+      setDevices(rows);
+      // Drop selections pointing at rows that no longer exist (e.g. deleted).
+      setSelectedIds((prev) => {
+        if (prev.size === 0) return prev;
+        const valid = new Set(rows.map((r) => r.id));
+        const next = new Set(Array.from(prev).filter((id) => valid.has(id)));
+        return next.size === prev.size ? prev : next;
+      });
     } catch (err: unknown) {
       toast.error(getApiError(err, "Failed to load devices"));
     } finally {
@@ -480,6 +493,42 @@ export default function AssetsPage() {
     w.document.close();
   }
 
+  function toggleRowSelection(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  // WF-05 polish: one PDF with one label per page for every checked row,
+  // opened in a new tab (mirrors the backend cap of 200 ids per batch).
+  async function printBulkLabels() {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    if (ids.length > 200) {
+      toast.error("At most 200 labels per batch — narrow your selection.");
+      return;
+    }
+    setBulkLabelLoading(true);
+    try {
+      const { data } = await api.post(
+        "/assets/devices/labels/",
+        { ids, format: "qr" },
+        { responseType: "blob" }
+      );
+      const url = URL.createObjectURL(new Blob([data], { type: "application/pdf" }));
+      const w = window.open(url, "_blank");
+      if (!w) toast.error("Allow pop-ups to view the labels PDF");
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (err: unknown) {
+      toast.error(getApiError(err, "Failed to generate labels"));
+    } finally {
+      setBulkLabelLoading(false);
+    }
+  }
+
   function handleImageSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
     setImageFiles((prev) => [...prev, ...files]);
@@ -591,6 +640,54 @@ export default function AssetsPage() {
     }
   }
 
+  async function exportExcel() {
+    setExporting(true);
+    try {
+      const params: Record<string, string> = {};
+      if (search) params.search = search;
+      if (filterValues.status) params.status = filterValues.status;
+      // Flag tiles (?flag=…) — the expired-warranty dropdown maps to the same
+      // backend semantics as the Warranty Expired tile.
+      if (filterValues.flag) params.flag = filterValues.flag;
+      else if (filterValues.warranty === "expired") params.flag = "warranty_expired";
+      const siteId = filterValues.site ? devices.find((d) => d.site_name === filterValues.site)?.current_site : null;
+      if (siteId) params.current_site = siteId;
+      // Asset type filter holds the type NAME; the filterset wants the id.
+      // Options load lazily, so fall back to fetching them for the lookup.
+      if (filterValues.asset_type) {
+        let typeId = assetTypes.find((t) => t.label === filterValues.asset_type)?.id;
+        if (!typeId) {
+          try {
+            const { data } = await api.get("/assets/asset-types/", { params: { page_size: 200 } });
+            const list: { id: string; name: string }[] = data.results ?? data;
+            typeId = list.find((t) => t.name === filterValues.asset_type)?.id;
+          } catch { /* unresolved — fall through */ }
+        }
+        if (typeId) params.asset_type = typeId;
+      }
+      // Client filter holds a NAME that may come from the primary client or the
+      // M2M list; resolve an id from loaded options or the rows' primary ids.
+      if (filterValues.client) {
+        const clientId =
+          clients.find((c) => c.label === filterValues.client)?.id ??
+          devices.find((d) => d.client_name === filterValues.client && d.assigned_client)?.assigned_client;
+        if (clientId) params.assigned_client = clientId;
+        else toast.warning("Client filter could not be applied to the export");
+      }
+      const res = await api.get("/assets/devices/export/", { params, responseType: "blob" });
+      const url = URL.createObjectURL(res.data as Blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `assets-export-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err: unknown) {
+      toast.error(getApiError(err, "Export failed"));
+    } finally {
+      setExporting(false);
+    }
+  }
+
   const filtered = devices.filter((d) => {
     if (filterValues.status && d.status !== filterValues.status) return false;
     if (filterValues.asset_type && (d.asset_type_name || "") !== filterValues.asset_type) return false;
@@ -676,6 +773,23 @@ export default function AssetsPage() {
                       <h1 className="text-xl font-bold text-foreground leading-tight">{d.device_model_name || "LED Screen"}</h1>
                       {d.brand_name && <p className="text-sm text-muted-foreground">{d.brand_name}</p>}
                     </div>
+                    {/* PR-01 polish: project contract chip (rental vs sold outright) */}
+                    {d.project_contract_type && (
+                      <span
+                        className={`ml-auto inline-flex shrink-0 items-center rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${
+                          d.project_contract_type === "rental"
+                            ? "bg-amber-500/10 text-amber-500 ring-amber-500/20"
+                            : "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20"
+                        }`}
+                        title={d.project_name ? `Project: ${d.project_name}` : undefined}
+                      >
+                        {d.project_contract_type === "rental"
+                          ? d.project_rental_end_date
+                            ? `Rental until ${formatDate(d.project_rental_end_date)}`
+                            : "Rental"
+                          : "Sold Outright"}
+                      </span>
+                    )}
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-6 gap-y-3">
                     <div className="flex items-end gap-1">
@@ -1240,11 +1354,29 @@ export default function AssetsPage() {
             <p className="text-sm text-muted-foreground">Manage all assets from procurement to retirement</p>
           </div>
         </div>
-        {canEdit && (
-          <button onClick={openCreate} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">
-            <Plus className="h-4 w-4" /> Register Asset
+        <div className="flex items-center gap-2">
+          <button
+            onClick={exportExcel}
+            disabled={exporting}
+            className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-60"
+          >
+            <Download className="h-4 w-4" /> {exporting ? "Exporting…" : "Export Excel"}
           </button>
-        )}
+          {canEdit && selectedIds.size > 0 && (
+            <button
+              onClick={printBulkLabels}
+              disabled={bulkLabelLoading}
+              className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-60"
+            >
+              <Printer className="h-4 w-4" /> {bulkLabelLoading ? "Generating…" : `Print labels (${selectedIds.size})`}
+            </button>
+          )}
+          {canEdit && (
+            <button onClick={openCreate} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">
+              <Plus className="h-4 w-4" /> Register Asset
+            </button>
+          )}
+        </div>
       </div>
 
       {(() => {
@@ -1308,6 +1440,29 @@ export default function AssetsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
+                  {canEdit && (
+                    <th className="w-10 px-4 py-3">
+                      <input
+                        type="checkbox"
+                        aria-label="Select all assets"
+                        checked={filtered.length > 0 && filtered.every((d) => selectedIds.has(d.id))}
+                        onChange={(e) => {
+                          // Merge/subtract only the currently filtered ids so
+                          // selections made under other filters survive.
+                          const checked = e.target.checked;
+                          setSelectedIds((prev) => {
+                            const next = new Set(prev);
+                            for (const d of filtered) {
+                              if (checked) next.add(d.id);
+                              else next.delete(d.id);
+                            }
+                            return next;
+                          });
+                        }}
+                        className="h-4 w-4 cursor-pointer accent-primary"
+                      />
+                    </th>
+                  )}
                   <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Asset Code</th>
                   <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Name</th>
                   <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Serial #</th>
@@ -1323,6 +1478,17 @@ export default function AssetsPage() {
               <tbody>
                 {filtered.map((d) => (
                   <tr key={d.id} onClick={() => openDetail(d)} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
+                    {canEdit && (
+                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${d.asset_code}`}
+                          checked={selectedIds.has(d.id)}
+                          onChange={() => toggleRowSelection(d.id)}
+                          className="h-4 w-4 cursor-pointer accent-primary"
+                        />
+                      </td>
+                    )}
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-3">
                         <DeviceImage src={d.image} alt={d.asset_code} size="sm" />
