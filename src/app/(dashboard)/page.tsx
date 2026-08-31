@@ -18,6 +18,7 @@ import { AssignedTicketsBanner } from "@/components/ui/assigned-tickets-banner";
 import { StatCard } from "@/components/ui/stat-card";
 import { DonutChart } from "@/components/charts/donut-chart";
 import { BarChart } from "@/components/charts/bar-chart";
+import { formatDate } from "@/lib/utils";
 
 const StatusMap = dynamic(() => import("@/components/map/status-map"), {
   ssr: false,
@@ -104,6 +105,15 @@ interface ProjectLite {
   progress: number;
 }
 
+// Escalated installations (?escalated=true) shown in the Escalation Alerts card.
+interface EscalatedInstallLite {
+  id: string;
+  device_code: string;
+  site_name: string;
+  due_date: string | null;
+  escalation_state: Record<string, string>;
+}
+
 export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [mapDevices, setMapDevices] = useState<MapDevice[]>([]);
@@ -112,6 +122,7 @@ export default function DashboardPage() {
   const [maintenance, setMaintenance] = useState<MaintenanceStats>({ total: 0, completed: 0, in_progress: 0, pending: 0 });
   const [tickets, setTickets] = useState<TicketLite[]>([]);
   const [projects, setProjects] = useState<ProjectLite[]>([]);
+  const [escalatedInstalls, setEscalatedInstalls] = useState<EscalatedInstallLite[]>([]);
   const [stock, setStock] = useState<{ id: string; sku: string; material_name: string | null; category_name: string | null; quantity: number; unit: string | null; total_value: number | null; is_low_stock: boolean }[]>([]);
   const [stockSummary, setStockSummary] = useState<{ total_value: number; total_quantity: number; items: number; low_stock: number; unpriced_items: number } | null>(null);
   const [stockSortField, setStockSortField] = useState<"quantity" | "total_value" | "material_type__name">("quantity");
@@ -121,7 +132,7 @@ export default function DashboardPage() {
   useEffect(() => {
     async function fetchAll() {
       try {
-        const [statsRes, mapRes, alertsRes, maintRes, maintMapRes, stockSummaryRes, ticketsRes, projectsRes] = await Promise.allSettled([
+        const [statsRes, mapRes, alertsRes, maintRes, maintMapRes, stockSummaryRes, ticketsRes, projectsRes, escInstRes] = await Promise.allSettled([
           api.get("/assets/devices/dashboard_stats/"),
           api.get("/assets/devices/map_data/"),
           api.get("/analytics/alerts/", { params: { page_size: 5, ordering: "-created_at", is_dismissed: false } }),
@@ -130,6 +141,7 @@ export default function DashboardPage() {
           api.get("/inventory/items/summary/"),
           api.get("/tickets/", { params: { page_size: 1000 } }),
           api.get("/teams/projects/", { params: { page_size: 1000 } }),
+          api.get("/sites/installations/", { params: { escalated: true, page_size: 5 } }),
         ]);
 
         if (statsRes.status === "fulfilled") setStats(statsRes.value.data);
@@ -139,6 +151,7 @@ export default function DashboardPage() {
         if (stockSummaryRes.status === "fulfilled") setStockSummary(stockSummaryRes.value.data);
         if (ticketsRes.status === "fulfilled") setTickets(ticketsRes.value.data.results ?? []);
         if (projectsRes.status === "fulfilled") setProjects(projectsRes.value.data.results ?? []);
+        if (escInstRes.status === "fulfilled") setEscalatedInstalls(escInstRes.value.data.results ?? []);
 
         if (maintRes.status === "fulfilled") {
           const schedules = maintRes.value.data.results ?? [];
@@ -312,7 +325,28 @@ export default function DashboardPage() {
                 )}
               </div>
             ) : (
-              <p className="text-xs text-muted-foreground">No escalations — all tickets within SLA</p>
+              escalatedInstalls.length === 0 && (
+                <p className="text-xs text-muted-foreground">No escalations — all tickets and installations within SLA</p>
+              )
+            )}
+            {escalatedInstalls.length > 0 && (
+              <div className={escalatedTickets.length > 0 ? "mt-3 border-t border-red-500/20 pt-3" : ""}>
+                <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-red-500">Overdue Installations</p>
+                <div className="space-y-2">
+                  {escalatedInstalls.map((inst) => (
+                    <Link key={inst.id} href="/installation-tracker" className="flex items-center justify-between gap-2 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 transition-colors hover:bg-red-500/10">
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-medium text-foreground">{inst.device_code} — {inst.site_name}</p>
+                        <p className="text-[10px] text-red-500">
+                          {Object.keys(inst.escalation_state ?? {}).some((k) => k.endsWith(":2")) ? "Escalated — L2" : "Escalated"}
+                          {inst.due_date ? ` · due ${formatDate(inst.due_date)}` : ""}
+                        </p>
+                      </div>
+                      <span className="shrink-0 text-[10px] font-semibold text-red-500">→</span>
+                    </Link>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
 

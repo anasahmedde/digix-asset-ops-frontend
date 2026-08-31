@@ -49,6 +49,18 @@ const ESCALATION_TRIGGER_OPTIONS = [
   { value: "response_sla", label: "No response within SLA" },
   { value: "due_date", label: "Past due date" },
 ];
+const ESCALATION_SCOPE_OPTIONS = [
+  { value: "ticket", label: "Ticket" },
+  { value: "installation", label: "Installation" },
+];
+const ESCALATION_SCOPE_LABELS: Record<string, string> = {
+  ticket: "Ticket",
+  installation: "Installation",
+};
+const ESCALATION_SCOPE_BADGE: Record<string, string> = {
+  ticket: "bg-blue-500/10 text-blue-400 ring-blue-500/20",
+  installation: "bg-violet-500/10 text-violet-400 ring-violet-500/20",
+};
 const TERMS_CATEGORY_OPTIONS = [
   { value: "work_order", label: "Work Order" },
   { value: "safety", label: "Safety Instructions" },
@@ -229,17 +241,38 @@ const SECTIONS: SectionConfig[] = [
     endpoint: "/setup/escalation-policies/",
     singular: "Escalation Policy",
     labelKey: "trigger_display",
-    searchKeys: ["trigger"],
+    // Rows arrive grouped/ordered by scope → trigger → stage (backend ordering).
+    searchKeys: ["trigger", "scope"],
     columns: [
+      {
+        key: "scope",
+        label: "Applies To",
+        render: (r) => (
+          <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${ESCALATION_SCOPE_BADGE[String(r.scope)] ?? ESCALATION_SCOPE_BADGE.ticket}`}>
+            {ESCALATION_SCOPE_LABELS[String(r.scope)] ?? String(r.scope ?? "Ticket")}
+          </span>
+        ),
+      },
       { key: "trigger_display", label: "Trigger", className: "font-medium text-foreground" },
+      {
+        key: "stage",
+        label: "Stage",
+        render: (r) => (
+          <span className="inline-flex rounded-full bg-secondary px-2 py-0.5 text-xs font-semibold text-foreground">
+            L{Number(r.stage ?? 1)}
+          </span>
+        ),
+      },
       { key: "hours", label: "Window", render: (r) => (r.hours != null && r.hours !== "" ? `${r.hours}h` : "Per-priority SLA") },
       { key: "escalate_to_role", label: "Escalates To", render: (r) => ROLE_LABELS[String(r.escalate_to_role)] ?? String(r.escalate_to_role ?? "—") },
       { key: "also_notify_role", label: "Also Notifies", render: (r) => (r.also_notify_role ? ROLE_LABELS[String(r.also_notify_role)] ?? String(r.also_notify_role) : "—") },
       { key: "is_active", label: "Status", render: activeCell },
     ],
     fields: [
+      { name: "scope", label: "Applies To", type: "select", options: ESCALATION_SCOPE_OPTIONS, default: "ticket", required: true, help: "Ticket policies watch ticket SLAs; installation policies watch installation due dates." },
       { name: "trigger", label: "Trigger", type: "select", options: ESCALATION_TRIGGER_OPTIONS, required: true, immutable: true },
-      { name: "hours", label: "Window (hours)", type: "number", help: "Assignment trigger: hours a ticket may sit unassigned (default 24). Leave blank for the response-SLA trigger (per-priority windows) and due-date trigger." },
+      { name: "stage", label: "Stage", type: "number", default: 1, required: true, min: 1, max: 3, help: "Escalation level 1–3. L1 fires first, then L2. Each stage's window is measured from the same trigger anchor (L2 hours are absolute from the anchor, not added on top of L1)." },
+      { name: "hours", label: "Window (hours)", type: "number", help: "Hours after the trigger anchor before this stage fires (e.g. L1 = 0h, L2 = 24h). Assignment trigger anchor = time created while unassigned. Leave blank for the response-SLA L1 (per-priority windows)." },
       { name: "escalate_to_role", label: "Escalate To", type: "select", options: ESCALATION_ROLE_OPTIONS, default: "group_head", required: true },
       { name: "also_notify_role", label: "Also Notify", type: "select", options: [{ value: "", label: "None" }, ...ESCALATION_ROLE_OPTIONS], default: "ops_manager" },
       { name: "is_active", label: "Active", type: "checkbox", default: true },
@@ -313,16 +346,31 @@ function SlaMatrixCard() {
       </div>
       <div className="mt-4 rounded-lg border border-border bg-secondary/20 p-3">
         <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Escalation Ladder</p>
-        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-          <span className="inline-flex items-center gap-1.5 rounded-lg border border-orange-500/30 bg-orange-500/10 px-2.5 py-1 font-medium text-orange-600">
-            L1 · Operations Head
-            <span className="font-normal text-muted-foreground">at SLA breach</span>
-          </span>
-          <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
-          <span className="inline-flex items-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/10 px-2.5 py-1 font-medium text-red-600">
-            L2 · Group Head
-            <span className="font-normal text-muted-foreground">+24h unresolved</span>
-          </span>
+        <div className="mt-2 space-y-2">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="w-24 shrink-0 text-[11px] font-medium text-muted-foreground">Tickets</span>
+            <span className="inline-flex items-center gap-1.5 rounded-lg border border-orange-500/30 bg-orange-500/10 px-2.5 py-1 font-medium text-orange-600">
+              L1 · Operations Head
+              <span className="font-normal text-muted-foreground">at SLA breach</span>
+            </span>
+            <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="inline-flex items-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/10 px-2.5 py-1 font-medium text-red-600">
+              L2 · Group Head
+              <span className="font-normal text-muted-foreground">+24h unresolved</span>
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="w-24 shrink-0 text-[11px] font-medium text-muted-foreground">Installations</span>
+            <span className="inline-flex items-center gap-1.5 rounded-lg border border-orange-500/30 bg-orange-500/10 px-2.5 py-1 font-medium text-orange-600">
+              L1 · Operations Head
+              <span className="font-normal text-muted-foreground">at due date</span>
+            </span>
+            <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="inline-flex items-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/10 px-2.5 py-1 font-medium text-red-600">
+              L2 · Group Head
+              <span className="font-normal text-muted-foreground">+24h overdue</span>
+            </span>
+          </div>
         </div>
       </div>
     </div>

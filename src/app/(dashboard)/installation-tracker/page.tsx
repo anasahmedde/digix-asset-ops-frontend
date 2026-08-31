@@ -85,6 +85,8 @@ interface Installation {
   progress: number;
   client_delays: number;
   on_hold_steps: number;
+  escalated: boolean;
+  escalation_state: Record<string, string>;
   steps: {
     id: string;
     step_type: string;
@@ -124,6 +126,8 @@ interface InstallationListItem {
   progress: number;
   client_delays: number;
   on_hold_steps: number;
+  escalated: boolean;
+  escalation_state: Record<string, string>;
 }
 
 interface RelatedDocument {
@@ -156,6 +160,12 @@ function trackBucket(i: { progress: number; due_date: string | null; completed_a
   if (i.on_hold_steps > 0) return "on_hold";
   if (i.due_date && new Date(i.due_date) < new Date()) return "overdue";
   return i.progress > 0 ? "in_progress" : "not_started";
+}
+
+// escalation_state maps "<trigger>:<stage>" -> fired-at timestamp; a ":2" key
+// means the stage-2 (group head) escalation has fired.
+function escalationLabel(state: Record<string, string> | null | undefined): string {
+  return state && Object.keys(state).some((k) => k.endsWith(":2")) ? "Escalated — L2" : "Escalated";
 }
 
 interface Option {
@@ -259,6 +269,10 @@ export default function InstallationTrackerPage() {
   // works the steps from the mobile app (backend enforces both).
   const isSuperAdmin = user?.role === "super_admin";
   const [trackFilter, setTrackFilter] = useState("");
+  // Server-filtered rows for the Escalated tile (?escalated=true); null while
+  // the fetch is pending or the filter is off — we fall back to the client-side
+  // `escalated` flag so the table never flashes empty.
+  const [escalatedRows, setEscalatedRows] = useState<InstallationListItem[] | null>(null);
 
   useEffect(() => {
     async function fetchInstallations() {
@@ -271,6 +285,19 @@ export default function InstallationTrackerPage() {
     }
     fetchInstallations();
   }, []);
+
+  useEffect(() => {
+    if (trackFilter !== "escalated") {
+      setEscalatedRows(null);
+      return;
+    }
+    let cancelled = false;
+    api
+      .get("/sites/installations/", { params: { page_size: 1000, ordering: "-installed_at", escalated: true } })
+      .then(({ data }) => { if (!cancelled) setEscalatedRows(data.results ?? []); })
+      .catch(() => { if (!cancelled) setEscalatedRows(null); });
+    return () => { cancelled = true; };
+  }, [trackFilter]);
 
   async function loadDetail(id: string) {
     try {
@@ -624,6 +651,14 @@ export default function InstallationTrackerPage() {
                 {selected.handover && (
                   <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-600">
                     <ClipboardCheck className="h-3 w-3" /> Handed over
+                  </span>
+                )}
+                {selected.escalated && (
+                  <span
+                    title="This installation breached its due date and escalation notifications have fired"
+                    className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-0.5 text-[11px] font-semibold text-red-500"
+                  >
+                    <AlertTriangle className="h-3 w-3" /> {escalationLabel(selected.escalation_state)}
                   </span>
                 )}
                 {selected.client_delays > 0 && (
@@ -1181,10 +1216,17 @@ export default function InstallationTrackerPage() {
     );
   }
 
-  const filtered = installations.filter((i) => {
+  // Escalated uses the server-side ?escalated=true filter; until that response
+  // lands, fall back to the escalated flag already present on the loaded rows.
+  const baseRows =
+    trackFilter === "escalated"
+      ? escalatedRows ?? installations.filter((i) => i.escalated)
+      : installations;
+
+  const filtered = baseRows.filter((i) => {
     if (trackFilter === "delayed") {
       if (i.client_delays === 0) return false;
-    } else if (trackFilter && trackBucket(i) !== trackFilter) {
+    } else if (trackFilter && trackFilter !== "escalated" && trackBucket(i) !== trackFilter) {
       return false;
     }
     if (filterValues.client && !i.client_names.includes(filterValues.client)) return false;
@@ -1245,6 +1287,7 @@ export default function InstallationTrackerPage() {
         const counts = { not_started: 0, in_progress: 0, on_hold: 0, completed: 0, overdue: 0 };
         installations.forEach((i) => { counts[trackBucket(i)] += 1; });
         const delayed = installations.filter((i) => i.client_delays > 0).length;
+        const escalatedCount = installations.filter((i) => i.escalated).length;
         const toggle = (key: string) => setTrackFilter((v) => (v === key ? "" : key));
         return (
           <div className="space-y-3">
@@ -1256,6 +1299,7 @@ export default function InstallationTrackerPage() {
                 { key: "on_hold", label: "On Hold", value: counts.on_hold, tone: "amber", active: trackFilter === "on_hold", onClick: () => toggle("on_hold") },
                 { key: "completed", label: "Completed", value: counts.completed, tone: "emerald", active: trackFilter === "completed", onClick: () => toggle("completed") },
                 { key: "overdue", label: "Overdue", value: counts.overdue, tone: "red", active: trackFilter === "overdue", onClick: () => toggle("overdue") },
+                { key: "escalated", label: "Escalated", value: escalatedCount, tone: "red", active: trackFilter === "escalated", onClick: () => toggle("escalated") },
                 { key: "delayed", label: "Client Delays", value: delayed, tone: "red", active: trackFilter === "delayed", onClick: () => toggle("delayed") },
               ]}
             />
@@ -1347,6 +1391,14 @@ export default function InstallationTrackerPage() {
                       <td className="px-4 py-3.5 text-muted-foreground">{inst.poc_name || "—"}</td>
                       <td className={`px-4 py-3.5 ${rowOverdue ? "font-semibold text-red-500" : "text-muted-foreground"}`}>
                         {inst.due_date ? formatDate(inst.due_date) : "—"}
+                        {inst.escalated && (
+                          <span
+                            title="Due date breached — escalation notifications have fired"
+                            className="mt-1 flex w-fit items-center gap-0.5 rounded-full bg-red-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-red-500"
+                          >
+                            <AlertTriangle className="h-2.5 w-2.5" /> {escalationLabel(inst.escalation_state)}
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3.5 text-muted-foreground">
                         {inst.completed_at ? formatDate(inst.completed_at) : "—"}
