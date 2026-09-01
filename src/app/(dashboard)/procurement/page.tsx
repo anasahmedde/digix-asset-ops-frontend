@@ -142,6 +142,9 @@ const emptyForm: FormState = {
 const inputClass =
   "flex h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors";
 const labelClass = "text-xs font-medium text-muted-foreground";
+// inputClass minus w-full — for row inputs with explicit widths (w-20/w-32/w-36),
+// where the baked-in w-full would win Tailwind's cascade and break the layout.
+const rowInputClass = inputClass.replace("w-full ", "");
 const thClass = "px-5 py-3.5 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground";
 const tdClass = "px-5 py-3.5";
 
@@ -885,7 +888,7 @@ export default function ProcurementPage() {
                       <select
                         value={it.kind}
                         onChange={(e) => setItemKind(idx, e.target.value as ItemKind)}
-                        className={`${inputClass} w-36 shrink-0`}
+                        className={`${rowInputClass} w-36 shrink-0`}
                         title="Item type"
                       >
                         <option value="custom">Free text</option>
@@ -904,7 +907,7 @@ export default function ProcurementPage() {
                           {materialTypes.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
                         </select>
                       )}
-                      <div className="ml-auto shrink-0 text-right text-xs text-muted-foreground">
+                      <div className="ml-auto shrink-0 whitespace-nowrap text-right text-xs text-muted-foreground">
                         Line total{" "}
                         <span className="font-medium text-foreground">{form.currency} {rowTotal(it).toLocaleString()}</span>
                         {modalMode === "edit" && it.received_quantity > 0 && (
@@ -913,9 +916,9 @@ export default function ProcurementPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <input value={it.description} onChange={(e) => updateItem(idx, { description: e.target.value })} placeholder="Description" className={`${inputClass} flex-1`} />
-                      <input type="number" min="1" value={it.quantity} onChange={(e) => updateItem(idx, { quantity: e.target.value })} placeholder="Qty" className={`${inputClass} w-20`} />
-                      <input type="number" min="0" step="0.01" value={it.unit_price} onChange={(e) => updateItem(idx, { unit_price: e.target.value })} placeholder="Unit price" className={`${inputClass} w-32`} />
+                      <input value={it.description} onChange={(e) => updateItem(idx, { description: e.target.value })} placeholder="Description" className={`${inputClass} min-w-0 flex-1`} />
+                      <input type="number" min="1" value={it.quantity} onChange={(e) => updateItem(idx, { quantity: e.target.value })} placeholder="Qty" className={`${rowInputClass} w-20`} />
+                      <input type="number" min="0" step="0.01" value={it.unit_price} onChange={(e) => updateItem(idx, { unit_price: e.target.value })} placeholder="Unit price" className={`${rowInputClass} w-32`} />
                       <button type="button" onClick={() => removeItem(idx)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:text-destructive">
                         <Trash2 className="h-4 w-4" />
                       </button>
