@@ -111,6 +111,9 @@ const emptyForm: FormState = {
 const inputClass =
   "flex h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors";
 const labelClass = "text-xs font-medium text-muted-foreground";
+// inputClass minus w-full — for row inputs with explicit widths (w-20/w-32/w-36),
+// where the baked-in w-full would win Tailwind's cascade and break the layout.
+const rowInputClass = inputClass.replace("w-full ", "");
 const thClass = "px-5 py-3.5 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground";
 const tdClass = "px-5 py-3.5";
 
@@ -818,7 +821,7 @@ export default function QuotationsPage() {
                         value={it.kind}
                         onChange={(e) => setItemKind(idx, e.target.value as ItemKind)}
                         disabled={itemsLocked}
-                        className={`${inputClass} w-36 shrink-0 disabled:opacity-50`}
+                        className={`${rowInputClass} w-36 shrink-0 disabled:opacity-50`}
                         title="Item type"
                       >
                         <option value="custom">Free text</option>
@@ -837,7 +840,7 @@ export default function QuotationsPage() {
                           {materialTypes.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
                         </select>
                       )}
-                      <div className="ml-auto shrink-0 text-right text-xs text-muted-foreground">
+                      <div className="ml-auto shrink-0 whitespace-nowrap text-right text-xs text-muted-foreground">
                         Line total{" "}
                         <span className="font-medium text-foreground">{form.currency} {rowTotal(it).toLocaleString()}</span>
                       </div>
@@ -848,7 +851,7 @@ export default function QuotationsPage() {
                         onChange={(e) => updateItem(idx, { description: e.target.value })}
                         disabled={itemsLocked}
                         placeholder="Description"
-                        className={`${inputClass} flex-1 disabled:opacity-50`}
+                        className={`${inputClass} min-w-0 flex-1 disabled:opacity-50`}
                       />
                       <input
                         type="number"
@@ -857,7 +860,7 @@ export default function QuotationsPage() {
                         onChange={(e) => updateItem(idx, { quantity: e.target.value })}
                         disabled={itemsLocked}
                         placeholder="Qty"
-                        className={`${inputClass} w-20 disabled:opacity-50`}
+                        className={`${rowInputClass} w-20 disabled:opacity-50`}
                       />
                       <input
                         type="number"
@@ -867,7 +870,7 @@ export default function QuotationsPage() {
                         onChange={(e) => updateItem(idx, { unit_price: e.target.value })}
                         disabled={itemsLocked}
                         placeholder="Unit price"
-                        className={`${inputClass} w-32 disabled:opacity-50`}
+                        className={`${rowInputClass} w-32 disabled:opacity-50`}
                       />
                       {!itemsLocked && (
                         <button type="button" onClick={() => removeItem(idx)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:text-destructive">
