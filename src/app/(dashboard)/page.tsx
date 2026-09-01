@@ -6,9 +6,7 @@ import {
   CheckCircle,
   Clock,
   Monitor,
-  MonitorCheck,
   Wrench,
-  XCircle,
 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -190,7 +188,6 @@ export default function DashboardPage() {
   const clientProperty = sum("client_property");
   const outOfService = sum("decommissioned", "lost_stolen", "rma");
 
-  const pct = (v: number) => (total > 0 ? `${((v / total) * 100).toFixed(1)}%` : "0%");
 
   const statusDistData = [
     { name: "Working", value: working, color: "#10b981" },
@@ -253,28 +250,25 @@ export default function DashboardPage() {
         </Link>
       )}
 
-      {/* Top stat cards — a complete breakdown: the six tiles sum to Total */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+      {/* Top stat cards — four plain-language tiles. The full status breakdown
+          lives in the Status chart below and on the Assets page. */}
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Link href="/assets" className="block rounded-xl transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md">
-          <StatCard label="Total Assets" value={total} subtitle="All Over Pakistan" icon={<Monitor className="h-5 w-5" />} />
+          <StatCard label="Total Assets" value={total} subtitle="across Pakistan" icon={<Monitor className="h-5 w-5" />} />
         </Link>
-        <Link href="/assets?status=active" className="block rounded-xl transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md">
-          <StatCard label="Working" value={working} subtitle={`${pct(working)} · active + installed`} icon={<CheckCircle className="h-5 w-5" />} />
+        <Link href="/assets" className="block rounded-xl transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md">
+          <StatCard label="Working" value={working} subtitle="live at client sites" icon={<CheckCircle className="h-5 w-5" />} />
         </Link>
         <Link href="/assets?status=in_stock" className="block rounded-xl transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md">
-          <StatCard label="In Stock" value={inStock} subtitle={pct(inStock)} variant="highlighted" icon={<Clock className="h-5 w-5" />} />
-        </Link>
-        <Link href="/assets" className="block rounded-xl transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md">
-          <StatCard label="Pipeline" value={pipeline} subtitle={`${pct(pipeline)} · procured / transit / assigned`} icon={<MonitorCheck className="h-5 w-5" />} />
+          <StatCard label="In Stock" value={inStock} subtitle="ready to install" variant="highlighted" icon={<Clock className="h-5 w-5" />} />
         </Link>
         <Link href="/assets?status=under_maintenance" className="block rounded-xl transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md">
-          <StatCard label="Under Maintenance" value={underMaint} subtitle={pct(underMaint)} icon={<Wrench className="h-5 w-5" />} />
-        </Link>
-        <Link href="/assets?status=client_property" className="block rounded-xl transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md">
-          <StatCard label="Client Property" value={clientProperty} subtitle={pct(clientProperty)} icon={<MonitorCheck className="h-5 w-5" />} />
-        </Link>
-        <Link href="/assets?status=decommissioned" className="block rounded-xl transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md">
-          <StatCard label="Out of Service" value={outOfService} subtitle={`${pct(outOfService)} · decom / lost / RMA`} icon={<XCircle className="h-5 w-5" />} />
+          <StatCard
+            label="Needs Attention"
+            value={underMaint + outOfService}
+            subtitle={underMaint + outOfService === 0 ? "all clear" : "maintenance or out of service"}
+            icon={<Wrench className="h-5 w-5" />}
+          />
         </Link>
       </div>
 
