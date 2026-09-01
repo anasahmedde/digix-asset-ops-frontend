@@ -1,9 +1,10 @@
 "use client";
 
 import { ArrowRight, Check, Settings2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { ActiveBadge, ColumnSpec, CrudManager, FieldSpec } from "@/components/setup/crud-manager";
+import api from "@/lib/api";
 import { Tabs } from "@/components/ui/tabs";
 import { useUser } from "@/lib/user-context";
 
@@ -299,6 +300,50 @@ const SECTIONS: SectionConfig[] = [
       { name: "is_active", label: "Active", type: "checkbox", default: true },
     ],
   },
+  {
+    key: "brands",
+    label: "Brands",
+    endpoint: "/assets/brands/",
+    singular: "Brand",
+    labelKey: "name",
+    resource: "setup",
+    searchKeys: ["name"],
+    columns: [
+      { key: "name", label: "Brand", className: "font-medium text-foreground" },
+      { key: "website", label: "Website" },
+      { key: "is_active", label: "Status", render: activeCell },
+    ],
+    fields: [
+      { name: "name", label: "Brand Name", required: true, placeholder: "e.g. Samsung" },
+      { name: "website", label: "Website", type: "url", placeholder: "https://…" },
+      { name: "is_active", label: "Active", type: "checkbox", default: true },
+    ],
+  },
+  {
+    key: "device-models",
+    label: "Device Models",
+    endpoint: "/assets/device-models/",
+    singular: "Device Model",
+    labelKey: "name",
+    resource: "setup",
+    searchKeys: ["name", "brand_name", "model_number"],
+    columns: [
+      { key: "brand_name", label: "Brand" },
+      { key: "name", label: "Model", className: "font-medium text-foreground" },
+      { key: "model_number", label: "Model #" },
+      { key: "screen_size", label: "Size" },
+      { key: "is_active", label: "Status", render: activeCell },
+    ],
+    fields: [
+      // Brand options are injected at render time from the live brand list.
+      { name: "brand", label: "Brand", type: "select", required: true, options: [] },
+      { name: "name", label: "Model Name", required: true, placeholder: "e.g. QM55R" },
+      { name: "model_number", label: "Model Number", placeholder: "e.g. LH55QMREBGCXZA" },
+      { name: "screen_type", label: "Screen Type", placeholder: "e.g. LED / LCD" },
+      { name: "screen_size", label: "Screen Size", placeholder: 'e.g. 55"' },
+      { name: "is_active", label: "Active", type: "checkbox", default: true },
+    ],
+  },
 ];
 
 /* ── SLA & Escalation Matrix (display-only reference, shown with the Escalation tab) ── */
@@ -384,6 +429,28 @@ export default function SetupPage() {
   const section = SECTIONS.find((s) => s.key === active)!;
   const allowed = canWrite("setup");
 
+  // Device-model form needs the live brand list — refreshed on tab entry so a
+  // brand added moments ago on the Brands tab is immediately pickable.
+  const [brandOptions, setBrandOptions] = useState<{ value: string; label: string }[]>([]);
+  useEffect(() => {
+    if (active !== "device-models") return;
+    api
+      .get("/assets/brands/", { params: { page_size: 500, ordering: "name", is_active: true } })
+      .then(({ data }) =>
+        setBrandOptions(
+          (data.results ?? data).map((b: { id: string; name: string }) => ({ value: b.id, label: b.name }))
+        )
+      )
+      .catch(() => {});
+  }, [active]);
+  const sectionFields = useMemo(
+    () =>
+      active === "device-models"
+        ? section.fields.map((f) => (f.name === "brand" ? { ...f, options: brandOptions } : f))
+        : section.fields,
+    [active, section, brandOptions]
+  );
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
@@ -416,7 +483,7 @@ export default function SetupPage() {
             singular={section.singular}
             labelKey={section.labelKey}
             columns={section.columns}
-            fields={section.fields}
+            fields={sectionFields}
             searchKeys={section.searchKeys as (keyof Row)[] | undefined}
             searchPlaceholder={section.searchPlaceholder}
             hasActiveFilter={section.hasActiveFilter}
