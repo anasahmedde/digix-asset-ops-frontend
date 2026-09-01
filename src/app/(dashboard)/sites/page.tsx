@@ -305,7 +305,7 @@ export default function SitesPage() {
       })()}
 
       {modalMode && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/60 py-8 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 py-8 backdrop-blur-sm">
           <div className="w-full max-w-2xl rounded-2xl border border-border bg-card p-6 shadow-2xl">
             <div className="mb-5 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-foreground">{modalMode === "create" ? "Add New Site" : "Edit Site"}</h2>
