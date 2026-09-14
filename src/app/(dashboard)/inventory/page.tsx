@@ -1,12 +1,17 @@
 "use client";
 
-import { ArrowDownToLine, ArrowUpFromLine, Download, Package, Pencil, Plus, Trash2, X } from "lucide-react";
+import { ArrowDownToLine, ArrowUpFromLine, Download, Info, Package, Pencil, Plus, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { IssuanceLog } from "@/components/inventory/issuance-log";
+import { IssuanceRequests } from "@/components/inventory/issuance-requests";
+import { PendingInspection } from "@/components/inventory/pending-inspection";
+import { UniqueItems } from "@/components/inventory/unique-items";
 import { CopyButton } from "@/components/ui/copy-button";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { Modal } from "@/components/ui/modal";
+import { SelectOrCreate } from "@/components/ui/select-or-create";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
@@ -21,12 +26,27 @@ interface InventoryItem {
   quantity: number;
   min_stock_level: number;
   location: string;
+  storage_location: string;
   unit_cost: string | null;
   notes: string;
   is_low_stock: boolean;
   created_at: string;
 }
 interface Ref { id: string; name: string }
+/** One in/out against a stock line, with the delivery it arrived on. */
+interface StockMovement {
+  id: string;
+  movement_type: string;
+  quantity: number;
+  reference: string;
+  notes: string;
+  batch_number: string;
+  grn_number: string | null;
+  po_number: string | null;
+  supplier_name: string | null;
+  performed_by_name: string | null;
+  created_at: string;
+}
 
 const inputClass =
   "flex h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors";
@@ -52,10 +72,22 @@ export default function InventoryPage() {
   const [itemModal, setItemModal] = useState<"create" | "edit" | null>(null);
   const [selected, setSelected] = useState<InventoryItem | null>(null);
   const [stockModal, setStockModal] = useState<{ type: "receive" | "issue"; item: InventoryItem } | null>(null);
+  // Where a line's stock came from — asked for on demand, not shown in the list.
+  const [detailsFor, setDetailsFor] = useState<InventoryItem | null>(null);
+  const [movements, setMovements] = useState<StockMovement[]>([]);
+  const [movementsLoading, setMovementsLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [filterValues, setFilterValues] = useState<Record<string, string>>({ location: "", category: "", lowStock: "" });
   const [search, setSearch] = useState("");
   const [exporting, setExporting] = useState(false);
+  // Two kinds of inventory: generic stock tracked by quantity, and unique
+  // (serialized) units tracked one row per physical item.
+  const [tab, setTab] = useState<
+    "generic" | "unique" | "inspection" | "requests" | "issuance"
+  >("generic");
+  const [pendingCount, setPendingCount] = useState(0);
+  const [formMaterial, setFormMaterial] = useState("");
+  const [formCategory, setFormCategory] = useState("");
 
   async function exportExcel() {
     setExporting(true);
@@ -92,25 +124,65 @@ export default function InventoryPage() {
     }
   }, []);
 
+  const refreshPendingCount = useCallback(async () => {
+    try {
+      const { data } = await api.get("/inventory/receipt-lines/", {
+        params: { inspection_status: "pending", page_size: 1 },
+      });
+      setPendingCount(data.count ?? (data.results ?? data).length ?? 0);
+    } catch {
+      /* the badge is a nicety — never block the page on it */
+    }
+  }, []);
+
+  useEffect(() => { refreshPendingCount(); }, [refreshPendingCount]);
+
   useEffect(() => {
     fetchItems();
     api.get("/inventory/categories/").then((r) => setCategories(r.data.results ?? r.data)).catch(() => {});
     api.get("/assets/material-types/").then((r) => setMaterialTypes(r.data.results ?? r.data)).catch(() => {});
-    api.get("/sites/").then((r) => setSites(r.data.results ?? r.data)).catch(() => {});
+    // The collection is /sites/sites/ — /sites/ is the router root, and the
+    // object it returns has no rows to map over.
+    api.get("/sites/sites/", { params: { page_size: 1000 } }).then((r) => setSites(r.data.results ?? r.data)).catch(() => {});
   }, [fetchItems]);
 
   function closeItemModal() { setItemModal(null); setSelected(null); }
+
+  function openItemModal(mode: "create" | "edit", item: InventoryItem | null) {
+    setSelected(item);
+    setFormMaterial(item?.material_type ?? "");
+    setFormCategory(item?.category ?? "");
+    setItemModal(mode);
+  }
+
+  async function openDetails(item: InventoryItem) {
+    setDetailsFor(item);
+    setMovements([]);
+    setMovementsLoading(true);
+    try {
+      const { data } = await api.get("/inventory/movements/", {
+        params: { item: item.id, page_size: 200, ordering: "-created_at" },
+      });
+      const rows: StockMovement[] = data.results ?? data;
+      setMovements([...rows].sort((a, b) => b.created_at.localeCompare(a.created_at)));
+    } catch (err) {
+      toast.error(getApiError(err, "Could not load the stock history"));
+    } finally {
+      setMovementsLoading(false);
+    }
+  }
 
   async function handleItemSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setSaving(true);
     const fd = new FormData(e.currentTarget);
     const payload = {
-      material_type: fd.get("material_type"),
-      category: fd.get("category") || null,
+      material_type: formMaterial || null,
+      category: formCategory || null,
       quantity: Number(fd.get("quantity")),
       min_stock_level: Number(fd.get("min_stock_level")),
       location: fd.get("location"),
+      storage_location: fd.get("storage_location"),
       unit_cost: fd.get("unit_cost") || null,
       notes: fd.get("notes"),
     };
@@ -193,18 +265,61 @@ export default function InventoryPage() {
             <p className="text-muted-foreground">Warehouse stock — receive against work orders, issue to sites</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button onClick={exportExcel} disabled={exporting} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-60">
-            <Download className="h-4 w-4" /> {exporting ? "Exporting…" : "Export Excel"}
-          </button>
-          {canEdit && (
-            <button onClick={() => { setSelected(null); setItemModal("create"); }} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-all">
-              <Plus className="h-4 w-4" /> Add Item
+        {tab === "generic" && (
+          <div className="flex items-center gap-2">
+            <button onClick={exportExcel} disabled={exporting} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-60">
+              <Download className="h-4 w-4" /> {exporting ? "Exporting…" : "Export Excel"}
             </button>
-          )}
-        </div>
+            {canEdit && (
+              <button onClick={() => openItemModal("create", null)} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-all">
+                <Plus className="h-4 w-4" /> Add Item
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
+      <div className="flex gap-1 border-b border-border">
+        {([
+          { key: "generic", label: "Generic Items" },
+          { key: "unique", label: "Unique Items" },
+          { key: "inspection", label: "Pending Inspection" },
+          { key: "requests", label: "Issue Requests" },
+          { key: "issuance", label: "Issuance Log" },
+        ] as const).map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={`-mb-px border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
+              tab === t.key
+                ? "border-primary text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {t.label}
+            {t.key === "inspection" && pendingCount > 0 && (
+              <span className="ml-2 inline-flex min-w-5 items-center justify-center rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 ring-1 ring-amber-500/20">
+                {pendingCount}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {tab === "unique" && <UniqueItems />}
+
+      {tab === "requests" && <IssuanceRequests onIssued={fetchItems} />}
+
+      {tab === "issuance" && <IssuanceLog />}
+
+      {tab === "inspection" && (
+        <PendingInspection
+          onStocked={() => { refreshPendingCount(); fetchItems(); }}
+        />
+      )}
+
+      {tab === "generic" && (
+      <>
       <FilterBar
         filters={[
           { key: "location", label: "Location", options: Object.entries(LOCATION_LABELS).map(([v, l]) => ({ value: v, label: l })) },
@@ -215,7 +330,7 @@ export default function InventoryPage() {
         onChange={(k, v) => setFilterValues((prev) => ({ ...prev, [k]: v }))}
         search={search}
         onSearchChange={setSearch}
-        searchPlaceholder="Search by SKU, material, category..."
+        searchPlaceholder="Search by item code, material, category..."
       />
 
       {loading ? (
@@ -234,7 +349,7 @@ export default function InventoryPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
-                  <th className={thClass}>SKU</th>
+                  <th className={thClass}>Item Code</th>
                   <th className={thClass}>Material</th>
                   <th className={thClass}>Category</th>
                   <th className={thClass}>Location</th>
@@ -246,11 +361,11 @@ export default function InventoryPage() {
               </thead>
               <tbody>
                 {filtered.map((item) => (
-                  <tr key={item.id} onClick={() => { setSelected(item); setItemModal("edit"); }} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
+                  <tr key={item.id} onClick={() => openItemModal("edit", item)} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
                     <td className={`${tdClass} font-mono text-foreground`}>
                       <span className="inline-flex items-center gap-1">
                         {item.sku}
-                        <CopyButton text={item.sku} label="SKU" />
+                        <CopyButton text={item.sku} label="item code" />
                       </span>
                     </td>
                     <td className={`${tdClass} text-muted-foreground`}>{item.material_name || "-"}</td>
@@ -264,22 +379,28 @@ export default function InventoryPage() {
                     <td className={`${tdClass} text-muted-foreground`}>{item.min_stock_level}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{item.unit_cost ? item.unit_cost : "-"}</td>
                     <td className={tdClass} onClick={(e) => e.stopPropagation()}>
-                      {canEdit ? (
-                        <div className="flex items-center gap-1">
-                          <button onClick={() => setStockModal({ type: "receive", item })} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-emerald-500/10 hover:text-emerald-600" title="Receive stock">
-                            <ArrowDownToLine className="h-3.5 w-3.5" />
-                          </button>
-                          <button onClick={() => setStockModal({ type: "issue", item })} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-amber-500/10 hover:text-amber-600" title="Issue stock">
-                            <ArrowUpFromLine className="h-3.5 w-3.5" />
-                          </button>
-                          <button onClick={() => { setSelected(item); setItemModal("edit"); }} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground" title="Edit">
-                            <Pencil className="h-3.5 w-3.5" />
-                          </button>
-                          <button onClick={() => handleDelete(item)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-destructive" title="Delete">
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      ) : <span className="text-xs text-muted-foreground">—</span>}
+                      <div className="flex items-center gap-1">
+                        {/* Where this stock came from — open to everyone who can see the line. */}
+                        <button onClick={() => openDetails(item)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground" title="Details">
+                          <Info className="h-3.5 w-3.5" />
+                        </button>
+                        {canEdit && (
+                          <>
+                            <button onClick={() => setStockModal({ type: "receive", item })} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-emerald-500/10 hover:text-emerald-600" title="Receive stock">
+                              <ArrowDownToLine className="h-3.5 w-3.5" />
+                            </button>
+                            <button onClick={() => setStockModal({ type: "issue", item })} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-amber-500/10 hover:text-amber-600" title="Issue stock">
+                              <ArrowUpFromLine className="h-3.5 w-3.5" />
+                            </button>
+                            <button onClick={() => openItemModal("edit", item)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground" title="Edit">
+                              <Pencil className="h-3.5 w-3.5" />
+                            </button>
+                            <button onClick={() => handleDelete(item)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-destructive" title="Delete">
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -287,6 +408,8 @@ export default function InventoryPage() {
             </table>
           </div>
         </div>
+      )}
+      </>
       )}
 
       {/* Add / edit item */}
@@ -300,25 +423,34 @@ export default function InventoryPage() {
             <form onSubmit={handleItemSubmit} className="space-y-4">
               {itemModal === "edit" && (
                 <div className="space-y-1.5">
-                  <label className={labelClass}>SKU (auto-generated)</label>
+                  <label className={labelClass}>Item Code (auto-generated)</label>
                   <p className="flex h-10 items-center rounded-lg border border-border bg-secondary/40 px-3 font-mono text-sm text-foreground">{selected?.sku}</p>
                 </div>
               )}
               <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <label htmlFor="material_type" className={labelClass}>Material Type</label>
-                  <select id="material_type" name="material_type" required defaultValue={selected?.material_type ?? ""} className={inputClass}>
-                    <option value="">Select…</option>
-                    {materialTypes.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-                  </select>
-                </div>
-                <div className="space-y-1.5">
-                  <label htmlFor="category" className={labelClass}>Category</label>
-                  <select id="category" name="category" defaultValue={selected?.category ?? ""} className={inputClass}>
-                    <option value="">—</option>
-                    {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
-                </div>
+                <SelectOrCreate
+                  id="material_type"
+                  label="Material Type"
+                  required
+                  emptyLabel="Select…"
+                  value={formMaterial}
+                  onChange={setFormMaterial}
+                  options={materialTypes}
+                  onCreated={(created) => setMaterialTypes((prev) => [...prev, created])}
+                  endpoint="/assets/material-types/"
+                  extraCreateFields={{ unit: "piece" }}
+                  createPlaceholder="e.g. HDMI Cable 5m"
+                />
+                <SelectOrCreate
+                  id="category"
+                  label="Category"
+                  value={formCategory}
+                  onChange={setFormCategory}
+                  options={categories}
+                  onCreated={(created) => setCategories((prev) => [...prev, created])}
+                  endpoint="/inventory/categories/"
+                  createPlaceholder="e.g. Consumables"
+                />
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
@@ -342,6 +474,16 @@ export default function InventoryPage() {
                   <label htmlFor="unit_cost" className={labelClass}>Unit Cost</label>
                   <input id="unit_cost" name="unit_cost" type="number" step="0.01" min={0} defaultValue={selected?.unit_cost ?? ""} className={inputClass} placeholder="0.00" />
                 </div>
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="storage_location" className={labelClass}>Placed At</label>
+                <input
+                  id="storage_location"
+                  name="storage_location"
+                  defaultValue={selected?.storage_location ?? ""}
+                  className={inputClass}
+                  placeholder="Where it is put, e.g. Rack A3"
+                />
               </div>
               <div className="space-y-1.5">
                 <label htmlFor="notes" className={labelClass}>Notes</label>
@@ -392,6 +534,80 @@ export default function InventoryPage() {
               <button type="submit" disabled={saving} className="inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-medium text-white transition-all disabled:opacity-50">{saving ? "Saving..." : stockModal.type === "receive" ? "Receive" : "Issue"}</button>
             </div>
           </form>
+        )}
+      </Modal>
+
+      {/* Where the stock came from: every receipt and issue against this line */}
+      <Modal
+        open={detailsFor !== null}
+        onClose={() => setDetailsFor(null)}
+        title={detailsFor ? `${detailsFor.material_name ?? "Item"} — stock history` : "Stock history"}
+      >
+        {detailsFor && (
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              <span className="font-mono text-foreground">{detailsFor.sku}</span> · in stock{" "}
+              <strong className="text-foreground">{detailsFor.quantity}</strong>
+              {detailsFor.category_name ? ` · ${detailsFor.category_name}` : ""}
+            </p>
+            {movementsLoading ? (
+              <div className="flex items-center justify-center py-10">
+                <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+              </div>
+            ) : movements.length === 0 ? (
+              <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+                No movements recorded against this line yet.
+              </p>
+            ) : (
+              <div className="max-h-96 overflow-auto rounded-xl border border-border">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-secondary/80 backdrop-blur">
+                    <tr className="border-b border-border">
+                      <th className="px-3 py-2 text-left font-medium text-muted-foreground">Date</th>
+                      <th className="px-3 py-2 text-left font-medium text-muted-foreground">Movement</th>
+                      <th className="px-3 py-2 text-right font-medium text-muted-foreground">Qty</th>
+                      <th className="px-3 py-2 text-left font-medium text-muted-foreground">Source</th>
+                      <th className="px-3 py-2 text-left font-medium text-muted-foreground">By</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {movements.map((m) => (
+                      <tr key={m.id} className="border-b border-border/60 last:border-0">
+                        <td className="px-3 py-2 text-muted-foreground">
+                          {new Date(m.created_at).toLocaleDateString()}
+                        </td>
+                        <td className="px-3 py-2 text-foreground">
+                          {m.movement_type === "in" ? "Received" : m.movement_type === "out" ? "Issued" : m.movement_type}
+                        </td>
+                        <td className="px-3 py-2 text-right font-medium text-foreground">{m.quantity}</td>
+                        <td className="px-3 py-2">
+                          {m.po_number || m.grn_number ? (
+                            <span>
+                              <span className="font-mono text-foreground">{m.po_number ?? m.grn_number}</span>
+                              {m.supplier_name && (
+                                <span className="block text-[11px] text-muted-foreground">{m.supplier_name}</span>
+                              )}
+                              {m.po_number && m.grn_number && (
+                                <span className="block text-[11px] text-muted-foreground">GRN {m.grn_number}</span>
+                              )}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">
+                              {m.reference || "Entered by hand"}
+                            </span>
+                          )}
+                          {m.batch_number && (
+                            <span className="block text-[11px] text-muted-foreground">Batch {m.batch_number}</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-muted-foreground">{m.performed_by_name ?? "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         )}
       </Modal>
     </div>

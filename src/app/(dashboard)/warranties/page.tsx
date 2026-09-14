@@ -1,12 +1,15 @@
 "use client";
 
-import { Download, Pencil, Plus, RotateCcw, Shield, Ticket, Trash2, X } from "lucide-react";
+import { CalendarPlus, Download, Pencil, Plus, RotateCcw, Shield, Ticket, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
+import { ComponentWarranties } from "@/components/warranties/component-warranties";
+import { WarrantyClaims } from "@/components/warranties/warranty-claims";
 import { CopyButton } from "@/components/ui/copy-button";
+import { Modal } from "@/components/ui/modal";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { SearchSelect } from "@/components/ui/search-select";
 import api from "@/lib/api";
@@ -21,6 +24,7 @@ interface Warranty {
   device_name: string | null;
   component_name: string | null;
   supplier: string | null;
+  component: string | null;
   supplier_name: string | null;
   warranty_type: string;
   warranty_type_display?: string;
@@ -70,10 +74,10 @@ const thClass =
 const tdClass = "px-5 py-3.5";
 
 const STATUS_BADGES: Record<string, string> = {
-  active: "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20",
-  expired: "bg-red-500/10 text-red-400 ring-red-500/20",
-  reissued: "bg-blue-500/10 text-blue-400 ring-blue-500/20",
-  claimed: "bg-amber-500/10 text-amber-400 ring-amber-500/20",
+  active: "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20",
+  expired: "bg-red-500/10 text-red-600 ring-red-500/20",
+  reissued: "bg-blue-500/10 text-blue-600 ring-blue-500/20",
+  claimed: "bg-amber-500/10 text-amber-600 ring-amber-500/20",
   void: "bg-secondary/500/10 text-muted-foreground ring-gray-500/20",
 };
 
@@ -85,25 +89,37 @@ const STATUS_LABELS: Record<string, string> = {
   void: "Void",
 };
 
+// Named for who gives the cover, the same way the asset section names them.
+/** Which list is on screen. "supplier" is the vendor's cover on the asset;
+ *  component cover comes from the inventory line the part came from. */
+type WarrantySide = "client" | "supplier" | "components" | "claims";
+
+const TYPE_LABELS: Record<string, string> = {
+  manufacturer: "Manufacturer",
+  extended: "Extended",
+  supplier: "Vendor",
+  client: "Client",
+};
+
 const TYPE_BADGES: Record<string, string> = {
-  manufacturer: "bg-blue-500/10 text-blue-400 ring-blue-500/20",
-  extended: "bg-purple-500/10 text-purple-400 ring-purple-500/20",
-  supplier: "bg-teal-500/10 text-teal-400 ring-teal-500/20",
-  client: "bg-cyan-500/10 text-cyan-400 ring-cyan-500/20",
+  manufacturer: "bg-blue-500/10 text-blue-600 ring-blue-500/20",
+  extended: "bg-purple-500/10 text-purple-600 ring-purple-500/20",
+  supplier: "bg-teal-500/10 text-teal-600 ring-teal-500/20",
+  client: "bg-cyan-500/10 text-cyan-600 ring-cyan-500/20",
 };
 
 const TICKET_STATUS_BADGES: Record<string, string> = {
-  open: "bg-blue-500/10 text-blue-400 ring-blue-500/20",
-  in_progress: "bg-amber-500/10 text-amber-400 ring-amber-500/20",
-  on_hold: "bg-gray-500/10 text-gray-400 ring-gray-500/20",
-  blocked: "bg-red-500/10 text-red-400 ring-red-500/20",
-  alignment_pending: "bg-cyan-500/10 text-cyan-400 ring-cyan-500/20",
-  pending_ops_approval: "bg-orange-500/10 text-orange-400 ring-orange-500/20",
-  pending_client_approval: "bg-violet-500/10 text-violet-400 ring-violet-500/20",
-  pending_review: "bg-purple-500/10 text-purple-400 ring-purple-500/20",
-  approved: "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20",
-  rejected: "bg-rose-500/10 text-rose-400 ring-rose-500/20",
-  closed: "bg-slate-500/10 text-slate-400 ring-slate-500/20",
+  open: "bg-blue-500/10 text-blue-600 ring-blue-500/20",
+  in_progress: "bg-amber-500/10 text-amber-600 ring-amber-500/20",
+  on_hold: "bg-gray-500/10 text-gray-600 ring-gray-500/20",
+  blocked: "bg-red-500/10 text-red-600 ring-red-500/20",
+  alignment_pending: "bg-cyan-500/10 text-cyan-600 ring-cyan-500/20",
+  pending_ops_approval: "bg-orange-500/10 text-orange-600 ring-orange-500/20",
+  pending_client_approval: "bg-violet-500/10 text-violet-600 ring-violet-500/20",
+  pending_review: "bg-purple-500/10 text-purple-600 ring-purple-500/20",
+  approved: "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20",
+  rejected: "bg-rose-500/10 text-rose-600 ring-rose-500/20",
+  closed: "bg-slate-500/10 text-slate-600 ring-slate-500/20",
 };
 
 function formatLabel(value: string) {
@@ -121,11 +137,11 @@ export default function WarrantiesPage() {
   const supplierSideOnly = SUPPLIER_SIDE_ROLES.includes(role);
   const seesBoth = !clientSideOnly && !supplierSideOnly;
   const router = useRouter();
-  const [warrantySide, setWarrantySide] = useState<"client" | "supplier" | "claims">(clientSideOnly ? "client" : "supplier");
+  const [warrantySide, setWarrantySide] = useState<WarrantySide>(clientSideOnly ? "client" : "supplier");
+  // The warranty being extended, if the Extend dialog is open.
+  const [extendFor, setExtendFor] = useState<Warranty | null>(null);
+  const [extending, setExtending] = useState(false);
   const [createDevice, setCreateDevice] = useState("");
-  const [claims, setClaims] = useState<ClaimTicket[]>([]);
-  const [claimsLoading, setClaimsLoading] = useState(false);
-  const [claimsLoaded, setClaimsLoaded] = useState(false);
   const [warranties, setWarranties] = useState<Warranty[]>([]);
   const [devices, setDevices] = useState<DeviceOption[]>([]);
   const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
@@ -192,31 +208,11 @@ export default function WarrantiesPage() {
     }
   }, []);
 
-  const fetchClaims = useCallback(async () => {
-    setClaimsLoading(true);
-    try {
-      const { data } = await api.get("/tickets/", {
-        params: { category: "warranty_claim", page_size: 500 },
-      });
-      setClaims(data.results ?? data);
-      setClaimsLoaded(true);
-    } catch (err: unknown) {
-      toast.error(getApiError(err, "Failed to load warranty claims"));
-    } finally {
-      setClaimsLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
     fetchWarranties();
     fetchDevices();
     fetchSuppliers();
   }, [fetchWarranties, fetchDevices, fetchSuppliers]);
-
-  // Claims load lazily, the first time the tab is opened.
-  useEffect(() => {
-    if (warrantySide === "claims" && !claimsLoaded && !claimsLoading) fetchClaims();
-  }, [warrantySide, claimsLoaded, claimsLoading, fetchClaims]);
 
   // The user profile loads async; snap client-side roles onto their tab
   // (without yanking them off the Claims tab).
@@ -260,6 +256,33 @@ export default function WarrantiesPage() {
       toast.error(getApiError(err, "Failed to save warranty"));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function submitExtend(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!extendFor) return;
+    const fd = new FormData(e.currentTarget);
+    const endDate = String(fd.get("end_date") || "");
+    const months = String(fd.get("months") || "");
+    if (!endDate && !months) {
+      toast.error("Give the months to add, or the new expiry date.");
+      return;
+    }
+    setExtending(true);
+    try {
+      await api.post(`/warranties/${extendFor.id}/extend/`, {
+        ...(endDate ? { end_date: endDate } : { months: Number(months) }),
+        reference_number: String(fd.get("reference_number") || ""),
+        notes: String(fd.get("notes") || ""),
+      });
+      toast.success("Warranty extended");
+      setExtendFor(null);
+      fetchWarranties();
+    } catch (err) {
+      toast.error(getApiError(err, "Could not extend the warranty"));
+    } finally {
+      setExtending(false);
     }
   }
 
@@ -316,14 +339,9 @@ export default function WarrantiesPage() {
               <Download className="h-4 w-4" /> {exporting ? "Exporting…" : "Export Excel"}
             </button>
           )}
-          {canEdit && (warrantySide === "claims" ? (
-            <Link
-              href="/tickets?create=1&category=warranty_claim"
-              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-all"
-            >
-              <Plus className="h-4 w-4" /> Raise Claim
-            </Link>
-          ) : (
+          {/* Claims are raised from inside the Claims tab, against the cover
+              being claimed. */}
+          {canEdit && warrantySide !== "claims" && (
             <button
               onClick={() => {
                 setSelected(null);
@@ -334,19 +352,21 @@ export default function WarrantiesPage() {
             >
               <Plus className="h-4 w-4" /> Add Warranty
             </button>
-          ))}
+          )}
         </div>
       </div>
 
       {(() => {
-        const tabs: { key: "client" | "supplier" | "claims"; label: string }[] = seesBoth
+        const tabs: { key: WarrantySide; label: string }[] = seesBoth
           ? [
               { key: "client", label: "Client Warranties" },
-              { key: "supplier", label: "Supplier Warranties" },
+              { key: "supplier", label: "Vendor Warranties" },
+              { key: "components", label: "Component Warranties" },
               { key: "claims", label: "Claims" },
             ]
           : [
               { key: clientSideOnly ? "client" : "supplier", label: "Warranties" },
+              { key: "components", label: "Component Warranties" },
               { key: "claims", label: "Claims" },
             ];
         return (
@@ -368,11 +388,14 @@ export default function WarrantiesPage() {
         );
       })()}
 
-      {warrantySide !== "claims" && (
+      {/* Component cover is the unique items' own, listed from inventory. */}
+      {warrantySide === "components" && <ComponentWarranties />}
+
+      {warrantySide !== "claims" && warrantySide !== "components" && (
       <FilterBar
         filters={[
           { key: "status", label: "Status", options: Object.keys(STATUS_BADGES).map((s) => ({ value: s, label: STATUS_LABELS[s] ?? s })) },
-          { key: "type", label: "Type", options: Object.keys(TYPE_BADGES).map((t) => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) })) },
+          { key: "type", label: "Type", options: Object.keys(TYPE_BADGES).map((t) => ({ value: t, label: TYPE_LABELS[t] ?? t })) },
         ]}
         values={filterValues}
         onChange={(k, v) => setFilterValues((prev) => ({ ...prev, [k]: v }))}
@@ -382,70 +405,20 @@ export default function WarrantiesPage() {
       />
       )}
 
-      {/* ── Claims tab: warranty-claim tickets (WF-14) ─────────── */}
-      {warrantySide === "claims" && (
-        claimsLoading ? (
-          <div className="flex items-center justify-center py-20">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
-          </div>
-        ) : claims.length === 0 ? (
-          <div className="rounded-xl border border-border bg-card p-12 text-center">
-            <Ticket className="mx-auto h-12 w-12 text-muted-foreground/30" />
-            <h3 className="mt-4 text-lg font-semibold text-foreground">No warranty claims</h3>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Raise a ticket with category &ldquo;Warranty Claim&rdquo; to track one here.
-            </p>
-          </div>
-        ) : (
-          <div className="overflow-hidden rounded-xl border border-border bg-card">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border bg-secondary/50">
-                    <th className={thClass}>Ticket #</th>
-                    <th className={thClass}>Title</th>
-                    <th className={thClass}>Device</th>
-                    <th className={thClass}>Status</th>
-                    <th className={thClass}>Billing</th>
-                    <th className={thClass}>Created</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {claims.map((t) => (
-                    <tr
-                      key={t.id}
-                      onClick={() => router.push(`/tickets?open=${t.id}`)}
-                      className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30"
-                    >
-                      <td className={`${tdClass} whitespace-nowrap font-medium text-primary`}>
-                        {t.ticket_number || `#${t.id.slice(0, 8)}`}
-                      </td>
-                      <td className={`${tdClass} font-medium text-foreground`}>{t.title}</td>
-                      <td className={`${tdClass} font-mono text-muted-foreground`}>{t.device_code || "—"}</td>
-                      <td className={tdClass}>
-                        <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${TICKET_STATUS_BADGES[t.status] ?? "bg-secondary text-muted-foreground ring-border"}`}>
-                          {formatLabel(t.status)}
-                        </span>
-                      </td>
-                      <td className={tdClass}>
-                        <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${t.is_billable ? "bg-amber-500/10 text-amber-400 ring-amber-500/20" : "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20"}`}>
-                          {t.is_billable ? "Billable" : "Covered"}
-                          {t.charge_to ? ` · ${formatLabel(t.charge_to)}` : ""}
-                        </span>
-                      </td>
-                      <td className={`${tdClass} text-muted-foreground`}>{formatDate(t.created_at)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )
-      )}
+      {/* ── Claims tab: raised against vendor and component cover ─────────── */}
+      {warrantySide === "claims" && <WarrantyClaims />}
 
-      {warrantySide !== "claims" && (() => {
+      {warrantySide !== "claims" && warrantySide !== "components" && (() => {
         const filtered = warranties.filter((w) => {
-          if (seesBoth && (warrantySide === "client" ? w.warranty_type !== "client" : w.warranty_type === "client")) return false;
+          // A part's own cover belongs to the part, not to the asset, so it
+          // never shows up in the client or vendor lists.
+          if (warrantySide === "client") {
+            if (w.warranty_type !== "client" || w.component) return false;
+          } else if (seesBoth) {
+            if (w.warranty_type === "client" || w.component) return false;
+          } else if (w.component) {
+            return false;
+          }
           if (filterValues.status && w.status !== filterValues.status) return false;
           if (filterValues.type && w.warranty_type !== filterValues.type) return false;
           if (search) {
@@ -470,8 +443,8 @@ export default function WarrantiesPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
-                  <th className={thClass}>Device ID</th>
-                  <th className={thClass}>Device Name</th>
+                  <th className={thClass}>Asset ID</th>
+                  <th className={thClass}>Asset Name</th>
                   <th className={thClass}>Type</th>
                   <th className={thClass}>Status</th>
                   <th className={thClass}>Start Date</th>
@@ -504,7 +477,7 @@ export default function WarrantiesPage() {
                       <span
                         className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${TYPE_BADGES[w.warranty_type] ?? "bg-secondary/500/10 text-muted-foreground ring-gray-500/20"}`}
                       >
-                        {w.warranty_type_display ?? w.warranty_type}
+                        {TYPE_LABELS[w.warranty_type] ?? w.warranty_type_display ?? w.warranty_type}
                       </span>
                     </td>
                     <td className={tdClass}>
@@ -529,7 +502,16 @@ export default function WarrantiesPage() {
                     <td className={tdClass} onClick={(e) => e.stopPropagation()}>
                       {canEdit ? (
                         <div className="flex items-center gap-1">
-                          {["expired", "active"].includes(w.status) && (
+                          {w.warranty_type !== "client" && ["expired", "active"].includes(w.status) && (
+                            <button
+                              onClick={() => setExtendFor(w)}
+                              className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-primary"
+                              title="Extend this warranty"
+                            >
+                              <CalendarPlus className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                          {w.warranty_type === "client" && ["expired", "active"].includes(w.status) && (
                             <button
                               onClick={() => handleReissue(w)}
                               className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-primary"
@@ -632,17 +614,35 @@ export default function WarrantiesPage() {
                   <label htmlFor="warranty_type" className={labelClass}>
                     Warranty Type
                   </label>
-                  <select
-                    id="warranty_type"
-                    name="warranty_type"
-                    defaultValue={selected?.warranty_type ?? "manufacturer"}
-                    className={inputClass}
-                  >
-                    <option value="manufacturer">Manufacturer</option>
-                    <option value="extended">Extended</option>
-                    <option value="supplier">Supplier</option>
-                    <option value="client">Client</option>
-                  </select>
+                  {(modalMode === "create" && warrantySide === "supplier") || selected?.warranty_type === "supplier" ? (
+                    <>
+                      {/* The vendor's cover on a finished asset is always a
+                          vendor warranty; longer cover is an extension. */}
+                      <input type="hidden" name="warranty_type" value="supplier" />
+                      <div className={`${inputClass} items-center justify-between bg-secondary/40`}>
+                        <span>Vendor</span>
+                        <span className="text-[10px] text-muted-foreground">Fixed — extend it instead</span>
+                      </div>
+                    </>
+                  ) : (
+                    <select
+                      id="warranty_type"
+                      name="warranty_type"
+                      defaultValue={selected?.warranty_type ?? (warrantySide === "client" ? "client" : "supplier")}
+                      className={inputClass}
+                    >
+                      {/* Manufacturer and extended cover belong to a component;
+                          on the asset itself, outside cover is the vendor's. */}
+                      {selected?.component && (
+                        <>
+                          <option value="manufacturer">Manufacturer</option>
+                          <option value="extended">Extended</option>
+                        </>
+                      )}
+                      <option value="supplier">Vendor</option>
+                      <option value="client">Client</option>
+                    </select>
+                  )}
                 </div>
                 <div className="space-y-1.5">
                   <label htmlFor="status" className={labelClass}>
@@ -756,6 +756,65 @@ export default function WarrantiesPage() {
           </div>
         </div>
       )}
+      {/* Extend — same warranty, later expiry, the change on record. */}
+      <Modal
+        open={!!extendFor}
+        onClose={() => setExtendFor(null)}
+        title={extendFor ? `Extend warranty — ${extendFor.device_code ?? ""}` : "Extend warranty"}
+      >
+        {extendFor && (
+          <form onSubmit={submitExtend} className="space-y-4">
+            <div className="grid grid-cols-2 gap-3 rounded-lg border border-border bg-secondary/30 p-3 text-xs">
+              <div>
+                <p className="text-muted-foreground">Type</p>
+                <p className="font-medium text-foreground">{TYPE_LABELS[extendFor.warranty_type] ?? extendFor.warranty_type}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Current expiry</p>
+                <p className="font-medium text-foreground">{formatDate(extendFor.end_date)}</p>
+              </div>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <label htmlFor="ext-months" className={labelClass}>Extend by (months)</label>
+                <input id="ext-months" name="months" type="number" min={1} placeholder="e.g. 12" className={inputClass} />
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="ext-end" className={labelClass}>…or new expiry date</label>
+                <input id="ext-end" name="end_date" type="date" min={extendFor.end_date} className={inputClass} />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="ext-ref" className={labelClass}>Vendor reference</label>
+              <input id="ext-ref" name="reference_number" placeholder="Extension certificate / email ref" className={inputClass} />
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="ext-notes" className={labelClass}>Notes</label>
+              <textarea id="ext-notes" name="notes" rows={2} placeholder="What the extension covers" className={`${inputClass} h-auto py-2`} />
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              The warranty keeps its start date and its history — each extension is written onto it
+              and journalled on the asset.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setExtendFor(null)}
+                className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={extending}
+                className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
+              >
+                {extending ? "Saving…" : "Extend Warranty"}
+              </button>
+            </div>
+          </form>
+        )}
+      </Modal>
     </div>
   );
 }

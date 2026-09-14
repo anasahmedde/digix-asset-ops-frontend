@@ -1,12 +1,15 @@
 "use client";
 
-import { ArrowLeft, Eye, HardDrive, ImagePlus, Pencil, Plus, Printer, QrCode, Trash2, X, Download, MapPin, Clock, Shield, Wrench, FileText, ChevronRight, Calendar, DollarSign, Package, Zap, Monitor, Sun } from "lucide-react";
+import { ArrowLeft, BookmarkPlus, Check, Eye, HardDrive, ImagePlus, Pencil, Plus, Printer, QrCode, Trash2, Wand2, X, Download, MapPin, Clock, Shield, Wrench, FileText, ChevronRight, Calendar, DollarSign, Package, Zap, Monitor, Sun } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import { SegmentBar, StatTiles } from "@/components/ui/analytics-strip";
+import { ProductionRoute, type ProductionStep } from "@/components/assets/production-route";
+import { Timeline, type TimelineItem, type TimelineTone } from "@/components/ui/timeline";
+import { SelectOrCreate } from "@/components/ui/select-or-create";
 import { CopyButton } from "@/components/ui/copy-button";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { MultiSelect } from "@/components/ui/multi-select";
@@ -16,7 +19,7 @@ import { Tabs } from "@/components/ui/tabs";
 import { Modal } from "@/components/ui/modal";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
-import { formatDate } from "@/lib/utils";
+import { formatDate, formatDateTime } from "@/lib/utils";
 import { useUser } from "@/lib/user-context";
 
 interface Device {
@@ -24,7 +27,17 @@ interface Device {
   asset_code: string;
   serial_number: string;
   device_model: string;
-  device_model_name: string;
+  device_model_name: string | null;
+  source_display: string;
+  requires_production: boolean;
+  requires_oversight: boolean;
+  production_steps: ProductionStep[];
+  route_template_available: boolean;
+  component_template_available: boolean;
+  supply_vendor_name: string;
+  supply_vendor_contact: string;
+  client_warranty: AssetWarranty | null;
+  vendor_warranty: AssetWarranty | null;
   asset_type_name: string | null;
   display_name: string;
   status: string;
@@ -43,24 +56,18 @@ interface Device {
 }
 
 interface DeviceDetail extends Device {
-  mobile_id: string;
-  mac_address: string;
-  imei: string;
   source: string;
   allowed_transitions?: string[];
   clients: string[];
   project_contract_type: "sold" | "rental" | "" | null;
   project_rental_end_date: string | null;
   brand_name: string | null;
-  screen_type: string | null;
-  screen_size: string | null;
   asset_type: string | null;
   length_in: string | null;
   width_in: string | null;
   depth_in: string | null;
   diagonal_inches: string | null;
   specifications: Record<string, unknown>;
-  firmware_version: string;
   hardware_revision: string;
   purchase_date: string | null;
   purchase_price: string | null;
@@ -70,8 +77,16 @@ interface DeviceDetail extends Device {
   batch_number: string;
   assigned_technician: string | null;
   technician_name: string | null;
+  technician_employee_id: string | null;
+  technician_job_title: string | null;
+  technician_phone: string | null;
+  assigned_vendor_name: string;
+  assigned_vendor_contact: string;
+  assigned_to_display: string | null;
   notes: string;
   images: { id: string; image: string; caption: string; is_primary: boolean }[];
+  /** When the asset last entered each status (dates on the lifecycle track). */
+  stage_dates: Record<string, string>;
   lifecycle_events: {
     id: string;
     event_type: string;
@@ -84,9 +99,20 @@ interface DeviceDetail extends Device {
   updated_at: string;
 }
 
+/** An asset's own cover, as opposed to a part's. */
+interface AssetWarranty {
+  id: string;
+  start_date: string;
+  end_date: string;
+  months: number | null;
+  status: string;
+}
+
 interface WarrantyItem {
   id: string;
   warranty_type: string;
+  component: string | null;
+  component_name: string | null;
   status: string;
   start_date: string;
   end_date: string;
@@ -102,6 +128,7 @@ interface MaintenanceItem {
   maintenance_type: string;
   frequency: string;
   next_due: string;
+  status: string;
   is_active: boolean;
   assigned_to_name: string | null;
 }
@@ -126,22 +153,47 @@ interface AssetComponent {
   quantity: number;
   supplier: string | null;
   supplier_name: string | null;
+  inventory_item: string | null;
+  inventory_item_name: string | null;
+  inventory_item_sku: string | null;
+  inventory_unit: string | null;
+  inventory_unit_code: string | null;
+  inventory_unit_type: string | null;
+  inventory_unit_type_name: string | null;
+  available_quantity: number | null;
+  outstanding_quantity: number;
+  issued_quantity: number;
+  fulfilment: string;
+  po_number: string | null;
+  source_label: string | null;
   active_warranty: { warranty_type: string; status: string; start_date: string; end_date: string; months: number | null } | null;
   notes: string;
 }
 
-interface NewComponentRow {
-  name: string;
-  component_type: string;
-  serial_number: string;
+interface StockItemRef {
+  id: string;
+  sku: string;
+  material_name: string | null;
   quantity: number;
-  supplier: string;
-  warranty_type: string;
-  warranty_months: string;
+}
+interface StockProductRef {
+  id: string;
+  type_code: string;
+  name: string;
+  brand_name: string | null;
+  model_name: string;
+  in_stock_count: number;
+}
+
+interface NewComponentRow {
+  source: "generic" | "unique";
+  inventory_item: string;
+  inventory_unit_type: string;
+  quantity: number;
 }
 
 const EMPTY_COMPONENT: NewComponentRow = {
-  name: "", component_type: "", serial_number: "", quantity: 1, supplier: "", warranty_type: "supplier", warranty_months: "",
+  source: "generic", inventory_item: "", inventory_unit_type: "", quantity: 1,
 };
 
 const STATUSES = [
@@ -161,58 +213,183 @@ const STATUSES = [
 
 // The canonical procure→decommission chain, in lifecycle order (the client's
 // requested lifecycle view). lost_stolen / rma sit outside the main flow.
-const LIFECYCLE_CHAIN = [
-  "procured", "in_transit", "in_production", "in_stock", "assigned", "installed",
-  "active", "under_maintenance", "client_property", "decommissioned",
-] as const;
-
+// The build-and-deploy ladder in the order it actually happens. "In transit"
+// is a movement state an asset can drop into later, not a step between being
+// procured and being built, so it is not part of the chain.
 const statusLabel = (s: string) => STATUSES.find((x) => x.value === s)?.label ?? s.replace(/_/g, " ");
 
-const SOURCE_LABELS: Record<string, string> = {
-  inhouse: "In-house Production",
-  third_party: "Third Party",
+// How each requirement is being covered — decided in the Project section.
+const FULFILMENT_LABELS: Record<string, string> = {
+  pending: "Not decided",
+  from_stock: "From inventory",
+  procurement: "To be procured",
+  fulfilled: "Fulfilled",
+};
+const FULFILMENT_BADGES: Record<string, string> = {
+  pending: "bg-secondary text-muted-foreground ring-border",
+  from_stock: "bg-blue-500/10 text-blue-600 ring-blue-500/20",
+  procurement: "bg-amber-500/10 text-amber-600 ring-amber-500/20",
+  fulfilled: "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20",
 };
 
-function LifecycleStepper({ status }: { status: string }) {
-  const idx = LIFECYCLE_CHAIN.indexOf(status as (typeof LIFECYCLE_CHAIN)[number]);
-  const offTrack = idx === -1;
+// The three delivery routes. Kept in sync with Device.Source on the backend;
+// the API also returns `source_display`, which is preferred where available.
+const SOURCE_LABELS: Record<string, string> = {
+  inhouse: "In-house Production",
+  vendor_supplied: "Vendor Supplied · Installed In-house",
+  vendor_turnkey: "Vendor Supplied & Installed",
+};
+
+// The build-and-deploy line, in the order it actually happens.
+const TRACK_MAIN = ["procured", "in_production", "in_stock", "assigned", "installed", "active"] as const;
+// Where an asset's life ends. Drawn as a spur, not more track: it is not the
+// next step for every asset, and nothing comes back from it.
+const TRACK_END = ["client_property", "decommissioned"] as const;
+// States that take an asset off the line for a while.
+const OFF_TRACK = ["in_transit", "rma", "lost_stolen"];
+
+function shortDate(iso: string | undefined) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleDateString(undefined, { day: "numeric", month: "short", ...(sameYear ? {} : { year: "2-digit" }) });
+}
+
+/**
+ * The asset's life drawn like a shipment tracker: a rail of checkpoints, each
+ * dated with when the asset reached it. Maintenance is a detour off Active
+ * (the asset comes back from it), so it branches below that checkpoint rather
+ * than sitting on the line as if it came next.
+ */
+function LifecycleStepper({ status, stageDates }: { status: string; stageDates: Record<string, string> }) {
   const label = (s: string) => STATUSES.find((x) => x.value === s)?.label ?? s;
+  const inMaintenance = status === "under_maintenance";
+  const ended = (TRACK_END as readonly string[]).includes(status);
+  const offTrack = OFF_TRACK.includes(status);
+  const mainIdx = inMaintenance || ended
+    ? TRACK_MAIN.length - 1
+    : (TRACK_MAIN as readonly string[]).indexOf(status);
+
+  const node = (reached: boolean, current: boolean, tone: "primary" | "amber" | "slate" = "primary") =>
+    current
+      ? tone === "amber"
+        ? "border-amber-500 bg-amber-500 text-white"
+        : "border-primary bg-primary text-primary-foreground"
+      : reached
+        ? tone === "slate"
+          ? "border-slate-500 bg-slate-500 text-white"
+          : "border-primary bg-primary/15 text-primary"
+        : "border-border bg-card text-muted-foreground";
+
   return (
-    <div>
-      <div className="flex items-center gap-0 overflow-x-auto pb-1">
-        {LIFECYCLE_CHAIN.map((step, i) => {
-          const done = !offTrack && i < idx;
-          const current = !offTrack && i === idx;
+    <div className="overflow-x-auto pb-1">
+      <ol className="flex min-w-max items-start">
+        {TRACK_MAIN.map((stage, i) => {
+          const reached = mainIdx >= 0 ? i <= mainIdx : !!stageDates[stage];
+          const current = !inMaintenance && !ended && status === stage;
+          const date = shortDate(stageDates[stage]);
+          const isLast = i === TRACK_MAIN.length - 1;
+          const filled = mainIdx >= 0 && i < mainIdx;
           return (
-            <div key={step} className="flex shrink-0 items-center">
-              {i > 0 && <div className={`h-0.5 w-4 sm:w-6 ${done || current ? "bg-primary" : "bg-border"}`} />}
-              <div className="flex flex-col items-center gap-1 px-0.5">
-                <div
-                  className={`flex h-5 w-5 items-center justify-center rounded-full text-[9px] font-bold ${
-                    current
-                      ? "bg-primary text-primary-foreground ring-2 ring-primary/30"
-                      : done
-                        ? "bg-primary/20 text-primary"
-                        : "bg-secondary text-muted-foreground"
-                  }`}
-                >
-                  {done ? "✓" : i + 1}
-                </div>
-                <span className={`whitespace-nowrap text-[9px] ${current ? "font-semibold text-primary" : "text-muted-foreground"}`}>
-                  {label(step)}
+            <li key={stage} className="relative flex w-[92px] flex-col items-center text-center">
+              <span
+                aria-hidden
+                className={`absolute left-1/2 top-[13px] w-full ${
+                  isLast ? "border-t-2 border-dashed border-border" : `h-0.5 ${filled ? "bg-primary" : "bg-border"}`
+                }`}
+              />
+              <span className="relative flex h-7 w-7 items-center justify-center">
+                {current && <span aria-hidden className="absolute inset-0 rounded-full bg-primary/25 motion-safe:animate-ping" />}
+                <span className={`relative flex h-7 w-7 items-center justify-center rounded-full border-2 text-[11px] font-bold ${node(reached, current)}`}>
+                  {reached && !current ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : i + 1}
                 </span>
-              </div>
-            </div>
+              </span>
+              <span className={`mt-1.5 text-[11px] leading-tight ${current ? "font-semibold text-primary" : reached ? "font-medium text-foreground" : "text-muted-foreground"}`}>
+                {label(stage)}
+              </span>
+              <span className="text-[10px] tabular-nums text-muted-foreground" title={stageDates[stage] ? new Date(stageDates[stage]).toLocaleString() : undefined}>
+                {reached && date ? date : " "}
+              </span>
+
+              {/* Maintenance: a detour hanging off Active. */}
+              {stage === "active" && (inMaintenance || stageDates.under_maintenance) && (
+                <span className="mt-1 flex flex-col items-center">
+                  <span aria-hidden className={`h-3 border-l-2 border-dashed ${inMaintenance ? "border-amber-500" : "border-border"}`} />
+                  <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ${
+                    inMaintenance ? "bg-amber-500/10 text-amber-600 ring-amber-500/30" : "bg-secondary text-muted-foreground ring-border"
+                  }`}>
+                    {inMaintenance ? "Under maintenance" : "Last maintenance"}
+                  </span>
+                  <span className="mt-0.5 text-[10px] tabular-nums text-muted-foreground">
+                    {inMaintenance ? `since ${shortDate(stageDates.under_maintenance) ?? "—"}` : shortDate(stageDates.under_maintenance)}
+                  </span>
+                </span>
+              )}
+            </li>
           );
         })}
-      </div>
+
+        {/* End of life: a spur off the line. */}
+        {TRACK_END.map((stage, i) => {
+          const current = status === stage;
+          const reached = current || !!stageDates[stage];
+          return (
+            <li key={stage} className="relative flex w-[92px] flex-col items-center text-center">
+              {i === 0 && <span aria-hidden className="absolute left-1/2 top-[13px] w-full border-t-2 border-dashed border-border" />}
+              <span className={`relative flex h-7 w-7 items-center justify-center rounded-full border-2 border-dashed text-[11px] font-bold ${node(reached, false, "slate")}`}>
+                {reached ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : "•"}
+              </span>
+              <span className={`mt-1.5 text-[11px] leading-tight ${current ? "font-semibold text-foreground" : "text-muted-foreground"}`}>
+                {label(stage)}
+              </span>
+              <span className="text-[10px] tabular-nums text-muted-foreground">
+                {reached ? shortDate(stageDates[stage]) ?? " " : " "}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+
       {offTrack && (
-        <p className="mt-1 text-xs font-medium text-red-500">
-          Out of normal lifecycle: {label(status)}
+        <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-red-500/10 px-2.5 py-1 text-[11px] font-medium text-red-600 ring-1 ring-red-500/20">
+          Off the normal line: {label(status)}
+          {stageDates[status] && <span className="font-normal text-red-500/80">· since {shortDate(stageDates[status])}</span>}
         </p>
       )}
     </div>
   );
+}
+
+/** Lifecycle events as timeline entries, coloured by what happened. */
+function lifecycleItems(
+  events: { id: string; event_type: string; from_value: string; to_value: string; description: string; performed_by_name: string | null; created_at: string }[],
+): TimelineItem[] {
+  const human = (v: string) => v.replace(/_/g, " ");
+  const tone = (evt: { event_type: string; to_value: string }): TimelineTone => {
+    if (evt.event_type === "note" || evt.event_type === "reassignment") return "muted";
+    if (["active", "installed"].includes(evt.to_value)) return "success";
+    if (evt.to_value === "under_maintenance") return "warning";
+    if (["rma", "lost_stolen", "decommissioned"].includes(evt.to_value)) return "danger";
+    return "primary";
+  };
+  return events.map((evt) => ({
+    key: evt.id,
+    title: evt.from_value && evt.to_value ? (
+      <>
+        <span className="capitalize">{human(evt.from_value)}</span>
+        <span className="mx-1 text-muted-foreground">→</span>
+        <span className="font-semibold capitalize">{human(evt.to_value)}</span>
+      </>
+    ) : evt.to_value ? (
+      <>Registered as <span className="font-semibold capitalize">{human(evt.to_value)}</span></>
+    ) : (
+      <span className="capitalize">{human(evt.event_type)}</span>
+    ),
+    description: evt.description && evt.description !== "Registered" ? evt.description : null,
+    actor: evt.performed_by_name,
+    at: evt.created_at,
+    tone: tone(evt),
+  }));
 }
 
 const inputClass =
@@ -220,21 +397,25 @@ const inputClass =
 const labelClass = "text-xs font-medium text-muted-foreground";
 
 const WARRANTY_TYPE_LABELS: Record<string, string> = {
-  manufacturer: "Vendor Warranty",
+  // Named for who gives the cover: the part's maker, the vendor who supplied
+  // the asset to us, or us to the client we installed it for.
+  manufacturer: "Manufacturer Warranty",
   extended: "Extended Warranty",
-  supplier: "Supplier Warranty",
+  supplier: "Vendor Warranty",
+  client: "Client Warranty",
 };
 
 const WARRANTY_COLORS: Record<string, string> = {
   manufacturer: "#3b82f6",
   extended: "#8b5cf6",
   supplier: "#06b6d4",
+  client: "#10b981",
 };
 
 const MAINT_TYPE_BADGE: Record<string, string> = {
-  preventive: "bg-blue-500/10 text-blue-400",
-  corrective: "bg-red-500/10 text-red-400",
-  predictive: "bg-purple-500/10 text-purple-400",
+  preventive: "bg-blue-500/10 text-blue-600",
+  corrective: "bg-red-500/10 text-red-600",
+  predictive: "bg-purple-500/10 text-purple-600",
 };
 
 export default function AssetsPage() {
@@ -249,6 +430,39 @@ export default function AssetsPage() {
   const [returnToDetailId, setReturnToDetailId] = useState<string | null>(null);
   const [additionalClients, setAdditionalClients] = useState<string[]>([]);
   const [newComponents, setNewComponents] = useState<NewComponentRow[]>([]);
+  // Components are drawn from inventory: generic stock (qty) or a unique unit.
+  const [compSource, setCompSource] = useState<"generic" | "unique">("generic");
+  const [compItemId, setCompItemId] = useState("");
+  const [compUnitType, setCompUnitType] = useState("");
+  const [assetSource, setAssetSource] = useState("inhouse");
+  const [componentTemplateBusy, setComponentTemplateBusy] = useState(false);
+  // Components and a production route only belong to an asset we build ourselves.
+  const buildsInHouse = assetSource === "inhouse";
+  const [formAssetType, setFormAssetType] = useState("");
+  const [compQty, setCompQty] = useState(1);
+  const [stockItems, setStockItems] = useState<StockItemRef[]>([]);
+  const [stockProducts, setStockProducts] = useState<StockProductRef[]>([]);
+
+  // A component is a requirement, so availability never limits it — it is
+  // shown purely so the user knows whether it will need procuring later.
+  const selectedProduct = stockProducts.find((p) => p.id === compUnitType);
+  const compAvailable =
+    compSource === "generic"
+      ? stockItems.find((s) => s.id === compItemId)?.quantity ?? 0
+      : selectedProduct?.in_stock_count ?? 0;
+  const compSelected = compSource === "generic" ? compItemId : compUnitType;
+
+  const loadInventorySources = useCallback(async () => {
+    // Components are requirements, so we offer what inventory *knows about* —
+    // every stock item and every opened unique product — not only what is
+    // currently on hand.
+    const [items, products] = await Promise.allSettled([
+      api.get("/inventory/items/", { params: { page_size: 500 } }),
+      api.get("/inventory/products/", { params: { page_size: 500 } }),
+    ]);
+    if (items.status === "fulfilled") setStockItems(items.value.data.results ?? items.value.data);
+    if (products.status === "fulfilled") setStockProducts(products.value.data.results ?? products.value.data);
+  }, []);
   const [detailTab, setDetailTab] = useState("overview");
   const [saving, setSaving] = useState(false);
   const [labelModal, setLabelModal] = useState<{ url: string; format: "qr" | "code128" } | null>(null);
@@ -257,8 +471,26 @@ export default function AssetsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkLabelLoading, setBulkLabelLoading] = useState(false);
   const [transitionTarget, setTransitionTarget] = useState<string | null>(null);
+  // Assigning opens the asset's installation job, and a job happens somewhere.
+  const [assignSite, setAssignSite] = useState("");
+  // What the corrective job needs when an asset is taken out of service.
+  const [maintDue, setMaintDue] = useState("");
+  const [maintTech, setMaintTech] = useState("");
+  const [maintPriority, setMaintPriority] = useState("high");
+  const [maintInstructions, setMaintInstructions] = useState("");
   const [transitionReason, setTransitionReason] = useState("");
+  // Moving an asset to "Assigned" must record who it went to: an internal
+  // technician (from the manpower records) or an external vendor by hand.
+  const [assignTechnician, setAssignTechnician] = useState("");
+  const [assignVendorName, setAssignVendorName] = useState("");
+  const [assignVendorContact, setAssignVendorContact] = useState("");
+  const [supplyVendorName, setSupplyVendorName] = useState("");
+  const [supplyVendorContact, setSupplyVendorContact] = useState("");
   const [transitionLoading, setTransitionLoading] = useState(false);
+  // Photo evidence of the installed asset, attached when moving to Active.
+  const [activePhotos, setActivePhotos] = useState<File[]>([]);
+  const [activePhotoPreviews, setActivePhotoPreviews] = useState<string[]>([]);
+  const activePhotoInputRef = useRef<HTMLInputElement>(null);
 
   const [warranties, setWarranties] = useState<WarrantyItem[]>([]);
   const [maintSchedules, setMaintSchedules] = useState<MaintenanceItem[]>([]);
@@ -302,6 +534,8 @@ export default function AssetsPage() {
 
   useEffect(() => { fetchDevices(); }, [fetchDevices]);
 
+  useEffect(() => { loadInventorySources(); }, [loadInventorySources]);
+
   useEffect(() => {
     if (autoOpenedRef.current || loading) return;
     const statusParam = searchParams.get("status");
@@ -313,6 +547,9 @@ export default function AssetsPage() {
       setDetailView(data);
       setDetailTab("overview");
       fetchRelatedData(data.id);
+      // Deep-linking straight to an asset still needs the technician, site and
+      // client pickers the detail view's own dialogs use.
+      loadOptions();
     }).catch(() => {});
   }, [searchParams, loading]);
 
@@ -345,13 +582,25 @@ export default function AssetsPage() {
     if (cl.status === "fulfilled") setClients((cl.value.data.results ?? cl.value.data).map((c: { id: string; name: string }) => ({ id: c.id, label: c.name })));
     if (su.status === "fulfilled") setSuppliers((su.value.data.results ?? su.value.data).map((s: { id: string; name: string }) => ({ id: s.id, label: s.name })));
     if (proj.status === "fulfilled") setProjects((proj.value.data.results ?? proj.value.data).map((x: { id: string; name: string }) => ({ id: x.id, label: x.name })));
-    if (tech.status === "fulfilled") setTechnicians((tech.value.data.results ?? tech.value.data).map((u: { id: string; first_name: string; last_name: string; username: string }) => ({
-      id: u.id,
-      label: u.first_name || u.last_name ? `${u.first_name} ${u.last_name}`.trim() : u.username,
-    })));
+    if (tech.status === "fulfilled") setTechnicians((tech.value.data.results ?? tech.value.data).map((u: {
+      id: string; first_name: string; last_name: string; username: string;
+      employee_id?: string | null; job_title?: string | null;
+    }) => {
+      // Identity comes from the manpower record so two same-named techs differ.
+      const name = u.first_name || u.last_name ? `${u.first_name} ${u.last_name}`.trim() : u.username;
+      const detail = [u.employee_id, u.job_title].filter(Boolean).join(" · ");
+      return { id: u.id, label: detail ? `${name} · ${detail}` : name };
+    }));
   }
 
   function openCreate() {
+    setAssetSource("inhouse");
+    setFormAssetType("");
+    setAssignTechnician("");
+    setAssignVendorName("");
+    setAssignVendorContact("");
+    setSupplyVendorName("");
+    setSupplyVendorContact("");
     setSelected(null);
     setImageFiles([]);
     setImagePreviews([]);
@@ -368,6 +617,14 @@ export default function AssetsPage() {
       setImageFiles([]);
       setImagePreviews([]);
       setAdditionalClients(data.clients ?? []);
+      // Seed the assignment controls from whichever assignee the asset has.
+      setAssetSource(data.source ?? "inhouse");
+      setFormAssetType(data.asset_type ?? "");
+      setAssignTechnician(data.assigned_technician ?? "");
+      setAssignVendorName(data.assigned_vendor_name ?? "");
+      setAssignVendorContact(data.assigned_vendor_contact ?? "");
+      setSupplyVendorName(data.supply_vendor_name ?? "");
+      setSupplyVendorContact(data.supply_vendor_contact ?? "");
       setModalMode("edit");
       loadOptions();
       // The edit modal only exists in the list render; leaving the detail
@@ -391,32 +648,54 @@ export default function AssetsPage() {
 
   async function handleAddComponent(e: React.FormEvent<HTMLFormElement>, deviceId: string) {
     e.preventDefault();
-    const fd = new FormData(e.currentTarget);
+    // Name, type, serial, supplier and warranty are all imported from the
+    // inventory record by the backend — nothing to retype here.
+    if (!compSelected || compQty < 1) return;
     try {
-      const months = fd.get("comp_warranty_months");
       await api.post("/assets/components/", {
         device: deviceId,
-        name: fd.get("comp_name"),
-        component_type: fd.get("comp_type") || "",
-        serial_number: fd.get("comp_serial") || "",
-        quantity: Number(fd.get("comp_qty") || 1),
-        supplier: fd.get("comp_supplier") || null,
-        warranty_type: months ? fd.get("comp_warranty_type") || "supplier" : null,
-        warranty_months: months ? Number(months) : null,
+        ...(compSource === "generic"
+          ? { inventory_item: compItemId }
+          : { inventory_unit_type: compUnitType }),
+        quantity: compQty,
       });
-      (e.target as HTMLFormElement).reset();
-      toast.success("Component added");
+      toast.success("Requirement added");
+      setCompItemId("");
+      setCompUnitType("");
+      setCompQty(1);
       refreshDetail(deviceId);
+      loadInventorySources();
     } catch (err: unknown) {
       toast.error(getApiError(err, "Failed to add component"));
+      refreshDetail(deviceId);
+      loadInventorySources();
+    }
+  }
+
+  async function handleComponentTemplate(deviceId: string, action: "apply" | "save") {
+    setComponentTemplateBusy(true);
+    try {
+      const { data } = await api.post(`/assets/devices/${deviceId}/${action}-component-template/`, {});
+      toast.success(
+        action === "apply"
+          ? `${data.applied} component(s) loaded from the saved set`
+          : data.detail ?? "Saved as the standard components",
+      );
+      refreshDetail(deviceId);
+      loadInventorySources();
+    } catch (err) {
+      toast.error(getApiError(err, "That did not work"));
+    } finally {
+      setComponentTemplateBusy(false);
     }
   }
 
   async function handleDeleteComponent(compId: string, deviceId: string) {
     try {
       await api.delete(`/assets/components/${compId}/`);
-      toast.success("Component removed");
+      toast.success("Component removed — stock returned");
       refreshDetail(deviceId);
+      loadInventorySources();
     } catch (err: unknown) {
       toast.error(getApiError(err, "Failed to remove component"));
     }
@@ -436,17 +715,96 @@ export default function AssetsPage() {
     }
   }
 
+  function clearActivePhotos() {
+    activePhotoPreviews.forEach((url) => URL.revokeObjectURL(url));
+    setActivePhotos([]);
+    setActivePhotoPreviews([]);
+    if (activePhotoInputRef.current) activePhotoInputRef.current.value = "";
+  }
+
+  function handleActivePhotoSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    setActivePhotos((prev) => [...prev, ...files]);
+    setActivePhotoPreviews((prev) => [...prev, ...files.map((f) => URL.createObjectURL(f))]);
+  }
+
+  function removeActivePhoto(idx: number) {
+    setActivePhotos((prev) => prev.filter((_, i) => i !== idx));
+    setActivePhotoPreviews((prev) => {
+      URL.revokeObjectURL(prev[idx]);
+      return prev.filter((_, i) => i !== idx);
+    });
+  }
+
+  function resetTransition() {
+    setTransitionTarget(null);
+    setTransitionReason("");
+    clearActivePhotos();
+    setAssignTechnician("");
+    setAssignVendorName("");
+    setAssignVendorContact("");
+    setSupplyVendorName("");
+    setSupplyVendorContact("");
+    setAssignSite("");
+    setMaintDue("");
+    setMaintTech("");
+    setMaintPriority("high");
+    setMaintInstructions("");
+  }
+
   async function handleStatusTransition(deviceId: string) {
     if (!transitionTarget || !transitionReason.trim()) return;
+    const assigning = transitionTarget === "assigned";
+    const turnkey = detailView?.source === "vendor_turnkey";
+    if (assigning && !assignTechnician) return;
+    if (assigning && turnkey && !assignVendorName.trim()) return;
+    if (assigning && !assignSite && !detailView?.current_site) return;
+    const goingDown = transitionTarget === "under_maintenance";
+    if (goingDown && (!maintDue || !maintTech)) return;
     setTransitionLoading(true);
     try {
+      // Photos go up first: if the upload fails the asset must not already be
+      // marked Active without its installation evidence.
+      if (activePhotos.length > 0) {
+        const existing = detailView?.images?.length ?? 0;
+        for (let i = 0; i < activePhotos.length; i++) {
+          const form = new FormData();
+          form.append("device", deviceId);
+          form.append("image", activePhotos[i]);
+          form.append("caption", `Installed asset — ${statusLabel(transitionTarget)}`);
+          form.append("is_primary", i === 0 && existing === 0 ? "true" : "false");
+          await api.post("/assets/device-images/", form, {
+            headers: { "Content-Type": "multipart/form-data" },
+          });
+        }
+      }
+
       await api.post(`/assets/devices/${deviceId}/transition/`, {
         status: transitionTarget,
         reason: transitionReason.trim(),
+        ...(assigning
+          ? {
+              assigned_technician: assignTechnician,
+              ...(assignSite ? { current_site: assignSite } : {}),
+              ...(turnkey
+                ? {
+                    assigned_vendor_name: assignVendorName.trim(),
+                    assigned_vendor_contact: assignVendorContact.trim(),
+                  }
+                : {}),
+            }
+          : {}),
+        ...(goingDown
+          ? {
+              maintenance_due: maintDue,
+              maintenance_assigned_to: maintTech,
+              maintenance_priority: maintPriority,
+              maintenance_instructions: maintInstructions.trim(),
+            }
+          : {}),
       });
       toast.success(`Status changed to ${statusLabel(transitionTarget)}`);
-      setTransitionTarget(null);
-      setTransitionReason("");
+      resetTransition();
       refreshDetail(deviceId);
       fetchDevices();
     } catch (err: unknown) {
@@ -549,31 +907,37 @@ export default function AssetsPage() {
     setSaving(true);
     const fd = new FormData(e.currentTarget);
     const payload: Record<string, unknown> = {
-      serial_number: fd.get("serial_number"),
-      source: fd.get("source"),
+      // No serial here: the platform generates the asset code (and its
+      // QR/barcode label), and the serial defaults to it.
+      source: assetSource,
       batch_number: fd.get("batch_number") || "",
-      device_model: fd.get("device_model") || undefined,
-      asset_type: fd.get("asset_type") || null,
+      asset_type: formAssetType || null,
       display_name: fd.get("display_name") || "",
       length_in: fd.get("length_in") || null,
       width_in: fd.get("width_in") || null,
       depth_in: fd.get("depth_in") || null,
       diagonal_inches: fd.get("diagonal_inches") || null,
-      mobile_id: fd.get("mobile_id"),
-      mac_address: fd.get("mac_address"),
-      imei: fd.get("imei"),
-      firmware_version: fd.get("firmware_version"),
       notes: fd.get("notes"),
       current_site: fd.get("current_site") || null,
       assigned_client: fd.get("assigned_client") || null,
       clients: fd.getAll("clients"),
       project: fd.get("project") || null,
-      assigned_technician: fd.get("assigned_technician") || null,
+      // The route decides who can be assigned: only a turnkey job carries a
+      // vendor, and it carries an overseeing technician alongside it.
+      assigned_technician: assignTechnician || null,
+      // Only a turnkey job has an installing vendor; both vendor routes have a
+      // supplying one, and an in-house build has neither.
+      assigned_vendor_name: assetSource === "vendor_turnkey" ? assignVendorName.trim() : "",
+      assigned_vendor_contact: assetSource === "vendor_turnkey" ? assignVendorContact.trim() : "",
+      supply_vendor_name: buildsInHouse ? "" : supplyVendorName.trim(),
+      supply_vendor_contact: buildsInHouse ? "" : supplyVendorContact.trim(),
       supplier: fd.get("supplier") || null,
       purchase_date: fd.get("purchase_date") || null,
       purchase_price: fd.get("purchase_price") || null,
       installation_date: fd.get("installation_date") || null,
-      client_warranty_months: fd.get("client_warranty_months") || null,
+      client_warranty_end: fd.get("client_warranty_end") || null,
+      // Only a vendor route has one; the API ignores it on an in-house build.
+      vendor_warranty_end: buildsInHouse ? null : fd.get("vendor_warranty_end") || null,
     };
     // Status is read-only on update — existing assets change status only via
     // the guarded /transition/ action in the detail view.
@@ -592,20 +956,20 @@ export default function AssetsPage() {
         return;
       }
 
-      if (modalMode === "create" && newComponents.length > 0) {
+      // Rows may linger if the route was switched after they were added.
+      if (modalMode === "create" && buildsInHouse && newComponents.length > 0) {
         for (const row of newComponents) {
-          if (!row.name.trim()) continue;
+          const isUnique = row.source === "unique";
+          // Skip rows where no inventory item was picked.
+          if (!(isUnique ? row.inventory_unit_type : row.inventory_item)) continue;
           await api.post("/assets/components/", {
             device: deviceId,
-            name: row.name,
-            component_type: row.component_type,
-            serial_number: row.serial_number,
+            inventory_item: isUnique ? null : row.inventory_item,
+            inventory_unit_type: isUnique ? row.inventory_unit_type : null,
             quantity: row.quantity || 1,
-            supplier: row.supplier || null,
-            warranty_type: row.warranty_months ? row.warranty_type : null,
-            warranty_months: row.warranty_months ? Number(row.warranty_months) : null,
           });
         }
+        loadInventorySources();
       }
 
       if (imageFiles.length > 0) {
@@ -698,7 +1062,7 @@ export default function AssetsPage() {
     if (filterValues.flag === "warranty_expired" && d.warranty_status !== "expired") return false;
     if (search) {
       const q = search.toLowerCase();
-      if (!d.asset_code.toLowerCase().includes(q) && !d.serial_number.toLowerCase().includes(q) && !(d.display_name || "").toLowerCase().includes(q) && !(d.device_model_name || "").toLowerCase().includes(q) && !(d.site_name || "").toLowerCase().includes(q)) return false;
+      if (!d.asset_code.toLowerCase().includes(q) && !d.serial_number.toLowerCase().includes(q) && !(d.display_name || "").toLowerCase().includes(q) && !(d.site_name || "").toLowerCase().includes(q)) return false;
     }
     return true;
   });
@@ -706,15 +1070,22 @@ export default function AssetsPage() {
   /* ─── DETAIL VIEW ─── */
   if (detailView) {
     const d = detailView;
-    const specs = d.specifications ?? {};
     const allImages = [
       ...(d.image ? [{ id: "primary", image: d.image, caption: "Primary", is_primary: true }] : []),
       ...(d.images ?? []),
     ];
     const primaryImg = allImages[0]?.image ?? null;
 
-    const vendorWarranty = warranties.find((w) => w.warranty_type === "manufacturer");
-    const customerWarranty = warranties.find((w) => w.warranty_type === "extended" || w.warranty_type === "supplier");
+    // The asset's own two covers. Component-scoped rows are excluded: a
+    // part's manufacturer warranty is not what the vendor gave us, and
+    // neither is what we gave the client.
+    const assetWarranties = warranties.filter((w) => !w.component);
+    const vendorWarranty = assetWarranties.find(
+      (w) => w.warranty_type === "supplier" || w.warranty_type === "manufacturer",
+    );
+    const customerWarranty = assetWarranties.find(
+      (w) => w.warranty_type === "client" || w.warranty_type === "extended",
+    );
 
     return (
       <div className="space-y-6">
@@ -770,7 +1141,7 @@ export default function AssetsPage() {
                   <div className="flex items-start gap-3 mb-4">
                     <StatusBadge status={d.status} />
                     <div>
-                      <h1 className="text-xl font-bold text-foreground leading-tight">{d.device_model_name || "LED Screen"}</h1>
+                      <h1 className="text-xl font-bold text-foreground leading-tight">{d.display_name || d.asset_type_name || d.asset_code}</h1>
                       {d.brand_name && <p className="text-sm text-muted-foreground">{d.brand_name}</p>}
                     </div>
                     {/* PR-01 polish: project contract chip (rental vs sold outright) */}
@@ -778,7 +1149,7 @@ export default function AssetsPage() {
                       <span
                         className={`ml-auto inline-flex shrink-0 items-center rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${
                           d.project_contract_type === "rental"
-                            ? "bg-amber-500/10 text-amber-500 ring-amber-500/20"
+                            ? "bg-amber-500/10 text-amber-600 ring-amber-500/20"
                             : "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20"
                         }`}
                         title={d.project_name ? `Project: ${d.project_name}` : undefined}
@@ -796,23 +1167,13 @@ export default function AssetsPage() {
                       <MetaField label="Asset ID" value={d.asset_code} mono />
                       <CopyButton text={d.asset_code} label="asset code" className="mb-0.5" />
                     </div>
-                    <div className="flex items-end gap-1">
-                      <MetaField label="Serial Number" value={d.serial_number} />
-                      <CopyButton text={d.serial_number} label="serial number" className="mb-0.5" />
-                    </div>
-                    <MetaField label="Asset Type" value={d.asset_type_name || d.screen_type || (specs.asset_type as string)} />
-                    <MetaField label="Model / Series" value={d.device_model_name} />
-                    <MetaField label="Manufacturer" value={d.brand_name} />
+                    <MetaField label="Asset Type" value={d.asset_type_name} />
+                    <MetaField label="Project" value={d.project_name} highlight />
+                    <MetaField label="Delivery Route" value={d.source_display} />
                     <MetaField label="Installation Date" value={d.installation_date ? formatDate(d.installation_date) : null} />
                     <MetaField label="Location" value={d.site_name} highlight />
                     <MetaField label="Status" value={d.status?.replace(/_/g, " ")} capitalize />
-                    <MetaField label="Screen Size" value={d.screen_size || (specs.screen_size as string)} />
                     <MetaField label="Dimensions" value={d.length_in && d.width_in ? `${d.length_in} × ${d.width_in}${d.depth_in ? ` × ${d.depth_in}` : ""} in` : d.diagonal_inches ? `${d.diagonal_inches}"` : null} />
-                    <MetaField label="Resolution" value={specs.resolution as string} />
-                    <MetaField label="Pixel Pitch" value={specs.pixel_pitch as string} />
-                    <MetaField label="Brightness" value={specs.brightness as string} />
-                    <MetaField label="IP Rating" value={specs.ip_rating as string} />
-                    <MetaField label="Dimensions" value={specs.dimensions as string} />
                   </div>
                 </div>
               </div>
@@ -823,11 +1184,10 @@ export default function AssetsPage() {
           <div className="rounded-xl border border-border bg-card p-5">
             <h3 className="text-sm font-semibold text-foreground mb-4">Quick Overview</h3>
             <div className="space-y-3">
-              <OverviewRow icon={<Package className="h-4 w-4 text-blue-400" />} label="Total Modules" value={specs.total_modules as string} />
-              <OverviewRow icon={<HardDrive className="h-4 w-4 text-cyan-400" />} label="Total Cabinets" value={specs.total_cabinets as string} />
-              <OverviewRow icon={<Zap className="h-4 w-4 text-amber-400" />} label="Power Consumption" value={specs.power_consumption as string} />
-              <OverviewRow icon={<Clock className="h-4 w-4 text-green-400" />} label="Daily Runtime" value={specs.daily_runtime as string} />
-              <OverviewRow icon={<Sun className="h-4 w-4 text-orange-400" />} label="Brightness" value={specs.brightness as string} />
+              <OverviewRow icon={<Package className="h-4 w-4 text-blue-400" />} label="Components" value={String((d.components ?? []).length)} />
+              <OverviewRow icon={<HardDrive className="h-4 w-4 text-cyan-400" />} label="Delivery Route" value={d.source_display} />
+              <OverviewRow icon={<Zap className="h-4 w-4 text-amber-400" />} label="Production Steps" value={d.requires_production ? String((d.production_steps ?? []).length) : "—"} />
+              <OverviewRow icon={<Clock className="h-4 w-4 text-green-400" />} label="Batch" value={d.batch_number || "—"} />
               <OverviewRow icon={<Wrench className="h-4 w-4 text-purple-400" />} label="Last Maintenance" value={maintSchedules.length > 0 ? formatDate(maintSchedules[0].next_due) : "—"} />
             </div>
             {d.current_site && (
@@ -863,10 +1223,22 @@ export default function AssetsPage() {
                   <div className="space-y-6">
                     <div>
                       <h4 className="text-sm font-semibold text-foreground mb-3">Asset Lifecycle</h4>
-                      <LifecycleStepper status={d.status} />
+                      <LifecycleStepper status={d.status} stageDates={d.stage_dates ?? {}} />
                       {canEdit && (
                         <div className="mt-4 rounded-lg border border-border bg-secondary/20 p-3">
                           <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Change Status</p>
+                          {/* Installed and Active are recorded on site, in the
+                              tracker, with the technician's photo — not typed
+                              in here — so say where they come from. */}
+                          {["assigned", "installed"].includes(d.status) && (
+                            <p className="mb-2 text-[11px] text-muted-foreground">
+                              {d.status === "assigned" ? "Installed" : "Active"} is recorded by the technician in the{" "}
+                              <Link href={`/installation-tracker?device=${d.id}`} className="font-medium text-primary hover:underline">
+                                Installation Tracker
+                              </Link>
+                              {d.status === "installed" ? ", with a photo of the installed asset." : ", not here."}
+                            </p>
+                          )}
                           {(d.allowed_transitions ?? []).length > 0 ? (
                             <>
                               <div className="flex flex-wrap gap-2">
@@ -874,7 +1246,7 @@ export default function AssetsPage() {
                                   <button
                                     key={s}
                                     type="button"
-                                    onClick={() => { setTransitionTarget(transitionTarget === s ? null : s); setTransitionReason(""); }}
+                                    onClick={() => { const next = transitionTarget === s ? null : s; resetTransition(); setTransitionTarget(next); if (next === "under_maintenance") setMaintTech(d.assigned_technician ?? ""); }}
                                     className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold ring-1 transition-colors ${transitionTarget === s ? "bg-primary/10 text-primary ring-primary/30" : "text-muted-foreground ring-border hover:bg-secondary"}`}
                                   >
                                     <ChevronRight className="h-3 w-3" /> {statusLabel(s)}
@@ -886,17 +1258,206 @@ export default function AssetsPage() {
                                   <p className="text-xs font-medium text-foreground">
                                     Move from “{statusLabel(d.status)}” to “{statusLabel(transitionTarget)}”
                                   </p>
+                                  {/* Assigning must say who it went to. */}
+                                  {transitionTarget === "assigned" && (
+                                    <div className="space-y-2 rounded-lg border border-border bg-secondary/20 p-3">
+                                      <p className="text-xs font-medium text-foreground">
+                                        {d.source === "vendor_turnkey"
+                                          ? "Installing vendor & oversight"
+                                          : "Assign to technician"}
+                                      </p>
+                                      {/* Same rule as registration: only a
+                                          turnkey job has an outside crew doing
+                                          the installing. Who *supplied* the
+                                          asset is recorded in Edit Asset. */}
+                                      {d.source === "vendor_turnkey" && (
+                                        <div className="grid gap-2 sm:grid-cols-2">
+                                          <input
+                                            value={assignVendorName}
+                                            onChange={(e) => setAssignVendorName(e.target.value)}
+                                            placeholder="Vendor installing it"
+                                            className={`${inputClass} h-9 text-xs`}
+                                          />
+                                          <input
+                                            value={assignVendorContact}
+                                            onChange={(e) => setAssignVendorContact(e.target.value)}
+                                            placeholder="Contact / phone"
+                                            className={`${inputClass} h-9 text-xs`}
+                                          />
+                                        </div>
+                                      )}
+                                      <select
+                                        value={assignTechnician}
+                                        onChange={(e) => setAssignTechnician(e.target.value)}
+                                        className={`${inputClass} h-9 text-xs`}
+                                      >
+                                        <option value="">
+                                          {d.source === "vendor_turnkey"
+                                            ? "Technician overseeing…"
+                                            : "Select technician…"}
+                                        </option>
+                                        {technicians.map((t) => (
+                                          <option key={t.id} value={t.id}>{t.label}</option>
+                                        ))}
+                                      </select>
+                                      <p className="text-[10px] text-muted-foreground">
+                                        {d.source === "vendor_turnkey"
+                                          ? "The vendor supplies and installs it; our technician oversees."
+                                          : d.source === "vendor_supplied"
+                                            ? "The vendor supplies the asset; our own technician installs it."
+                                            : "Details come from the manpower records."}
+                                      </p>
+
+                                      {/* Assigning opens the job on the
+                                          Installation Tracker, which needs to
+                                          know where the work happens. */}
+                                      <select
+                                        value={assignSite || d.current_site || ""}
+                                        onChange={(e) => setAssignSite(e.target.value)}
+                                        className={`${inputClass} h-9 text-xs`}
+                                      >
+                                        <option value="">Select site…</option>
+                                        {sites.map((site) => (
+                                          <option key={site.id} value={site.id}>{site.label}</option>
+                                        ))}
+                                      </select>
+                                      <p className="text-[10px] text-muted-foreground">
+                                        This opens the asset's job on the Installation Tracker.
+                                      </p>
+                                    </div>
+                                  )}
+
+                                  {/* The registry and the maintenance register
+                                      are two views of the same event, so say
+                                      what this change does to the other one. */}
+                                  {d.status === "under_maintenance" && (
+                                    <p className="rounded-lg border border-dashed border-border px-3 py-2 text-[11px] text-muted-foreground">
+                                      The open maintenance job is closed off with a completion record
+                                      against your notes.
+                                    </p>
+                                  )}
+
                                   <textarea
                                     value={transitionReason}
                                     onChange={(e) => setTransitionReason(e.target.value)}
-                                    placeholder="Reason for status change (required)"
+                                    placeholder={transitionTarget === "under_maintenance"
+                                      ? "What is wrong with it? (required — becomes the job title)"
+                                      : d.status === "under_maintenance"
+                                        ? "What was done (required — filed as the completion record)"
+                                        : "Reason for status change (required)"}
                                     rows={2}
                                     className={`${inputClass} h-auto py-2 text-xs`}
                                   />
+
+                                  {transitionTarget === "under_maintenance" && (
+                                    <div className="space-y-2.5 rounded-lg border border-border bg-secondary/20 p-3">
+                                      <div>
+                                        <p className="text-xs font-medium text-foreground">Corrective maintenance job</p>
+                                        <p className="text-[10px] text-muted-foreground">
+                                          Raised in Maintenance the moment the asset goes down. When the technician
+                                          completes it there, the asset returns to Active on its own.
+                                        </p>
+                                      </div>
+                                      <div className="grid gap-2 sm:grid-cols-3">
+                                        <div className="space-y-1">
+                                          <label className="text-[10px] font-medium text-muted-foreground">Technician *</label>
+                                          <select
+                                            value={maintTech}
+                                            onChange={(e) => setMaintTech(e.target.value)}
+                                            className={`${inputClass} h-9 text-xs`}
+                                          >
+                                            <option value="">Select…</option>
+                                            {technicians.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+                                          </select>
+                                        </div>
+                                        <div className="space-y-1">
+                                          <label className="text-[10px] font-medium text-muted-foreground">Repair due by *</label>
+                                          <input
+                                            type="date"
+                                            value={maintDue}
+                                            min={new Date().toISOString().slice(0, 10)}
+                                            onChange={(e) => setMaintDue(e.target.value)}
+                                            className={`${inputClass} h-9 text-xs`}
+                                          />
+                                        </div>
+                                        <div className="space-y-1">
+                                          <label className="text-[10px] font-medium text-muted-foreground">Priority</label>
+                                          <select
+                                            value={maintPriority}
+                                            onChange={(e) => setMaintPriority(e.target.value)}
+                                            className={`${inputClass} h-9 text-xs`}
+                                          >
+                                            <option value="high">High</option>
+                                            <option value="medium">Medium</option>
+                                            <option value="low">Low</option>
+                                          </select>
+                                        </div>
+                                      </div>
+                                      <textarea
+                                        value={maintInstructions}
+                                        onChange={(e) => setMaintInstructions(e.target.value)}
+                                        placeholder="Instructions for the technician (optional) — parts to take, access notes…"
+                                        rows={2}
+                                        className={`${inputClass} h-auto py-2 text-xs`}
+                                      />
+                                    </div>
+                                  )}
+
+                                  {/* Installation photos belong to the tracker
+                                      now; what is left here is proof the asset
+                                      is fixed and running again. */}
+                                  {transitionTarget === "active" && (
+                                    <div className="space-y-2 rounded-lg border border-border bg-secondary/20 p-3">
+                                      <p className="text-xs font-medium text-foreground">
+                                        Photo of the repaired asset
+                                      </p>
+                                      <div className="flex flex-wrap gap-2">
+                                        {activePhotoPreviews.map((src, i) => (
+                                          <div key={src} className="group relative">
+                                            <img
+                                              src={src}
+                                              alt={`Repair photo ${i + 1}`}
+                                              className="h-20 w-20 rounded-lg border border-border object-cover"
+                                            />
+                                            <button
+                                              type="button"
+                                              onClick={() => removeActivePhoto(i)}
+                                              className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-white opacity-0 transition-opacity group-hover:opacity-100"
+                                              title="Remove"
+                                            >
+                                              <X className="h-3 w-3" />
+                                            </button>
+                                          </div>
+                                        ))}
+                                        <button
+                                          type="button"
+                                          onClick={() => activePhotoInputRef.current?.click()}
+                                          className="flex h-20 w-20 flex-col items-center justify-center rounded-lg border-2 border-dashed border-border text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+                                        >
+                                          <ImagePlus className="h-5 w-5" />
+                                          <span className="mt-1 text-[9px]">Add Photo</span>
+                                        </button>
+                                        <input
+                                          ref={activePhotoInputRef}
+                                          type="file"
+                                          accept="image/*"
+                                          multiple
+                                          capture="environment"
+                                          className="hidden"
+                                          onChange={handleActivePhotoSelect}
+                                        />
+                                      </div>
+                                      <p className="text-[10px] text-muted-foreground">
+                                        {activePhotos.length > 0
+                                          ? `${activePhotos.length} photo${activePhotos.length === 1 ? "" : "s"} will be attached to this asset.`
+                                          : "Attach a photo of the asset back in service (optional)."}
+                                      </p>
+                                    </div>
+                                  )}
                                   <div className="flex gap-2">
                                     <button
                                       type="button"
-                                      onClick={() => { setTransitionTarget(null); setTransitionReason(""); }}
+                                      onClick={resetTransition}
                                       className="h-8 flex-1 rounded-lg border border-border text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary"
                                     >
                                       Cancel
@@ -904,7 +1465,15 @@ export default function AssetsPage() {
                                     <button
                                       type="button"
                                       onClick={() => handleStatusTransition(d.id)}
-                                      disabled={transitionLoading || !transitionReason.trim()}
+                                      disabled={
+                                        transitionLoading || !transitionReason.trim() ||
+                                        (transitionTarget === "under_maintenance" && (!maintDue || !maintTech)) ||
+                                        (transitionTarget === "assigned" && (
+                                          !assignTechnician ||
+                                          !(assignSite || d.current_site) ||
+                                          (d.source === "vendor_turnkey" && !assignVendorName.trim())
+                                        ))
+                                      }
                                       className="h-8 flex-1 rounded-lg bg-primary text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
                                     >
                                       {transitionLoading ? "..." : "Confirm"}
@@ -919,13 +1488,33 @@ export default function AssetsPage() {
                         </div>
                       )}
                     </div>
-                    <div>
-                      <div className="mb-3 flex items-center justify-between">
+                    {/* Only an in-house build has a bill of materials of ours;
+                        for vendor routes the section stays visible but inert. */}
+                    <div className={d.requires_production ? undefined : "opacity-60"}>
+                      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                         <h4 className="text-sm font-semibold text-foreground">Components</h4>
-                        {d.project_name && (
-                          <span className="text-xs text-muted-foreground">Project: <span className="font-medium text-foreground">{d.project_name}</span></span>
-                        )}
+                        <div className="flex items-center gap-3">
+                          {d.project_name && (
+                            <span className="text-xs text-muted-foreground">Project: <span className="font-medium text-foreground">{d.project_name}</span></span>
+                          )}
+                          {canEdit && d.requires_production && (d.components ?? []).length > 0 && d.asset_type_name && (
+                            <button
+                              onClick={() => handleComponentTemplate(d.id, "save")}
+                              disabled={componentTemplateBusy}
+                              title="Save this parts list as the standard for this asset type"
+                              className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
+                            >
+                              <BookmarkPlus className="h-3 w-3" /> Save as standard components
+                            </button>
+                          )}
+                        </div>
                       </div>
+                      {!d.requires_production && (
+                        <p className="mb-3 rounded-lg border border-dashed border-border px-3 py-2 text-[11px] text-muted-foreground">
+                          {d.source_display} — this asset arrives complete from the vendor, so it is
+                          not built from our inventory.
+                        </p>
+                      )}
                       {(d.components ?? []).length > 0 ? (
                         <div className="overflow-x-auto rounded-xl border border-border">
                           <table className="w-full text-xs">
@@ -934,8 +1523,10 @@ export default function AssetsPage() {
                                 <th className="px-3 py-2 font-medium">Component</th>
                                 <th className="px-3 py-2 font-medium">Type</th>
                                 <th className="px-3 py-2 font-medium">Serial #</th>
-                                <th className="px-3 py-2 font-medium">Qty</th>
-                                <th className="px-3 py-2 font-medium">Supplier</th>
+                                <th className="px-3 py-2 font-medium">Required</th>
+                                <th className="px-3 py-2 font-medium">In Stock</th>
+                                <th className="px-3 py-2 font-medium">From Inventory</th>
+                                <th className="px-3 py-2 font-medium">Fulfilment</th>
                                 <th className="px-3 py-2 font-medium">Warranty</th>
                                 {canEdit && <th className="px-3 py-2" />}
                               </tr>
@@ -946,8 +1537,28 @@ export default function AssetsPage() {
                                   <td className="px-3 py-2 font-medium text-foreground">{cmp.name}</td>
                                   <td className="px-3 py-2 text-muted-foreground">{cmp.component_type || "—"}</td>
                                   <td className="px-3 py-2 font-mono text-muted-foreground">{cmp.serial_number || "—"}</td>
-                                  <td className="px-3 py-2 text-foreground">×{cmp.quantity}</td>
-                                  <td className="px-3 py-2 text-muted-foreground">{cmp.supplier_name || "—"}</td>
+                                  <td className="px-3 py-2 text-foreground">
+                                    ×{cmp.quantity}
+                                    {cmp.issued_quantity > 0 && (
+                                      <span className="block text-[10px] text-muted-foreground">
+                                        {cmp.issued_quantity} issued
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className={`px-3 py-2 ${(cmp.available_quantity ?? 0) < cmp.outstanding_quantity ? "text-amber-600" : "text-muted-foreground"}`}>
+                                    {cmp.available_quantity ?? "—"}
+                                  </td>
+                                  <td className="px-3 py-2 text-muted-foreground">{cmp.source_label || "—"}</td>
+                                  <td className="px-3 py-2">
+                                    <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ${
+                                      FULFILMENT_BADGES[cmp.fulfilment] ?? "bg-secondary text-muted-foreground ring-border"
+                                    }`}>
+                                      {FULFILMENT_LABELS[cmp.fulfilment] ?? cmp.fulfilment}
+                                    </span>
+                                    {cmp.po_number && (
+                                      <span className="block font-mono text-[10px] text-muted-foreground">{cmp.po_number}</span>
+                                    )}
+                                  </td>
                                   <td className="px-3 py-2">
                                     {cmp.active_warranty ? (
                                       <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ${
@@ -964,7 +1575,7 @@ export default function AssetsPage() {
                                   </td>
                                   {canEdit && (
                                     <td className="px-3 py-2 text-right">
-                                      <button onClick={() => handleDeleteComponent(cmp.id, d.id)} className="text-muted-foreground transition-colors hover:text-destructive" title="Remove component">
+                                      <button onClick={() => handleDeleteComponent(cmp.id, d.id)} disabled={!d.requires_production} className="text-muted-foreground transition-colors hover:text-destructive disabled:pointer-events-none disabled:opacity-50" title="Remove component">
                                         <Trash2 className="h-3.5 w-3.5" />
                                       </button>
                                     </td>
@@ -977,29 +1588,116 @@ export default function AssetsPage() {
                       ) : (
                         <p className="text-xs text-muted-foreground">No components recorded — single-unit asset.</p>
                       )}
+                      {d.requires_production && (d.components ?? []).length === 0 && d.component_template_available && (
+                        <div className="mt-2 rounded-xl border border-dashed border-border p-4 text-center">
+                          <p className="text-xs text-foreground">
+                            A standard set of components already exists for this asset type.
+                          </p>
+                          <p className="mt-1 text-[11px] text-muted-foreground">
+                            Start from it, or list the parts one by one below.
+                          </p>
+                          {canEdit && (
+                            <button
+                              onClick={() => handleComponentTemplate(d.id, "apply")}
+                              disabled={componentTemplateBusy}
+                              className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
+                            >
+                              <Wand2 className="h-3.5 w-3.5" /> Use saved components
+                            </button>
+                          )}
+                        </div>
+                      )}
                       {canEdit && (
-                        <form onSubmit={(e) => handleAddComponent(e, d.id)} className="mt-2 flex flex-wrap items-end gap-2">
-                          <input name="comp_name" required placeholder="Component name (e.g. SMD Cabinet P3.9)" className="h-8 w-56 rounded-lg border border-border bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground" />
-                          <input name="comp_type" placeholder="Type" className="h-8 w-28 rounded-lg border border-border bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground" />
-                          <input name="comp_serial" placeholder="Serial #" className="h-8 w-32 rounded-lg border border-border bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground" />
-                          <input name="comp_qty" type="number" min={1} defaultValue={1} className="h-8 w-16 rounded-lg border border-border bg-background px-2 text-xs text-foreground" />
-                          <select name="comp_supplier" defaultValue="" className="h-8 w-36 rounded-lg border border-border bg-background px-2 text-xs text-muted-foreground">
-                            <option value="">Supplier: none</option>
-                            {suppliers.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
-                          </select>
-                          <select name="comp_warranty_months" defaultValue="" className="h-8 w-32 rounded-lg border border-border bg-background px-2 text-xs text-muted-foreground">
-                            <option value="">No warranty</option>
-                            {[3, 6, 12, 24, 36].map((m) => <option key={m} value={m}>{m} mo warranty</option>)}
-                          </select>
-                          <select name="comp_warranty_type" defaultValue="supplier" className="h-8 w-28 rounded-lg border border-border bg-background px-2 text-xs text-muted-foreground">
-                            <option value="supplier">Supplier</option>
-                            <option value="manufacturer">Manufacturer</option>
-                            <option value="extended">Extended</option>
-                            <option value="client">Client</option>
-                          </select>
-                          <button type="submit" className="h-8 rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90">Add</button>
+                        <form onSubmit={(e) => handleAddComponent(e, d.id)} className="mt-2">
+                          <fieldset disabled={!d.requires_production} className="space-y-2">
+                            <p className="text-[11px] text-muted-foreground">
+                              What this asset is built from. Stock is not reduced here — the project decides
+                              later whether to take each line from inventory or procure it.
+                            </p>
+                            <div className="flex flex-wrap items-end gap-2">
+                              <select
+                                value={compSource}
+                                onChange={(e) => { setCompSource(e.target.value as "generic" | "unique"); setCompItemId(""); setCompUnitType(""); setCompQty(1); }}
+                                className="h-8 w-32 rounded-lg border border-border bg-background px-2 text-xs text-foreground"
+                              >
+                                <option value="generic">Stock item</option>
+                                <option value="unique">Unique item</option>
+                              </select>
+
+                              {compSource === "generic" ? (
+                                <select
+                                  value={compItemId}
+                                  onChange={(e) => setCompItemId(e.target.value)}
+                                  required
+                                  className="h-8 w-72 rounded-lg border border-border bg-background px-2 text-xs text-foreground"
+                                >
+                                  <option value="">Select stock item…</option>
+                                  {/* Every known item, including ones at zero. */}
+                                  {stockItems.map((s) => (
+                                    <option key={s.id} value={s.id}>
+                                      {s.material_name ?? s.sku} · {s.quantity} in stock
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <select
+                                  value={compUnitType}
+                                  onChange={(e) => setCompUnitType(e.target.value)}
+                                  required
+                                  className="h-8 w-72 rounded-lg border border-border bg-background px-2 text-xs text-foreground"
+                                >
+                                  <option value="">
+                                    {stockProducts.length === 0 ? "No unique items opened yet" : "Select unique item…"}
+                                  </option>
+                                  {stockProducts.map((p) => (
+                                    <option key={p.id} value={p.id}>
+                                      {[p.name, p.model_name].filter(Boolean).join(" ")} · {p.in_stock_count} in stock
+                                    </option>
+                                  ))}
+                                </select>
+                              )}
+
+                              <div className="flex items-center gap-1">
+                                <label htmlFor="comp_qty" className="text-[11px] text-muted-foreground">Qty needed</label>
+                                <input
+                                  id="comp_qty"
+                                  type="number"
+                                  min={1}
+                                  value={compQty}
+                                  onChange={(e) => setCompQty(Math.max(1, Number(e.target.value) || 1))}
+                                  className="h-8 w-20 rounded-lg border border-border bg-background px-2 text-xs text-foreground"
+                                />
+                              </div>
+
+                              <button
+                                type="submit"
+                                disabled={!compSelected || compQty < 1}
+                                className="h-8 rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+                              >
+                                Add
+                              </button>
+                            </div>
+
+                            {compSelected && compQty > compAvailable && (
+                              <p className="text-[11px] text-amber-600">
+                                Only {compAvailable} in stock — the shortfall can be procured from the project.
+                              </p>
+                            )}
+                          </fieldset>
                         </form>
                       )}
+                    </div>
+                    <div className={d.requires_production ? undefined : "opacity-60"}>
+                      <h4 className="mb-3 text-sm font-semibold text-foreground">Production Route</h4>
+                      <ProductionRoute
+                        deviceId={d.id}
+                        steps={d.production_steps ?? []}
+                        onChanged={() => refreshDetail(d.id)}
+                        assetTypeName={d.asset_type_name}
+                        templateAvailable={d.route_template_available}
+                        readOnly={!d.requires_production}
+                        readOnlyReason={d.source_display}
+                      />
                     </div>
                     <div>
                       <h4 className="text-sm font-semibold text-foreground mb-3">Service History</h4>
@@ -1032,14 +1730,14 @@ export default function AssetsPage() {
                           </div>
                           <div className="mt-2 flex gap-4 text-sm">
                             <span className="font-bold text-foreground">{maintSchedules.length} total</span>
-                            <span className="font-medium text-amber-500">{maintSchedules.filter((m) => !["completed"].includes((m as { status?: string }).status ?? "")).length} ongoing</span>
-                            <span className="font-medium text-emerald-600">{maintSchedules.filter((m) => (m as { status?: string }).status === "completed").length} completed</span>
+                            <span className="font-medium text-amber-500">{maintSchedules.filter((m) => m.status !== "completed").length} ongoing</span>
+                            <span className="font-medium text-emerald-600">{maintSchedules.filter((m) => m.status === "completed").length} completed</span>
                           </div>
                           <div className="mt-2 space-y-1">
                             {maintSchedules.slice(0, 4).map((m) => (
                               <Link key={m.id} href={`/maintenance?schedule=${m.id}`} className="flex items-center justify-between rounded-md px-2 py-1 text-xs hover:bg-secondary/50">
-                                <span className="truncate font-medium text-foreground">{(m as { title?: string }).title || "Schedule"}</span>
-                                <span className="shrink-0 text-muted-foreground">{((m as { status?: string }).status ?? "").replace(/_/g, " ")}</span>
+                                <span className="truncate font-medium text-foreground">{m.title || "Schedule"}</span>
+                                <span className="shrink-0 text-muted-foreground">{m.status.replace(/_/g, " ")}</span>
                               </Link>
                             ))}
                             {maintSchedules.length === 0 && <p className="text-xs text-muted-foreground">No maintenance scheduled for this asset.</p>}
@@ -1051,26 +1749,18 @@ export default function AssetsPage() {
                       <h4 className="text-sm font-semibold text-foreground mb-3">Device Information</h4>
                       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                         <InfoCard label="Asset Code" value={d.asset_code} />
-                        <InfoCard label="Serial Number" value={d.serial_number} />
-                        <InfoCard label="Source" value={d.source ? (SOURCE_LABELS[d.source] ?? d.source) : null} />
+                        {/* The serial defaults to the asset code, so it is only
+                            worth a card when it is a real, different serial. */}
+                        {d.serial_number && d.serial_number !== d.asset_code && (
+                          <InfoCard label="Serial Number" value={d.serial_number} />
+                        )}
+                        <InfoCard label="Project" value={d.project_name} />
+                        <InfoCard label="Delivery Route" value={d.source_display} />
                         <InfoCard label="Batch Number" value={d.batch_number} />
-                        <InfoCard label="Model" value={d.device_model_name} />
-                        <InfoCard label="Brand" value={d.brand_name} />
-                        <InfoCard label="Screen Type" value={d.screen_type} />
-                        <InfoCard label="Screen Size" value={d.screen_size} />
-                      </div>
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-semibold text-foreground mb-3">Technical Details</h4>
-                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                        <InfoCard label="MAC Address" value={d.mac_address} />
-                        <InfoCard label="IMEI" value={d.imei} />
-                        <InfoCard label="CMS Device ID" value={d.mobile_id} />
-                        <InfoCard label="Firmware Version" value={d.firmware_version} />
+                        <InfoCard label="Asset Type" value={d.asset_type_name} />
+                        {/* Technical detail now lives on the inventory records
+                            the asset is built from, not on the asset itself. */}
                         <InfoCard label="Hardware Revision" value={d.hardware_revision} />
-                        {Object.entries(specs).map(([key, val]) => (
-                          <InfoCard key={key} label={key.replace(/_/g, " ")} value={String(val ?? "")} />
-                        ))}
                       </div>
                     </div>
                     <div>
@@ -1078,7 +1768,15 @@ export default function AssetsPage() {
                       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                         <InfoCard label="Site" value={d.site_name} />
                         <InfoCard label="Client" value={(d.client_names ?? []).length > 0 ? d.client_names.join(", ") : d.client_name} />
-                        <InfoCard label="Technician" value={d.technician_name} />
+                        <div className="rounded-lg bg-secondary/30 px-4 py-3">
+                          <p className="mb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Assigned To</p>
+                          <p className="text-sm font-medium text-foreground">
+                            {d.assigned_to_display ?? d.technician_name ?? "—"}
+                          </p>
+                          {d.technician_phone && (
+                            <p className="text-[11px] text-muted-foreground">{d.technician_phone}</p>
+                          )}
+                        </div>
                         <InfoCard label="Installation Date" value={d.installation_date ? formatDate(d.installation_date) : null} />
                       </div>
                     </div>
@@ -1092,21 +1790,49 @@ export default function AssetsPage() {
                 )}
 
                 {/* Warranties */}
-                {detailTab === "warranties" && (
-                  <div>
-                    {warranties.length > 0 ? (
-                      <div className="space-y-4">
-                        {warranties.map((w) => (
+                {detailTab === "warranties" && (() => {
+                  // Two different things get called "warranty" on an asset, so
+                  // they are shown apart rather than in one flat list:
+                  //   · what covers the asset coming in — the parts' own cover
+                  //     on an in-house build, or the vendor's cover on the
+                  //     whole thing when we did not build it
+                  //   · what we in turn warrant to the client
+                  const ours = warranties.filter((w) => w.warranty_type === "client");
+                  const componentCover = warranties.filter((w) => w.component);
+                  const vendorCover = warranties.filter((w) => !w.component && w.warranty_type !== "client");
+                  const incoming = [...vendorCover, ...componentCover];
+                  const incomingLabel = d.requires_production
+                    ? "Component Warranties"
+                    : "Vendor Warranty";
+                  const incomingHint = d.requires_production
+                    ? "Cover the individual parts brought with them from inventory."
+                    : "What the vendor warrants to us on the complete asset.";
+
+                  return (
+                    <div className="space-y-8">
+                      <div>
+                        <h4 className="text-sm font-semibold text-foreground">{incomingLabel}</h4>
+                        <p className="mb-3 text-xs text-muted-foreground">{incomingHint}</p>
+                        {incoming.length > 0 ? (
+                          <div className="space-y-4">
+                            {incoming.map((w) => (
                           <div key={w.id} className="rounded-xl border border-border p-5 flex flex-col sm:flex-row sm:items-start gap-4">
                             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl" style={{ background: `${WARRANTY_COLORS[w.warranty_type] ?? "#6366f1"}15` }}>
                               <Shield className="h-5 w-5" style={{ color: WARRANTY_COLORS[w.warranty_type] ?? "#6366f1" }} />
                             </div>
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 mb-1">
-                                <h4 className="text-sm font-semibold text-foreground">{WARRANTY_TYPE_LABELS[w.warranty_type] ?? w.warranty_type}</h4>
-                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${w.is_expired ? "bg-red-500/10 text-red-400" : "bg-green-500/10 text-green-400"}`}>
+                                <h4 className="text-sm font-semibold text-foreground">
+                                  {w.component_name ?? (WARRANTY_TYPE_LABELS[w.warranty_type] ?? w.warranty_type)}
+                                </h4>
+                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${w.is_expired ? "bg-red-500/10 text-red-600" : "bg-green-500/10 text-green-600"}`}>
                                   {w.is_expired ? "Expired" : "Active"}
                                 </span>
+                                {w.component_name && (
+                                  <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] text-muted-foreground">
+                                    {WARRANTY_TYPE_LABELS[w.warranty_type] ?? w.warranty_type}
+                                  </span>
+                                )}
                               </div>
                               {w.supplier_name && <p className="text-xs text-muted-foreground mb-1">Provider: {w.supplier_name}</p>}
                               <p className="text-xs text-muted-foreground">{w.coverage_details || "Comprehensive coverage"}</p>
@@ -1116,19 +1842,72 @@ export default function AssetsPage() {
                                 </span>
                                 {w.reference_number && <span className="text-[11px] text-muted-foreground">Ref: {w.reference_number}</span>}
                               </div>
-                              {/* Timeline bar */}
                               <div className="mt-3">
                                 <WarrantyTimeline start={w.start_date} end={w.end_date} color={WARRANTY_COLORS[w.warranty_type] ?? "#6366f1"} />
                               </div>
                             </div>
                           </div>
-                        ))}
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="rounded-xl border border-dashed border-border p-4 text-xs text-muted-foreground">
+                            {d.requires_production
+                              ? "None of this asset's components carry a warranty."
+                              : "No vendor warranty recorded — add its expiry in Edit Asset."}
+                          </p>
+                        )}
                       </div>
-                    ) : (
-                      <EmptyState icon={<Shield className="h-10 w-10" />} text="No warranties recorded for this device." />
-                    )}
-                  </div>
-                )}
+
+                      <div>
+                        <h4 className="text-sm font-semibold text-foreground">Client Warranty</h4>
+                        <p className="mb-3 text-xs text-muted-foreground">
+                          What we warrant to the client the asset is installed for.
+                        </p>
+                        {ours.length > 0 ? (
+                          <div className="space-y-4">
+                            {ours.map((w) => (
+                          <div key={w.id} className="rounded-xl border border-border p-5 flex flex-col sm:flex-row sm:items-start gap-4">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl" style={{ background: `${WARRANTY_COLORS[w.warranty_type] ?? "#6366f1"}15` }}>
+                              <Shield className="h-5 w-5" style={{ color: WARRANTY_COLORS[w.warranty_type] ?? "#6366f1" }} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                <h4 className="text-sm font-semibold text-foreground">
+                                  {w.component_name ?? (WARRANTY_TYPE_LABELS[w.warranty_type] ?? w.warranty_type)}
+                                </h4>
+                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${w.is_expired ? "bg-red-500/10 text-red-600" : "bg-green-500/10 text-green-600"}`}>
+                                  {w.is_expired ? "Expired" : "Active"}
+                                </span>
+                                {w.component_name && (
+                                  <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] text-muted-foreground">
+                                    {WARRANTY_TYPE_LABELS[w.warranty_type] ?? w.warranty_type}
+                                  </span>
+                                )}
+                              </div>
+                              {w.supplier_name && <p className="text-xs text-muted-foreground mb-1">Provider: {w.supplier_name}</p>}
+                              <p className="text-xs text-muted-foreground">{w.coverage_details || "Comprehensive coverage"}</p>
+                              <div className="flex items-center gap-4 mt-2">
+                                <span className="text-[11px] text-muted-foreground">
+                                  <Calendar className="inline h-3 w-3 mr-1" />{formatDate(w.start_date)} → {formatDate(w.end_date)}
+                                </span>
+                                {w.reference_number && <span className="text-[11px] text-muted-foreground">Ref: {w.reference_number}</span>}
+                              </div>
+                              <div className="mt-3">
+                                <WarrantyTimeline start={w.start_date} end={w.end_date} color={WARRANTY_COLORS[w.warranty_type] ?? "#6366f1"} />
+                              </div>
+                            </div>
+                          </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="rounded-xl border border-dashed border-border p-4 text-xs text-muted-foreground">
+                            No client warranty recorded — add its expiry in Edit Asset.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Costs & Pricing */}
                 {detailTab === "costs" && (
@@ -1202,7 +1981,7 @@ export default function AssetsPage() {
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 mb-1">
                                 <p className="text-sm font-medium text-foreground">{m.title}</p>
-                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset ring-current/20 ${MAINT_TYPE_BADGE[m.maintenance_type] ?? "bg-gray-500/10 text-gray-400"}`}>
+                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset ring-current/20 ${MAINT_TYPE_BADGE[m.maintenance_type] ?? "bg-gray-500/10 text-gray-600"}`}>
                                   {m.maintenance_type}
                                 </span>
                               </div>
@@ -1211,7 +1990,7 @@ export default function AssetsPage() {
                                 {m.assigned_to_name && ` · Assigned: ${m.assigned_to_name}`}
                               </p>
                             </div>
-                            <span className={`shrink-0 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${m.is_active ? "bg-green-500/10 text-green-400" : "bg-gray-500/10 text-gray-400"}`}>
+                            <span className={`shrink-0 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${m.is_active ? "bg-green-500/10 text-green-600" : "bg-gray-500/10 text-gray-600"}`}>
                               {m.is_active ? "Active" : "Inactive"}
                             </span>
                           </div>
@@ -1226,22 +2005,11 @@ export default function AssetsPage() {
                 {/* Lifecycle Events */}
                 {detailTab === "history" && (
                   <div className="space-y-3">
-                    {(d.lifecycle_events ?? []).length > 0 ? d.lifecycle_events.map((evt) => (
-                      <div key={evt.id} className="flex items-start gap-3 rounded-lg border border-border p-3">
-                        <div className="mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full bg-primary" />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-xs font-medium text-foreground capitalize">{evt.event_type.replace("_", " ")}</p>
-                          {evt.description && <p className="text-[10px] text-muted-foreground">{evt.description}</p>}
-                          {evt.from_value && evt.to_value && (
-                            <p className="text-[10px] text-muted-foreground">{evt.from_value} → {evt.to_value}</p>
-                          )}
-                        </div>
-                        <div className="text-right shrink-0">
-                          <p className="text-[10px] text-muted-foreground">{formatDate(evt.created_at)}</p>
-                          {evt.performed_by_name && <p className="text-[10px] text-muted-foreground">{evt.performed_by_name}</p>}
-                        </div>
+                    {(d.lifecycle_events ?? []).length > 0 ? (
+                      <div className="rounded-xl border border-border p-4">
+                        <Timeline items={lifecycleItems(d.lifecycle_events)} />
                       </div>
-                    )) : (
+                    ) : (
                       <EmptyState icon={<Clock className="h-10 w-10" />} text="No lifecycle events recorded yet." />
                     )}
                   </div>
@@ -1278,6 +2046,27 @@ export default function AssetsPage() {
                 <p className="text-xs text-muted-foreground">No warranties on file</p>
               </div>
             )}
+
+            {/* Activity — who changed what, and when. The Lifecycle tab holds
+                the same journal; this puts the last few in reach. */}
+            <div className="rounded-xl border border-border bg-card p-5">
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-foreground">Activity</h3>
+                {(d.lifecycle_events ?? []).length > 0 && (
+                  <button
+                    onClick={() => setDetailTab("history")}
+                    className="text-[11px] font-medium text-primary hover:underline"
+                  >
+                    View all →
+                  </button>
+                )}
+              </div>
+              {(d.lifecycle_events ?? []).length === 0 ? (
+                <p className="text-xs text-muted-foreground">Nothing recorded yet.</p>
+              ) : (
+                <Timeline compact items={lifecycleItems(d.lifecycle_events.slice(0, 6))} />
+              )}
+            </div>
 
             {/* Warranty timeline summary */}
             {warranties.length > 0 && (
@@ -1465,11 +2254,10 @@ export default function AssetsPage() {
                   )}
                   <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Asset Code</th>
                   <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Name</th>
-                  <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Serial #</th>
-                  <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Model</th>
-                  <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Type</th>
+                                    <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Type</th>
                   <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Status</th>
                   <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Warranty</th>
+                  <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Project</th>
                   <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Site</th>
                   <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Client</th>
                   <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Actions</th>
@@ -1499,8 +2287,6 @@ export default function AssetsPage() {
                       </div>
                     </td>
                     <td className="px-5 py-3 text-foreground">{d.display_name || "—"}</td>
-                    <td className="px-5 py-3 text-muted-foreground">{d.serial_number}</td>
-                    <td className="px-5 py-3 text-foreground">{d.device_model_name || "—"}</td>
                     <td className="px-5 py-3 text-muted-foreground">{d.asset_type_name || "—"}</td>
                     <td className="px-5 py-3"><StatusBadge status={d.status} /></td>
                     <td className="px-5 py-3">
@@ -1512,6 +2298,7 @@ export default function AssetsPage() {
                         <span className="text-xs text-muted-foreground">—</span>
                       )}
                     </td>
+                    <td className="px-5 py-3 text-muted-foreground">{d.project_name || "—"}</td>
                     <td className="px-5 py-3 text-muted-foreground">{d.site_name || "—"}</td>
                     <td className="px-5 py-3 text-muted-foreground">{(d.client_names ?? []).length > 0 ? d.client_names.join(", ") : d.client_name || "—"}</td>
                     <td className="px-5 py-3" onClick={(e) => e.stopPropagation()}>
@@ -1549,28 +2336,28 @@ export default function AssetsPage() {
             </div>
           )}
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          {modalMode === "create" && (
             <div className="space-y-1.5">
-              <label htmlFor="serial_number" className={labelClass}>Serial Number *</label>
-              <input id="serial_number" name="serial_number" required defaultValue={selected?.serial_number ?? ""} className={inputClass} />
+              <label className={labelClass}>Asset Code</label>
+              {/* Generated on save, together with the QR/barcode label. */}
+              <p className="flex h-10 items-center rounded-lg border border-dashed border-border px-3 text-sm text-muted-foreground">
+                Generated automatically
+              </p>
             </div>
-            <div className="space-y-1.5">
-              <label htmlFor="device_model" className={labelClass}>Device Model *</label>
-              <select id="device_model" name="device_model" required defaultValue={selected?.device_model ?? ""} className={inputClass}>
-                <option value="">Select model</option>
-                {deviceModels.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-              </select>
-            </div>
-          </div>
+          )}
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <label htmlFor="asset_type" className={labelClass}>Asset Type</label>
-              <select id="asset_type" name="asset_type" defaultValue={selected?.asset_type ?? ""} className={inputClass}>
-                <option value="">Select type</option>
-                {assetTypes.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
-              </select>
-            </div>
+            <SelectOrCreate
+              id="asset_type"
+              label="Asset Type"
+              value={formAssetType}
+              onChange={setFormAssetType}
+              options={assetTypes.map((a) => ({ id: a.id, name: a.label }))}
+              onCreated={(created) => setAssetTypes((prev) => [...prev, { id: created.id, label: created.name }])}
+              endpoint="/assets/asset-types/"
+              createPlaceholder="e.g. Standee, SMD Screen"
+              emptyLabel="Select…"
+            />
             <div className="space-y-1.5">
               <label htmlFor="display_name" className={labelClass}>Asset Name</label>
               <input id="display_name" name="display_name" defaultValue={selected?.display_name ?? ""} className={inputClass} placeholder="e.g. Main entrance SMD wall" />
@@ -1597,46 +2384,36 @@ export default function AssetsPage() {
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
-            {modalMode === "create" ? (
-              <div className="space-y-1.5">
-                <label htmlFor="status" className={labelClass}>Status</label>
-                <select id="status" name="status" defaultValue="procured" className={inputClass}>
-                  {STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-                </select>
-              </div>
-            ) : (
-              <div className="space-y-1.5">
+            <div className="space-y-1.5 sm:col-span-2">
+              <label htmlFor="source" className={labelClass}>Delivery Route *</label>
+              {/* Decides what the asset needs: an in-house build carries a
+                  production route, a vendor-built one does not. */}
+              <select
+                id="source"
+                name="source"
+                value={assetSource}
+                onChange={(e) => setAssetSource(e.target.value)}
+                className={inputClass}
+              >
+                <option value="inhouse">In-house Production — built from inventory components</option>
+                <option value="vendor_supplied">Vendor Supplied — installed by our technician</option>
+                <option value="vendor_turnkey">Vendor Supplied &amp; Installed — our technician oversees</option>
+              </select>
+              <p className="text-[10px] text-muted-foreground">
+                {assetSource === "inhouse"
+                  ? "You will define the production steps and draw components from inventory."
+                  : assetSource === "vendor_turnkey"
+                    ? "The vendor builds and installs it; assign a technician to oversee the work."
+                    : "Bought complete from a vendor, installed by our own technician."}
+              </p>
+            </div>
+            {modalMode === "edit" && (
+              <div className="space-y-1.5 sm:col-span-2">
                 <label className={labelClass}>Status</label>
                 <input type="text" value={statusLabel(selected?.status ?? "")} disabled className="flex h-10 w-full rounded-lg border border-border bg-secondary px-3 text-sm text-foreground" />
-                <p className="text-[10px] text-muted-foreground">Status changes go through the guarded “Change Status” action on the asset detail view.</p>
+                <p className="text-[10px] text-muted-foreground">Tracked automatically — it moves as the asset is built, assigned and installed.</p>
               </div>
             )}
-            <div className="space-y-1.5">
-              <label htmlFor="source" className={labelClass}>Source</label>
-              <select id="source" name="source" defaultValue={selected?.source ?? "third_party"} className={inputClass}>
-                <option value="third_party">Third Party</option>
-                <option value="inhouse">In-house Production</option>
-              </select>
-            </div>
-            <div className="space-y-1.5">
-              <label htmlFor="mac_address" className={labelClass}>MAC Address</label>
-              <input id="mac_address" name="mac_address" defaultValue={selected?.mac_address ?? ""} className={inputClass} placeholder="AA:BB:CC:DD:EE:FF" />
-            </div>
-            <div className="space-y-1.5">
-              <label htmlFor="imei" className={labelClass}>IMEI</label>
-              <input id="imei" name="imei" defaultValue={selected?.imei ?? ""} className={inputClass} />
-            </div>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <label htmlFor="mobile_id" className={labelClass}>CMS Device ID</label>
-              <input id="mobile_id" name="mobile_id" defaultValue={selected?.mobile_id ?? ""} className={inputClass} />
-            </div>
-            <div className="space-y-1.5">
-              <label htmlFor="firmware_version" className={labelClass}>Firmware Version</label>
-              <input id="firmware_version" name="firmware_version" defaultValue={selected?.firmware_version ?? ""} className={inputClass} />
-            </div>
           </div>
 
           <div className="border-t border-border pt-4">
@@ -1669,11 +2446,24 @@ export default function AssetsPage() {
             </div>
             <div className="grid gap-4 sm:grid-cols-2 mt-4">
               <div className="space-y-1.5">
-                <label htmlFor="assigned_technician" className={labelClass}>Assigned Technician</label>
-                <select id="assigned_technician" name="assigned_technician" defaultValue={selected?.assigned_technician ?? ""} className={inputClass}>
+                <label htmlFor="assigned_technician" className={labelClass}>
+                  {assetSource === "vendor_turnkey" ? "Technician Overseeing" : "Assigned Technician"}
+                </label>
+                <select
+                  id="assigned_technician"
+                  name="assigned_technician"
+                  value={assignTechnician}
+                  onChange={(e) => setAssignTechnician(e.target.value)}
+                  className={inputClass}
+                >
                   <option value="">None</option>
                   {technicians.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
                 </select>
+                <p className="text-[10px] text-muted-foreground">
+                  {assetSource === "vendor_turnkey"
+                    ? "The vendor does the work; our technician oversees it. Details come from the manpower records."
+                    : "Details come from the manpower records."}
+                </p>
               </div>
               <div className="space-y-1.5">
                 <label htmlFor="project" className={labelClass}>Project (client order)</label>
@@ -1686,16 +2476,131 @@ export default function AssetsPage() {
                 <label htmlFor="installation_date" className={labelClass}>Installation Date</label>
                 <input id="installation_date" name="installation_date" type="date" defaultValue={selected?.installation_date ?? ""} className={inputClass} />
               </div>
-              {modalMode === "create" && (
+            </div>
+          </div>
+
+          {/* Two vendors, two questions, two sections: who sold us the asset,
+              and who puts it up. On a turnkey job they are usually the same
+              firm — but that is a fact to record, not an assumption. */}
+          {!buildsInHouse && (
+            <div className="border-t border-border pt-4">
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Vendor Supply Details
+              </p>
+              <p className="mb-3 text-[10px] text-muted-foreground">
+                Who the finished asset was bought from.
+              </p>
+              <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
-                  <label htmlFor="client_warranty_months" className={labelClass}>Client Warranty</label>
-                  <select id="client_warranty_months" name="client_warranty_months" defaultValue="" className={inputClass}>
-                    <option value="">None</option>
-                    <option value="3">3 months</option>
-                    <option value="6">6 months</option>
-                    <option value="12">12 months</option>
-                  </select>
-                  <p className="text-[10px] text-muted-foreground">Auto-converts to “Warranty Completed” when the term lapses; can be reissued from Warranties.</p>
+                  <label htmlFor="supply_vendor_name" className={labelClass}>Vendor Name</label>
+                  <input
+                    id="supply_vendor_name"
+                    name="supply_vendor_name"
+                    value={supplyVendorName}
+                    onChange={(e) => setSupplyVendorName(e.target.value)}
+                    placeholder="e.g. Skyline Displays"
+                    className={inputClass}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="supply_vendor_contact" className={labelClass}>Contact / Phone</label>
+                  <input
+                    id="supply_vendor_contact"
+                    name="supply_vendor_contact"
+                    value={supplyVendorContact}
+                    onChange={(e) => setSupplyVendorContact(e.target.value)}
+                    placeholder="e.g. 0300-1234567"
+                    className={inputClass}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {assetSource === "vendor_turnkey" && (
+            <div className="border-t border-border pt-4">
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Vendor Installation Details
+              </p>
+              <p className="mb-3 text-[10px] text-muted-foreground">
+                Who puts it up on site. Often the supplying vendor, but not always.
+              </p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <label htmlFor="assigned_vendor_name" className={labelClass}>Vendor Name</label>
+                  <input
+                    id="assigned_vendor_name"
+                    name="assigned_vendor_name"
+                    value={assignVendorName}
+                    onChange={(e) => setAssignVendorName(e.target.value)}
+                    placeholder="e.g. Skyline Displays"
+                    className={inputClass}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="assigned_vendor_contact" className={labelClass}>Contact / Phone</label>
+                  <input
+                    id="assigned_vendor_contact"
+                    name="assigned_vendor_contact"
+                    value={assignVendorContact}
+                    onChange={(e) => setAssignVendorContact(e.target.value)}
+                    placeholder="e.g. 0300-1234567"
+                    className={inputClass}
+                  />
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setAssignVendorName(supplyVendorName); setAssignVendorContact(supplyVendorContact); }}
+                className="mt-2 text-[11px] font-medium text-primary hover:underline"
+              >
+                Same as the supplying vendor
+              </button>
+            </div>
+          )}
+
+          {/* Warranty — the asset's own cover, named for who gives it. Parts
+              carry their own warranties from inventory; those are separate. */}
+          <div className="border-t border-border pt-4">
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Warranty</p>
+            <p className="mb-3 text-[10px] text-muted-foreground">
+              The asset as a whole. Warranties on the individual parts come from inventory and are
+              listed against each component.
+            </p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <label htmlFor="client_warranty_end" className={labelClass}>
+                  Client Warranty Expiry
+                </label>
+                <input
+                  id="client_warranty_end"
+                  name="client_warranty_end"
+                  type="date"
+                  defaultValue={selected?.client_warranty?.end_date ?? ""}
+                  className={inputClass}
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  What we warrant to the client the asset is installed for. The period is worked
+                  out from this date; it auto-completes once it lapses and can be reissued from
+                  Warranties.
+                </p>
+              </div>
+              {!buildsInHouse && (
+                <div className="space-y-1.5">
+                  <label htmlFor="vendor_warranty_end" className={labelClass}>
+                    Vendor Warranty Expiry
+                  </label>
+                  <input
+                    id="vendor_warranty_end"
+                    name="vendor_warranty_end"
+                    type="date"
+                    defaultValue={selected?.vendor_warranty?.end_date ?? ""}
+                    className={inputClass}
+                  />
+                  <p className="text-[10px] text-muted-foreground">
+                    What the vendor warrants to us on the complete asset — the equivalent of the
+                    part warranties an in-house build inherits from inventory.
+                  </p>
                 </div>
               )}
             </div>
@@ -1769,101 +2674,92 @@ export default function AssetsPage() {
           </div>
 
           {modalMode === "create" && (
-            <div className="border-t border-border pt-4">
+            <div className={`border-t border-border pt-4 ${buildsInHouse ? "" : "opacity-60"}`}>
               <div className="mb-1 flex items-center justify-between">
                 <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Components</p>
                 <button
                   type="button"
+                  disabled={!buildsInHouse}
                   onClick={() => setNewComponents((rows) => [...rows, { ...EMPTY_COMPONENT }])}
-                  className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/5"
+                  className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/5 disabled:pointer-events-none disabled:opacity-50"
                 >
                   <Plus className="h-3.5 w-3.5" /> Add Component
                 </button>
               </div>
               <p className="mb-3 text-[10px] text-muted-foreground">
-                CMS, stand, SMD modules, receiving cards, frame, accessories… each with its own supplier and optional warranty.
+                {buildsInHouse
+                  ? "CMS, stand, SMD modules, receiving cards, frame, accessories… each drawn from the warehouse. Stock is not reduced here — the project decides later whether to take each line from inventory or procure it."
+                  : "Only in-house builds are assembled from our inventory — a vendor-supplied asset arrives complete."}
               </p>
               {newComponents.length === 0 && (
                 <p className="text-xs text-muted-foreground">No components added — single-unit asset.</p>
               )}
-              <div className="space-y-3">
+              <fieldset disabled={!buildsInHouse} className="space-y-3">
                 {newComponents.map((row, i) => (
                   <div key={i} className="rounded-lg border border-border/70 p-3">
-                    <div className="grid gap-2 sm:grid-cols-4">
-                      <input
-                        value={row.name}
-                        onChange={(e) => setNewComponents((rows) => rows.map((r, j) => (j === i ? { ...r, name: e.target.value } : r)))}
-                        placeholder="Component name *"
-                        className={`${inputClass} h-9 sm:col-span-2`}
-                      />
-                      <input
-                        value={row.component_type}
-                        onChange={(e) => setNewComponents((rows) => rows.map((r, j) => (j === i ? { ...r, component_type: e.target.value } : r)))}
-                        placeholder="Type (e.g. SMD Module)"
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      <select
+                        value={row.source}
+                        onChange={(e) => setNewComponents((rows) => rows.map((r, j) => (j === i ? { ...r, source: e.target.value as "generic" | "unique", inventory_item: "", inventory_unit_type: "" } : r)))}
                         className={`${inputClass} h-9`}
-                      />
-                      <input
-                        value={row.serial_number}
-                        onChange={(e) => setNewComponents((rows) => rows.map((r, j) => (j === i ? { ...r, serial_number: e.target.value } : r)))}
-                        placeholder="Serial #"
-                        className={`${inputClass} h-9`}
-                      />
+                        title="Inventory source"
+                      >
+                        <option value="generic">Stock item</option>
+                        <option value="unique">Unique item</option>
+                      </select>
+                      {row.source === "generic" ? (
+                        <select
+                          value={row.inventory_item}
+                          onChange={(e) => setNewComponents((rows) => rows.map((r, j) => (j === i ? { ...r, inventory_item: e.target.value } : r)))}
+                          className={`${inputClass} h-9 sm:col-span-2`}
+                        >
+                          <option value="">Select stock item…</option>
+                          {stockItems.map((it) => (
+                            <option key={it.id} value={it.id}>{(it.material_name ?? it.sku)} · {it.quantity} in stock</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <select
+                          value={row.inventory_unit_type}
+                          onChange={(e) => setNewComponents((rows) => rows.map((r, j) => (j === i ? { ...r, inventory_unit_type: e.target.value } : r)))}
+                          className={`${inputClass} h-9 sm:col-span-2`}
+                        >
+                          <option value="">Select unique item…</option>
+                          {stockProducts.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {[p.name, p.model_name].filter(Boolean).join(" ")} · {p.in_stock_count} in stock
+                            </option>
+                          ))}
+                        </select>
+                      )}
                     </div>
                     <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <input
-                        type="number"
-                        min={1}
-                        value={row.quantity}
-                        onChange={(e) => setNewComponents((rows) => rows.map((r, j) => (j === i ? { ...r, quantity: Number(e.target.value) } : r)))}
-                        placeholder="Qty"
-                        title="Quantity"
-                        className="flex h-9 w-20 shrink-0 rounded-lg border border-border bg-card px-3 text-sm text-foreground focus:border-primary/50 focus:outline-none"
-                      />
-                      <select
-                        value={row.supplier}
-                        onChange={(e) => setNewComponents((rows) => rows.map((r, j) => (j === i ? { ...r, supplier: e.target.value } : r)))}
-                        className="flex h-9 min-w-40 flex-1 rounded-lg border border-border bg-card px-3 text-sm text-foreground focus:border-primary/50 focus:outline-none"
-                        title="Supplier"
-                      >
-                        <option value="">Supplier: none</option>
-                        {suppliers.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
-                      </select>
-                      <select
-                        value={row.warranty_months}
-                        onChange={(e) => setNewComponents((rows) => rows.map((r, j) => (j === i ? { ...r, warranty_months: e.target.value } : r)))}
-                        className="flex h-9 w-36 shrink-0 rounded-lg border border-border bg-card px-3 text-sm text-foreground focus:border-primary/50 focus:outline-none"
-                        title="Warranty term"
-                      >
-                        <option value="">No warranty</option>
-                        {[3, 6, 12, 24, 36].map((m) => <option key={m} value={m}>{m} mo warranty</option>)}
-                      </select>
-                      <div className="flex items-center gap-2">
-                        {row.warranty_months && (
-                          <select
-                            value={row.warranty_type}
-                            onChange={(e) => setNewComponents((rows) => rows.map((r, j) => (j === i ? { ...r, warranty_type: e.target.value } : r)))}
-                            className="flex h-9 w-36 rounded-lg border border-border bg-card px-3 text-sm text-foreground focus:border-primary/50 focus:outline-none"
-                            title="Warranty type"
-                          >
-                            <option value="supplier">Supplier</option>
-                            <option value="manufacturer">Manufacturer</option>
-                            <option value="extended">Extended</option>
-                            <option value="client">Client</option>
-                          </select>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => setNewComponents((rows) => rows.filter((_, j) => j !== i))}
-                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:text-destructive"
-                          title="Remove component"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs text-muted-foreground">Qty needed</span>
+                        <input
+                          type="number"
+                          min={1}
+                          value={row.quantity}
+                          onChange={(e) => setNewComponents((rows) => rows.map((r, j) => (j === i ? { ...r, quantity: Math.max(1, Number(e.target.value) || 1) } : r)))}
+                          title="Quantity"
+                          className="flex h-9 w-20 shrink-0 rounded-lg border border-border bg-card px-3 text-sm text-foreground focus:border-primary/50 focus:outline-none"
+                        />
                       </div>
+                      <span className="text-[11px] text-muted-foreground">
+                        Name, serial, supplier and warranty are imported from inventory.
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setNewComponents((rows) => rows.filter((_, j) => j !== i))}
+                        className="ml-auto flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:text-destructive"
+                        title="Remove component"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
                     </div>
                   </div>
                 ))}
-              </div>
+              </fieldset>
             </div>
           )}
 

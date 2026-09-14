@@ -20,15 +20,15 @@ const thClass = "px-5 py-3.5 text-left text-xs font-medium uppercase tracking-wi
 const tdClass = "px-5 py-3.5";
 
 const STATUS_STYLES: Record<string, string> = {
-  draft: "bg-slate-500/10 text-slate-400 ring-slate-500/20",
-  pending_approval: "bg-amber-500/10 text-amber-400 ring-amber-500/20",
-  approved: "bg-blue-500/10 text-blue-400 ring-blue-500/20",
-  issued: "bg-indigo-500/10 text-indigo-400 ring-indigo-500/20",
-  in_progress: "bg-cyan-500/10 text-cyan-400 ring-cyan-500/20",
-  partially_delivered: "bg-violet-500/10 text-violet-400 ring-violet-500/20",
-  delivered: "bg-teal-500/10 text-teal-400 ring-teal-500/20",
-  completed: "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20",
-  cancelled: "bg-red-500/10 text-red-400 ring-red-500/20",
+  draft: "bg-slate-500/10 text-slate-600 ring-slate-500/20",
+  pending_approval: "bg-amber-500/10 text-amber-600 ring-amber-500/20",
+  approved: "bg-blue-500/10 text-blue-600 ring-blue-500/20",
+  issued: "bg-indigo-500/10 text-indigo-600 ring-indigo-500/20",
+  in_progress: "bg-cyan-500/10 text-cyan-600 ring-cyan-500/20",
+  partially_delivered: "bg-violet-500/10 text-violet-600 ring-violet-500/20",
+  delivered: "bg-teal-500/10 text-teal-600 ring-teal-500/20",
+  completed: "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20",
+  cancelled: "bg-red-500/10 text-red-600 ring-red-500/20",
 };
 
 const NEXT_STATUS: Record<WorkOrderStatus, WorkOrderStatus[]> = {
@@ -412,7 +412,7 @@ export default function WorkOrdersPage() {
                   <div key={idx} className="flex items-center gap-2">
                     <input value={it.description} onChange={(e) => updateItem(idx, "description", e.target.value)} placeholder="Description" className={`${inputClass} flex-1`} />
                     <input type="number" value={it.quantity} onChange={(e) => updateItem(idx, "quantity", e.target.value)} placeholder="Qty" className={`${rowInputClass} w-20`} />
-                    <input type="number" value={it.unit_price} onChange={(e) => updateItem(idx, "unit_price", e.target.value)} placeholder="Unit price" className={`${rowInputClass} w-32`} />
+                    <input type="number" step="0.01" value={it.unit_price} onChange={(e) => updateItem(idx, "unit_price", e.target.value)} placeholder="Unit price" className={`${rowInputClass} w-32`} />
                     <button type="button" onClick={() => removeItem(idx)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:text-destructive">
                       <Trash2 className="h-4 w-4" />
                     </button>

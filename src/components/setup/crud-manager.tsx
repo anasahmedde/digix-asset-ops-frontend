@@ -65,8 +65,8 @@ export function ActiveBadge({ active }: { active: boolean }) {
     <span
       className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${
         active
-          ? "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20"
-          : "bg-red-500/10 text-red-400 ring-red-500/20"
+          ? "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20"
+          : "bg-red-500/10 text-red-600 ring-red-500/20"
       }`}
     >
       {active ? "Active" : "Inactive"}

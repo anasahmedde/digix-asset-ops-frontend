@@ -30,6 +30,7 @@ import { SearchSelect } from "@/components/ui/search-select";
 import { StatusBadge } from "@/components/ui/badge";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { ProgressStepper } from "@/components/ui/progress-stepper";
+import { Timeline, type TimelineItem } from "@/components/ui/timeline";
 import { formatDate } from "@/lib/utils";
 
 interface Delay {
@@ -64,6 +65,7 @@ interface Installation {
   device_code: string;
   device_name: string;
   asset_name: string | null;
+  asset_type_name: string | null;
   device_image: string | null;
   device_status: string;
   client_names: string[];
@@ -78,8 +80,13 @@ interface Installation {
   installed_at: string;
   installed_by_name: string | null;
   installed_by_phone: string | null;
+  installed_by_employee_id: string | null;
+  installed_by_job_title: string | null;
   vendor: string | null;
   vendor_name: string | null;
+  external_vendor_name: string;
+  external_vendor_contact: string;
+  vendor_display: string | null;
   due_date: string | null;
   completed_at: string | null;
   progress: number;
@@ -87,6 +94,10 @@ interface Installation {
   on_hold_steps: number;
   escalated: boolean;
   escalation_state: Record<string, string>;
+  health: string;
+  health_display: string;
+  health_reason: string;
+  step_template_available: boolean;
   steps: {
     id: string;
     step_type: string;
@@ -128,6 +139,9 @@ interface InstallationListItem {
   on_hold_steps: number;
   escalated: boolean;
   escalation_state: Record<string, string>;
+  health: string;
+  health_display: string;
+  health_reason: string;
 }
 
 interface RelatedDocument {
@@ -151,6 +165,7 @@ const STEP_TYPES = [
   { value: "programming", label: "Programming" },
   { value: "testing", label: "Testing & Commissioning" },
   { value: "handover", label: "Handover" },
+  { value: "other", label: "Other" },
 ];
 
 type TrackBucket = "not_started" | "in_progress" | "on_hold" | "completed" | "overdue";
@@ -194,20 +209,67 @@ function toLocalInputValue(iso: string | null): string {
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 }
 
-// ProgressStepper has no "not_started" style; map it to its "pending" look.
-function stepperStatus(status: string): "completed" | "in_progress" | "pending" | "skipped" {
-  if (status === "completed" || status === "in_progress" || status === "skipped") return status;
+/** How each health verdict is drawn. A job sitting on hold must not read as
+ *  healthy, so the progress bar takes its colour from here too. */
+const HEALTH_STYLES: Record<string, { badge: string; bar: string; text: string }> = {
+  on_hold: {
+    badge: "bg-red-500/10 text-red-600 ring-red-500/20",
+    bar: "bg-red-500",
+    text: "text-red-600",
+  },
+  delayed: {
+    badge: "bg-amber-500/10 text-amber-600 ring-amber-500/20",
+    bar: "bg-amber-500",
+    text: "text-amber-600",
+  },
+  overdue: {
+    badge: "bg-red-500/10 text-red-600 ring-red-500/20",
+    bar: "bg-red-500",
+    text: "text-red-600",
+  },
+  at_risk: {
+    badge: "bg-amber-500/10 text-amber-600 ring-amber-500/20",
+    bar: "bg-amber-500",
+    text: "text-amber-600",
+  },
+  on_time: {
+    badge: "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20",
+    bar: "bg-emerald-500",
+    text: "text-emerald-600",
+  },
+  completed: {
+    badge: "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20",
+    bar: "bg-emerald-500",
+    text: "text-emerald-600",
+  },
+  not_started: {
+    badge: "bg-secondary text-muted-foreground ring-border",
+    bar: "bg-muted-foreground/40",
+    text: "text-muted-foreground",
+  },
+};
+
+function healthStyle(health: string) {
+  return HEALTH_STYLES[health] ?? HEALTH_STYLES.not_started;
+}
+
+// The timeline shows the step's real status; only "not_started" is renamed,
+// because the stepper calls that state "pending".
+function stepperStatus(status: string): "completed" | "in_progress" | "on_hold" | "pending" | "skipped" {
+  if (status === "completed" || status === "in_progress" || status === "skipped" || status === "on_hold") {
+    return status;
+  }
   return "pending";
 }
 
 function exportCsv(rows: InstallationListItem[]) {
-  const header = ["Asset Code", "Device Name", "Asset Name", "Client(s)", "Site", "Installer", "POC", "Installed At", "Due Date", "Completed At", "Progress %", "Client Delays"];
+  const header = ["Asset Code", "Asset Name", "Status", "Client(s)", "Site", "Installer", "POC", "Installed At", "Due Date", "Completed At", "Progress %", "Client Delays"];
   const escape = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
   const lines = rows.map((r) =>
     [
       r.device_code,
-      r.device_name ?? "",
-      r.asset_name ?? "",
+      r.asset_name || r.device_name || "",
+      r.health_display ?? "",
       r.client_names.join("; "),
       r.site_name,
       r.installed_by_name ?? "",
@@ -268,6 +330,9 @@ export default function InstallationTrackerPage() {
   const [deviceOptions, setDeviceOptions] = useState<Option[]>([]);
   const [siteOptions, setSiteOptions] = useState<Option[]>([]);
   const [installerOptions, setInstallerOptions] = useState<Option[]>([]);
+  // A vendor is either a registered supplier or one named by hand.
+  const [editVendorManual, setEditVendorManual] = useState(false);
+  const [createVendorManual, setCreateVendorManual] = useState(false);
   const [supplierOptions, setSupplierOptions] = useState<Option[]>([]);
   const [zoneOptions, setZoneOptions] = useState<Option[]>([]);
   const [createSite, setCreateSite] = useState("");
@@ -281,6 +346,12 @@ export default function InstallationTrackerPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
   const [editInstaller, setEditInstaller] = useState("");
+  const [templateBusy, setTemplateBusy] = useState(false);
+  const [newStepType, setNewStepType] = useState("survey");
+  const [newStepLabel, setNewStepLabel] = useState("");
+  const [activateOpen, setActivateOpen] = useState(false);
+  const [activateSaving, setActivateSaving] = useState(false);
+  const [activatePhotos, setActivatePhotos] = useState<File[]>([]);
   const [handoverOpen, setHandoverOpen] = useState(false);
   const [handoverSaving, setHandoverSaving] = useState(false);
   const [clientOptions, setClientOptions] = useState<Option[]>([]);
@@ -357,6 +428,60 @@ export default function InstallationTrackerPage() {
     }
   }
 
+  async function stepTemplate(action: "save" | "apply") {
+    if (!selected || templateBusy) return;
+    setTemplateBusy(true);
+    try {
+      const { data } = await api.post(
+        `/sites/installations/${selected.id}/${action}-step-template/`, {},
+      );
+      toast.success(
+        action === "save"
+          ? data.detail ?? "Saved as the standard checklist"
+          : `${data.applied} step(s) loaded from the saved checklist`,
+      );
+      await loadDetail(selected.id);
+      refreshList();
+    } catch (err) {
+      toast.error(getApiError(err, "That did not work"));
+    } finally {
+      setTemplateBusy(false);
+    }
+  }
+
+  async function addStep(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!selected || !newStepType) return;
+    setTemplateBusy(true);
+    try {
+      await api.post("/sites/installation-steps/", {
+        installation: selected.id,
+        step_type: newStepType,
+        custom_label: newStepLabel.trim(),
+        // Numbered in the order they are laid out.
+        step_number: (selected.steps[selected.steps.length - 1]?.step_number ?? 0) + 1,
+      });
+      setNewStepLabel("");
+      await loadDetail(selected.id);
+      toast.success("Step added");
+    } catch (err) {
+      toast.error(getApiError(err, "Could not add the step"));
+    } finally {
+      setTemplateBusy(false);
+    }
+  }
+
+  async function removeStep(stepId: string) {
+    if (!selected || !confirm("Remove this step from the checklist?")) return;
+    try {
+      await api.delete(`/sites/installation-steps/${stepId}/`);
+      await loadDetail(selected.id);
+      toast.success("Step removed");
+    } catch (err) {
+      toast.error(getApiError(err, "Could not remove the step"));
+    }
+  }
+
   async function updateDueDate(value: string) {
     if (!selected) return;
     try {
@@ -410,10 +535,16 @@ export default function InstallationTrackerPage() {
     if (sites.status === "fulfilled")
       setSiteOptions((sites.value.data.results ?? []).map((s: { id: string; name: string }) => ({ id: s.id, label: s.name })));
     if (users.status === "fulfilled")
-      setInstallerOptions((users.value.data.results ?? []).map((u: { id: string; first_name: string; last_name: string; username: string }) => ({
-        id: u.id,
-        label: u.first_name || u.last_name ? `${u.first_name} ${u.last_name}`.trim() : u.username,
-      })));
+      // Technicians come from the manpower records — show enough of each to
+      // tell two same-named people apart (employee ID, job title).
+      setInstallerOptions((users.value.data.results ?? []).map((u: {
+        id: string; first_name: string; last_name: string; username: string;
+        employee_id?: string | null; job_title?: string | null; phone?: string | null;
+      }) => {
+        const name = u.first_name || u.last_name ? `${u.first_name} ${u.last_name}`.trim() : u.username;
+        const detail = [u.employee_id, u.job_title].filter(Boolean).join(" · ");
+        return { id: u.id, label: detail ? `${name} · ${detail}` : name };
+      }));
     if (sups.status === "fulfilled")
       setSupplierOptions((sups.value.data.results ?? []).map((v: { id: string; name: string }) => ({ id: v.id, label: v.name })));
   }
@@ -452,6 +583,8 @@ export default function InstallationTrackerPage() {
       await api.patch(`/sites/installations/${selected.id}/`, {
         installed_by: fd.get("installed_by") || null,
         vendor: fd.get("vendor") || null,
+        external_vendor_name: fd.get("external_vendor_name") || "",
+        external_vendor_contact: fd.get("external_vendor_contact") || "",
         installed_at: new Date(String(fd.get("installed_at"))).toISOString(),
         due_date: fd.get("due_date") || null,
         zone: fd.get("zone") || null,
@@ -512,6 +645,8 @@ export default function InstallationTrackerPage() {
         zone: fd.get("zone") || null,
         installed_by: fd.get("installed_by") || null,
         vendor: fd.get("vendor") || null,
+        external_vendor_name: fd.get("external_vendor_name") || "",
+        external_vendor_contact: fd.get("external_vendor_contact") || "",
         installed_at: new Date(String(fd.get("installed_at"))).toISOString(),
         due_date: fd.get("due_date") || null,
         position_label: fd.get("position_label") || "",
@@ -542,6 +677,35 @@ export default function InstallationTrackerPage() {
       .get(`/assets/devices/${selected.device}/`)
       .then(({ data }) => setHandoverClient(data.assigned_client ?? ""))
       .catch(() => {});
+  }
+
+  async function handleActivateSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!selected || activateSaving) return;
+    if (activatePhotos.length === 0) {
+      toast.error("Add a photo of the installed asset first");
+      return;
+    }
+    const fields = new FormData(e.currentTarget);
+    const fd = new FormData();
+    activatePhotos.forEach((f) => fd.append("photos", f));
+    const notes = String(fields.get("notes") ?? "").trim();
+    if (notes) fd.append("notes", notes);
+    setActivateSaving(true);
+    try {
+      const { data } = await api.post(`/sites/installations/${selected.id}/activate/`, fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      toast.success("Asset marked Active — the photo is on the asset too");
+      setActivateOpen(false);
+      setActivatePhotos([]);
+      setSelected(data);
+      refreshList();
+    } catch (err) {
+      toast.error(getApiError(err, "Failed to activate the asset"));
+    } finally {
+      setActivateSaving(false);
+    }
   }
 
   async function handleHandoverSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -604,7 +768,14 @@ export default function InstallationTrackerPage() {
       key: s.id,
       label: s.step_type_display,
       status: stepperStatus(s.status),
+      meta: s.completed_at
+        ? formatDate(s.completed_at)
+        : s.started_at
+          ? `Started ${formatDate(s.started_at)}`
+          : undefined,
     }));
+    // Once a step has been started the checklist is a record, not a draft.
+    const editableChecklist = selected.steps.every((st) => st.status === "not_started");
     const delaysByStep = new Map<string, Delay[]>();
     selected.delays.forEach((d) => {
       if (!d.step) return;
@@ -619,6 +790,13 @@ export default function InstallationTrackerPage() {
     const stepsReadyForHandover = selected.steps
       .filter((s) => s.step_type !== "handover")
       .every((s) => s.status === "completed" || s.status === "skipped");
+    // Activating is the installer's own call (or ops'), and only once the
+    // asset is actually installed — mirrors the backend gate.
+    const canActivate =
+      selected.device_status === "installed" &&
+      user != null &&
+      (["super_admin", "group_head", "ops_manager", "supervisor"].includes(user.role) ||
+        user.id === selected.installed_by);
     const canHandover =
       !selected.handover &&
       stepsReadyForHandover &&
@@ -640,6 +818,14 @@ export default function InstallationTrackerPage() {
             <p className="text-sm text-muted-foreground">Track installation progress in different stages</p>
           </div>
           <div className="ml-auto flex items-center gap-2">
+            {canActivate && (
+              <button
+                onClick={() => { setActivatePhotos([]); setActivateOpen(true); }}
+                className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary/90"
+              >
+                <Play className="h-4 w-4" /> Mark Active
+              </button>
+            )}
             {canHandover && (
               <button
                 onClick={openHandover}
@@ -670,6 +856,15 @@ export default function InstallationTrackerPage() {
                 </Link>
                 {selected.asset_name && <span className="text-sm font-semibold text-foreground">{selected.asset_name}</span>}
                 <StatusBadge status={selected.device_status} />
+                <span
+                  title={selected.health_reason || undefined}
+                  className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ring-1 ${healthStyle(selected.health).badge}`}
+                >
+                  {(selected.health === "on_hold" || selected.health === "overdue" || selected.health === "delayed") && (
+                    <AlertTriangle className="h-3 w-3" />
+                  )}
+                  {selected.health_display}
+                </span>
                 {selected.handover && (
                   <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-600">
                     <ClipboardCheck className="h-3 w-3" /> Handed over
@@ -706,15 +901,26 @@ export default function InstallationTrackerPage() {
                   </p>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground">Installer</p>
+                  <p className="text-xs text-muted-foreground">Technician</p>
                   <p className="font-medium text-foreground">
                     {selected.installed_by_name || "—"}
+                    {/* Pulled from the manpower record, not retyped here. */}
+                    {(selected.installed_by_employee_id || selected.installed_by_job_title) && (
+                      <span className="block text-xs text-muted-foreground">
+                        {[selected.installed_by_employee_id, selected.installed_by_job_title].filter(Boolean).join(" · ")}
+                      </span>
+                    )}
                     {selected.installed_by_phone && <span className="block text-xs text-muted-foreground">{selected.installed_by_phone}</span>}
                   </p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Vendor</p>
-                  <p className="font-medium text-foreground">{selected.vendor_name || "—"}</p>
+                  <p className="font-medium text-foreground">
+                    {selected.vendor_display || "—"}
+                    {!selected.vendor && selected.external_vendor_name && (
+                      <span className="block text-xs text-muted-foreground">Entered manually</span>
+                    )}
+                  </p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Location</p>
@@ -747,10 +953,12 @@ export default function InstallationTrackerPage() {
             </div>
             <div className="shrink-0 text-right">
               <p className="text-xs text-muted-foreground">Overall Progress</p>
-              <p className="text-3xl font-bold text-primary">{selected.progress}%</p>
+              {/* Green on a job that is on hold would be a lie, so the bar
+                  reads the same verdict as the badge. */}
+              <p className={`text-3xl font-bold ${healthStyle(selected.health).text}`}>{selected.progress}%</p>
               <div className="mt-2 h-2 w-32 overflow-hidden rounded-full bg-secondary">
                 <div
-                  className="h-full rounded-full bg-primary transition-all"
+                  className={`h-full rounded-full transition-all ${healthStyle(selected.health).bar}`}
                   style={{ width: `${selected.progress}%` }}
                 />
               </div>
@@ -758,13 +966,118 @@ export default function InstallationTrackerPage() {
           </div>
         </div>
 
-        {/* Installation Steps Pipeline */}
-        {stepperSteps.length > 0 && (
-          <div className="rounded-xl border border-border bg-card p-5">
-            <h2 className="text-base font-semibold text-foreground mb-6">Installation Steps</h2>
-            <ProgressStepper steps={stepperSteps} />
+        {/* Nothing about a blocked job should need hunting for. */}
+        {["on_hold", "delayed", "overdue"].includes(selected.health) && (
+          <div className={`flex items-start gap-3 rounded-xl border p-4 ${
+            selected.health === "delayed"
+              ? "border-amber-500/30 bg-amber-500/5"
+              : "border-red-500/30 bg-red-500/5"
+          }`}>
+            <AlertTriangle className={`mt-0.5 h-5 w-5 shrink-0 ${healthStyle(selected.health).text}`} />
+            <div className="min-w-0">
+              <p className={`text-sm font-semibold ${healthStyle(selected.health).text}`}>
+                {selected.health_display}
+              </p>
+              {selected.health_reason && (
+                <p className="mt-0.5 text-xs text-muted-foreground">{selected.health_reason}</p>
+              )}
+            </div>
           </div>
         )}
+
+        {/* Installation Steps Pipeline */}
+        <div className="rounded-xl border border-border bg-card p-5">
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="text-base font-semibold text-foreground">Installation Steps</h2>
+              <p className="text-[11px] text-muted-foreground">
+                {editableChecklist
+                  ? "Lay out what this installation actually involves, then save it as the standard for this asset type."
+                  : "The checklist this installation is being run through."}
+              </p>
+            </div>
+            {isManager && selected.asset_type_name && (
+              <div className="flex items-center gap-2">
+                {editableChecklist && selected.step_template_available && (
+                  <button
+                    onClick={() => stepTemplate("apply")}
+                    disabled={templateBusy}
+                    title={`Load the saved checklist for ${selected.asset_type_name}`}
+                    className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
+                  >
+                    <Layers className="h-3 w-3" /> Use saved checklist
+                  </button>
+                )}
+                {selected.steps.length > 0 && (
+                  <button
+                    onClick={() => stepTemplate("save")}
+                    disabled={templateBusy}
+                    title={`Save this checklist as the standard for ${selected.asset_type_name}`}
+                    className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
+                  >
+                    <ClipboardCheck className="h-3 w-3" /> Save as standard checklist
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {stepperSteps.length > 0 ? (
+            <ProgressStepper steps={stepperSteps} />
+          ) : (
+            <p className="rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
+              No steps yet — add the ones this installation involves below.
+            </p>
+          )}
+
+          {/* Editable only until the crew starts working it; after that the
+              checklist is a record of what was done. */}
+          {isManager && editableChecklist && (
+            <div className="mt-5 border-t border-border pt-4">
+              <div className="flex flex-wrap gap-1.5">
+                {selected.steps.map((step) => (
+                  <span
+                    key={step.id}
+                    className="inline-flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[11px] text-foreground"
+                  >
+                    {step.step_number}. {step.step_type_display}
+                    <button
+                      onClick={() => removeStep(step.id)}
+                      title="Remove step"
+                      className="text-muted-foreground transition-colors hover:text-destructive"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+              <form onSubmit={addStep} className="mt-3 flex flex-wrap items-center gap-2">
+                <select
+                  value={newStepType}
+                  onChange={(e) => setNewStepType(e.target.value)}
+                  className="h-8 rounded-lg border border-border bg-background px-2 text-xs text-foreground"
+                >
+                  {STEP_TYPES.map((t) => (
+                    <option key={t.value} value={t.value}>{t.label}</option>
+                  ))}
+                </select>
+                <input
+                  value={newStepLabel}
+                  onChange={(e) => setNewStepLabel(e.target.value)}
+                  placeholder="Name it (optional)"
+                  className="h-8 w-52 rounded-lg border border-border bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground"
+                />
+                <button
+                  type="submit"
+                  disabled={templateBusy}
+                  className="inline-flex h-8 items-center gap-1 rounded-lg bg-primary px-3 text-xs font-medium text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
+                >
+                  <Plus className="h-3.5 w-3.5" /> Add Step
+                </button>
+              </form>
+            </div>
+          )}
+        </div>
 
         {/* Step Detail Cards + Timeline */}
         <div className="grid gap-6 lg:grid-cols-3">
@@ -945,15 +1258,23 @@ export default function InstallationTrackerPage() {
                     <div key={d.id} className="rounded-lg border border-border/60 p-2.5">
                       <div className="flex items-center justify-between gap-2">
                         <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                          d.cause === "client" ? "bg-red-500/10 text-red-500" : "bg-amber-500/10 text-amber-600"
+                          d.cause === "client" ? "bg-red-500/10 text-red-600" : "bg-amber-500/10 text-amber-600"
                         }`}>
                           <AlertTriangle className="h-2.5 w-2.5" /> {d.cause_display}
                         </span>
                         <span className="text-[10px] text-muted-foreground">{formatDate(d.created_at)}</span>
                       </div>
-                      <p className="mt-1 text-xs text-foreground">
-                        {d.step_type_display ? `${d.step_type_display}: ` : ""}{d.description || "No details"}
-                      </p>
+                      {d.step_type_display && (
+                        <p className="mt-1 text-[11px] font-medium text-foreground">{d.step_type_display}</p>
+                      )}
+                      {/* Remarks get their own row: they are the part someone
+                          actually needs to read, not a suffix on the step. */}
+                      <div className="mt-1.5 rounded-md bg-secondary/50 px-2 py-1.5">
+                        <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Remarks</p>
+                        <p className="mt-0.5 whitespace-pre-wrap text-xs text-foreground">
+                          {d.description || "No details recorded"}
+                        </p>
+                      </div>
                       <div className="mt-1 flex items-center justify-between">
                         <span className="text-[10px] text-muted-foreground">{d.reported_by_name || ""}</span>
                         {d.resolved_at ? (
@@ -976,34 +1297,38 @@ export default function InstallationTrackerPage() {
 
             <div className="rounded-xl border border-border bg-card p-5">
               <h3 className="text-sm font-semibold text-foreground mb-4">Installation Timeline</h3>
-              <div className="space-y-4">
-                {selected.steps
-                  .filter((s) => s.status !== "not_started")
-                  .map((step) => (
-                    <div key={step.id} className="flex items-start gap-3">
-                      <div
-                        className={`mt-0.5 h-3 w-3 shrink-0 rounded-full ${
-                          step.status === "completed" ? "bg-primary" : "bg-amber-500"
-                        }`}
-                      />
-                      <div>
-                        <p className="text-xs font-medium text-foreground">
-                          {step.step_type_display} — {step.status_display}
-                        </p>
-                        <p className="text-[10px] text-muted-foreground">
-                          {step.completed_at
-                            ? formatDate(step.completed_at)
-                            : step.started_at
-                            ? formatDate(step.started_at)
-                            : ""}
-                        </p>
-                        {step.assigned_team && (
-                          <p className="text-[10px] text-muted-foreground">{step.assigned_team}</p>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-              </div>
+              {(() => {
+                // Steps and delays are one story — what happened, in order.
+                const STEP_TONE: Record<string, TimelineItem["tone"]> = {
+                  completed: "success", in_progress: "primary", on_hold: "danger", skipped: "muted",
+                };
+                const items: TimelineItem[] = [
+                  ...selected.steps
+                    .filter((st) => st.status !== "not_started")
+                    .map((st) => ({
+                      key: `step-${st.id}`,
+                      title: <><span className="font-medium">{st.step_type_display}</span> — {st.status_display}</>,
+                      description: st.description || null,
+                      actor: st.assigned_team || null,
+                      at: st.completed_at ?? st.started_at,
+                      tone: STEP_TONE[st.status] ?? "primary",
+                    })),
+                  ...selected.delays.map((dl) => ({
+                    key: `delay-${dl.id}`,
+                    title: (
+                      <>
+                        <span className="font-medium">Delay flagged</span>
+                        <span className="text-muted-foreground"> · {dl.cause_display}{dl.step_type_display ? ` · ${dl.step_type_display}` : ""}</span>
+                      </>
+                    ),
+                    description: dl.description || null,
+                    actor: dl.reported_by_name,
+                    at: dl.created_at,
+                    tone: (dl.resolved_at ? "muted" : dl.cause === "client" ? "danger" : "warning") as TimelineItem["tone"],
+                  })),
+                ].sort((a, b) => (b.at ?? "").localeCompare(a.at ?? ""));
+                return <Timeline items={items} empty="Nothing has happened on this installation yet." />;
+              })()}
             </div>
 
             <div className="rounded-xl border border-border bg-card p-5">
@@ -1093,7 +1418,32 @@ export default function InstallationTrackerPage() {
                 />
               </div>
               <div>
-                <label className={createLabelClass}>Vendor</label>
+                <div className="flex items-center justify-between">
+                  <label className={createLabelClass}>Vendor</label>
+                  <button
+                    type="button"
+                    onClick={() => { setEditVendorManual((v) => !v); setEditVendor(""); }}
+                    className="text-[11px] font-medium text-primary hover:underline"
+                  >
+                    {editVendorManual ? "Pick a registered vendor" : "Not registered? Enter manually"}
+                  </button>
+                </div>
+                {editVendorManual ? (
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <input
+                      name="external_vendor_name"
+                      defaultValue={selected?.external_vendor_name ?? ""}
+                      placeholder="Vendor name"
+                      className={createInputClass}
+                    />
+                    <input
+                      name="external_vendor_contact"
+                      defaultValue={selected?.external_vendor_contact ?? ""}
+                      placeholder="Contact person / phone"
+                      className={createInputClass}
+                    />
+                  </div>
+                ) : (
                 <SearchSelect
                   options={supplierOptions}
                   value={editVendor}
@@ -1101,6 +1451,7 @@ export default function InstallationTrackerPage() {
                   name="vendor"
                   placeholder="Search vendor…"
                 />
+                )}
               </div>
               <div>
                 <label htmlFor="ei-zone" className={createLabelClass}>Zone</label>
@@ -1141,6 +1492,65 @@ export default function InstallationTrackerPage() {
               </button>
               <button type="submit" disabled={editSaving} className="inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-medium text-white transition-all disabled:opacity-50">
                 {editSaving ? "Saving..." : "Save Changes"}
+              </button>
+            </div>
+          </form>
+        </Modal>
+
+        {/* Mark Active — the technician's own status change, with the photo
+            that proves the asset is up and running. */}
+        <Modal
+          open={activateOpen}
+          onClose={() => setActivateOpen(false)}
+          title={`Mark Active — ${selected.device_code}`}
+        >
+          <form onSubmit={handleActivateSubmit} className="space-y-4">
+            <p className="text-xs text-muted-foreground">
+              Confirms the asset is installed and running. The photo you add is filed against this
+              installation and on the asset itself, and the registry status follows automatically.
+            </p>
+            <div>
+              <label htmlFor="activate-photos" className={createLabelClass}>
+                Photo of the installed asset *
+              </label>
+              <input
+                id="activate-photos"
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={(e) => setActivatePhotos(Array.from(e.target.files ?? []))}
+                className={createInputClass}
+              />
+              {activatePhotos.length > 0 && (
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  {activatePhotos.length} photo{activatePhotos.length > 1 ? "s" : ""} ready to upload.
+                </p>
+              )}
+            </div>
+            <div>
+              <label htmlFor="activate-notes" className={createLabelClass}>Notes</label>
+              <textarea
+                id="activate-notes"
+                name="notes"
+                rows={2}
+                placeholder="e.g. Powered on, content playing, client shown the controls"
+                className={`${createInputClass} h-auto py-2`}
+              />
+            </div>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setActivateOpen(false)}
+                className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={activateSaving || activatePhotos.length === 0}
+                className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
+              >
+                {activateSaving ? "Saving…" : "Mark Active"}
               </button>
             </div>
           </form>
@@ -1379,13 +1789,14 @@ export default function InstallationTrackerPage() {
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Asset ID</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Device Name</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Asset Name</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Client(s)</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Site</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Installer</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">POC</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Due Date</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Completed</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Status</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Progress</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Action</th>
                 </tr>
@@ -1406,10 +1817,11 @@ export default function InstallationTrackerPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3.5 text-foreground">
-                        {inst.asset_name || inst.device_name || "—"}
-                        {inst.asset_name && inst.device_name && (
-                          <span className="block text-xs text-muted-foreground">{inst.device_name}</span>
-                        )}
+                        {/* Falls back to the asset code, which the ID column
+                            already shows — no point printing it twice. */}
+                        {inst.asset_name
+                          || (inst.device_name !== inst.device_code ? inst.device_name : null)
+                          || "—"}
                       </td>
                       <td className="px-4 py-3.5 text-foreground">{inst.client_names.length > 0 ? inst.client_names.join(", ") : "—"}</td>
                       <td className="px-4 py-3.5 text-foreground">{inst.site_name}</td>
@@ -1433,11 +1845,23 @@ export default function InstallationTrackerPage() {
                         {inst.completed_at ? formatDate(inst.completed_at) : "—"}
                       </td>
                       <td className="px-4 py-3.5">
+                        <span
+                          title={inst.health_reason || undefined}
+                          className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-0.5 text-[11px] font-semibold ring-1 ${healthStyle(inst.health).badge}`}
+                        >
+                          {["on_hold", "overdue", "delayed"].includes(inst.health) && (
+                            <AlertTriangle className="h-2.5 w-2.5" />
+                          )}
+                          {inst.health_display}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3.5">
                         <div className="flex items-center gap-2">
-                          <span className="text-sm font-semibold text-foreground">{inst.progress}%</span>
+                          {/* The bar agrees with the status beside it. */}
+                          <span className={`text-sm font-semibold ${healthStyle(inst.health).text}`}>{inst.progress}%</span>
                           <div className="h-1.5 w-16 overflow-hidden rounded-full bg-secondary">
                             <div
-                              className="h-full rounded-full bg-primary"
+                              className={`h-full rounded-full ${healthStyle(inst.health).bar}`}
                               style={{ width: `${inst.progress}%` }}
                             />
                           </div>
@@ -1523,7 +1947,22 @@ export default function InstallationTrackerPage() {
                   />
                 </div>
                 <div>
-                  <label className={createLabelClass}>Vendor (optional)</label>
+                  <div className="flex items-center justify-between">
+                    <label className={createLabelClass}>Vendor (optional)</label>
+                    <button
+                      type="button"
+                      onClick={() => { setCreateVendorManual((v) => !v); setCreateVendor(""); }}
+                      className="text-[11px] font-medium text-primary hover:underline"
+                    >
+                      {createVendorManual ? "Pick a registered vendor" : "Not registered? Enter manually"}
+                    </button>
+                  </div>
+                  {createVendorManual ? (
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <input name="external_vendor_name" placeholder="Vendor name" className={createInputClass} />
+                      <input name="external_vendor_contact" placeholder="Contact person / phone" className={createInputClass} />
+                    </div>
+                  ) : (
                   <SearchSelect
                     options={supplierOptions}
                     value={createVendor}
@@ -1531,6 +1970,7 @@ export default function InstallationTrackerPage() {
                     name="vendor"
                     placeholder="Search vendor…"
                   />
+                  )}
                 </div>
                 <div>
                   <label htmlFor="ci-installed-at" className={createLabelClass}>Start / Installed At</label>

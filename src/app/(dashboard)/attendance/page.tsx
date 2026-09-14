@@ -152,7 +152,7 @@ export default function AttendancePage() {
                   <tr key={r.id} className="border-b border-border transition-colors hover:bg-secondary/30">
                     <td className={`${tdClass} font-medium text-foreground`}>{r.user_name}</td>
                     <td className={tdClass}>
-                      <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${r.check_type === "check_in" ? "bg-emerald-500/10 text-emerald-500 ring-emerald-500/20" : "bg-slate-500/10 text-slate-500 ring-slate-500/20"}`}>
+                      <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${r.check_type === "check_in" ? "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20" : "bg-slate-500/10 text-slate-600 ring-slate-500/20"}`}>
                         {r.check_type === "check_in" ? <Fingerprint className="h-3 w-3" /> : <LogOut className="h-3 w-3" />}
                         {r.check_type_display}
                       </span>

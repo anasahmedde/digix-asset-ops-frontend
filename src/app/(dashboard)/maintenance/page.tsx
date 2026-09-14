@@ -1,7 +1,8 @@
 "use client";
 
-import { Check, Pencil, Play, Plus, Trash2, Wrench, X } from "lucide-react";
+import { AlertTriangle, CalendarClock, Check, Pencil, Play, Plus, Ticket, Trash2, Wrench, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
@@ -21,13 +22,14 @@ interface MaintenanceSchedule {
   device: string | null;
   device_code: string | null;
   device_name: string | null;
+  device_status: string | null;
   site: string | null;
   site_name: string | null;
   assigned_to: string | null;
   assigned_to_name: string | null;
   vendors: string[];
   vendor_names: string[];
-  required_components: { name: string; quantity: number }[];
+  required_components: ReqRow[];
   next_due: string;
   instructions: string;
   status: string;
@@ -38,6 +40,12 @@ interface MaintenanceSchedule {
 }
 
 interface Option { id: string; label: string }
+
+/** A material the visit takes along — picked from inventory, or (on older
+ *  schedules) a name typed by hand. */
+type ReqRow = { name: string; quantity: number; inventory_item?: string; inventory_unit_type?: string };
+
+interface StockOption { value: string; id: string; kind: "item" | "product"; name: string; label: string }
 
 interface BillingDefaults {
   is_billable: boolean;
@@ -56,9 +64,9 @@ interface MaintenanceRecordRow {
 }
 
 const PRIORITY_BADGES: Record<string, string> = {
-  low: "bg-slate-500/10 text-slate-400 ring-slate-500/20",
-  medium: "bg-amber-500/10 text-amber-500 ring-amber-500/20",
-  high: "bg-red-500/10 text-red-500 ring-red-500/20",
+  low: "bg-slate-500/10 text-slate-600 ring-slate-500/20",
+  medium: "bg-amber-500/10 text-amber-600 ring-amber-500/20",
+  high: "bg-red-500/10 text-red-600 ring-red-500/20",
 };
 
 const inputClass =
@@ -69,9 +77,9 @@ const thClass =
 const tdClass = "px-5 py-3.5";
 
 const TYPE_BADGES: Record<string, string> = {
-  preventive: "bg-blue-500/10 text-blue-400 ring-blue-500/20",
-  corrective: "bg-red-500/10 text-red-400 ring-red-500/20",
-  predictive: "bg-purple-500/10 text-purple-400 ring-purple-500/20",
+  preventive: "bg-blue-500/10 text-blue-600 ring-blue-500/20",
+  corrective: "bg-red-500/10 text-red-600 ring-red-500/20",
+  predictive: "bg-purple-500/10 text-purple-600 ring-purple-500/20",
 };
 
 const FREQ_LABEL: Record<string, string> = {
@@ -94,8 +102,8 @@ function BillingChip({ billable, chargeTo }: { billable: boolean; chargeTo: stri
     <span
       className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-medium ring-1 ${
         billable
-          ? "bg-amber-500/10 text-amber-500 ring-amber-500/20"
-          : "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20"
+          ? "bg-amber-500/10 text-amber-600 ring-amber-500/20"
+          : "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20"
       }`}
     >
       {label}
@@ -119,7 +127,8 @@ export default function MaintenancePage() {
   const [formDevice, setFormDevice] = useState("");
   const [formAssignee, setFormAssignee] = useState("");
   const [formVendors, setFormVendors] = useState<string[]>([]);
-  const [reqComponents, setReqComponents] = useState<{ name: string; quantity: number }[]>([]);
+  const [reqComponents, setReqComponents] = useState<ReqRow[]>([]);
+  const [stockOptions, setStockOptions] = useState<StockOption[]>([]);
   const [supplierOptions, setSupplierOptions] = useState<Option[]>([]);
   const [formAssetInfo, setFormAssetInfo] = useState<{
     components: { name: string; quantity: number }[];
@@ -141,6 +150,29 @@ export default function MaintenancePage() {
   const openScheduleIdRef = useRef<string | null>(null);
   const searchParams = useSearchParams();
   const autoOpenedRef = useRef(false);
+
+  // What a visit can take along: generic stock and opened unique products.
+  useEffect(() => {
+    Promise.allSettled([
+      api.get("/inventory/items/", { params: { page_size: 500 } }),
+      api.get("/inventory/products/", { params: { page_size: 500 } }),
+    ]).then(([items, products]) => {
+      const opts: StockOption[] = [];
+      if (items.status === "fulfilled") {
+        for (const it of items.value.data.results ?? items.value.data) {
+          const name = it.material_name ?? it.sku;
+          opts.push({ value: `item:${it.id}`, id: it.id, kind: "item", name, label: `${name} · ${it.quantity} in stock` });
+        }
+      }
+      if (products.status === "fulfilled") {
+        for (const p of products.value.data.results ?? products.value.data) {
+          const name = [p.name, p.model_name].filter(Boolean).join(" ");
+          opts.push({ value: `product:${p.id}`, id: p.id, kind: "product", name, label: `${name} · ${p.in_stock_count} in stock` });
+        }
+      }
+      setStockOptions(opts);
+    });
+  }, []);
 
   const fetchSchedules = useCallback(async () => {
     try {
@@ -326,10 +358,13 @@ export default function MaintenancePage() {
       site: fd.get("site") || null,
       assigned_to: fd.get("assigned_to") || null,
       vendors: fd.getAll("vendors"),
-      required_components: reqComponents.filter((r) => r.name.trim()),
+      required_components: reqComponents.filter((r) => r.inventory_item || r.inventory_unit_type || r.name.trim()),
       next_due: fd.get("next_due"),
       instructions: fd.get("instructions"),
-      status: fd.get("status"),
+      // Status is sent only when the user changed it: the form holds the copy
+      // it was opened with, and a stale copy must not overwrite what happened
+      // since (a job completed elsewhere in the meantime).
+      ...(modalMode === "create" || fd.get("status") !== selected?.status ? { status: fd.get("status") } : {}),
     };
     try {
       if (modalMode === "create") {
@@ -392,6 +427,82 @@ export default function MaintenancePage() {
         )}
       </div>
 
+      {/* What needs attention, before the full list: planned visits in the
+          next week, and corrective jobs already past the date promised when
+          the asset was taken out of service. */}
+      {!loading && (() => {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const weekOut = new Date(today);
+        weekOut.setDate(weekOut.getDate() + 7);
+        const state = (s: MaintenanceSchedule) => s.effective_status || s.status;
+        const upcoming = schedules
+          .filter((s) => s.maintenance_type === "preventive" && state(s) !== "completed" && s.next_due)
+          .filter((s) => { const d = new Date(s.next_due); return d >= today && d <= weekOut; })
+          .sort((a, b) => a.next_due.localeCompare(b.next_due));
+        const late = schedules
+          .filter((s) => s.maintenance_type === "corrective" && state(s) === "overdue")
+          .sort((a, b) => a.next_due.localeCompare(b.next_due));
+        const daysLate = (due: string) => Math.max(1, Math.round((today.getTime() - new Date(due).getTime()) / 86400000));
+
+        if (upcoming.length === 0 && late.length === 0) {
+          return (
+            <div className="flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3 text-xs text-emerald-700">
+              <Check className="h-4 w-4" />
+              Nothing planned in the next 7 days, and no corrective job is past its due date.
+            </div>
+          );
+        }
+        return (
+          <div className="grid gap-3 lg:grid-cols-2">
+            <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-4">
+              <div className="mb-2 flex items-center gap-2">
+                <CalendarClock className="h-4 w-4 text-blue-600" />
+                <p className="text-sm font-semibold text-foreground">Upcoming planned maintenance</p>
+                <span className="ml-auto rounded-full bg-blue-500/10 px-2 py-0.5 text-[11px] font-semibold text-blue-600">{upcoming.length} in 7 days</span>
+              </div>
+              {upcoming.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No preventive visits due this week.</p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {upcoming.slice(0, 4).map((s) => (
+                    <li key={s.id}>
+                      <button onClick={() => openEdit(s)} className="flex w-full items-center justify-between gap-3 rounded-md px-2 py-1 text-left text-xs transition-colors hover:bg-blue-500/10">
+                        <span className="min-w-0 truncate text-foreground">{s.title} <span className="font-mono text-muted-foreground">{s.device_code ?? ""}</span></span>
+                        <span className="shrink-0 font-medium text-blue-600">{new Date(s.next_due).toLocaleDateString()}</span>
+                      </button>
+                    </li>
+                  ))}
+                  {upcoming.length > 4 && <li className="px-2 text-[11px] text-muted-foreground">+{upcoming.length - 4} more</li>}
+                </ul>
+              )}
+            </div>
+            <div className={`rounded-xl border p-4 ${late.length ? "border-red-500/25 bg-red-500/5" : "border-border bg-card"}`}>
+              <div className="mb-2 flex items-center gap-2">
+                <AlertTriangle className={`h-4 w-4 ${late.length ? "text-red-600" : "text-muted-foreground"}`} />
+                <p className="text-sm font-semibold text-foreground">Corrective maintenance past due</p>
+                <span className={`ml-auto rounded-full px-2 py-0.5 text-[11px] font-semibold ${late.length ? "bg-red-500/10 text-red-600" : "bg-secondary text-muted-foreground"}`}>{late.length} overdue</span>
+              </div>
+              {late.length === 0 ? (
+                <p className="text-xs text-muted-foreground">Every repair is within the date it was promised by.</p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {late.slice(0, 4).map((s) => (
+                    <li key={s.id}>
+                      <button onClick={() => openEdit(s)} className="flex w-full items-center justify-between gap-3 rounded-md px-2 py-1 text-left text-xs transition-colors hover:bg-red-500/10">
+                        <span className="min-w-0 truncate text-foreground">{s.title} <span className="font-mono text-muted-foreground">{s.device_code ?? ""}</span></span>
+                        <span className="shrink-0 font-medium text-red-600">{daysLate(s.next_due)}d late</span>
+                      </button>
+                    </li>
+                  ))}
+                  {late.length > 4 && <li className="px-2 text-[11px] text-muted-foreground">+{late.length - 4} more</li>}
+                </ul>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
       <FilterBar
         filters={[
           { key: "type", label: "Type", options: Object.keys(TYPE_BADGES).map((t) => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) })) },
@@ -437,7 +548,8 @@ export default function MaintenancePage() {
                   <th className={thClass}>Frequency</th>
                   <th className={thClass}>Priority</th>
                   <th className={thClass}>Next Due</th>
-                  <th className={thClass}>Device</th>
+                  <th className={thClass}>Asset ID</th>
+                  <th className={thClass}>Asset Name</th>
                   <th className={thClass}>Site</th>
                   <th className={thClass}>Assigned To</th>
                   <th className={thClass}>Status</th>
@@ -476,9 +588,11 @@ export default function MaintenancePage() {
                         ? new Date(s.next_due).toLocaleDateString()
                         : "-"}
                     </td>
-                    <td className={`${tdClass} text-muted-foreground`}>
+                    <td className={`${tdClass} font-mono text-muted-foreground`}>
                       {s.device_code || "-"}
-                      {s.device_name && <span className="block text-xs">{s.device_name}</span>}
+                    </td>
+                    <td className={`${tdClass} text-muted-foreground`}>
+                      {s.device_name || "-"}
                     </td>
                     <td className={`${tdClass} text-muted-foreground`}>
                       {s.site_name || "-"}
@@ -493,12 +607,12 @@ export default function MaintenancePage() {
                       {(() => {
                         const st = s.effective_status || s.status || "active";
                         const styles: Record<string, string> = {
-                          active: "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20",
-                          pending: "bg-blue-500/10 text-blue-400 ring-blue-500/20",
-                          in_process: "bg-cyan-500/10 text-cyan-400 ring-cyan-500/20",
-                          on_hold: "bg-slate-500/10 text-slate-400 ring-slate-500/20",
-                          overdue: "bg-red-500/10 text-red-400 ring-red-500/20",
-                          completed: "bg-gray-500/10 text-gray-400 ring-gray-500/20",
+                          active: "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20",
+                          pending: "bg-blue-500/10 text-blue-600 ring-blue-500/20",
+                          in_process: "bg-cyan-500/10 text-cyan-600 ring-cyan-500/20",
+                          on_hold: "bg-slate-500/10 text-slate-600 ring-slate-500/20",
+                          overdue: "bg-red-500/10 text-red-600 ring-red-500/20",
+                          completed: "bg-gray-500/10 text-gray-600 ring-gray-500/20",
                         };
                         const labels: Record<string, string> = { in_process: "In Process", on_hold: "On Hold", overdue: "Over Due" };
                         const text = labels[st] || st.charAt(0).toUpperCase() + st.slice(1);
@@ -516,6 +630,15 @@ export default function MaintenancePage() {
                             >
                               <Play className="h-3 w-3" /> Start
                             </button>
+                          )}
+                          {s.maintenance_type === "preventive" && s.device && (
+                            <Link
+                              href={`/tickets?create=1&device=${s.device}&category=repair`}
+                              className="inline-flex items-center gap-1 rounded-md bg-red-500/10 px-2 py-1 text-[11px] font-medium text-red-600 transition-colors hover:bg-red-500/20"
+                              title="Found a major fault? Raise a maintenance ticket"
+                            >
+                              <Ticket className="h-3 w-3" /> Ticket
+                            </Link>
                           )}
                           {(s.effective_status || s.status) !== "completed" && (
                             <button
@@ -535,15 +658,24 @@ export default function MaintenancePage() {
                             <Pencil className="h-3.5 w-3.5" />
                           </button>
                           )}
-                          {canEdit && (
+                          {canEdit && (() => {
+                            // A fault is closed, not deleted: deleting the open
+                            // job would strand the asset out of service.
+                            const stranding =
+                              s.maintenance_type === "corrective" &&
+                              (s.effective_status || s.status) !== "completed" &&
+                              s.device_status === "under_maintenance";
+                            return (
                           <button
                             onClick={() => handleDelete(s)}
-                            className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-destructive"
-                            title="Delete"
+                            disabled={stranding}
+                            className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-destructive disabled:pointer-events-none disabled:opacity-40"
+                            title={stranding ? "The asset is out of service on this job — complete it instead" : "Delete"}
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
-                          )}
+                            );
+                          })()}
                         </div>
                       ) : (
                         <span className="text-xs text-muted-foreground">—</span>
@@ -701,17 +833,40 @@ export default function MaintenancePage() {
                   </button>
                 </div>
                 {reqComponents.length === 0 ? (
-                  <p className="text-[11px] text-muted-foreground">None added — list what the visit needs (e.g. SMD Module ×6, sealant ×2).</p>
+                  <p className="text-[11px] text-muted-foreground">None added — pick what the technician takes along from inventory.</p>
                 ) : (
                   <div className="space-y-2">
                     {reqComponents.map((row, i) => (
                       <div key={i} className="flex gap-2">
-                        <input
-                          value={row.name}
-                          onChange={(e) => setReqComponents((rows) => rows.map((r, j) => (j === i ? { ...r, name: e.target.value } : r)))}
-                          placeholder="Component name (e.g. SMD Module)"
-                          className="h-9 min-w-0 flex-1 rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                        />
+                        <select
+                          value={row.inventory_item ? `item:${row.inventory_item}` : row.inventory_unit_type ? `product:${row.inventory_unit_type}` : ""}
+                          onChange={(e) => {
+                            const opt = stockOptions.find((o) => o.value === e.target.value);
+                            setReqComponents((rows) => rows.map((r, j) => (j === i
+                              ? {
+                                  quantity: r.quantity,
+                                  name: opt?.name ?? "",
+                                  ...(opt?.kind === "item" ? { inventory_item: opt.id } : {}),
+                                  ...(opt?.kind === "product" ? { inventory_unit_type: opt.id } : {}),
+                                }
+                              : r)));
+                          }}
+                          className="h-9 min-w-0 flex-1 rounded-lg border border-border bg-card px-2 text-sm text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                        >
+                          <option value="">
+                            {row.name && !row.inventory_item && !row.inventory_unit_type ? `${row.name} (typed by hand)` : "Select from inventory…"}
+                          </option>
+                          <optgroup label="Stock items">
+                            {stockOptions.filter((o) => o.kind === "item").map((o) => (
+                              <option key={o.value} value={o.value}>{o.label}</option>
+                            ))}
+                          </optgroup>
+                          <optgroup label="Unique items">
+                            {stockOptions.filter((o) => o.kind === "product").map((o) => (
+                              <option key={o.value} value={o.value}>{o.label}</option>
+                            ))}
+                          </optgroup>
+                        </select>
                         <input
                           type="number"
                           min={1}
@@ -832,6 +987,15 @@ export default function MaintenancePage() {
               </button>
             </div>
             <form onSubmit={submitComplete} className="space-y-4">
+              {completeFor.maintenance_type === "preventive" && completeFor.device && (
+                <p className="rounded-lg border border-dashed border-border px-3 py-2 text-[11px] text-muted-foreground">
+                  Found something this visit cannot fix?{" "}
+                  <Link href={`/tickets?create=1&device=${completeFor.device}&category=repair`} className="font-medium text-primary hover:underline">
+                    Raise a maintenance ticket
+                  </Link>
+                  {" "}— it follows the normal ticket workflow.
+                </p>
+              )}
               {(completeFor.required_components ?? []).length > 0 && (
                 <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
                   <p className="mb-1 text-xs font-semibold text-foreground">Required for this maintenance</p>

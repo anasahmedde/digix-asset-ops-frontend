@@ -1,9 +1,10 @@
 "use client";
 
-import { ChevronDown, ChevronRight, PackageCheck, Pencil, Plus, ShoppingCart, Trash2, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Download, PackageCheck, Pencil, Plus, ShoppingCart, Trash2, X } from "lucide-react";
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { Requisitions } from "@/components/procurement/requisitions";
 import { FilterBar } from "@/components/ui/filter-bar";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
@@ -28,6 +29,9 @@ interface POItem {
   asset_type?: string | null;
   device_model?: string | null;
   material_type?: string | null;
+  /** Set when the line is for a serialized inventory product. */
+  inventory_unit_type?: string | null;
+  inventory_item?: string | null;
   received_quantity: number;
   line_total: string;
 }
@@ -43,6 +47,9 @@ interface PurchaseOrder {
   expected_delivery: string | null;
   total_amount: string;
   notes: string;
+  /** Terms as typed on this order; `effective_terms` falls back to the standard. */
+  terms: string;
+  effective_terms: string;
   ordered_by_name: string | null;
   items: POItem[];
   created_at: string;
@@ -58,7 +65,7 @@ interface Option {
 interface ReceiveRow {
   po_item: string;
   description: string;
-  serialized: boolean; // device_model set → serials required, one per unit
+  serialized: boolean; // asset model or serialized product → one serial per unit
   ordered: number;
   received: number;
   outstanding: number;
@@ -117,6 +124,7 @@ interface FormState {
   order_date: string;
   expected_delivery: string;
   notes: string;
+  terms: string;
   items: ItemRow[];
 }
 
@@ -136,6 +144,9 @@ const emptyForm: FormState = {
   order_date: "",
   expected_delivery: "",
   notes: "",
+  // Blank on a new order: the server seeds the house standard, which the
+  // edit form then shows for changing.
+  terms: "",
   items: [{ ...emptyItem }],
 };
 
@@ -150,12 +161,12 @@ const tdClass = "px-5 py-3.5";
 
 const STATUS_BADGES: Record<string, string> = {
   draft: "bg-secondary/500/10 text-muted-foreground ring-gray-500/20",
-  pending_approval: "bg-amber-500/10 text-amber-500 ring-amber-500/20",
-  approved: "bg-blue-500/10 text-blue-500 ring-blue-500/20",
-  ordered: "bg-indigo-500/10 text-indigo-500 ring-indigo-500/20",
-  partially_received: "bg-purple-500/10 text-purple-500 ring-purple-500/20",
-  received: "bg-emerald-500/10 text-emerald-500 ring-emerald-500/20",
-  cancelled: "bg-red-500/10 text-red-400 ring-red-500/20",
+  pending_approval: "bg-amber-500/10 text-amber-600 ring-amber-500/20",
+  approved: "bg-blue-500/10 text-blue-600 ring-blue-500/20",
+  ordered: "bg-indigo-500/10 text-indigo-600 ring-indigo-500/20",
+  partially_received: "bg-purple-500/10 text-purple-600 ring-purple-500/20",
+  received: "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20",
+  cancelled: "bg-red-500/10 text-red-600 ring-red-500/20",
 };
 
 // Guarded transitions per current status (mirrors backend VALID_TRANSITIONS).
@@ -237,6 +248,7 @@ export default function ProcurementPage() {
   const [selected, setSelected] = useState<PurchaseOrder | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [downloadingPo, setDownloadingPo] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [filterValues, setFilterValues] = useState<Record<string, string>>({ status: "" });
   const [search, setSearch] = useState("");
@@ -255,6 +267,8 @@ export default function ProcurementPage() {
   const [receipts, setReceipts] = useState<GoodsReceipt[] | null>(null);
   const [receiptsLoading, setReceiptsLoading] = useState(false);
   const [receiptsVersion, setReceiptsVersion] = useState(0);
+
+  const [tab, setTab] = useState<"orders" | "requisitions">("orders");
 
   const fetchOrders = useCallback(async () => {
     try {
@@ -299,7 +313,7 @@ export default function ProcurementPage() {
     }
     let cancelled = false;
     setReceiptsLoading(true);
-    api.get("/inventory/goods-receipts/", { params: { purchase_order: expandedId, page_size: 100 } })
+    api.get("/inventory/receipts/", { params: { purchase_order: expandedId, page_size: 100 } })
       .then((r) => {
         if (!cancelled) setReceipts(r.data.results ?? r.data);
       })
@@ -320,6 +334,26 @@ export default function ProcurementPage() {
     setModalMode("create");
   }
 
+  /** The order as a PDF, ready to send to the supplier. */
+  async function downloadPurchaseOrder(po: PurchaseOrder) {
+    setDownloadingPo(po.id);
+    try {
+      const res = await api.get(`/procurement/purchase-orders/${po.id}/document/`, {
+        responseType: "blob",
+      });
+      const url = URL.createObjectURL(res.data as Blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${po.po_number || "purchase-order"}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast.error(getApiError(err, "Could not produce the purchase order"));
+    } finally {
+      setDownloadingPo(null);
+    }
+  }
+
   async function openEdit(id: string) {
     try {
       const { data } = await api.get<PurchaseOrder>(`/procurement/purchase-orders/${id}/`);
@@ -330,6 +364,7 @@ export default function ProcurementPage() {
         order_date: data.order_date ?? "",
         expected_delivery: data.expected_delivery ?? "",
         notes: data.notes ?? "",
+        terms: data.effective_terms ?? data.terms ?? "",
         items: data.items.length
           ? data.items.map((i) => ({
               id: i.id,
@@ -443,6 +478,7 @@ export default function ProcurementPage() {
       order_date: form.order_date || null,
       expected_delivery: form.expected_delivery || null,
       notes: form.notes,
+      terms: form.terms,
       items,
     };
     try {
@@ -488,7 +524,9 @@ export default function ProcurementPage() {
             return {
               po_item: i.id,
               description: i.description,
-              serialized: Boolean(i.device_model),
+              // Assets and serialized inventory products both arrive with
+              // serial numbers; generic stock does not.
+              serialized: Boolean(i.device_model || i.inventory_unit_type),
               ordered: i.quantity,
               received,
               outstanding: Math.max(i.quantity - received, 0),
@@ -651,13 +689,36 @@ export default function ProcurementPage() {
             <p className="text-muted-foreground">Manage purchase orders and vendor procurement</p>
           </div>
         </div>
-        {canEdit && (
+        {canEdit && tab === "orders" && (
           <button onClick={openCreate} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-all">
             <Plus className="h-4 w-4" /> Add Purchase Order
           </button>
         )}
       </div>
 
+      <div className="flex gap-1 border-b border-border">
+        {([
+          { key: "orders", label: "Purchase Orders" },
+          { key: "requisitions", label: "To Procure" },
+        ] as const).map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={`-mb-px border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
+              tab === t.key
+                ? "border-primary text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "requisitions" && <Requisitions onPoRaised={fetchOrders} />}
+
+      {tab === "orders" && (
+      <>
       <FilterBar
         filters={[
           { key: "status", label: "Status", options: Object.keys(STATUS_BADGES).map((s) => ({ value: s, label: statusLabel(s) })) },
@@ -784,6 +845,16 @@ export default function ProcurementPage() {
                             <p className="text-sm text-muted-foreground">No line items on this purchase order.</p>
                           )}
                           {po.notes && <p className="text-sm text-muted-foreground"><span className="font-medium text-foreground">Notes:</span> {po.notes}</p>}
+                          <div>
+                            <button
+                              onClick={() => downloadPurchaseOrder(po)}
+                              disabled={downloadingPo === po.id}
+                              className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
+                            >
+                              <Download className="h-4 w-4" />
+                              {downloadingPo === po.id ? "Preparing…" : "Download PO"}
+                            </button>
+                          </div>
                           {RECEIPT_HISTORY_STATUSES.includes(po.status) && (
                             <div className="rounded-lg border border-border bg-card/60 p-3">
                               <h4 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Goods Receipts</h4>
@@ -821,6 +892,8 @@ export default function ProcurementPage() {
         </div>
       );
       })()}
+      </>
+      )}
 
       {modalMode && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 py-8 backdrop-blur-sm">
@@ -931,6 +1004,21 @@ export default function ProcurementPage() {
               <div className="space-y-1.5">
                 <label htmlFor="notes" className={labelClass}>Notes</label>
                 <textarea id="notes" rows={3} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className={`${inputClass} h-auto py-2`} />
+              </div>
+
+              <div className="space-y-1.5">
+                <label htmlFor="terms" className={labelClass}>Terms &amp; Conditions</label>
+                <textarea
+                  id="terms"
+                  rows={7}
+                  value={form.terms}
+                  onChange={(e) => setForm({ ...form, terms: e.target.value })}
+                  placeholder="The standard terms are used unless you change them here."
+                  className={`${inputClass} h-auto py-2 font-mono text-xs leading-relaxed`}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Printed on the order the supplier receives. Edit for a deal agreed on different terms.
+                </p>
               </div>
 
               <div className="flex justify-end gap-3 pt-2">
