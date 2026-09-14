@@ -123,6 +123,8 @@ export default function DashboardPage() {
   const [escalatedInstalls, setEscalatedInstalls] = useState<EscalatedInstallLite[]>([]);
   const [stock, setStock] = useState<{ id: string; sku: string; material_name: string | null; category_name: string | null; quantity: number; unit: string | null; total_value: number | null; is_low_stock: boolean }[]>([]);
   const [stockSummary, setStockSummary] = useState<{ total_value: number; total_quantity: number; items: number; low_stock: number; unpriced_items: number } | null>(null);
+  // Unique products the user has chosen to watch as in-hand stock.
+  const [highValue, setHighValue] = useState<{ id: string; name: string; type_code: string; in_stock_count: number; unit_cost: string | null }[]>([]);
   const [stockSortField, setStockSortField] = useState<"quantity" | "total_value" | "material_type__name">("quantity");
   const [stockSortDesc, setStockSortDesc] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -147,6 +149,9 @@ export default function DashboardPage() {
         if (maintMapRes.status === "fulfilled") setMaintSites(maintMapRes.value.data);
         if (alertsRes.status === "fulfilled") setAlerts(alertsRes.value.data.results ?? []);
         if (stockSummaryRes.status === "fulfilled") setStockSummary(stockSummaryRes.value.data);
+        api.get("/inventory/products/", { params: { is_high_value: true, page_size: 100 } })
+          .then((r) => setHighValue(r.data.results ?? r.data))
+          .catch(() => {});
         if (ticketsRes.status === "fulfilled") setTickets(ticketsRes.value.data.results ?? []);
         if (projectsRes.status === "fulfilled") setProjects(projectsRes.value.data.results ?? []);
         if (escInstRes.status === "fulfilled") setEscalatedInstalls(escInstRes.value.data.results ?? []);
@@ -190,7 +195,7 @@ export default function DashboardPage() {
 
 
   const statusDistData = [
-    { name: "Working", value: working, color: "#10b981" },
+    { name: "Active", value: working, color: "#10b981" },
     { name: "In Stock", value: inStock, color: "#6366f1" },
     { name: "Pipeline", value: pipeline, color: "#8b5cf6" },
     { name: "Under Maintenance", value: underMaint, color: "#f59e0b" },
@@ -257,7 +262,7 @@ export default function DashboardPage() {
           <StatCard label="Total Assets" value={total} subtitle="across Pakistan" icon={<Monitor className="h-5 w-5" />} />
         </Link>
         <Link href="/assets" className="block rounded-xl transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md">
-          <StatCard label="Working" value={working} subtitle="live at client sites" icon={<CheckCircle className="h-5 w-5" />} />
+          <StatCard label="Active" value={working} subtitle="installed & live at client sites" icon={<CheckCircle className="h-5 w-5" />} />
         </Link>
         <Link href="/assets?status=in_stock" className="block rounded-xl transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md">
           <StatCard label="In Stock" value={inStock} subtitle="ready to install" variant="highlighted" icon={<Clock className="h-5 w-5" />} />
@@ -270,6 +275,75 @@ export default function DashboardPage() {
             icon={<Wrench className="h-5 w-5" />}
           />
         </Link>
+      </div>
+
+      {/* In-hand stock: the assets on the shelf, plus the high-value unique
+          items the user has chosen to watch alongside them. */}
+      <div className="rounded-xl border border-border bg-card p-5">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <div>
+            <h2 className="text-base font-semibold text-foreground">In-Hand Stock</h2>
+            <p className="text-xs text-muted-foreground">
+              {inStock} asset{inStock === 1 ? "" : "s"} ready to install
+              {highValue.length > 0 ? ", plus the high-value items you are watching" : ""}
+            </p>
+          </div>
+          <Link href="/inventory" className="text-xs font-medium text-primary hover:underline">
+            Open inventory
+          </Link>
+        </div>
+
+        {highValue.length === 0 ? (
+          <p className="mt-4 rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
+            No high-value items selected. Tick &ldquo;Count in in-hand stock&rdquo; on a unique product
+            in Inventory to watch its quantity and value here.
+          </p>
+        ) : (
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
+                  <th className="py-2 font-medium">Item</th>
+                  <th className="py-2 text-right font-medium">Qty Available</th>
+                  <th className="py-2 text-right font-medium">Unit Cost</th>
+                  <th className="py-2 text-right font-medium">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {highValue.map((p) => {
+                  const amount = Number(p.unit_cost ?? 0) * p.in_stock_count;
+                  return (
+                    <tr key={p.id} className="border-b border-border/60 last:border-0">
+                      <td className="py-2 text-foreground">
+                        {p.name}
+                        <span className="block font-mono text-[11px] text-muted-foreground">{p.type_code}</span>
+                      </td>
+                      <td className="py-2 text-right font-medium text-foreground">{p.in_stock_count}</td>
+                      <td className="py-2 text-right text-muted-foreground">
+                        {p.unit_cost ? Number(p.unit_cost).toLocaleString() : "—"}
+                      </td>
+                      <td className="py-2 text-right font-medium text-foreground">
+                        {p.unit_cost ? amount.toLocaleString() : "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr className="border-t border-border">
+                  <td colSpan={3} className="py-2 text-right text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                    Total value in hand
+                  </td>
+                  <td className="py-2 text-right font-semibold text-foreground">
+                    {highValue
+                      .reduce((sum, p) => sum + Number(p.unit_cost ?? 0) * p.in_stock_count, 0)
+                      .toLocaleString()}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Map (squeezed to half) + summaries column */}
@@ -430,7 +504,7 @@ export default function DashboardPage() {
             {[
               { label: "On Track", value: projectSummary.onTrack, cls: "bg-emerald-500/10 text-emerald-600" },
               { label: "At Risk", value: projectSummary.atRisk, cls: "bg-amber-500/10 text-amber-600" },
-              { label: "Delayed", value: projectSummary.delayed, cls: "bg-red-500/10 text-red-500" },
+              { label: "Delayed", value: projectSummary.delayed, cls: "bg-red-500/10 text-red-600" },
               { label: "Completed", value: projectSummary.completed, cls: "bg-primary/10 text-primary" },
             ].map((row) => (
               <Link key={row.label} href="/projects" className="flex items-center justify-between rounded-lg border border-border/60 px-3 py-2 transition-colors hover:border-primary/40 hover:bg-primary/5">
@@ -459,9 +533,9 @@ export default function DashboardPage() {
           </div>
           <div className="space-y-2">
             {[
-              { label: "Open", value: ticketSummary.open, href: "/tickets?status=open", cls: "bg-blue-500/10 text-blue-500" },
+              { label: "Open", value: ticketSummary.open, href: "/tickets?status=open", cls: "bg-blue-500/10 text-blue-600" },
               { label: "In Progress", value: ticketSummary.inProgress, href: "/tickets?status=in_progress", cls: "bg-amber-500/10 text-amber-600" },
-              { label: "Pending Review / Approval", value: ticketSummary.review, href: "/tickets?status=pending_review", cls: "bg-purple-500/10 text-purple-500" },
+              { label: "Pending Review / Approval", value: ticketSummary.review, href: "/tickets?status=pending_review", cls: "bg-purple-500/10 text-purple-600" },
               { label: "Closed / Approved", value: ticketSummary.closed, href: "/tickets?status=closed", cls: "bg-emerald-500/10 text-emerald-600" },
             ].map((row) => (
               <Link key={row.label} href={row.href} className="flex items-center justify-between rounded-lg border border-border/60 px-3 py-2 transition-colors hover:border-primary/40 hover:bg-primary/5">
@@ -525,7 +599,7 @@ export default function DashboardPage() {
                       <p className="text-[10px] text-muted-foreground">{item.sku}{item.category_name ? ` · ${item.category_name}` : ""}</p>
                     </div>
                     <div className="shrink-0 text-right">
-                      <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${low ? "bg-red-500/10 text-red-500" : "bg-emerald-500/10 text-emerald-600"}`}>
+                      <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${low ? "bg-red-500/10 text-red-600" : "bg-emerald-500/10 text-emerald-600"}`}>
                         {item.quantity} {item.unit}
                       </span>
                       <p className="mt-0.5 text-[10px] text-muted-foreground">

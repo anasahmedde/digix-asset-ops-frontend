@@ -38,17 +38,17 @@ const thClass = "px-5 py-3.5 text-left text-xs font-medium uppercase tracking-wi
 const tdClass = "px-5 py-3.5";
 
 const typeBadge: Record<string, string> = {
-  payable: "bg-red-500/10 text-red-400 ring-red-500/20",
-  receivable: "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20",
+  payable: "bg-red-500/10 text-red-600 ring-red-500/20",
+  receivable: "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20",
 };
 
 const statusBadge: Record<string, string> = {
   draft: "bg-secondary/500/10 text-muted-foreground ring-gray-500/20",
-  sent: "bg-blue-500/10 text-blue-400 ring-blue-500/20",
-  partially_paid: "bg-amber-500/10 text-amber-400 ring-amber-500/20",
-  paid: "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20",
-  overdue: "bg-red-500/10 text-red-400 ring-red-500/20",
-  cancelled: "bg-slate-500/10 text-slate-400 ring-slate-500/20",
+  sent: "bg-blue-500/10 text-blue-600 ring-blue-500/20",
+  partially_paid: "bg-amber-500/10 text-amber-600 ring-amber-500/20",
+  paid: "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20",
+  overdue: "bg-red-500/10 text-red-600 ring-red-500/20",
+  cancelled: "bg-slate-500/10 text-slate-600 ring-slate-500/20",
 };
 
 function fmt(value: string | number) {

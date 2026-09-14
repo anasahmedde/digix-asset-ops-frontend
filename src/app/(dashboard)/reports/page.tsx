@@ -155,7 +155,7 @@ export default function ReportsPage() {
                 <thead>
                   <tr className="border-b border-border bg-secondary/50">
                     {report.columns.map((c) => (
-                      <th key={c.key} className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">{c.label}</th>
+                      <th key={c.key} className="px-5 py-3.5 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">{c.label}</th>
                     ))}
                   </tr>
                 </thead>

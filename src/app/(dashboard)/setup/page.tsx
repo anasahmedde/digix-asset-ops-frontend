@@ -59,8 +59,8 @@ const ESCALATION_SCOPE_LABELS: Record<string, string> = {
   installation: "Installation",
 };
 const ESCALATION_SCOPE_BADGE: Record<string, string> = {
-  ticket: "bg-blue-500/10 text-blue-400 ring-blue-500/20",
-  installation: "bg-violet-500/10 text-violet-400 ring-violet-500/20",
+  ticket: "bg-blue-500/10 text-blue-600 ring-blue-500/20",
+  installation: "bg-violet-500/10 text-violet-600 ring-violet-500/20",
 };
 const TERMS_CATEGORY_OPTIONS = [
   { value: "work_order", label: "Work Order" },
@@ -301,6 +301,45 @@ const SECTIONS: SectionConfig[] = [
     ],
   },
   {
+    key: "material-types",
+    label: "Material Types",
+    endpoint: "/assets/material-types/",
+    singular: "Material Type",
+    labelKey: "name",
+    resource: "setup",
+    searchKeys: ["name", "category"],
+    columns: [
+      { key: "name", label: "Material", className: "font-medium text-foreground" },
+      { key: "category", label: "Category" },
+      { key: "unit", label: "Unit" },
+    ],
+    fields: [
+      { name: "name", label: "Material Name", required: true, placeholder: "e.g. HDMI Cable 5m" },
+      { name: "category", label: "Category", placeholder: "e.g. Consumables" },
+      { name: "unit", label: "Unit", default: "piece", placeholder: "piece / meter / box" },
+      { name: "description", label: "Description", type: "textarea" },
+    ],
+  },
+  {
+    key: "inventory-categories",
+    label: "Inventory Categories",
+    endpoint: "/inventory/categories/",
+    singular: "Inventory Category",
+    labelKey: "name",
+    resource: "setup",
+    searchKeys: ["name"],
+    columns: [
+      { key: "name", label: "Category", className: "font-medium text-foreground" },
+      { key: "description", label: "Description" },
+      { key: "is_active", label: "Status", render: activeCell },
+    ],
+    fields: [
+      { name: "name", label: "Category Name", required: true, placeholder: "e.g. Spares" },
+      { name: "description", label: "Description", type: "textarea" },
+      { name: "is_active", label: "Active", type: "checkbox", default: true },
+    ],
+  },
+  {
     key: "brands",
     label: "Brands",
     endpoint: "/assets/brands/",
@@ -349,14 +388,14 @@ const SECTIONS: SectionConfig[] = [
 /* ── SLA & Escalation Matrix (display-only reference, shown with the Escalation tab) ── */
 
 const SLA_ROWS = [
-  { priority: "Critical", response: "4 hours", resolution: "24 hours", badge: "bg-red-500/10 text-red-400 ring-red-500/20" },
-  { priority: "High", response: "8 hours", resolution: "48 hours", badge: "bg-orange-500/10 text-orange-400 ring-orange-500/20" },
-  { priority: "Medium", response: "24 hours", resolution: "5 business days", badge: "bg-yellow-500/10 text-yellow-500 ring-yellow-500/20" },
-  { priority: "Low", response: "48 hours", resolution: "10 business days", badge: "bg-gray-500/10 text-gray-400 ring-gray-500/20" },
+  { priority: "Critical", response: "4 hours", resolution: "24 hours", badge: "bg-red-500/10 text-red-600 ring-red-500/20" },
+  { priority: "High", response: "8 hours", resolution: "48 hours", badge: "bg-orange-500/10 text-orange-600 ring-orange-500/20" },
+  { priority: "Medium", response: "24 hours", resolution: "5 business days", badge: "bg-yellow-500/10 text-yellow-600 ring-yellow-500/20" },
+  { priority: "Low", response: "48 hours", resolution: "10 business days", badge: "bg-gray-500/10 text-gray-600 ring-gray-500/20" },
 ];
 
 function SlaMatrixCard() {
-  const thClass = "px-4 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground";
+  const thClass = "px-5 py-3.5 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground";
   const tdClass = "px-4 py-2.5";
   return (
     <div className="rounded-xl border border-border bg-card p-5">

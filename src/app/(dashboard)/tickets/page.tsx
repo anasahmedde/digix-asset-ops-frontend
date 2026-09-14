@@ -135,24 +135,24 @@ const thClass =
 const tdClass = "px-5 py-3.5";
 
 const priorityBadge: Record<string, string> = {
-  critical: "bg-red-500/10 text-red-400 ring-red-500/20",
-  high: "bg-orange-500/10 text-orange-400 ring-orange-500/20",
-  medium: "bg-yellow-500/10 text-yellow-500 ring-yellow-500/20",
-  low: "bg-gray-500/10 text-gray-400 ring-gray-500/20",
+  critical: "bg-red-500/10 text-red-600 ring-red-500/20",
+  high: "bg-orange-500/10 text-orange-600 ring-orange-500/20",
+  medium: "bg-yellow-500/10 text-yellow-600 ring-yellow-500/20",
+  low: "bg-gray-500/10 text-gray-600 ring-gray-500/20",
 };
 
 const statusBadge: Record<string, string> = {
-  open: "bg-blue-500/10 text-blue-400 ring-blue-500/20",
-  in_progress: "bg-amber-500/10 text-amber-400 ring-amber-500/20",
-  on_hold: "bg-gray-500/10 text-gray-400 ring-gray-500/20",
-  blocked: "bg-red-500/10 text-red-400 ring-red-500/20",
-  alignment_pending: "bg-cyan-500/10 text-cyan-400 ring-cyan-500/20",
-  pending_ops_approval: "bg-orange-500/10 text-orange-400 ring-orange-500/20",
-  pending_client_approval: "bg-violet-500/10 text-violet-400 ring-violet-500/20",
-  pending_review: "bg-purple-500/10 text-purple-400 ring-purple-500/20",
-  approved: "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20",
-  rejected: "bg-rose-500/10 text-rose-400 ring-rose-500/20",
-  closed: "bg-slate-500/10 text-slate-400 ring-slate-500/20",
+  open: "bg-blue-500/10 text-blue-600 ring-blue-500/20",
+  in_progress: "bg-amber-500/10 text-amber-600 ring-amber-500/20",
+  on_hold: "bg-gray-500/10 text-gray-600 ring-gray-500/20",
+  blocked: "bg-red-500/10 text-red-600 ring-red-500/20",
+  alignment_pending: "bg-cyan-500/10 text-cyan-600 ring-cyan-500/20",
+  pending_ops_approval: "bg-orange-500/10 text-orange-600 ring-orange-500/20",
+  pending_client_approval: "bg-violet-500/10 text-violet-600 ring-violet-500/20",
+  pending_review: "bg-purple-500/10 text-purple-600 ring-purple-500/20",
+  approved: "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20",
+  rejected: "bg-rose-500/10 text-rose-600 ring-rose-500/20",
+  closed: "bg-slate-500/10 text-slate-600 ring-slate-500/20",
 };
 
 const statusIcon: Record<string, React.ReactNode> = {
@@ -948,8 +948,8 @@ function TicketDetailView({
                       <span
                         className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ${
                           ticket.warranty_info.status === "active"
-                            ? "bg-emerald-500/10 text-emerald-500 ring-emerald-500/20"
-                            : "bg-amber-500/10 text-amber-500 ring-amber-500/20"
+                            ? "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20"
+                            : "bg-amber-500/10 text-amber-600 ring-amber-500/20"
                         }`}
                       >
                         <ShieldCheck className="h-3.5 w-3.5" />
@@ -961,8 +961,8 @@ function TicketDetailView({
                       <span
                         className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ${
                           ticket.is_billable
-                            ? "bg-amber-500/10 text-amber-500 ring-amber-500/20"
-                            : "bg-emerald-500/10 text-emerald-500 ring-emerald-500/20"
+                            ? "bg-amber-500/10 text-amber-600 ring-amber-500/20"
+                            : "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20"
                         }`}
                       >
                         {ticket.is_billable ? "Billable" : "Not Billable"}

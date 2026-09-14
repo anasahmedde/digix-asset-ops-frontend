@@ -6,10 +6,10 @@ type BadgeVariant = "default" | "success" | "warning" | "error" | "info" | "outl
 
 const variantClasses: Record<BadgeVariant, string> = {
   default: "bg-secondary text-secondary-foreground",
-  success: "bg-emerald-500/10 text-emerald-500 ring-1 ring-emerald-500/20",
-  warning: "bg-amber-500/10 text-amber-500 ring-1 ring-amber-500/20",
-  error: "bg-red-500/10 text-red-500 ring-1 ring-red-500/20",
-  info: "bg-blue-500/10 text-blue-500 ring-1 ring-blue-500/20",
+  success: "bg-emerald-500/10 text-emerald-600 ring-1 ring-emerald-500/20",
+  warning: "bg-amber-500/10 text-amber-600 ring-1 ring-amber-500/20",
+  error: "bg-red-500/10 text-red-600 ring-1 ring-red-500/20",
+  info: "bg-blue-500/10 text-blue-600 ring-1 ring-blue-500/20",
   outline: "border border-border text-muted-foreground",
 };
 

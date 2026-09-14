@@ -118,12 +118,12 @@ const thClass = "px-5 py-3.5 text-left text-xs font-medium uppercase tracking-wi
 const tdClass = "px-5 py-3.5";
 
 const STATUS_BADGES: Record<QuotationStatus, string> = {
-  draft: "bg-slate-500/10 text-slate-400 ring-slate-500/20",
-  sent: "bg-indigo-500/10 text-indigo-400 ring-indigo-500/20",
-  under_negotiation: "bg-amber-500/10 text-amber-400 ring-amber-500/20",
-  accepted: "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20",
-  rejected: "bg-red-500/10 text-red-400 ring-red-500/20",
-  expired: "bg-zinc-500/10 text-zinc-400 ring-zinc-500/20",
+  draft: "bg-slate-500/10 text-slate-600 ring-slate-500/20",
+  sent: "bg-indigo-500/10 text-indigo-600 ring-indigo-500/20",
+  under_negotiation: "bg-amber-500/10 text-amber-600 ring-amber-500/20",
+  accepted: "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20",
+  rejected: "bg-red-500/10 text-red-600 ring-red-500/20",
+  expired: "bg-zinc-500/10 text-zinc-600 ring-zinc-500/20",
 };
 
 const STATUS_COLORS: Record<QuotationStatus, string> = {

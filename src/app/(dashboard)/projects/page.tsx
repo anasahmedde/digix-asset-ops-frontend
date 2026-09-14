@@ -19,6 +19,10 @@ import Link from "next/link";
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { ProjectRequirements } from "@/components/projects/project-requirements";
+import { ProjectBudgetSummary } from "@/components/projects/project-budget-summary";
+import { ProjectPlanning } from "@/components/projects/project-planning";
+import { ProjectActuals } from "@/components/projects/project-actuals";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { CURRENCIES } from "@/lib/currency";
@@ -80,7 +84,7 @@ function ContractBadge({ contractType, rentalEndDate, compact = false }: { contr
       : "Sold Outright";
   return (
     <span className={`inline-flex items-center rounded-full font-semibold ${compact ? "px-2 py-0.5 text-[10px]" : "px-3 py-1 text-xs"} ${
-      isRental ? "bg-blue-500/10 text-blue-500 ring-1 ring-blue-500/20" : "bg-emerald-500/10 text-emerald-500 ring-1 ring-emerald-500/20"
+      isRental ? "bg-blue-500/10 text-blue-600 ring-1 ring-blue-500/20" : "bg-emerald-500/10 text-emerald-600 ring-1 ring-emerald-500/20"
     }`}>
       {label}
     </span>
@@ -264,6 +268,10 @@ export default function ProjectsPage() {
   const [scopeComponents, setScopeComponents] = useState<Option[]>([]);
   const [addingScope, setAddingScope] = useState(false);
   const [contractFilter, setContractFilter] = useState("");
+  // Planning (estimate + budget approval) comes first; execution (stock,
+  // procurement, delivery) follows once the budget is signed off.
+  const [projectTab, setProjectTab] = useState<"planning" | "execution">("planning");
+
   // BOM tab (WF-02 / WF-03)
   const [bomLines, setBomLines] = useState<BOMLine[]>([]);
   const [bomTotals, setBomTotals] = useState<BOMTotals | null>(null);
@@ -292,8 +300,15 @@ export default function ProjectsPage() {
       api.get(`/teams/projects/${id}/bom-summary/`)
         .then((r) => setBomTotals(r.data?.totals ?? null))
         .catch(() => setBomTotals(null));
-      api.get("/assets/devices/", { params: { project: id, page_size: 1000 } })
-        .then((r) => setLinkedAssets(r.data.results ?? []))
+      // Assets reach a project either by their own project field or through a
+      // Scope row; the requirements endpoint already returns that union, so it
+      // is the one source both this list and Build Requirements agree on.
+      api.get(`/teams/projects/${id}/requirements/`)
+        .then((r) => setLinkedAssets(
+          (r.data.assets ?? []).map((a: { id: string; asset_code: string; display_name: string; status: string }) => ({
+            id: a.id, asset_code: a.asset_code, display_name: a.display_name, status: a.status,
+          })),
+        ))
         .catch(() => setLinkedAssets([]));
       if (deviceOptions.length === 0) {
         api.get("/assets/devices/", { params: { page_size: 1000 } })
@@ -659,6 +674,22 @@ export default function ProjectsPage() {
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">Project Manager</label>
+            <select value={form.manager} onChange={(e) => setForm((f) => ({ ...f, manager: e.target.value }))} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none">
+              <option value="">—</option>
+              {managerOptions.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">Site</label>
+            <select value={form.site} onChange={(e) => setForm((f) => ({ ...f, site: e.target.value }))} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none">
+              <option value="">—</option>
+              {siteOptions.map((st) => <option key={st.id} value={st.id}>{st.label}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
             <label className="mb-1 block text-xs font-medium text-muted-foreground">Start date</label>
             <input type="date" value={form.start_date} onChange={(e) => setForm((f) => ({ ...f, start_date: e.target.value }))} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none" />
           </div>
@@ -669,7 +700,7 @@ export default function ProjectsPage() {
         </div>
         <div>
           <label className="mb-1 block text-xs font-medium text-muted-foreground">Budget (optional)</label>
-          <input type="number" min="0" value={form.budget} onChange={(e) => setForm((f) => ({ ...f, budget: e.target.value }))} placeholder="0" className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none" />
+          <input type="number" min="0" step="0.01" value={form.budget} onChange={(e) => setForm((f) => ({ ...f, budget: e.target.value }))} placeholder="0" className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none" />
         </div>
         <div>
           <label className="mb-1 block text-xs font-medium text-muted-foreground">Description</label>
@@ -732,7 +763,7 @@ export default function ProjectsPage() {
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-base font-semibold text-foreground">Project Phase</h2>
             {offRamp && (
-              <span className={`rounded-full px-3 py-1 text-xs font-semibold ${d.phase === "lost" ? "bg-red-500/10 text-red-500" : "bg-amber-500/10 text-amber-600"}`}>
+              <span className={`rounded-full px-3 py-1 text-xs font-semibold ${d.phase === "lost" ? "bg-red-500/10 text-red-600" : "bg-amber-500/10 text-amber-600"}`}>
                 {offRamp.label}
               </span>
             )}
@@ -793,8 +824,40 @@ export default function ProjectsPage() {
           ))}
         </div>
 
+        {/* What was signed off against what it has cost so far. */}
+        <ProjectBudgetSummary projectId={detail.id} />
+
+        {/* Two halves of running a project: work out and agree what it will
+            cost, then deliver it within that. */}
+        <div className="grid gap-2 rounded-xl border border-border bg-card p-1.5 sm:grid-cols-2">
+          {([
+            { key: "planning", step: "1", label: "Planning", hint: "Estimate, overheads, contingency & budget approval" },
+            { key: "execution", step: "2", label: "Execution", hint: "Inventory vs procurement, quantities & delivery" },
+          ] as const).map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setProjectTab(t.key)}
+              className={`flex items-center gap-3 rounded-lg px-4 py-3 text-left transition-colors ${
+                projectTab === t.key ? "bg-primary/10 ring-1 ring-primary/30" : "hover:bg-secondary"
+              }`}
+            >
+              <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                projectTab === t.key ? "bg-primary text-white" : "bg-secondary text-muted-foreground"
+              }`}>
+                {t.step}
+              </span>
+              <span>
+                <span className={`block text-sm font-semibold ${projectTab === t.key ? "text-primary" : "text-foreground"}`}>{t.label}</span>
+                <span className="block text-[11px] text-muted-foreground">{t.hint}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+
         <div className="grid gap-6 lg:grid-cols-3">
           <div className="space-y-6 lg:col-span-2">
+            {projectTab === "planning" && (
+              <>
             {/* Scope */}
             <div className="rounded-xl border border-border bg-card p-5">
               <h3 className="mb-3 text-sm font-semibold text-foreground">Scope — assets, components, quantities & locations</h3>
@@ -875,6 +938,32 @@ export default function ProjectsPage() {
               )}
             </div>
 
+            {/* The cost plan reads the scope above it, so it follows it. */}
+            <div className="rounded-xl border border-border bg-card p-5">
+              <h3 className="mb-3 text-sm font-semibold text-foreground">Cost Plan — estimate &amp; budget approval</h3>
+              <ProjectPlanning projectId={detail.id} onGoToExecution={() => setProjectTab("execution")} onChanged={() => loadDetail(detail.id)} />
+            </div>
+
+              </>
+            )}
+
+            {projectTab === "execution" && (
+              <>
+            {/* Build requirements: every asset's components, gathered here so
+                the user can decide stock-vs-procure per line. */}
+            <div className="rounded-xl border border-border bg-card p-5">
+              <h3 className="mb-3 text-sm font-semibold text-foreground">
+                Build Requirements — what each asset needs
+              </h3>
+              <ProjectRequirements projectId={detail.id} />
+            </div>
+
+            {/* What it is actually costing, against what was approved. */}
+            <div className="rounded-xl border border-border bg-card p-5">
+              <h3 className="mb-3 text-sm font-semibold text-foreground">Actual Cost — what the project is costing</h3>
+              <ProjectActuals projectId={detail.id} />
+            </div>
+
             {/* BOM (WF-02 / WF-03) */}
             <div className="rounded-xl border border-border bg-card p-5">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -953,7 +1042,7 @@ export default function ProjectsPage() {
                                         <span className="font-medium text-foreground">{a.device_code || a.item_name || "—"}</span>
                                         <span className="text-muted-foreground">×{a.quantity}</span>
                                         <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold capitalize ${
-                                          a.status === "issued" ? "bg-emerald-500/10 text-emerald-500" : "bg-blue-500/10 text-blue-500"
+                                          a.status === "issued" ? "bg-emerald-500/10 text-emerald-600" : "bg-blue-500/10 text-blue-600"
                                         }`}>{a.status}</span>
                                         {canEdit && a.inventory_item && a.status === "allocated" && (
                                           <button
@@ -996,13 +1085,17 @@ export default function ProjectsPage() {
                   ))}
                 </div>
               ) : (
-                <p className="text-xs text-muted-foreground">No assets linked — set this project on an asset from the Asset Registry.</p>
+                <p className="text-xs text-muted-foreground">No assets on this project yet — add one in the Scope section above.</p>
               )}
             </div>
+              </>
+            )}
           </div>
 
           {/* Right rail: milestones + bottlenecks */}
           <div className="space-y-4">
+            {projectTab === "execution" && (
+              <>
             <div className="rounded-xl border border-border bg-card p-5">
               <h3 className="mb-3 text-sm font-semibold text-foreground">Milestones</h3>
               {d.milestones.length > 0 ? (
@@ -1054,7 +1147,7 @@ export default function ProjectsPage() {
                     <div key={b.id} className="flex items-center justify-between rounded-lg border border-border/60 px-3 py-2">
                       <span className={`text-xs font-medium ${b.is_resolved ? "text-muted-foreground line-through" : "text-foreground"}`}>{b.title}</span>
                       <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold capitalize ${
-                        b.severity === "critical" || b.severity === "high" ? "bg-red-500/10 text-red-500" : "bg-amber-500/10 text-amber-600"
+                        b.severity === "critical" || b.severity === "high" ? "bg-red-500/10 text-red-600" : "bg-amber-500/10 text-amber-600"
                       }`}>{b.severity}</span>
                     </div>
                   ))}
@@ -1063,6 +1156,9 @@ export default function ProjectsPage() {
                 <p className="text-xs text-muted-foreground">No bottlenecks.</p>
               )}
             </div>
+
+              </>
+            )}
 
             {d.description && (
               <div className="rounded-xl border border-border bg-card p-5">
