@@ -20,6 +20,7 @@ import {
   MessageSquare,
   Moon,
   Package,
+  ReceiptText,
   ScrollText,
   Settings,
   ShieldCheck,
@@ -30,6 +31,7 @@ import {
   Truck,
   Users,
   Wrench,
+  Fingerprint,
 } from "lucide-react";
 
 import { useChatUnread } from "@/lib/chat-context";
@@ -49,39 +51,41 @@ interface NavItem {
 
 const navigation: NavItem[] = [
   { name: "Dashboard", href: "/", icon: Gauge },
-  { name: "Assets", href: "/assets", icon: HardDrive, roles: ["super_admin", "ops_manager", "technician"] },
-  { name: "Installation Tracker", href: "/installation-tracker", icon: Layers, roles: ["super_admin", "ops_manager", "technician"] },
-  { name: "Maintenance", href: "/maintenance", icon: Wrench, roles: ["super_admin", "ops_manager", "technician"] },
-  { name: "Warranties", href: "/warranties", icon: ShieldCheck, roles: ["super_admin", "ops_manager"] },
-  { name: "Projects", href: "/projects", icon: ClipboardList, roles: ["super_admin", "ops_manager"] },
+  { name: "Assets", href: "/assets", icon: HardDrive, roles: ["super_admin", "group_head", "ops_manager", "technician"] },
+  { name: "Installation Tracker", href: "/installation-tracker", icon: Layers, roles: ["super_admin", "group_head", "ops_manager", "technician"] },
+  { name: "Maintenance", href: "/maintenance", icon: Wrench, roles: ["super_admin", "group_head", "ops_manager", "technician"] },
+  { name: "Warranties", href: "/warranties", icon: ShieldCheck, roles: ["super_admin", "group_head", "ops_manager"] },
+  { name: "Projects", href: "/projects", icon: ClipboardList, roles: ["super_admin", "group_head", "ops_manager"] },
   {
-    name: "Sites", href: "/sites", icon: MapPin, roles: ["super_admin", "ops_manager", "technician"],
+    name: "Sites", href: "/sites", icon: MapPin, roles: ["super_admin", "group_head", "ops_manager", "technician"],
   },
-  { name: "Tickets", href: "/tickets", icon: Ticket, roles: ["super_admin", "ops_manager", "supervisor", "technician"] },
-  { name: "Work Orders", href: "/work-orders", icon: ScrollText, roles: ["super_admin", "ops_manager"] },
-  { name: "Inventory", href: "/inventory", icon: Package, roles: ["super_admin", "ops_manager", "warehouse"] },
-  { name: "Procurement", href: "/procurement", icon: ShoppingCart, roles: ["super_admin", "ops_manager", "finance"] },
+  { name: "Tickets", href: "/tickets", icon: Ticket, roles: ["super_admin", "group_head", "ops_manager", "supervisor", "technician", "marketing", "marketing_head"] },
+  { name: "Quotations", href: "/quotations", icon: ReceiptText, roles: ["super_admin", "group_head", "ops_manager"] },
+  { name: "Work Orders", href: "/work-orders", icon: ScrollText, roles: ["super_admin", "group_head", "ops_manager"] },
+  { name: "Inventory", href: "/inventory", icon: Package, roles: ["super_admin", "group_head", "ops_manager", "warehouse"] },
+  { name: "Procurement", href: "/procurement", icon: ShoppingCart, roles: ["super_admin", "group_head", "ops_manager", "finance"] },
   {
-    name: "Reports", href: "/analytics", icon: BarChart3, roles: ["super_admin", "ops_manager", "finance"],
+    name: "Reports", href: "/analytics", icon: BarChart3, roles: ["super_admin", "group_head", "ops_manager", "finance"],
     children: [
       { name: "Reports", href: "/reports", icon: BarChart3 },
       { name: "Analytics", href: "/analytics", icon: BarChart3 },
       { name: "Finance", href: "/finance", icon: CreditCard },
     ],
   },
-  { name: "Alerts", href: "/alerts", icon: AlertCircle, roles: ["super_admin", "ops_manager"] },
-  { name: "Documents", href: "/documents", icon: FileText, roles: ["super_admin", "ops_manager"] },
+  { name: "Alerts", href: "/alerts", icon: AlertCircle, roles: ["super_admin", "group_head", "ops_manager"] },
+  { name: "Documents", href: "/documents", icon: FileText, roles: ["super_admin", "group_head", "ops_manager"] },
+  { name: "Attendance", href: "/attendance", icon: Fingerprint, roles: ["super_admin", "group_head", "ops_manager", "supervisor"] },
   { name: "Teams", href: "/teams", icon: Users, roles: ["super_admin"] },
-  { name: "Vendors", href: "/suppliers", icon: Truck, roles: ["super_admin", "ops_manager"] },
-  { name: "Clients", href: "/clients", icon: Building2, roles: ["super_admin", "ops_manager", "client_viewer"] },
+  { name: "Vendors", href: "/suppliers", icon: Truck, roles: ["super_admin", "group_head", "ops_manager"] },
+  { name: "Clients", href: "/clients", icon: Building2, roles: ["super_admin", "group_head", "ops_manager", "client_viewer"] },
   { name: "Chat", href: "/chat", icon: MessageSquare },
-  { name: "Setup", href: "/setup", icon: SlidersHorizontal, roles: ["super_admin", "ops_manager"] },
+  { name: "Setup", href: "/setup", icon: SlidersHorizontal, roles: ["super_admin", "group_head", "ops_manager"] },
   { name: "Settings", href: "/settings", icon: Settings },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { collapsed } = useSidebar();
+  const { collapsed, mobileOpen, closeMobile } = useSidebar();
   const { user } = useUser();
   const { theme, setTheme } = useTheme();
   const { totalUnread } = useChatUnread();
@@ -118,8 +122,13 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        "fixed inset-y-0 left-0 z-50 flex flex-col border-r border-border bg-sidebar transition-all duration-200",
-        sidebarWidth
+        "fixed inset-y-0 left-0 z-50 flex flex-col border-r border-border bg-sidebar transition-transform duration-200",
+        // Always full-width (labels visible) as a drawer on phones; honour collapse on desktop.
+        "max-lg:w-64",
+        sidebarWidth,
+        // Off-canvas on mobile unless opened; always visible on desktop.
+        mobileOpen ? "translate-x-0" : "-translate-x-full",
+        "lg:translate-x-0"
       )}
     >
       <div className="flex h-16 items-center gap-3 border-b border-border px-4">
@@ -176,6 +185,7 @@ export function Sidebar() {
                             <li key={child.name}>
                               <Link
                                 href={child.href}
+                                onClick={closeMobile}
                                 className={cn(
                                   "flex items-center gap-3 rounded-lg px-3 py-2 text-[12px] font-medium transition-all duration-150",
                                   childIsActive
@@ -195,6 +205,7 @@ export function Sidebar() {
                 ) : (
                   <Link
                     href={item.href}
+                    onClick={closeMobile}
                     className={cn(
                       "flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium transition-all duration-150",
                       isActive

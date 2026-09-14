@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   ChevronRight,
   Clock,
+  Download,
   FileText,
   ImageIcon,
   MapPin,
@@ -19,6 +20,7 @@ import {
   Pencil,
   Play,
   Plus,
+  RotateCcw,
   Send,
   ShieldCheck,
   ShieldX,
@@ -29,22 +31,53 @@ import {
   XCircle,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 
+import { SegmentBar, StatTiles } from "@/components/ui/analytics-strip";
+import { CopyButton } from "@/components/ui/copy-button";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { ProgressStepper } from "@/components/ui/progress-stepper";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
+import { formatCurrency } from "@/lib/currency";
 import { useUser } from "@/lib/user-context";
 import { formatDateTime, formatDate } from "@/lib/utils";
 import type { TicketAttachment, TicketComment, TicketStatus } from "@/types";
 
 /* ─── Types ────────────────────────────────────────────────────────── */
 
+interface TicketDeviceInfo {
+  id: string;
+  asset_code: string;
+  display_name: string | null;
+}
+
+interface TicketWarrantyInfo {
+  id: string;
+  warranty_type: string;
+  end_date: string;
+  status: string;
+}
+
 interface TicketItem {
   id: string;
   ticket_number: string;
+  occurrence: number;
+  complaint_by: string;
+  issue_type: string | null;
+  issue_type_name: string | null;
+  assigned_vendor: string | null;
+  assigned_vendor_name: string | null;
+  parts_used: string;
+  response_due_at: string | null;
+  escalated: boolean;
+  is_response_overdue: boolean;
+  assignment_escalated: boolean;
+  due_date_escalated: boolean;
+  /** Wave 4 multi-stage escalation: "<trigger>:<stage>" -> ISO timestamp when that stage fired. */
+  escalation_state?: Record<string, string>;
   title: string;
   description: string;
   priority: string;
@@ -52,6 +85,15 @@ interface TicketItem {
   category: string;
   device: string | null;
   device_code: string | null;
+  // Multi-asset + cost liability (WF-14/15, MW-03) — the light list
+  // serializer omits some of these, so they stay optional.
+  devices?: string[];
+  devices_info?: TicketDeviceInfo[];
+  warranty?: string | null;
+  warranty_info?: TicketWarrantyInfo | null;
+  is_billable?: boolean;
+  charge_to?: string;
+  repair_cost?: string | null;
   site: string | null;
   site_name: string | null;
   assigned_to: string | null;
@@ -60,6 +102,7 @@ interface TicketItem {
   reported_by_name: string | null;
   due_date: string | null;
   resolved_at: string | null;
+  closed_at: string | null;
   resolution_notes: string;
   completion_notes: string;
   completed_by_name: string | null;
@@ -92,21 +135,24 @@ const thClass =
 const tdClass = "px-5 py-3.5";
 
 const priorityBadge: Record<string, string> = {
-  critical: "bg-red-500/10 text-red-400 ring-red-500/20",
-  high: "bg-orange-500/10 text-orange-400 ring-orange-500/20",
-  medium: "bg-yellow-500/10 text-yellow-500 ring-yellow-500/20",
-  low: "bg-gray-500/10 text-gray-400 ring-gray-500/20",
+  critical: "bg-red-500/10 text-red-600 ring-red-500/20",
+  high: "bg-orange-500/10 text-orange-600 ring-orange-500/20",
+  medium: "bg-yellow-500/10 text-yellow-600 ring-yellow-500/20",
+  low: "bg-gray-500/10 text-gray-600 ring-gray-500/20",
 };
 
 const statusBadge: Record<string, string> = {
-  open: "bg-blue-500/10 text-blue-400 ring-blue-500/20",
-  in_progress: "bg-amber-500/10 text-amber-400 ring-amber-500/20",
-  on_hold: "bg-gray-500/10 text-gray-400 ring-gray-500/20",
-  blocked: "bg-red-500/10 text-red-400 ring-red-500/20",
-  pending_review: "bg-purple-500/10 text-purple-400 ring-purple-500/20",
-  approved: "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20",
-  rejected: "bg-rose-500/10 text-rose-400 ring-rose-500/20",
-  closed: "bg-slate-500/10 text-slate-400 ring-slate-500/20",
+  open: "bg-blue-500/10 text-blue-600 ring-blue-500/20",
+  in_progress: "bg-amber-500/10 text-amber-600 ring-amber-500/20",
+  on_hold: "bg-gray-500/10 text-gray-600 ring-gray-500/20",
+  blocked: "bg-red-500/10 text-red-600 ring-red-500/20",
+  alignment_pending: "bg-cyan-500/10 text-cyan-600 ring-cyan-500/20",
+  pending_ops_approval: "bg-orange-500/10 text-orange-600 ring-orange-500/20",
+  pending_client_approval: "bg-violet-500/10 text-violet-600 ring-violet-500/20",
+  pending_review: "bg-purple-500/10 text-purple-600 ring-purple-500/20",
+  approved: "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20",
+  rejected: "bg-rose-500/10 text-rose-600 ring-rose-500/20",
+  closed: "bg-slate-500/10 text-slate-600 ring-slate-500/20",
 };
 
 const statusIcon: Record<string, React.ReactNode> = {
@@ -114,6 +160,9 @@ const statusIcon: Record<string, React.ReactNode> = {
   in_progress: <Play className="h-3.5 w-3.5" />,
   on_hold: <Pause className="h-3.5 w-3.5" />,
   blocked: <AlertTriangle className="h-3.5 w-3.5" />,
+  alignment_pending: <Clock className="h-3.5 w-3.5" />,
+  pending_ops_approval: <ShieldCheck className="h-3.5 w-3.5" />,
+  pending_client_approval: <User className="h-3.5 w-3.5" />,
   pending_review: <Clock className="h-3.5 w-3.5" />,
   approved: <CheckCircle2 className="h-3.5 w-3.5" />,
   rejected: <XCircle className="h-3.5 w-3.5" />,
@@ -123,6 +172,55 @@ const statusIcon: Record<string, React.ReactNode> = {
 function formatLabel(value: string) {
   return value.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
+
+/* ─── Multi-stage escalation (Wave 4) ──────────────────────────────── */
+
+// Reason wording per trigger, matching the legacy single-stage badges.
+// response_sla has no suffix (the plain "Escalated" wording).
+const ESCALATION_REASONS: Record<string, string> = {
+  assignment_sla: "Unassigned",
+  due_date: "Past Due",
+};
+
+/** Derive the highest fired stage (+ reason where derivable) from
+ *  escalation_state keys shaped "<trigger>:<stage>". */
+function deriveEscalation(
+  state?: Record<string, string> | null,
+): { stage: number; reason: string | null } | null {
+  if (!state) return null;
+  let stage = 0;
+  let reason: string | null = null;
+  for (const key of Object.keys(state).sort()) {
+    const [trigger, rawStage] = key.split(":");
+    const s = Number(rawStage);
+    if (!Number.isFinite(s) || s <= 0) continue;
+    if (s > stage) {
+      stage = s;
+      reason = ESCALATION_REASONS[trigger] ?? null;
+    } else if (s === stage && !reason) {
+      reason = ESCALATION_REASONS[trigger] ?? null;
+    }
+  }
+  return stage > 0 ? { stage, reason } : null;
+}
+
+const CATEGORY_OPTIONS = [
+  "installation",
+  "repair",
+  "replacement",
+  "inspection",
+  "relocation",
+  "warranty_claim",
+  "preventive_maintenance",
+  "other",
+];
+
+// Categories where the backend derives cost liability from the asset's
+// warranty (mirrors Ticket.WARRANTY_AWARE_CATEGORIES).
+const BILLING_CATEGORIES = ["repair", "replacement", "warranty_claim"];
+
+// Supplier-side warranty types (mirrors backend derive_billability).
+const SUPPLIER_SIDE_TYPES = ["supplier", "manufacturer", "extended"];
 
 /* ─── Status Stepper ───────────────────────────────────────────────── */
 
@@ -152,11 +250,19 @@ function getStepperSteps(status: TicketStatus) {
       return { key: s, label: formatLabel(s), status: "pending" as const };
     });
   }
+  // The last stage (closed) is terminal — reaching it means done, not "in progress".
+  const terminal = idx === MAIN_FLOW.length - 1;
   return MAIN_FLOW.map((s, i) => ({
     key: s,
     label: formatLabel(s),
     status:
-      i < idx ? ("completed" as const) : i === idx ? ("in_progress" as const) : ("pending" as const),
+      i < idx
+        ? ("completed" as const)
+        : i === idx
+          ? terminal
+            ? ("completed" as const)
+            : ("in_progress" as const)
+          : ("pending" as const),
   }));
 }
 
@@ -170,7 +276,7 @@ const commentTypeConfig: Record<string, { icon: React.ReactNode; color: string; 
   rejection: { icon: <ShieldX className="h-3.5 w-3.5" />, color: "text-red-500", bg: "bg-red-500/10" },
 };
 
-function ActivityItem({ comment }: { comment: TicketComment }) {
+function ActivityItem({ comment, onImageClick }: { comment: TicketComment; onImageClick?: (src: string) => void }) {
   const cfg = commentTypeConfig[comment.comment_type] || commentTypeConfig.comment;
   return (
     <div className="flex gap-3">
@@ -198,7 +304,16 @@ function ActivityItem({ comment }: { comment: TicketComment }) {
             <span className="rounded-md bg-red-500/10 px-2 py-0.5 text-[11px] font-medium text-red-500">Rejected</span>
           )}
         </div>
-        <p className="mt-1 text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">{comment.content}</p>
+        {comment.content ? <p className="mt-1 text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">{comment.content}</p> : null}
+        {comment.image && (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            src={comment.image}
+            alt="Comment attachment"
+            className="mt-2 max-h-48 cursor-zoom-in rounded-lg border border-border object-cover"
+            onClick={() => onImageClick?.(comment.image!)}
+          />
+        )}
         <p className="mt-1.5 text-[11px] text-muted-foreground/60">{formatDateTime(comment.created_at)}</p>
       </div>
     </div>
@@ -229,29 +344,104 @@ function TicketDetailView({
   const [activeAction, setActiveAction] = useState<string | null>(null);
   const [transitionNotes, setTransitionNotes] = useState("");
   const [completionNotes, setCompletionNotes] = useState("");
+  const [partsUsed, setPartsUsed] = useState("");
+  const [assignUsers, setAssignUsers] = useState<{ id: string; label: string }[]>([]);
+  const [assignVendors, setAssignVendors] = useState<{ id: string; name: string }[]>([]);
+  const [assignUser, setAssignUser] = useState("");
+  const [assignVendor, setAssignVendor] = useState("");
+  const [visitFiles, setVisitFiles] = useState<File[]>([]);
+  const [visitCaption, setVisitCaption] = useState("");
+  const [visitUploading, setVisitUploading] = useState(false);
   const [completionImages, setCompletionImages] = useState<File[]>([]);
   const [completionPreviews, setCompletionPreviews] = useState<string[]>([]);
   const [reviewComments, setReviewComments] = useState("");
   const [newComment, setNewComment] = useState("");
+  const [commentImage, setCommentImage] = useState<File | null>(null);
+  const commentFileRef = useRef<HTMLInputElement>(null);
   const [commentLoading, setCommentLoading] = useState(false);
   const [lightboxImg, setLightboxImg] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [editingCost, setEditingCost] = useState(false);
+  const [costInput, setCostInput] = useState("");
+  const [costSaving, setCostSaving] = useState(false);
 
   const isAssignee = ticket.assigned_to === currentUserId;
+  // Highest fired escalation stage from escalation_state ("trigger:stage" keys).
+  const escalation = deriveEscalation(ticket.escalation_state);
   const isReporter = ticket.reported_by === currentUserId;
-  const isAdmin = currentUserRole === "super_admin" || currentUserRole === "ops_manager";
+  const isAdmin = ["super_admin", "group_head", "ops_manager"].includes(currentUserRole);
+  const isMarketing = currentUserRole === "marketing" || currentUserRole === "marketing_head";
   const canReview = isReporter || isAdmin;
+  // Managers can drive the work stages too (matches backend rules).
+  const canAct = isAssignee || isAdmin;
   const isClosed = ["approved", "closed"].includes(ticket.status);
   const isOverdue = ticket.due_date && new Date(ticket.due_date) < new Date() && !isClosed;
+  // Reopen: closed → in_progress, gated to admins + the reporter, within 7 days of closure (mirrors backend rule).
+  const REOPEN_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+  const canReopen =
+    ticket.status === "closed" &&
+    (isAdmin || isReporter) &&
+    !!ticket.closed_at &&
+    Date.now() - new Date(ticket.closed_at).getTime() <= REOPEN_WINDOW_MS;
 
   const completionAttachments = ticket.attachments?.filter((a) => a.attachment_type === "completion") || [];
-  const generalAttachments = ticket.attachments?.filter((a) => a.attachment_type === "general") || [];
+  const generalAttachments = ticket.attachments?.filter((a) => a.attachment_type === "general" || a.attachment_type === "fault") || [];
 
   async function refreshTicket() {
     try {
       const { data } = await api.get(`/tickets/${ticket.id}/`);
       setTicket(data);
     } catch { /* keep current */ }
+  }
+
+  async function openAssignPanel() {
+    setActiveAction("assign");
+    try {
+      const [u, v] = await Promise.all([
+        api.get("/accounts/users/", { params: { is_active: true, page_size: 200 } }),
+        api.get("/suppliers/", { params: { page_size: 200 } }),
+      ]);
+      setAssignUsers((u.data.results ?? u.data).map((x: { id: string; first_name: string; last_name: string; username: string }) => ({
+        id: x.id, label: `${x.first_name} ${x.last_name}`.trim() || x.username,
+      })));
+      setAssignVendors(v.data.results ?? v.data);
+      setAssignUser(ticket.assigned_to ?? "");
+      setAssignVendor(ticket.assigned_vendor ?? "");
+    } catch { toast.error("Could not load assignees"); }
+  }
+
+  async function handleAssign() {
+    setActionLoading(true);
+    try {
+      const { data } = await api.post(`/tickets/${ticket.id}/assign/`, {
+        assigned_to: assignUser || null,
+        assigned_vendor: assignVendor || null,
+      });
+      setTicket(data);
+      setActiveAction(null);
+      onRefresh();
+      toast.success("Ticket assigned");
+    } catch (err: unknown) { toast.error(getApiError(err, "Assignment failed")); }
+    finally { setActionLoading(false); }
+  }
+
+  async function handleVisitUpload() {
+    if (visitFiles.length === 0) return;
+    setVisitUploading(true);
+    try {
+      for (const file of visitFiles) {
+        const fd = new FormData();
+        fd.append("file", file);
+        fd.append("attachment_type", "general");
+        fd.append("caption", visitCaption || "Site visit photo");
+        await api.post(`/tickets/${ticket.id}/attachments/`, fd, { headers: { "Content-Type": "multipart/form-data" } });
+      }
+      setVisitFiles([]);
+      setVisitCaption("");
+      await refreshTicket();
+      toast.success("Photos attached");
+    } catch (err: unknown) { toast.error(getApiError(err, "Upload failed")); }
+    finally { setVisitUploading(false); }
   }
 
   async function handleTransition(targetStatus: string, notes: string = "") {
@@ -276,6 +466,7 @@ function TicketDetailView({
     try {
       const formData = new FormData();
       formData.append("completion_notes", completionNotes);
+      formData.append("parts_used", partsUsed);
       completionImages.forEach((img) => formData.append("images", img));
       const { data } = await api.post(`/tickets/${ticket.id}/submit-completion/`, formData, {
         headers: { "Content-Type": "multipart/form-data" },
@@ -312,16 +503,42 @@ function TicketDetailView({
   }
 
   async function handleAddComment() {
-    if (!newComment.trim()) return;
+    if (!newComment.trim() && !commentImage) return;
     setCommentLoading(true);
     try {
-      await api.post(`/tickets/${ticket.id}/comments/`, { content: newComment });
+      if (commentImage) {
+        const fd = new FormData();
+        fd.append("content", newComment);
+        fd.append("image", commentImage);
+        await api.post(`/tickets/${ticket.id}/comments/`, fd, { headers: { "Content-Type": "multipart/form-data" } });
+      } else {
+        await api.post(`/tickets/${ticket.id}/comments/`, { content: newComment });
+      }
       setNewComment("");
+      setCommentImage(null);
       await refreshTicket();
     } catch (err: unknown) {
       toast.error(getApiError(err, "Failed to add comment"));
     } finally {
       setCommentLoading(false);
+    }
+  }
+
+  async function handleSaveCost() {
+    setCostSaving(true);
+    try {
+      const trimmed = costInput.trim();
+      const { data } = await api.patch(`/tickets/${ticket.id}/`, {
+        repair_cost: trimmed === "" ? null : trimmed,
+      });
+      setTicket(data);
+      setEditingCost(false);
+      onRefresh();
+      toast.success("Repair cost updated");
+    } catch (err: unknown) {
+      toast.error(getApiError(err, "Failed to update repair cost"));
+    } finally {
+      setCostSaving(false);
     }
   }
 
@@ -355,9 +572,31 @@ function TicketDetailView({
           <div className="hidden items-center gap-2 sm:flex">
             <div className="h-4 w-px bg-border" />
             <span className="text-xs font-semibold text-foreground">{ticket.ticket_number || `#${ticket.id.slice(0, 8)}`}</span>
-            <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ${statusBadge[ticket.status]}`}>
+            {ticket.device_code && ticket.occurrence > 0 && (
+              <Link href={`/assets?device=${ticket.device}`} className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/10" title={`Ticket #${ticket.occurrence} raised against ${ticket.device_code} — view asset`}>
+                #{ticket.occurrence} for {ticket.device_code}
+              </Link>
+            )}
+            <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ${statusBadge[ticket.status] ?? statusBadge.open}`}>
               {statusIcon[ticket.status]} {formatLabel(ticket.status)}
             </span>
+            {ticket.issue_type_name && (
+              <span className="rounded-full bg-rose-500/10 px-2 py-0.5 text-[10px] font-medium text-rose-500 ring-1 ring-rose-500/20">{ticket.issue_type_name}</span>
+            )}
+            {(escalation || ticket.escalated || ticket.is_response_overdue || ticket.assignment_escalated || ticket.due_date_escalated) && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-0.5 text-[10px] font-semibold text-red-500 ring-1 ring-red-500/20">
+                <AlertTriangle className="h-3 w-3" />
+                {escalation
+                  ? `Escalated — L${escalation.stage}${escalation.reason ? ` · ${escalation.reason}` : ""}`
+                  : ticket.assignment_escalated
+                    ? "Escalated — Unassigned"
+                    : ticket.due_date_escalated
+                      ? "Escalated — Past Due"
+                      : ticket.escalated
+                        ? "Escalated"
+                        : "Response Overdue"}
+              </span>
+            )}
             <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ${priorityBadge[ticket.priority]}`}>
               {formatLabel(ticket.priority)}
             </span>
@@ -418,6 +657,28 @@ function TicketDetailView({
                   {ticket.description || "No description provided."}
                 </p>
               </div>
+
+              {/* Linked assets (multi-asset tickets, e.g. preventive maintenance) */}
+              {ticket.devices_info && ticket.devices_info.length > 1 && (
+                <div className="rounded-xl border border-border bg-card p-5">
+                  <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground mb-3">
+                    <Monitor className="h-4 w-4 text-muted-foreground" /> Assets Covered ({ticket.devices_info.length})
+                  </h3>
+                  <div className="flex flex-wrap gap-2">
+                    {ticket.devices_info.map((d) => (
+                      <Link
+                        key={d.id}
+                        href={`/assets?device=${d.id}`}
+                        className="inline-flex items-center gap-1.5 rounded-full border border-border bg-secondary/40 px-3 py-1 text-xs font-medium text-foreground transition-colors hover:border-primary/40 hover:text-primary"
+                      >
+                        <Monitor className="h-3 w-3" />
+                        {d.asset_code}
+                        {d.display_name && <span className="text-muted-foreground">— {d.display_name}</span>}
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Completion Submission — always visible when data exists */}
               {ticket.completion_notes && (
@@ -511,27 +772,44 @@ function TicketDetailView({
                     </div>
                   </div>
                   {(ticket.comments || []).map((c) => (
-                    <ActivityItem key={c.id} comment={c} />
+                    <ActivityItem key={c.id} comment={c} onImageClick={setLightboxImg} />
                   ))}
                 </div>
 
                 {/* Add comment */}
                 {!["closed"].includes(ticket.status) && (
-                  <div className="mt-4 flex gap-2 border-t border-border pt-4">
-                    <input
-                      value={newComment}
-                      onChange={(e) => setNewComment(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleAddComment(); } }}
-                      placeholder="Write a comment..."
-                      className={inputClass}
-                    />
-                    <button
-                      onClick={handleAddComment}
-                      disabled={commentLoading || !newComment.trim()}
-                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary text-white transition-all disabled:opacity-50"
-                    >
-                      <Send className="h-4 w-4" />
-                    </button>
+                  <div className="mt-4 space-y-2 border-t border-border pt-4">
+                    {commentImage && (
+                      <div className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs">
+                        <ImageIcon className="h-3.5 w-3.5 text-primary" />
+                        <span className="truncate text-primary">{commentImage.name}</span>
+                        <button onClick={() => setCommentImage(null)} className="ml-auto rounded p-0.5 text-primary hover:bg-primary/10"><X className="h-3 w-3" /></button>
+                      </div>
+                    )}
+                    <div className="flex gap-2">
+                      <input
+                        value={newComment}
+                        onChange={(e) => setNewComment(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleAddComment(); } }}
+                        placeholder="Write a comment..."
+                        className={inputClass}
+                      />
+                      <input ref={commentFileRef} type="file" accept="image/*" className="hidden" onChange={(e) => setCommentImage(e.target.files?.[0] ?? null)} />
+                      <button
+                        onClick={() => commentFileRef.current?.click()}
+                        title="Attach photo"
+                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
+                      >
+                        <Plus className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={handleAddComment}
+                        disabled={commentLoading || (!newComment.trim() && !commentImage)}
+                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary text-white transition-all disabled:opacity-50"
+                      >
+                        <Send className="h-4 w-4" />
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -581,9 +859,9 @@ function TicketDetailView({
                       <div className="h-px bg-border" />
                       <div className="flex items-start justify-between">
                         <span className="text-xs text-muted-foreground mt-0.5">Site</span>
-                        <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-                          <MapPin className="h-3 w-3 text-muted-foreground" /> {ticket.site_name}
-                        </span>
+                        <Link href={`/sites?site=${ticket.site}`} className="flex items-center gap-1.5 text-sm font-medium text-primary hover:underline">
+                          <MapPin className="h-3 w-3" /> {ticket.site_name}
+                        </Link>
                       </div>
                     </>
                   )}
@@ -592,9 +870,9 @@ function TicketDetailView({
                       <div className="h-px bg-border" />
                       <div className="flex items-start justify-between">
                         <span className="text-xs text-muted-foreground mt-0.5">Device</span>
-                        <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-                          <Monitor className="h-3 w-3 text-muted-foreground" /> {ticket.device_code}
-                        </span>
+                        <Link href={`/assets?device=${ticket.device}`} className="flex items-center gap-1.5 text-sm font-medium text-primary hover:underline">
+                          <Monitor className="h-3 w-3" /> {ticket.device_code}
+                        </Link>
                       </div>
                     </>
                   )}
@@ -606,6 +884,35 @@ function TicketDetailView({
                       {isOverdue && <AlertCircle className="ml-1 inline h-3 w-3" />}
                     </span>
                   </div>
+                  {ticket.response_due_at && (
+                    <>
+                      <div className="h-px bg-border" />
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-muted-foreground">Respond By</span>
+                        <span className={`text-xs font-medium ${ticket.is_response_overdue || ticket.escalated ? "text-red-500" : "text-foreground"}`}>
+                          {new Date(ticket.response_due_at).toLocaleString()}
+                        </span>
+                      </div>
+                    </>
+                  )}
+                  {ticket.complaint_by && (
+                    <>
+                      <div className="h-px bg-border" />
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-muted-foreground">Complaint By</span>
+                        <span className="text-xs font-medium text-foreground">{ticket.complaint_by}</span>
+                      </div>
+                    </>
+                  )}
+                  {ticket.assigned_vendor_name && (
+                    <>
+                      <div className="h-px bg-border" />
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-muted-foreground">Vendor</span>
+                        <Link href="/suppliers" className="text-xs font-medium text-primary hover:underline">{ticket.assigned_vendor_name}</Link>
+                      </div>
+                    </>
+                  )}
                   <div className="h-px bg-border" />
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-muted-foreground">Created</span>
@@ -620,8 +927,91 @@ function TicketDetailView({
                       </div>
                     </>
                   )}
+                  {ticket.closed_at && (
+                    <>
+                      <div className="h-px bg-border" />
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-muted-foreground">Closed</span>
+                        <span className="text-xs text-foreground">{formatDate(ticket.closed_at)}</span>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
+
+              {/* ── BILLING CARD (WF-14/15) ──────────────────────── */}
+              {(BILLING_CATEGORIES.includes(ticket.category) || !!ticket.charge_to || ticket.repair_cost != null) && (
+                <div className="rounded-xl border border-border bg-card p-5">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-4">Billing</h3>
+                  <div className="space-y-4">
+                    {ticket.warranty_info && (
+                      <span
+                        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ${
+                          ticket.warranty_info.status === "active"
+                            ? "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20"
+                            : "bg-amber-500/10 text-amber-600 ring-amber-500/20"
+                        }`}
+                      >
+                        <ShieldCheck className="h-3.5 w-3.5" />
+                        {formatLabel(ticket.warranty_info.warranty_type)} warranty · {formatLabel(ticket.warranty_info.status)} · ends {formatDate(ticket.warranty_info.end_date)}
+                      </span>
+                    )}
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">Billable</span>
+                      <span
+                        className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ${
+                          ticket.is_billable
+                            ? "bg-amber-500/10 text-amber-600 ring-amber-500/20"
+                            : "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20"
+                        }`}
+                      >
+                        {ticket.is_billable ? "Billable" : "Not Billable"}
+                      </span>
+                    </div>
+                    <div className="h-px bg-border" />
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">Charge To</span>
+                      <span className="text-sm font-medium text-foreground">{ticket.charge_to ? formatLabel(ticket.charge_to) : "—"}</span>
+                    </div>
+                    <div className="h-px bg-border" />
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs text-muted-foreground">Repair Cost</span>
+                      {editingCost ? (
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            value={costInput}
+                            onChange={(e) => setCostInput(e.target.value)}
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            placeholder="0.00"
+                            className={`${inputClass} h-8 w-28 text-xs`}
+                          />
+                          <button onClick={handleSaveCost} disabled={costSaving} className="flex h-8 items-center rounded-lg bg-primary px-2.5 text-xs font-medium text-white disabled:opacity-50">
+                            {costSaving ? "…" : "Save"}
+                          </button>
+                          <button onClick={() => setEditingCost(false)} className="flex h-8 w-8 items-center justify-center rounded-lg border border-border text-muted-foreground hover:bg-secondary">
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                          {ticket.repair_cost != null ? formatCurrency(ticket.repair_cost) : "Not set"}
+                          {isAdmin && (
+                            <button
+                              onClick={() => { setCostInput(ticket.repair_cost ?? ""); setEditingCost(true); }}
+                              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                              title="Edit repair cost"
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </button>
+                          )}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* ── ACTION CARD ──────────────────────────────────── */}
               <div className="rounded-xl border border-border bg-card p-5">
@@ -653,6 +1043,7 @@ function TicketDetailView({
                     <p className="text-xs font-semibold text-purple-500">Submit for Review</p>
                     <p className="text-[11px] text-muted-foreground">Describe work done &amp; upload evidence. This goes to your supervisor.</p>
                     <textarea value={completionNotes} onChange={(e) => setCompletionNotes(e.target.value)} placeholder="What was completed? (required)" rows={3} className={`${inputClass} h-auto py-2 text-xs`} />
+                    <textarea value={partsUsed} onChange={(e) => setPartsUsed(e.target.value)} placeholder="Parts used (e.g. 1x P6 module, 2x ribbon cables)" rows={2} className={`${inputClass} h-auto py-2 text-xs`} />
                     <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleImageSelect} />
                     <button type="button" onClick={() => fileInputRef.current?.click()} className="flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border bg-secondary/20 px-3 py-2.5 text-xs text-muted-foreground hover:border-primary/40 hover:bg-primary/5 transition-colors">
                       <Camera className="h-3.5 w-3.5" /> Upload Photos
@@ -685,22 +1076,88 @@ function TicketDetailView({
                   </div>
                 )}
 
+                {activeAction === "ops_approval" && (
+                  <div className="mb-4 space-y-3 rounded-lg border border-orange-500/20 bg-orange-500/5 p-3">
+                    <p className="text-xs font-semibold text-orange-500">Request Operations Approval</p>
+                    <textarea value={transitionNotes} onChange={(e) => setTransitionNotes(e.target.value)} placeholder="Issue found, parts/cost needed (required)" rows={2} className={`${inputClass} h-auto py-2 text-xs`} />
+                    <div className="flex gap-2">
+                      <button onClick={() => setActiveAction(null)} className="flex-1 h-8 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-secondary">Cancel</button>
+                      <button onClick={() => handleTransition("pending_ops_approval", transitionNotes)} disabled={actionLoading || !transitionNotes.trim()} className="flex-1 h-8 rounded-lg bg-orange-500 text-xs font-medium text-white disabled:opacity-50">{actionLoading ? "..." : "Request"}</button>
+                    </div>
+                  </div>
+                )}
+                {activeAction === "decline" && (
+                  <div className="mb-4 space-y-3 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
+                    <p className="text-xs font-semibold text-amber-500">Decline — Put On Hold</p>
+                    <textarea value={transitionNotes} onChange={(e) => setTransitionNotes(e.target.value)} placeholder="Reason (required)" rows={2} className={`${inputClass} h-auto py-2 text-xs`} />
+                    <div className="flex gap-2">
+                      <button onClick={() => setActiveAction(null)} className="flex-1 h-8 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-secondary">Cancel</button>
+                      <button onClick={() => handleTransition("on_hold", transitionNotes)} disabled={actionLoading || !transitionNotes.trim()} className="flex-1 h-8 rounded-lg bg-amber-500 text-xs font-medium text-white disabled:opacity-50">{actionLoading ? "..." : "Confirm"}</button>
+                    </div>
+                  </div>
+                )}
+                {activeAction === "reopen" && (
+                  <div className="mb-4 space-y-3 rounded-lg border border-blue-500/20 bg-blue-500/5 p-3">
+                    <p className="text-xs font-semibold text-blue-500">Reopen Ticket</p>
+                    <p className="text-[11px] text-muted-foreground">Moves the ticket back to In Progress. Available within 7 days of closure.</p>
+                    <textarea value={transitionNotes} onChange={(e) => setTransitionNotes(e.target.value)} placeholder="Why is this being reopened? (required)" rows={2} className={`${inputClass} h-auto py-2 text-xs`} />
+                    <div className="flex gap-2">
+                      <button onClick={() => setActiveAction(null)} className="flex-1 h-8 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-secondary">Cancel</button>
+                      <button onClick={() => handleTransition("in_progress", transitionNotes)} disabled={actionLoading || !transitionNotes.trim()} className="flex-1 h-8 rounded-lg bg-blue-500 text-xs font-medium text-white disabled:opacity-50">{actionLoading ? "..." : "Reopen"}</button>
+                    </div>
+                  </div>
+                )}
+                {activeAction === "assign" && (
+                  <div className="mb-4 space-y-3 rounded-lg border border-primary/20 bg-primary/5 p-3">
+                    <p className="text-xs font-semibold text-primary">Assign Ticket</p>
+                    <div className="space-y-1">
+                      <label className="text-[11px] text-muted-foreground">Employee</label>
+                      <select value={assignUser} onChange={(e) => setAssignUser(e.target.value)} className={`${inputClass} text-xs`}>
+                        <option value="">Unassigned</option>
+                        {assignUsers.map((u) => <option key={u.id} value={u.id}>{u.label}</option>)}
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] text-muted-foreground">Vendor (for in-warranty assets)</label>
+                      <select value={assignVendor} onChange={(e) => setAssignVendor(e.target.value)} className={`${inputClass} text-xs`}>
+                        <option value="">No vendor</option>
+                        {assignVendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                      </select>
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => setActiveAction(null)} className="flex-1 h-8 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-secondary">Cancel</button>
+                      <button onClick={handleAssign} disabled={actionLoading} className="flex-1 h-8 rounded-lg bg-primary text-xs font-medium text-white disabled:opacity-50">{actionLoading ? "..." : "Assign"}</button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Action buttons */}
                 {!activeAction && (
                   <div className="space-y-2">
-                    {isAssignee && ticket.status === "open" && (
+                    {isAdmin && !isClosed && (
+                      <button onClick={openAssignPanel} className="flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-primary/30 bg-primary/5 text-sm font-medium text-primary hover:bg-primary/10">
+                        <User className="h-4 w-4" /> {ticket.assigned_to_name || ticket.assigned_vendor_name ? "Reassign" : "Assign"} Ticket
+                      </button>
+                    )}
+                    {canAct && ticket.status === "open" && (
                       <button onClick={() => handleTransition("in_progress")} disabled={actionLoading} className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-primary text-sm font-medium text-white disabled:opacity-50">
                         <Play className="h-4 w-4" /> {actionLoading ? "..." : "Start Working"}
                       </button>
                     )}
-                    {isAssignee && ticket.status === "in_progress" && (
+                    {canAct && ticket.status === "in_progress" && (
                       <>
                         <button onClick={() => setActiveAction("completion")} className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-purple-500 text-sm font-medium text-white">
                           <CheckCircle2 className="h-4 w-4" /> Submit for Review
                         </button>
-                        <div className="grid grid-cols-2 gap-2">
+                        <button onClick={() => setActiveAction("ops_approval")} className="flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-orange-500/30 bg-orange-500/10 text-xs font-medium text-orange-600">
+                          <ShieldCheck className="h-3.5 w-3.5" /> Request Ops Approval
+                        </button>
+                        <div className="grid grid-cols-3 gap-2">
+                          <button onClick={() => handleTransition("alignment_pending")} disabled={actionLoading} className="flex h-9 items-center justify-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 text-xs font-medium text-cyan-600 disabled:opacity-50">
+                            Alignment
+                          </button>
                           <button onClick={() => setActiveAction("on_hold")} className="flex h-9 items-center justify-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 text-xs font-medium text-amber-600">
-                            <Pause className="h-3.5 w-3.5" /> On Hold
+                            <Pause className="h-3.5 w-3.5" /> Hold
                           </button>
                           <button onClick={() => setActiveAction("blocked")} className="flex h-9 items-center justify-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/10 text-xs font-medium text-red-600">
                             <AlertTriangle className="h-3.5 w-3.5" /> Blocked
@@ -708,25 +1165,92 @@ function TicketDetailView({
                         </div>
                       </>
                     )}
-                    {isAssignee && (ticket.status === "on_hold" || ticket.status === "blocked") && (
+                    {canAct && (ticket.status === "on_hold" || ticket.status === "blocked" || ticket.status === "alignment_pending") && (
                       <button onClick={() => handleTransition("in_progress")} disabled={actionLoading} className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-primary text-sm font-medium text-white disabled:opacity-50">
                         <Play className="h-4 w-4" /> {actionLoading ? "..." : "Resume Work"}
                       </button>
                     )}
-                    {isAssignee && ticket.status === "rejected" && (
-                      <button onClick={() => handleTransition("in_progress")} disabled={actionLoading} className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-primary text-sm font-medium text-white disabled:opacity-50">
-                        <Play className="h-4 w-4" /> {actionLoading ? "..." : "Resume & Rework"}
+                    {(isAdmin || isMarketing) && ticket.status === "on_hold" && (
+                      <button onClick={() => handleTransition("closed", "Closed from hold (client declined / no action).")} disabled={actionLoading} className="flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-slate-500/30 bg-slate-500/10 text-xs font-medium text-slate-500 disabled:opacity-50">
+                        <Check className="h-3.5 w-3.5" /> Close Ticket
                       </button>
+                    )}
+                    {isAdmin && ticket.status === "pending_ops_approval" && (
+                      <>
+                        <button onClick={() => handleTransition("in_progress", "Rectification approved by Operations.")} disabled={actionLoading} className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-emerald-500 text-sm font-medium text-white disabled:opacity-50">
+                          <CheckCircle2 className="h-4 w-4" /> Approve Rectification
+                        </button>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button onClick={() => handleTransition("pending_client_approval", "Client expense approval required — over to Marketing.")} disabled={actionLoading} className="flex h-9 items-center justify-center gap-1.5 rounded-lg border border-violet-500/30 bg-violet-500/10 text-xs font-medium text-violet-600 disabled:opacity-50">
+                            Needs Client Approval
+                          </button>
+                          <button onClick={() => setActiveAction("decline")} className="flex h-9 items-center justify-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 text-xs font-medium text-amber-600">
+                            Decline
+                          </button>
+                        </div>
+                      </>
+                    )}
+                    {(isMarketing || isAdmin) && ticket.status === "pending_client_approval" && (
+                      <>
+                        <button onClick={() => handleTransition("in_progress", "Client approved the expense — proceed with rectification.")} disabled={actionLoading} className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-emerald-500 text-sm font-medium text-white disabled:opacity-50">
+                          <CheckCircle2 className="h-4 w-4" /> Client Approved
+                        </button>
+                        <button onClick={() => setActiveAction("decline")} className="flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 text-xs font-medium text-amber-600">
+                          Client Declined
+                        </button>
+                      </>
+                    )}
+                    {canAct && ticket.status === "rejected" && (
+                      <>
+                        <button onClick={() => setActiveAction("completion")} className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-purple-500 text-sm font-medium text-white">
+                          <CheckCircle2 className="h-4 w-4" /> Resubmit for Review
+                        </button>
+                        <button onClick={() => handleTransition("in_progress")} disabled={actionLoading} className="flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-secondary disabled:opacity-50">
+                          <Play className="h-3.5 w-3.5" /> {actionLoading ? "..." : "Resume & Rework First"}
+                        </button>
+                      </>
                     )}
                     {canReview && ticket.status === "pending_review" && (
                       <button onClick={() => setActiveAction("review")} className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-primary text-sm font-medium text-white">
                         <ShieldCheck className="h-4 w-4" /> Review Submission
                       </button>
                     )}
-                    {isAdmin && ticket.status === "approved" && (
-                      <button onClick={() => handleTransition("closed")} disabled={actionLoading} className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-slate-600 text-sm font-medium text-white disabled:opacity-50">
-                        <Check className="h-4 w-4" /> {actionLoading ? "..." : "Close Ticket"}
+                    {(isAdmin || isMarketing) && ticket.status === "approved" && (
+                      <button onClick={() => handleTransition("closed", "Reviewed and shared with client — closing.")} disabled={actionLoading} className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-slate-600 text-sm font-medium text-white disabled:opacity-50">
+                        <Check className="h-4 w-4" /> {actionLoading ? "..." : "Close Ticket (Client Sign-off)"}
                       </button>
+                    )}
+
+                    {(isAdmin || isMarketing || isReporter) && ["open", "in_progress", "blocked", "alignment_pending"].includes(ticket.status) && (
+                      <button
+                        onClick={() => { if (confirm("Close this ticket? Use for duplicates, invalid reports, or client-cancelled work.")) handleTransition("closed", "Closed without rectification."); }}
+                        disabled={actionLoading}
+                        className="flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-slate-500/30 bg-slate-500/10 text-xs font-medium text-slate-500 hover:bg-slate-500/20 disabled:opacity-50"
+                      >
+                        <Check className="h-3.5 w-3.5" /> Close Ticket
+                      </button>
+                    )}
+
+                    {canReopen && (
+                      <button onClick={() => setActiveAction("reopen")} className="flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-blue-500/30 bg-blue-500/10 text-sm font-medium text-blue-600 hover:bg-blue-500/20">
+                        <RotateCcw className="h-4 w-4" /> Reopen Ticket
+                      </button>
+                    )}
+
+                    {/* Site-visit photos (any stage before closure) */}
+                    {!isClosed && (
+                      <div className="mt-3 space-y-2 rounded-lg border border-border bg-secondary/20 p-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Attach Visit Photos</p>
+                        <input
+                          type="file" accept="image/*" multiple
+                          onChange={(e) => setVisitFiles(Array.from(e.target.files ?? []))}
+                          className="block w-full text-xs text-muted-foreground file:mr-2 file:rounded file:border-0 file:bg-primary/10 file:px-2 file:py-1 file:text-[11px] file:text-primary"
+                        />
+                        <input value={visitCaption} onChange={(e) => setVisitCaption(e.target.value)} placeholder="Describe the issue seen…" className={`${inputClass} h-8 text-xs`} />
+                        <button onClick={handleVisitUpload} disabled={visitUploading || visitFiles.length === 0} className="flex h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-primary/90 text-xs font-medium text-white disabled:opacity-50">
+                          <Camera className="h-3.5 w-3.5" /> {visitUploading ? "Uploading…" : `Attach${visitFiles.length ? ` (${visitFiles.length})` : ""}`}
+                        </button>
+                      </div>
                     )}
 
                     {/* Status messages */}
@@ -781,13 +1305,73 @@ export default function TicketsPage() {
   const [selected, setSelected] = useState<TicketItem | null>(null);
   const [detailTicket, setDetailTicket] = useState<TicketItem | null>(null);
   const [saving, setSaving] = useState(false);
-  const [filterValues, setFilterValues] = useState<Record<string, string>>({ status: "", priority: "", category: "" });
+  const [filterValues, setFilterValues] = useState<Record<string, string>>({ status: "", priority: "", category: "", flag: "" });
   const [search, setSearch] = useState("");
-  const [teamMembers, setTeamMembers] = useState<UserOption[]>([]);
+  const [deviceOptions, setDeviceOptions] = useState<{ id: string; label: string }[]>([]);
+  const [issueTypes, setIssueTypes] = useState<{ id: string; name: string }[]>([]);
+  const [deviceInfo, setDeviceInfo] = useState<{
+    id?: string;
+    asset_code: string; display_name?: string; model_name?: string; device_model_name?: string;
+    installation_date?: string | null; purchase_date?: string | null; supplier_name?: string | null;
+    site_name?: string | null; current_site?: string | null; warranty_status?: string | null;
+    tickets_total?: number; tickets_open?: number;
+  } | null>(null);
+  const [faultFiles, setFaultFiles] = useState<File[]>([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState("");
+  const [deviceQuery, setDeviceQuery] = useState("");
+  const [deviceListOpen, setDeviceListOpen] = useState(false);
+  const [deviceFilter, setDeviceFilter] = useState("");
+  // Category drives the billing context + multi-asset UI, so it is controlled.
+  const [categoryValue, setCategoryValue] = useState("other");
+  // Cost liability (WF-14/15) — sent only when the user overrides the
+  // warranty-derived defaults, so the backend derivation stays authoritative.
+  const [billingEdited, setBillingEdited] = useState(false);
+  const [billingBillable, setBillingBillable] = useState(true);
+  const [billingChargeTo, setBillingChargeTo] = useState("client");
+  // Defaults derived from the asset's active warranties (mirrors backend
+  // derive_billability); null = unknown → server derives on save.
+  const [warrantyBilling, setWarrantyBilling] = useState<{ is_billable: boolean; charge_to: string } | null>(null);
+  // Extra assets linked to the same ticket (MW-03).
+  const [extraAssets, setExtraAssets] = useState<{ id: string; label: string }[]>([]);
+  const [extraQuery, setExtraQuery] = useState("");
+  const [extraListOpen, setExtraListOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  async function exportExcel() {
+    setExporting(true);
+    try {
+      const params: Record<string, string> = {};
+      if (search) params.search = search;
+      if (filterValues.status) params.status = filterValues.status;
+      if (filterValues.priority) params.priority = filterValues.priority;
+      if (filterValues.category) params.category = filterValues.category;
+      if (deviceFilter) params.device = deviceFilter;
+      // Stat-tile flags → backend ?flag=…; the Closed tile is a plain status.
+      const FLAG_PARAM: Record<string, string> = {
+        unassigned: "unassigned",
+        sla: "sla_breached",
+        overdue: "past_due",
+        in_review: "in_review",
+      };
+      if (filterValues.flag === "closed_only") params.status = "closed";
+      else if (FLAG_PARAM[filterValues.flag]) params.flag = FLAG_PARAM[filterValues.flag];
+      const res = await api.get("/tickets/export/", { params, responseType: "blob" });
+      const url = URL.createObjectURL(res.data as Blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `tickets-export-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err: unknown) {
+      toast.error(getApiError(err, "Export failed"));
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const fetchTickets = useCallback(async () => {
     try {
-      const { data } = await api.get("/tickets/");
+      const { data } = await api.get("/tickets/", { params: { page_size: 1000 } });
       setTickets(data.results ?? data);
     } catch (err: unknown) {
       toast.error(getApiError(err, "Failed to load tickets"));
@@ -799,6 +1383,14 @@ export default function TicketsPage() {
   useEffect(() => { fetchTickets(); }, [fetchTickets]);
 
   useEffect(() => {
+    const createParam = searchParams.get("create");
+    const deviceParam = searchParams.get("device");
+    if (createParam) {
+      openCreate(deviceParam ?? undefined, searchParams.get("category") ?? undefined);
+      router.replace("/tickets", { scroll: false });
+      return;
+    }
+    if (deviceParam) setDeviceFilter(deviceParam);
     const openId = searchParams.get("open");
     if (openId && tickets.length > 0) {
       const found = tickets.find((t) => t.id === openId);
@@ -808,19 +1400,70 @@ export default function TicketsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, tickets]);
 
-  async function loadTeamMembers() {
+  async function loadFormOptions() {
     try {
-      const { data } = await api.get("/accounts/users/", { params: { is_active: true, page_size: 200 } });
-      const users = data.results ?? data;
-      setTeamMembers(users.map((u: { id: string; first_name: string; last_name: string; username: string }) => ({
-        id: u.id,
-        label: u.first_name || u.last_name ? `${u.first_name} ${u.last_name}`.trim() : u.username,
+      const [dev, it] = await Promise.all([
+        api.get("/assets/devices/", { params: { page_size: 500, ordering: "asset_code" } }),
+        api.get("/tickets/issue-types/", { params: { is_active: true, page_size: 100 } }),
+      ]);
+      const devices = dev.data.results ?? dev.data;
+      setDeviceOptions(devices.map((d: { id: string; asset_code: string; device_model_name?: string; serial_number?: string }) => ({
+        id: d.id,
+        label: `${d.asset_code}${d.device_model_name ? ` — ${d.device_model_name}` : ""}`,
       })));
+      setIssueTypes(it.data.results ?? it.data);
     } catch { /* silently fail */ }
   }
 
-  function openCreate() { setSelected(null); setModalMode("create"); loadTeamMembers(); }
-  function openEdit(t: TicketItem) { setSelected(t); setModalMode("edit"); loadTeamMembers(); }
+  async function onDeviceSelect(deviceId: string) {
+    if (!deviceId) { setDeviceInfo(null); setWarrantyBilling(null); return; }
+    try {
+      const { data } = await api.get(`/assets/devices/${deviceId}/`);
+      setDeviceInfo(data);
+    } catch { setDeviceInfo(null); }
+    // Re-derive the billing defaults from this asset's active warranties
+    // (mirrors backend derive_billability: only an active *client* warranty
+    // covers the cost — charged to the vendor when a supplier-side warranty
+    // is also active); any prior manual override resets with the asset.
+    setBillingEdited(false);
+    setWarrantyBilling(null);
+    setBillingBillable(true);
+    setBillingChargeTo("client");
+    try {
+      const { data } = await api.get("/warranties/", {
+        params: { device: deviceId, status: "active", page_size: 100 },
+      });
+      const list: { warranty_type: string }[] = data.results ?? data;
+      const hasClient = list.some((w) => w.warranty_type === "client");
+      const hasSupplierSide = list.some((w) => SUPPLIER_SIDE_TYPES.includes(w.warranty_type));
+      const derived = hasClient
+        ? { is_billable: false, charge_to: hasSupplierSide ? "vendor" : "company" }
+        : { is_billable: true, charge_to: "client" };
+      setWarrantyBilling(derived);
+      setBillingBillable(derived.is_billable);
+      setBillingChargeTo(derived.charge_to);
+    } catch { /* unknown — billing derived server-side on save */ }
+  }
+
+  function resetBillingAndExtras() {
+    setBillingEdited(false); setBillingBillable(true); setBillingChargeTo("client");
+    setWarrantyBilling(null);
+    setExtraAssets([]); setExtraQuery(""); setExtraListOpen(false);
+  }
+
+  function openCreate(presetDeviceId?: string, presetCategory?: string) {
+    setSelected(null); setDeviceInfo(null); setFaultFiles([]); setDeviceQuery(""); setDeviceListOpen(false);
+    setCategoryValue(presetCategory && CATEGORY_OPTIONS.includes(presetCategory) ? presetCategory : "other");
+    resetBillingAndExtras();
+    setSelectedDeviceId(presetDeviceId ?? "");
+    if (presetDeviceId) onDeviceSelect(presetDeviceId);
+    setModalMode("create"); loadFormOptions();
+  }
+  function openEdit(t: TicketItem) {
+    setSelected(t); setDeviceInfo(null); setFaultFiles([]);
+    setCategoryValue(t.category); resetBillingAndExtras();
+    setModalMode("edit"); loadFormOptions();
+  }
   function openDetail(t: TicketItem) {
     api.get(`/tickets/${t.id}/`).then(({ data }) => setDetailTicket(data)).catch(() => setDetailTicket(t));
     router.replace(`/tickets?open=${t.id}`, { scroll: false });
@@ -834,12 +1477,38 @@ export default function TicketsPage() {
     const fd = new FormData(e.currentTarget);
     const payload: Record<string, unknown> = {
       title: fd.get("title"), description: fd.get("description"), priority: fd.get("priority"),
-      status: fd.get("status"), category: fd.get("category"),
-      assigned_to: fd.get("assigned_to") || null, due_date: fd.get("due_date") || null,
+      category: fd.get("category"), issue_type: fd.get("issue_type") || null,
+      complaint_by: fd.get("complaint_by") || "",
+      due_date: fd.get("due_date") || null,
     };
+    if (modalMode === "create") {
+      payload.device = fd.get("device") || null;
+      payload.site = deviceInfo?.current_site || null;
+      // Only send billing overrides the user actually made — otherwise the
+      // backend derives them from the asset's warranty (WF-14/15).
+      if (billingEdited && selectedDeviceId && BILLING_CATEGORIES.includes(categoryValue)) {
+        payload.is_billable = billingBillable;
+        payload.charge_to = billingChargeTo;
+      }
+      if (extraAssets.length > 0 && selectedDeviceId) {
+        payload.devices = [selectedDeviceId, ...extraAssets.map((a) => a.id)];
+      }
+    }
     try {
-      if (modalMode === "create") { await api.post("/tickets/", payload); toast.success("Ticket created"); }
-      else if (selected) { await api.patch(`/tickets/${selected.id}/`, payload); toast.success("Ticket updated"); }
+      if (modalMode === "create") {
+        const { data } = await api.post("/tickets/", payload);
+        for (const file of faultFiles) {
+          const ffd = new FormData();
+          ffd.append("file", file);
+          ffd.append("attachment_type", "fault");
+          ffd.append("caption", "Fault evidence (at creation)");
+          await api.post(`/tickets/${data.id}/attachments/`, ffd, { headers: { "Content-Type": "multipart/form-data" } });
+        }
+        toast.success(`Ticket ${data.ticket_number || "created"} raised`);
+      } else if (selected) {
+        await api.patch(`/tickets/${selected.id}/`, payload);
+        toast.success("Ticket updated");
+      }
       closeModal(); closeDetail(); fetchTickets();
     } catch (err: unknown) { toast.error(getApiError(err, "Failed to save ticket")); }
     finally { setSaving(false); }
@@ -880,18 +1549,66 @@ export default function TicketsPage() {
             <p className="text-muted-foreground">Track, complete, and approve field tasks</p>
           </div>
         </div>
-        {canEdit && (
-          <button onClick={openCreate} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-all">
-            <Plus className="h-4 w-4" /> Add Ticket
+        <div className="flex items-center gap-2">
+          <button onClick={exportExcel} disabled={exporting} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-60">
+            <Download className="h-4 w-4" /> {exporting ? "Exporting…" : "Export Excel"}
           </button>
-        )}
+          {canEdit && (
+            <button onClick={() => openCreate()} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-all">
+              <Plus className="h-4 w-4" /> Add Ticket
+            </button>
+          )}
+        </div>
       </div>
+
+      {deviceFilter && (
+        <div className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs">
+          <span className="font-medium text-primary">
+            Showing tickets for asset {tickets.find((t) => t.device === deviceFilter)?.device_code || "selected asset"}
+          </span>
+          <button onClick={() => setDeviceFilter("")} className="ml-auto rounded p-0.5 text-primary hover:bg-primary/10" title="Clear filter">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+      {(() => {
+        const isActive = (t: TicketItem) => !["closed", "approved", "rejected"].includes(t.status);
+        const todayIso = new Date().toISOString().split("T")[0];
+        const toggleFlag = (f: string) => setFilterValues((prev) => ({ ...prev, flag: prev.flag === f ? "" : f }));
+        const STATUS_HEX: Record<string, string> = {
+          open: "#3b82f6", in_progress: "#f59e0b", on_hold: "#6b7280", blocked: "#ef4444",
+          alignment_pending: "#06b6d4", pending_ops_approval: "#f97316", pending_client_approval: "#8b5cf6",
+          pending_review: "#a855f7", approved: "#10b981", rejected: "#f43f5e", closed: "#64748b",
+        };
+        return (
+          <div className="space-y-3 rounded-xl border border-border bg-card p-4">
+            <StatTiles
+              tiles={[
+                { key: "total", label: "Total Tickets", value: tickets.length, tone: "primary", active: !filterValues.flag && !filterValues.status, onClick: () => setFilterValues((prev) => ({ ...prev, status: "", flag: "" })) },
+                { key: "unassigned", label: "Unassigned", value: tickets.filter((t) => isActive(t) && !t.assigned_to).length, tone: "amber", active: filterValues.flag === "unassigned", onClick: () => toggleFlag("unassigned") },
+                { key: "sla", label: "SLA Breached", value: tickets.filter((t) => isActive(t) && (t.escalated || t.is_response_overdue || t.assignment_escalated || t.due_date_escalated)).length, tone: "red", active: filterValues.flag === "sla", onClick: () => toggleFlag("sla") },
+                { key: "overdue", label: "Past Due Date", value: tickets.filter((t) => isActive(t) && t.due_date && t.due_date < todayIso).length, tone: "red", active: filterValues.flag === "overdue", onClick: () => toggleFlag("overdue") },
+                { key: "in_review", label: "In Review", value: tickets.filter((t) => ["pending_review", "pending_ops_approval", "pending_client_approval"].includes(t.status)).length, tone: "violet", active: filterValues.flag === "in_review", onClick: () => toggleFlag("in_review") },
+                { key: "closed", label: "Closed", value: tickets.filter((t) => t.status === "closed").length, tone: "emerald", active: filterValues.flag === "closed_only", onClick: () => toggleFlag("closed_only") },
+              ]}
+            />
+            <SegmentBar
+              segments={Object.keys(statusBadge).map((s) => ({
+                key: s, label: formatLabel(s), color: STATUS_HEX[s] ?? "#94a3b8",
+                count: tickets.filter((t) => t.status === s).length,
+              }))}
+              active={filterValues.status || undefined}
+              onSelect={(s) => setFilterValues((prev) => ({ ...prev, status: prev.status === s ? "" : s }))}
+            />
+          </div>
+        );
+      })()}
 
       <FilterBar
         filters={[
           { key: "status", label: "Status", options: Object.keys(statusBadge).map((s) => ({ value: s, label: formatLabel(s) })) },
           { key: "priority", label: "Priority", options: Object.keys(priorityBadge).map((p) => ({ value: p, label: formatLabel(p) })) },
-          { key: "category", label: "Category", options: ["installation", "repair", "replacement", "inspection", "relocation", "other"].map((c) => ({ value: c, label: formatLabel(c) })) },
+          { key: "category", label: "Category", options: CATEGORY_OPTIONS.map((c) => ({ value: c, label: formatLabel(c) })) },
         ]}
         values={filterValues}
         onChange={(k, v) => setFilterValues((prev) => ({ ...prev, [k]: v }))}
@@ -901,10 +1618,18 @@ export default function TicketsPage() {
       />
 
       {(() => {
+        const isActive = (t: TicketItem) => !["closed", "approved", "rejected"].includes(t.status);
+        const todayIso = new Date().toISOString().split("T")[0];
         const filtered = tickets.filter((t) => {
+          if (deviceFilter && t.device !== deviceFilter) return false;
           if (filterValues.status && t.status !== filterValues.status) return false;
           if (filterValues.priority && t.priority !== filterValues.priority) return false;
           if (filterValues.category && t.category !== filterValues.category) return false;
+          if (filterValues.flag === "unassigned" && !(isActive(t) && !t.assigned_to)) return false;
+          if (filterValues.flag === "sla" && !(isActive(t) && (t.escalated || t.is_response_overdue || t.assignment_escalated || t.due_date_escalated))) return false;
+          if (filterValues.flag === "overdue" && !(isActive(t) && t.due_date && t.due_date < todayIso)) return false;
+          if (filterValues.flag === "in_review" && !["pending_review", "pending_ops_approval", "pending_client_approval"].includes(t.status)) return false;
+          if (filterValues.flag === "closed_only" && t.status !== "closed") return false;
           if (search) {
             const q = search.toLowerCase();
             if (!t.title.toLowerCase().includes(q) && !(t.ticket_number || "").toLowerCase().includes(q) && !(t.site_name || "").toLowerCase().includes(q) && !(t.assigned_to_name || "").toLowerCase().includes(q)) return false;
@@ -939,7 +1664,12 @@ export default function TicketsPage() {
                 <tbody>
                   {filtered.map((t) => (
                     <tr key={t.id} onClick={() => openDetail(t)} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
-                      <td className={`${tdClass} whitespace-nowrap font-medium text-primary`}>{t.ticket_number || `#${t.id.slice(0, 8)}`}</td>
+                      <td className={`${tdClass} whitespace-nowrap font-medium text-primary`}>
+                        <span className="inline-flex items-center gap-1">
+                          {t.ticket_number || `#${t.id.slice(0, 8)}`}
+                          <CopyButton text={t.ticket_number || t.id} label="ticket #" />
+                        </span>
+                      </td>
                       <td className={`${tdClass} font-medium text-foreground`}>
                         <div className="flex items-center gap-2">
                           {t.title}
@@ -977,12 +1707,13 @@ export default function TicketsPage() {
       {/* Create/Edit Modal */}
       {modalMode && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl">
-            <div className="mb-5 flex items-center justify-between">
+          <div className="flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
+            <div className="flex items-center justify-between border-b border-border px-6 py-4">
               <h2 className="text-lg font-semibold text-foreground">{modalMode === "create" ? "Create Ticket" : "Edit Ticket"}</h2>
               <button onClick={closeModal} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"><X className="h-5 w-5" /></button>
             </div>
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+              <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5">
               <div className="space-y-1.5">
                 <label htmlFor="title" className={labelClass}>Title</label>
                 <input id="title" name="title" required defaultValue={selected?.title ?? ""} className={inputClass} placeholder="Brief summary of the issue" />
@@ -990,6 +1721,185 @@ export default function TicketsPage() {
               <div className="space-y-1.5">
                 <label htmlFor="description" className={labelClass}>Description</label>
                 <textarea id="description" name="description" rows={3} defaultValue={selected?.description ?? ""} className={`${inputClass} h-auto py-2`} placeholder="Detailed description of the issue" />
+              </div>
+              {modalMode === "create" && (
+                <div className="space-y-1.5">
+                  <label htmlFor="device" className={labelClass}>Asset</label>
+                  <div className="relative">
+                    <input
+                      id="device"
+                      value={deviceQuery}
+                      onChange={(e) => { setDeviceQuery(e.target.value); setDeviceListOpen(true); if (!e.target.value) { setSelectedDeviceId(""); onDeviceSelect(""); } }}
+                      onFocus={() => setDeviceListOpen(true)}
+                      onBlur={() => setTimeout(() => setDeviceListOpen(false), 150)}
+                      placeholder="Search asset by code or model…"
+                      className={inputClass}
+                      autoComplete="off"
+                    />
+                    <input type="hidden" name="device" value={selectedDeviceId} />
+                    {deviceListOpen && (
+                      <div className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-border bg-card shadow-xl">
+                        {deviceOptions.filter((d) => d.label.toLowerCase().includes(deviceQuery.toLowerCase())).slice(0, 50).map((d) => (
+                          <button
+                            key={d.id}
+                            type="button"
+                            onMouseDown={() => { setSelectedDeviceId(d.id); setDeviceQuery(d.label); setDeviceListOpen(false); onDeviceSelect(d.id); }}
+                            className={`block w-full px-3 py-2 text-left text-sm transition-colors hover:bg-primary/10 ${selectedDeviceId === d.id ? "bg-primary/5 font-medium text-primary" : "text-foreground"}`}
+                          >
+                            {d.label}
+                          </button>
+                        ))}
+                        {deviceOptions.filter((d) => d.label.toLowerCase().includes(deviceQuery.toLowerCase())).length === 0 && (
+                          <p className="px-3 py-2 text-xs text-muted-foreground">No assets match "{deviceQuery}"</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  {deviceInfo && (
+                    <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 rounded-lg border border-primary/20 bg-primary/5 p-3 text-xs sm:grid-cols-4">
+                      <span className="text-muted-foreground">Asset Name</span>
+                      <span className="font-medium text-foreground">{deviceInfo.display_name || deviceInfo.device_model_name || deviceInfo.asset_code}</span>
+                      <span className="text-muted-foreground">Installed On</span>
+                      <span className="font-medium text-foreground">{deviceInfo.installation_date || "—"}</span>
+                      <span className="text-muted-foreground">Procured From</span>
+                      <span className="font-medium text-foreground">{deviceInfo.supplier_name || "—"}</span>
+                      <span className="text-muted-foreground">Client</span>
+                      <span className="font-medium text-foreground">{(deviceInfo as { client_name?: string | null }).client_name || "—"}</span>
+                      <span className="text-muted-foreground">Location</span>
+                      <span className="font-medium text-foreground">{deviceInfo.site_name || "In warehouse"}</span>
+                      {deviceInfo.warranty_status && (
+                        <>
+                          <span className="text-muted-foreground">Warranty</span>
+                          <span className={`font-medium ${deviceInfo.warranty_status === "active" ? "text-emerald-500" : "text-muted-foreground"}`}>
+                            {deviceInfo.warranty_status === "active" ? "Under warranty" : formatLabel(deviceInfo.warranty_status)}
+                          </span>
+                        </>
+                      )}
+                      <span className="text-muted-foreground">Previous Tickets</span>
+                      <span className="font-medium text-foreground">
+                        {(deviceInfo.tickets_total ?? 0) > 0 ? (
+                          <Link href={`/tickets?device=${deviceInfo.id}`} className="text-primary hover:underline" onClick={() => setModalMode(null)}>
+                            {deviceInfo.tickets_total} total{(deviceInfo.tickets_open ?? 0) > 0 ? ` · ${deviceInfo.tickets_open} open` : ""} →
+                          </Link>
+                        ) : (
+                          "None — first ticket for this asset"
+                        )}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+              {/* Warranty context + cost liability (WF-14/15) — shown only for
+                  the categories where the backend derives billability. */}
+              {modalMode === "create" && deviceInfo && BILLING_CATEGORIES.includes(categoryValue) && (
+                <div className="space-y-3 rounded-lg border border-border bg-secondary/20 p-3">
+                  {warrantyBilling === null ? (
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-secondary px-2.5 py-1 text-xs font-medium text-muted-foreground ring-1 ring-border">
+                      <ShieldCheck className="h-3.5 w-3.5" /> Billing derives from the asset&apos;s warranty on save
+                    </span>
+                  ) : warrantyBilling.is_billable ? (
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-500 ring-1 ring-amber-500/20">
+                      <ShieldX className="h-3.5 w-3.5" /> No active client warranty — billable to client
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-500 ring-1 ring-emerald-500/20">
+                      <ShieldCheck className="h-3.5 w-3.5" /> Client warranty active — {warrantyBilling.charge_to === "vendor" ? "vendor" : "company"} bears cost
+                    </span>
+                  )}
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="flex h-10 cursor-pointer items-center gap-2 rounded-lg border border-border bg-card px-3 text-sm text-foreground">
+                      <input
+                        type="checkbox"
+                        checked={billingBillable}
+                        onChange={(e) => { setBillingBillable(e.target.checked); setBillingEdited(true); }}
+                        className="h-4 w-4"
+                      />
+                      Billable
+                    </label>
+                    <select
+                      aria-label="Charge to"
+                      value={billingChargeTo}
+                      onChange={(e) => { setBillingChargeTo(e.target.value); setBillingEdited(true); }}
+                      className={inputClass}
+                    >
+                      <option value="">Charge to…</option>
+                      <option value="company">Company</option>
+                      <option value="client">Client</option>
+                      <option value="vendor">Vendor</option>
+                    </select>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Defaults derive from the asset&apos;s warranty — change only if this ticket differs.
+                  </p>
+                </div>
+              )}
+              {/* Extra assets on the same ticket (MW-03, e.g. preventive maintenance rounds) */}
+              {modalMode === "create" && selectedDeviceId && (
+                <div className="space-y-1.5">
+                  <label className={labelClass}>
+                    Additional Assets<span className="font-normal text-muted-foreground/70"> (optional — covers several assets with one ticket)</span>
+                  </label>
+                  {extraAssets.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {extraAssets.map((a) => (
+                        <span key={a.id} className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
+                          {a.label}
+                          <button
+                            type="button"
+                            onClick={() => setExtraAssets((prev) => prev.filter((x) => x.id !== a.id))}
+                            className="rounded-full p-0.5 hover:bg-primary/20"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <div className="relative">
+                    <input
+                      value={extraQuery}
+                      onChange={(e) => { setExtraQuery(e.target.value); setExtraListOpen(true); }}
+                      onFocus={() => setExtraListOpen(true)}
+                      onBlur={() => setTimeout(() => setExtraListOpen(false), 150)}
+                      placeholder="Search to add more assets…"
+                      className={inputClass}
+                      autoComplete="off"
+                    />
+                    {extraListOpen && (
+                      <div className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-border bg-card shadow-xl">
+                        {deviceOptions
+                          .filter((d) => d.id !== selectedDeviceId && !extraAssets.some((a) => a.id === d.id) && d.label.toLowerCase().includes(extraQuery.toLowerCase()))
+                          .slice(0, 50)
+                          .map((d) => (
+                            <button
+                              key={d.id}
+                              type="button"
+                              onMouseDown={() => { setExtraAssets((prev) => [...prev, { id: d.id, label: d.label }]); setExtraQuery(""); setExtraListOpen(false); }}
+                              className="block w-full px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-primary/10"
+                            >
+                              {d.label}
+                            </button>
+                          ))}
+                        {deviceOptions.filter((d) => d.id !== selectedDeviceId && !extraAssets.some((a) => a.id === d.id) && d.label.toLowerCase().includes(extraQuery.toLowerCase())).length === 0 && (
+                          <p className="px-3 py-2 text-xs text-muted-foreground">No more assets match</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <label htmlFor="issue_type" className={labelClass}>Issue Type</label>
+                  <select id="issue_type" name="issue_type" defaultValue={selected?.issue_type ?? ""} className={inputClass}>
+                    <option value="">Select issue…</option>
+                    {issueTypes.map((it) => <option key={it.id} value={it.id}>{it.name}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="complaint_by" className={labelClass}>Complaint By</label>
+                  <input id="complaint_by" name="complaint_by" defaultValue={selected?.complaint_by ?? ""} className={inputClass} placeholder="e.g. client company or staff" />
+                </div>
               </div>
               <div className="grid gap-4 sm:grid-cols-3">
                 <div className="space-y-1.5">
@@ -999,34 +1909,37 @@ export default function TicketsPage() {
                   </select>
                 </div>
                 <div className="space-y-1.5">
-                  <label htmlFor="status" className={labelClass}>Status</label>
-                  <select id="status" name="status" defaultValue={selected?.status ?? "open"} className={inputClass}>
-                    <option value="open">Open</option><option value="in_progress">In Progress</option><option value="on_hold">On Hold</option><option value="blocked">Blocked</option>
-                    <option value="pending_review">Pending Review</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="closed">Closed</option>
-                  </select>
-                </div>
-                <div className="space-y-1.5">
                   <label htmlFor="category" className={labelClass}>Category</label>
-                  <select id="category" name="category" defaultValue={selected?.category ?? "other"} className={inputClass}>
-                    <option value="installation">Installation</option><option value="repair">Repair</option><option value="replacement">Replacement</option>
-                    <option value="inspection">Inspection</option><option value="relocation">Relocation</option><option value="other">Other</option>
-                  </select>
-                </div>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <label htmlFor="assigned_to" className={labelClass}>Assign To</label>
-                  <select id="assigned_to" name="assigned_to" defaultValue={selected?.assigned_to ?? ""} className={inputClass}>
-                    <option value="">Unassigned</option>
-                    {teamMembers.map((u) => <option key={u.id} value={u.id}>{u.label}</option>)}
+                  <select id="category" name="category" value={categoryValue} onChange={(e) => setCategoryValue(e.target.value)} className={inputClass}>
+                    {CATEGORY_OPTIONS.map((c) => <option key={c} value={c}>{formatLabel(c)}</option>)}
                   </select>
                 </div>
                 <div className="space-y-1.5">
-                  <label htmlFor="due_date" className={labelClass}>Due Date</label>
+                  <label htmlFor="due_date" className={labelClass}>
+                    Due Date{modalMode === "create" && <span className="font-normal text-muted-foreground/70"> (optional)</span>}
+                  </label>
                   <input id="due_date" name="due_date" type="date" defaultValue={selected?.due_date ?? ""} className={inputClass} />
+                  {modalMode === "create" && (
+                    <p className="text-[11px] text-muted-foreground">Auto-set from priority if left empty (critical 24h · high 48h · medium 5bd · low 10bd)</p>
+                  )}
                 </div>
               </div>
-              <div className="flex justify-end gap-3 pt-2">
+              {modalMode === "create" && (
+                <div className="space-y-1.5">
+                  <label className={labelClass}>Fault Photos</label>
+                  <input
+                    type="file" accept="image/*" multiple
+                    onChange={(e) => setFaultFiles(Array.from(e.target.files ?? []))}
+                    className="block w-full text-xs text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-primary/10 file:px-3 file:py-2 file:text-xs file:font-medium file:text-primary hover:file:bg-primary/20"
+                  />
+                  {faultFiles.length > 0 && <p className="text-[11px] text-muted-foreground">{faultFiles.length} photo(s) will be attached as fault evidence.</p>}
+                </div>
+              )}
+              <p className="text-[11px] text-muted-foreground">
+                Assignment is done by Operations after the ticket is raised.
+              </p>
+              </div>
+              <div className="flex justify-end gap-3 border-t border-border px-6 py-4">
                 <button type="button" onClick={closeModal} className="inline-flex h-10 items-center rounded-lg border border-border bg-transparent px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">Cancel</button>
                 <button type="submit" disabled={saving} className="inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-medium text-white transition-all disabled:opacity-50">
                   {saving ? "Saving..." : modalMode === "create" ? "Create Ticket" : "Save Changes"}

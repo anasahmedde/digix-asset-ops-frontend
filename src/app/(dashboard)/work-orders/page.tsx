@@ -4,6 +4,7 @@ import { FileDown, Pencil, Plus, ScrollText, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { CopyButton } from "@/components/ui/copy-button";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
@@ -12,19 +13,22 @@ import type { PaymentTerms, Supplier, WorkOrder, WorkOrderStatus } from "@/types
 const inputClass =
   "flex h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors";
 const labelClass = "text-xs font-medium text-muted-foreground";
+// inputClass minus w-full — for row inputs with explicit widths (w-20/w-32/w-36),
+// where the baked-in w-full would win Tailwind's cascade and break the layout.
+const rowInputClass = inputClass.replace("w-full ", "");
 const thClass = "px-5 py-3.5 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground";
 const tdClass = "px-5 py-3.5";
 
 const STATUS_STYLES: Record<string, string> = {
-  draft: "bg-slate-500/10 text-slate-400 ring-slate-500/20",
-  pending_approval: "bg-amber-500/10 text-amber-400 ring-amber-500/20",
-  approved: "bg-blue-500/10 text-blue-400 ring-blue-500/20",
-  issued: "bg-indigo-500/10 text-indigo-400 ring-indigo-500/20",
-  in_progress: "bg-cyan-500/10 text-cyan-400 ring-cyan-500/20",
-  partially_delivered: "bg-violet-500/10 text-violet-400 ring-violet-500/20",
-  delivered: "bg-teal-500/10 text-teal-400 ring-teal-500/20",
-  completed: "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20",
-  cancelled: "bg-red-500/10 text-red-400 ring-red-500/20",
+  draft: "bg-slate-500/10 text-slate-600 ring-slate-500/20",
+  pending_approval: "bg-amber-500/10 text-amber-600 ring-amber-500/20",
+  approved: "bg-blue-500/10 text-blue-600 ring-blue-500/20",
+  issued: "bg-indigo-500/10 text-indigo-600 ring-indigo-500/20",
+  in_progress: "bg-cyan-500/10 text-cyan-600 ring-cyan-500/20",
+  partially_delivered: "bg-violet-500/10 text-violet-600 ring-violet-500/20",
+  delivered: "bg-teal-500/10 text-teal-600 ring-teal-500/20",
+  completed: "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20",
+  cancelled: "bg-red-500/10 text-red-600 ring-red-500/20",
 };
 
 const NEXT_STATUS: Record<WorkOrderStatus, WorkOrderStatus[]> = {
@@ -285,7 +289,12 @@ export default function WorkOrdersPage() {
               <tbody>
                 {orders.map((wo) => (
                   <tr key={wo.id} onClick={() => openEdit(wo.id)} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
-                    <td className={`${tdClass} font-mono text-foreground`}>{wo.wo_number}</td>
+                    <td className={`${tdClass} font-mono text-foreground`}>
+                      <span className="inline-flex items-center gap-1">
+                        {wo.wo_number}
+                        <CopyButton text={wo.wo_number} label="WO #" />
+                      </span>
+                    </td>
                     <td className={`${tdClass} font-medium text-foreground`}>{wo.title}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{wo.order_type_display ?? label(wo.order_type)}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{wo.supplier_name ?? "-"}</td>
@@ -322,7 +331,7 @@ export default function WorkOrdersPage() {
       )}
 
       {modalMode && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/60 py-8 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 py-8 backdrop-blur-sm">
           <div className="w-full max-w-3xl rounded-2xl border border-border bg-card p-6 shadow-2xl">
             <div className="mb-5 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-foreground">
@@ -402,8 +411,8 @@ export default function WorkOrdersPage() {
                 {form.items.map((it, idx) => (
                   <div key={idx} className="flex items-center gap-2">
                     <input value={it.description} onChange={(e) => updateItem(idx, "description", e.target.value)} placeholder="Description" className={`${inputClass} flex-1`} />
-                    <input type="number" value={it.quantity} onChange={(e) => updateItem(idx, "quantity", e.target.value)} placeholder="Qty" className={`${inputClass} w-20`} />
-                    <input type="number" value={it.unit_price} onChange={(e) => updateItem(idx, "unit_price", e.target.value)} placeholder="Unit price" className={`${inputClass} w-32`} />
+                    <input type="number" value={it.quantity} onChange={(e) => updateItem(idx, "quantity", e.target.value)} placeholder="Qty" className={`${rowInputClass} w-20`} />
+                    <input type="number" step="0.01" value={it.unit_price} onChange={(e) => updateItem(idx, "unit_price", e.target.value)} placeholder="Unit price" className={`${rowInputClass} w-32`} />
                     <button type="button" onClick={() => removeItem(idx)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:text-destructive">
                       <Trash2 className="h-4 w-4" />
                     </button>

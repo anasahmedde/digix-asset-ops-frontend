@@ -4,6 +4,7 @@ import { Building2, Pencil, Plus, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { CopyButton } from "@/components/ui/copy-button";
 import { FilterBar } from "@/components/ui/filter-bar";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
@@ -167,13 +168,18 @@ export default function ClientsPage() {
               <tbody>
                 {filtered.map((c) => (
                   <tr key={c.id} onClick={() => { setSelected(c); setModalMode("edit"); }} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
-                    <td className={`${tdClass} font-medium text-foreground`}>{c.name}</td>
+                    <td className={`${tdClass} font-medium text-foreground`}>
+                      <span className="inline-flex items-center gap-1">
+                        {c.name}
+                        <CopyButton text={c.name} label="client name" />
+                      </span>
+                    </td>
                     <td className={`${tdClass} text-muted-foreground`}>{c.code}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{c.contact_person || "-"}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{c.contact_email || "-"}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{c.contact_phone || "-"}</td>
                     <td className={tdClass}>
-                      <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${c.is_active ? "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20" : "bg-red-500/10 text-red-400 ring-red-500/20"}`}>
+                      <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${c.is_active ? "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20" : "bg-red-500/10 text-red-600 ring-red-500/20"}`}>
                         {c.is_active ? "Active" : "Inactive"}
                       </span>
                     </td>
@@ -202,7 +208,7 @@ export default function ClientsPage() {
 
       {modalMode && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl">
+          <div className="max-h-[88vh] overflow-y-auto w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl">
             <div className="mb-5 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-foreground">{modalMode === "create" ? "Add New Client" : "Edit Client"}</h2>
               <button onClick={closeModal} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">

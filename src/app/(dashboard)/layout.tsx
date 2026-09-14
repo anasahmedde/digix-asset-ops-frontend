@@ -9,17 +9,25 @@ import { SidebarProvider, useSidebar } from "@/lib/sidebar-context";
 import { UserProvider } from "@/lib/user-context";
 
 function DashboardShell({ children }: { children: React.ReactNode }) {
-  const { collapsed } = useSidebar();
+  const { collapsed, mobileOpen, closeMobile } = useSidebar();
 
   return (
     <div className="min-h-screen bg-background">
       <Sidebar />
+      {/* Mobile backdrop when the drawer is open */}
+      {mobileOpen && (
+        <div
+          onClick={closeMobile}
+          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
+          aria-hidden
+        />
+      )}
       <div
-        className="transition-all duration-200"
-        style={{ paddingLeft: collapsed ? "72px" : "256px" }}
+        className="transition-all duration-200 lg:pl-[var(--sidebar-w)]"
+        style={{ ["--sidebar-w" as string]: collapsed ? "72px" : "256px" }}
       >
         <Header />
-        <main className="p-6">{children}</main>
+        <main className="p-4 sm:p-6">{children}</main>
       </div>
     </div>
   );

@@ -21,6 +21,9 @@ export interface FieldSpec {
   options?: { value: string; label: string }[];
   /** default for "create" mode */
   default?: string | number | boolean;
+  /** bounds for number fields — also switches the input to integer steps */
+  min?: number;
+  max?: number;
   /** shown read-only in "edit" mode and excluded from the payload */
   immutable?: boolean;
   colSpan?: 1 | 2;
@@ -62,8 +65,8 @@ export function ActiveBadge({ active }: { active: boolean }) {
     <span
       className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${
         active
-          ? "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20"
-          : "bg-red-500/10 text-red-400 ring-red-500/20"
+          ? "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20"
+          : "bg-red-500/10 text-red-600 ring-red-500/20"
       }`}
     >
       {active ? "Active" : "Inactive"}
@@ -346,7 +349,9 @@ export function CrudManager<T extends { id: string; [key: string]: unknown }>({
                       id={f.name}
                       name={f.name}
                       type={f.type === "number" ? "number" : f.type ?? "text"}
-                      step={f.type === "number" ? "any" : undefined}
+                      step={f.type === "number" ? (f.min !== undefined || f.max !== undefined ? "1" : "any") : undefined}
+                      min={f.type === "number" ? f.min : undefined}
+                      max={f.type === "number" ? f.max : undefined}
                       required={f.required}
                       defaultValue={dv === undefined || dv === null ? "" : String(dv)}
                       placeholder={f.placeholder}

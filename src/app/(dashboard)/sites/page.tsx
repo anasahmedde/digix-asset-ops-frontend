@@ -7,6 +7,7 @@ import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import { ContactsEditor } from "@/components/ui/contacts-editor";
+import { CopyButton } from "@/components/ui/copy-button";
 import { FilterBar } from "@/components/ui/filter-bar";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
@@ -261,7 +262,12 @@ export default function SitesPage() {
               <tbody>
                 {filtered.map((s) => (
                   <tr key={s.id} onClick={() => openEdit(s)} className="border-b border-border/30 cursor-pointer transition-colors hover:bg-secondary/30">
-                    <td className={`${tdClass} font-medium text-foreground`}>{s.name}</td>
+                    <td className={`${tdClass} font-medium text-foreground`}>
+                      <span className="inline-flex items-center gap-1">
+                        {s.name}
+                        <CopyButton text={s.name} label="site name" />
+                      </span>
+                    </td>
                     <td className={`${tdClass} text-muted-foreground`}>{s.client_name || "-"}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{s.city || "-"}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{s.country}</td>
@@ -271,7 +277,7 @@ export default function SitesPage() {
                       </span>
                     </td>
                     <td className={tdClass}>
-                      <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${s.is_active ? "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20" : "bg-red-500/10 text-red-400 ring-red-500/20"}`}>
+                      <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${s.is_active ? "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20" : "bg-red-500/10 text-red-600 ring-red-500/20"}`}>
                         {s.is_active ? "Active" : "Inactive"}
                       </span>
                     </td>
@@ -299,7 +305,7 @@ export default function SitesPage() {
       })()}
 
       {modalMode && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/60 py-8 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 py-8 backdrop-blur-sm">
           <div className="w-full max-w-2xl rounded-2xl border border-border bg-card p-6 shadow-2xl">
             <div className="mb-5 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-foreground">{modalMode === "create" ? "Add New Site" : "Edit Site"}</h2>

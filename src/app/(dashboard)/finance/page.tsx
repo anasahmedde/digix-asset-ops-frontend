@@ -38,17 +38,17 @@ const thClass = "px-5 py-3.5 text-left text-xs font-medium uppercase tracking-wi
 const tdClass = "px-5 py-3.5";
 
 const typeBadge: Record<string, string> = {
-  payable: "bg-red-500/10 text-red-400 ring-red-500/20",
-  receivable: "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20",
+  payable: "bg-red-500/10 text-red-600 ring-red-500/20",
+  receivable: "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20",
 };
 
 const statusBadge: Record<string, string> = {
   draft: "bg-secondary/500/10 text-muted-foreground ring-gray-500/20",
-  sent: "bg-blue-500/10 text-blue-400 ring-blue-500/20",
-  partially_paid: "bg-amber-500/10 text-amber-400 ring-amber-500/20",
-  paid: "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20",
-  overdue: "bg-red-500/10 text-red-400 ring-red-500/20",
-  cancelled: "bg-slate-500/10 text-slate-400 ring-slate-500/20",
+  sent: "bg-blue-500/10 text-blue-600 ring-blue-500/20",
+  partially_paid: "bg-amber-500/10 text-amber-600 ring-amber-500/20",
+  paid: "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20",
+  overdue: "bg-red-500/10 text-red-600 ring-red-500/20",
+  cancelled: "bg-slate-500/10 text-slate-600 ring-slate-500/20",
 };
 
 function fmt(value: string | number) {
@@ -299,7 +299,7 @@ export default function FinancePage() {
 
       {modalMode && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl">
+          <div className="max-h-[88vh] overflow-y-auto w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl">
             <div className="mb-5 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-foreground">{modalMode === "create" ? "Add New Invoice" : "Edit Invoice"}</h2>
               <button onClick={closeModal} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">

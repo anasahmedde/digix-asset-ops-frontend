@@ -22,7 +22,9 @@ export interface User {
 
 export type UserRole =
   | "super_admin"
+  | "group_head"
   | "ops_manager"
+  | "marketing_head"
   | "supervisor"
   | "technician"
   | "finance"
@@ -45,6 +47,8 @@ export interface Device {
   firmware_version: string;
   hardware_revision: string;
   status: DeviceStatus;
+  source: DeviceSource;
+  allowed_transitions?: DeviceStatus[];
   image: string | null;
   images: DeviceImage[];
   purchase_date: string | null;
@@ -98,15 +102,19 @@ export interface DeviceImage {
 
 export type DeviceStatus =
   | "procured"
+  | "in_production"
   | "in_stock"
   | "assigned"
   | "installed"
   | "active"
   | "under_maintenance"
+  | "client_property"
   | "decommissioned"
   | "lost_stolen"
   | "rma"
   | "in_transit";
+
+export type DeviceSource = "inhouse" | "third_party";
 
 export interface Site {
   id: string;
@@ -241,6 +249,9 @@ export type TicketStatus =
   | "in_progress"
   | "on_hold"
   | "blocked"
+  | "alignment_pending"
+  | "pending_ops_approval"
+  | "pending_client_approval"
   | "pending_review"
   | "approved"
   | "rejected"
@@ -253,13 +264,14 @@ export interface TicketAttachment {
   uploaded_by_name: string | null;
   file: string;
   caption: string;
-  attachment_type: "general" | "completion" | "review";
+  attachment_type: "general" | "fault" | "completion" | "review";
   created_at: string;
 }
 
 export interface TicketComment {
   id: string;
   ticket: string;
+  image?: string | null;
   author: string | null;
   author_name: string | null;
   author_avatar: string | null;

@@ -1,9 +1,10 @@
 "use client";
 
-import { Check, Settings2 } from "lucide-react";
-import { useState } from "react";
+import { ArrowRight, Check, Settings2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 
 import { ActiveBadge, ColumnSpec, CrudManager, FieldSpec } from "@/components/setup/crud-manager";
+import api from "@/lib/api";
 import { Tabs } from "@/components/ui/tabs";
 import { useUser } from "@/lib/user-context";
 
@@ -28,6 +29,39 @@ const ENTITY_OPTIONS = [
 ];
 
 const CURRENCY_OPTIONS = ["PKR", "AED", "SAR", "QAR", "USD", "EUR", "GBP"].map((c) => ({ value: c, label: c }));
+
+const ROLE_LABELS: Record<string, string> = {
+  super_admin: "Super Admin",
+  group_head: "Group Head",
+  ops_manager: "Operations Head",
+  marketing_head: "Marketing Head",
+  supervisor: "Supervisor",
+  technician: "Technician",
+  marketing: "Marketing",
+  finance: "Finance",
+  warehouse: "Warehouse Staff",
+  client_viewer: "Client Viewer",
+};
+const ESCALATION_ROLE_OPTIONS = ["group_head", "ops_manager", "marketing_head", "supervisor", "super_admin"].map(
+  (r) => ({ value: r, label: ROLE_LABELS[r] }),
+);
+const ESCALATION_TRIGGER_OPTIONS = [
+  { value: "assignment_sla", label: "Unassigned beyond window" },
+  { value: "response_sla", label: "No response within SLA" },
+  { value: "due_date", label: "Past due date" },
+];
+const ESCALATION_SCOPE_OPTIONS = [
+  { value: "ticket", label: "Ticket" },
+  { value: "installation", label: "Installation" },
+];
+const ESCALATION_SCOPE_LABELS: Record<string, string> = {
+  ticket: "Ticket",
+  installation: "Installation",
+};
+const ESCALATION_SCOPE_BADGE: Record<string, string> = {
+  ticket: "bg-blue-500/10 text-blue-600 ring-blue-500/20",
+  installation: "bg-violet-500/10 text-violet-600 ring-violet-500/20",
+};
 const TERMS_CATEGORY_OPTIONS = [
   { value: "work_order", label: "Work Order" },
   { value: "safety", label: "Safety Instructions" },
@@ -145,6 +179,25 @@ const SECTIONS: SectionConfig[] = [
     ],
   },
   {
+    key: "issue-types",
+    label: "Ticket Issue Types",
+    endpoint: "/tickets/issue-types/",
+    singular: "Issue Type",
+    labelKey: "name",
+    searchKeys: ["name"],
+    columns: [
+      { key: "name", label: "Issue", className: "font-medium text-foreground" },
+      { key: "sort_order", label: "Order" },
+      { key: "is_active", label: "Status", render: activeCell },
+    ],
+    fields: [
+      { name: "name", label: "Issue Name", required: true, placeholder: "e.g. Module Burnt" },
+      { name: "description", label: "Description", type: "textarea" },
+      { name: "sort_order", label: "Sort Order", type: "number", default: 0 },
+      { name: "is_active", label: "Active", type: "checkbox", default: true },
+    ],
+  },
+  {
     key: "payment-terms",
     label: "Payment Terms",
     endpoint: "/setup/payment-terms/",
@@ -184,6 +237,49 @@ const SECTIONS: SectionConfig[] = [
     ],
   },
   {
+    key: "escalation",
+    label: "Escalation",
+    endpoint: "/setup/escalation-policies/",
+    singular: "Escalation Policy",
+    labelKey: "trigger_display",
+    // Rows arrive grouped/ordered by scope → trigger → stage (backend ordering).
+    searchKeys: ["trigger", "scope"],
+    columns: [
+      {
+        key: "scope",
+        label: "Applies To",
+        render: (r) => (
+          <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${ESCALATION_SCOPE_BADGE[String(r.scope)] ?? ESCALATION_SCOPE_BADGE.ticket}`}>
+            {ESCALATION_SCOPE_LABELS[String(r.scope)] ?? String(r.scope ?? "Ticket")}
+          </span>
+        ),
+      },
+      { key: "trigger_display", label: "Trigger", className: "font-medium text-foreground" },
+      {
+        key: "stage",
+        label: "Stage",
+        render: (r) => (
+          <span className="inline-flex rounded-full bg-secondary px-2 py-0.5 text-xs font-semibold text-foreground">
+            L{Number(r.stage ?? 1)}
+          </span>
+        ),
+      },
+      { key: "hours", label: "Window", render: (r) => (r.hours != null && r.hours !== "" ? `${r.hours}h` : "Per-priority SLA") },
+      { key: "escalate_to_role", label: "Escalates To", render: (r) => ROLE_LABELS[String(r.escalate_to_role)] ?? String(r.escalate_to_role ?? "—") },
+      { key: "also_notify_role", label: "Also Notifies", render: (r) => (r.also_notify_role ? ROLE_LABELS[String(r.also_notify_role)] ?? String(r.also_notify_role) : "—") },
+      { key: "is_active", label: "Status", render: activeCell },
+    ],
+    fields: [
+      { name: "scope", label: "Applies To", type: "select", options: ESCALATION_SCOPE_OPTIONS, default: "ticket", required: true, help: "Ticket policies watch ticket SLAs; installation policies watch installation due dates." },
+      { name: "trigger", label: "Trigger", type: "select", options: ESCALATION_TRIGGER_OPTIONS, required: true, immutable: true },
+      { name: "stage", label: "Stage", type: "number", default: 1, required: true, min: 1, max: 3, help: "Escalation level 1–3. L1 fires first, then L2. Each stage's window is measured from the same trigger anchor (L2 hours are absolute from the anchor, not added on top of L1)." },
+      { name: "hours", label: "Window (hours)", type: "number", help: "Hours after the trigger anchor before this stage fires (e.g. L1 = 0h, L2 = 24h). Assignment trigger anchor = time created while unassigned. Leave blank for the response-SLA L1 (per-priority windows)." },
+      { name: "escalate_to_role", label: "Escalate To", type: "select", options: ESCALATION_ROLE_OPTIONS, default: "group_head", required: true },
+      { name: "also_notify_role", label: "Also Notify", type: "select", options: [{ value: "", label: "None" }, ...ESCALATION_ROLE_OPTIONS], default: "ops_manager" },
+      { name: "is_active", label: "Active", type: "checkbox", default: true },
+    ],
+  },
+  {
     key: "terms",
     label: "Terms & Conditions",
     endpoint: "/setup/terms-templates/",
@@ -204,7 +300,166 @@ const SECTIONS: SectionConfig[] = [
       { name: "is_active", label: "Active", type: "checkbox", default: true },
     ],
   },
+  {
+    key: "material-types",
+    label: "Material Types",
+    endpoint: "/assets/material-types/",
+    singular: "Material Type",
+    labelKey: "name",
+    resource: "setup",
+    searchKeys: ["name", "category"],
+    columns: [
+      { key: "name", label: "Material", className: "font-medium text-foreground" },
+      { key: "category", label: "Category" },
+      { key: "unit", label: "Unit" },
+    ],
+    fields: [
+      { name: "name", label: "Material Name", required: true, placeholder: "e.g. HDMI Cable 5m" },
+      { name: "category", label: "Category", placeholder: "e.g. Consumables" },
+      { name: "unit", label: "Unit", default: "piece", placeholder: "piece / meter / box" },
+      { name: "description", label: "Description", type: "textarea" },
+    ],
+  },
+  {
+    key: "inventory-categories",
+    label: "Inventory Categories",
+    endpoint: "/inventory/categories/",
+    singular: "Inventory Category",
+    labelKey: "name",
+    resource: "setup",
+    searchKeys: ["name"],
+    columns: [
+      { key: "name", label: "Category", className: "font-medium text-foreground" },
+      { key: "description", label: "Description" },
+      { key: "is_active", label: "Status", render: activeCell },
+    ],
+    fields: [
+      { name: "name", label: "Category Name", required: true, placeholder: "e.g. Spares" },
+      { name: "description", label: "Description", type: "textarea" },
+      { name: "is_active", label: "Active", type: "checkbox", default: true },
+    ],
+  },
+  {
+    key: "brands",
+    label: "Brands",
+    endpoint: "/assets/brands/",
+    singular: "Brand",
+    labelKey: "name",
+    resource: "setup",
+    searchKeys: ["name"],
+    columns: [
+      { key: "name", label: "Brand", className: "font-medium text-foreground" },
+      { key: "website", label: "Website" },
+      { key: "is_active", label: "Status", render: activeCell },
+    ],
+    fields: [
+      { name: "name", label: "Brand Name", required: true, placeholder: "e.g. Samsung" },
+      { name: "website", label: "Website", type: "url", placeholder: "https://…" },
+      { name: "is_active", label: "Active", type: "checkbox", default: true },
+    ],
+  },
+  {
+    key: "device-models",
+    label: "Device Models",
+    endpoint: "/assets/device-models/",
+    singular: "Device Model",
+    labelKey: "name",
+    resource: "setup",
+    searchKeys: ["name", "brand_name", "model_number"],
+    columns: [
+      { key: "brand_name", label: "Brand" },
+      { key: "name", label: "Model", className: "font-medium text-foreground" },
+      { key: "model_number", label: "Model #" },
+      { key: "screen_size", label: "Size" },
+      { key: "is_active", label: "Status", render: activeCell },
+    ],
+    fields: [
+      // Brand options are injected at render time from the live brand list.
+      { name: "brand", label: "Brand", type: "select", required: true, options: [] },
+      { name: "name", label: "Model Name", required: true, placeholder: "e.g. QM55R" },
+      { name: "model_number", label: "Model Number", placeholder: "e.g. LH55QMREBGCXZA" },
+      { name: "screen_type", label: "Screen Type", placeholder: "e.g. LED / LCD" },
+      { name: "screen_size", label: "Screen Size", placeholder: 'e.g. 55"' },
+      { name: "is_active", label: "Active", type: "checkbox", default: true },
+    ],
+  },
 ];
+
+/* ── SLA & Escalation Matrix (display-only reference, shown with the Escalation tab) ── */
+
+const SLA_ROWS = [
+  { priority: "Critical", response: "4 hours", resolution: "24 hours", badge: "bg-red-500/10 text-red-600 ring-red-500/20" },
+  { priority: "High", response: "8 hours", resolution: "48 hours", badge: "bg-orange-500/10 text-orange-600 ring-orange-500/20" },
+  { priority: "Medium", response: "24 hours", resolution: "5 business days", badge: "bg-yellow-500/10 text-yellow-600 ring-yellow-500/20" },
+  { priority: "Low", response: "48 hours", resolution: "10 business days", badge: "bg-gray-500/10 text-gray-600 ring-gray-500/20" },
+];
+
+function SlaMatrixCard() {
+  const thClass = "px-5 py-3.5 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground";
+  const tdClass = "px-4 py-2.5";
+  return (
+    <div className="rounded-xl border border-border bg-card p-5">
+      <div className="flex items-center gap-2">
+        <h3 className="text-sm font-semibold text-foreground">SLA &amp; Escalation Matrix</h3>
+        <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-muted-foreground">Reference</span>
+      </div>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Ticket response and resolution targets by priority. The resolution target auto-sets a ticket&apos;s due date when it is created without one.
+      </p>
+      <div className="mt-4 overflow-x-auto rounded-lg border border-border">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border bg-secondary/50">
+              <th className={thClass}>Priority</th>
+              <th className={thClass}>Response SLA</th>
+              <th className={thClass}>Resolution SLA</th>
+            </tr>
+          </thead>
+          <tbody>
+            {SLA_ROWS.map((row, i) => (
+              <tr key={row.priority} className={i < SLA_ROWS.length - 1 ? "border-b border-border" : ""}>
+                <td className={tdClass}>
+                  <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ${row.badge}`}>{row.priority}</span>
+                </td>
+                <td className={`${tdClass} text-foreground`}>{row.response}</td>
+                <td className={`${tdClass} text-foreground`}>{row.resolution}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="mt-4 rounded-lg border border-border bg-secondary/20 p-3">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Escalation Ladder</p>
+        <div className="mt-2 space-y-2">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="w-24 shrink-0 text-[11px] font-medium text-muted-foreground">Tickets</span>
+            <span className="inline-flex items-center gap-1.5 rounded-lg border border-orange-500/30 bg-orange-500/10 px-2.5 py-1 font-medium text-orange-600">
+              L1 · Operations Head
+              <span className="font-normal text-muted-foreground">at SLA breach</span>
+            </span>
+            <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="inline-flex items-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/10 px-2.5 py-1 font-medium text-red-600">
+              L2 · Group Head
+              <span className="font-normal text-muted-foreground">+24h unresolved</span>
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="w-24 shrink-0 text-[11px] font-medium text-muted-foreground">Installations</span>
+            <span className="inline-flex items-center gap-1.5 rounded-lg border border-orange-500/30 bg-orange-500/10 px-2.5 py-1 font-medium text-orange-600">
+              L1 · Operations Head
+              <span className="font-normal text-muted-foreground">at due date</span>
+            </span>
+            <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="inline-flex items-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/10 px-2.5 py-1 font-medium text-red-600">
+              L2 · Group Head
+              <span className="font-normal text-muted-foreground">+24h overdue</span>
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function SetupPage() {
   const { canWrite, loading } = useUser();
@@ -212,6 +467,28 @@ export default function SetupPage() {
 
   const section = SECTIONS.find((s) => s.key === active)!;
   const allowed = canWrite("setup");
+
+  // Device-model form needs the live brand list — refreshed on tab entry so a
+  // brand added moments ago on the Brands tab is immediately pickable.
+  const [brandOptions, setBrandOptions] = useState<{ value: string; label: string }[]>([]);
+  useEffect(() => {
+    if (active !== "device-models") return;
+    api
+      .get("/assets/brands/", { params: { page_size: 500, ordering: "name", is_active: true } })
+      .then(({ data }) =>
+        setBrandOptions(
+          (data.results ?? data).map((b: { id: string; name: string }) => ({ value: b.id, label: b.name }))
+        )
+      )
+      .catch(() => {});
+  }, [active]);
+  const sectionFields = useMemo(
+    () =>
+      active === "device-models"
+        ? section.fields.map((f) => (f.name === "brand" ? { ...f, options: brandOptions } : f))
+        : section.fields,
+    [active, section, brandOptions]
+  );
 
   return (
     <div className="space-y-6">
@@ -245,12 +522,13 @@ export default function SetupPage() {
             singular={section.singular}
             labelKey={section.labelKey}
             columns={section.columns}
-            fields={section.fields}
+            fields={sectionFields}
             searchKeys={section.searchKeys as (keyof Row)[] | undefined}
             searchPlaceholder={section.searchPlaceholder}
             hasActiveFilter={section.hasActiveFilter}
             resource={section.resource}
           />
+          {active === "escalation" && <SlaMatrixCard />}
         </>
       )}
     </div>

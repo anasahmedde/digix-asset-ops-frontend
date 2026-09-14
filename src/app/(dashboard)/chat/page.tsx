@@ -439,7 +439,7 @@ export default function ChatPage() {
       {/* New Chat Modal */}
       {showNewChat && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="w-full max-w-md rounded-xl border border-border bg-card shadow-2xl">
+          <div className="max-h-[88vh] overflow-y-auto w-full max-w-md rounded-xl border border-border bg-card shadow-2xl">
             <div className="flex items-center justify-between border-b border-border px-5 py-4">
               <h3 className="text-sm font-semibold text-foreground">New Conversation</h3>
               <button

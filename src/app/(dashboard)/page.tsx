@@ -6,9 +6,7 @@ import {
   CheckCircle,
   Clock,
   Monitor,
-  MonitorCheck,
   Wrench,
-  XCircle,
 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -18,7 +16,7 @@ import { AssignedTicketsBanner } from "@/components/ui/assigned-tickets-banner";
 import { StatCard } from "@/components/ui/stat-card";
 import { DonutChart } from "@/components/charts/donut-chart";
 import { BarChart } from "@/components/charts/bar-chart";
-import { GaugeChart } from "@/components/charts/gauge-chart";
+import { formatDate } from "@/lib/utils";
 
 const StatusMap = dynamic(() => import("@/components/map/status-map"), {
   ssr: false,
@@ -61,6 +59,7 @@ interface MaintenanceSiteMap {
   maintenance_type: string;
   frequency: string;
   next_due: string | null;
+  device: string | null;
   site__id: string;
   site__name: string;
   site__city: string;
@@ -88,17 +87,30 @@ interface MaintenanceStats {
   pending: number;
 }
 
-const STATUS_LEGEND = [
-  { label: "Active", desc: "Screens are working fine", color: "#10b981" },
-  { label: "Installed", desc: "Recently installed screens", color: "#06b6d4" },
-  { label: "In Stock", desc: "Available in warehouse", color: "#6366f1" },
-  { label: "Under Maintenance", desc: "Currently being serviced", color: "#f59e0b" },
-  { label: "Procured", desc: "Purchased, not yet deployed", color: "#8b5cf6" },
-  { label: "Assigned", desc: "Assigned to a client", color: "#3b82f6" },
-  { label: "Decommissioned", desc: "Taken out of service", color: "#ef4444" },
-  { label: "RMA", desc: "Returned for repair/replacement", color: "#f97316" },
-  { label: "In Transit", desc: "Being shipped to location", color: "#ec4899" },
-];
+interface TicketLite {
+  id: string;
+  ticket_number: string;
+  title: string;
+  status: string;
+  priority: string;
+  escalated: boolean;
+  is_response_overdue: boolean;
+}
+
+interface ProjectLite {
+  id: string;
+  status: string;
+  progress: number;
+}
+
+// Escalated installations (?escalated=true) shown in the Escalation Alerts card.
+interface EscalatedInstallLite {
+  id: string;
+  device_code: string;
+  site_name: string;
+  due_date: string | null;
+  escalation_state: Record<string, string>;
+}
 
 export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
@@ -106,23 +118,43 @@ export default function DashboardPage() {
   const [maintSites, setMaintSites] = useState<MaintenanceSiteMap[]>([]);
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [maintenance, setMaintenance] = useState<MaintenanceStats>({ total: 0, completed: 0, in_progress: 0, pending: 0 });
+  const [tickets, setTickets] = useState<TicketLite[]>([]);
+  const [projects, setProjects] = useState<ProjectLite[]>([]);
+  const [escalatedInstalls, setEscalatedInstalls] = useState<EscalatedInstallLite[]>([]);
+  const [stock, setStock] = useState<{ id: string; sku: string; material_name: string | null; category_name: string | null; quantity: number; unit: string | null; total_value: number | null; is_low_stock: boolean }[]>([]);
+  const [stockSummary, setStockSummary] = useState<{ total_value: number; total_quantity: number; items: number; low_stock: number; unpriced_items: number } | null>(null);
+  // Unique products the user has chosen to watch as in-hand stock.
+  const [highValue, setHighValue] = useState<{ id: string; name: string; type_code: string; in_stock_count: number; unit_cost: string | null }[]>([]);
+  const [stockSortField, setStockSortField] = useState<"quantity" | "total_value" | "material_type__name">("quantity");
+  const [stockSortDesc, setStockSortDesc] = useState(true);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function fetchAll() {
       try {
-        const [statsRes, mapRes, alertsRes, maintRes, maintMapRes] = await Promise.allSettled([
+        const [statsRes, mapRes, alertsRes, maintRes, maintMapRes, stockSummaryRes, ticketsRes, projectsRes, escInstRes] = await Promise.allSettled([
           api.get("/assets/devices/dashboard_stats/"),
           api.get("/assets/devices/map_data/"),
           api.get("/analytics/alerts/", { params: { page_size: 5, ordering: "-created_at", is_dismissed: false } }),
           api.get("/maintenance/schedules/", { params: { page_size: 1000 } }),
           api.get("/maintenance/schedules/map_data/"),
+          api.get("/inventory/items/summary/"),
+          api.get("/tickets/", { params: { page_size: 1000 } }),
+          api.get("/teams/projects/", { params: { page_size: 1000 } }),
+          api.get("/sites/installations/", { params: { escalated: true, page_size: 5 } }),
         ]);
 
         if (statsRes.status === "fulfilled") setStats(statsRes.value.data);
         if (mapRes.status === "fulfilled") setMapDevices(mapRes.value.data);
         if (maintMapRes.status === "fulfilled") setMaintSites(maintMapRes.value.data);
         if (alertsRes.status === "fulfilled") setAlerts(alertsRes.value.data.results ?? []);
+        if (stockSummaryRes.status === "fulfilled") setStockSummary(stockSummaryRes.value.data);
+        api.get("/inventory/products/", { params: { is_high_value: true, page_size: 100 } })
+          .then((r) => setHighValue(r.data.results ?? r.data))
+          .catch(() => {});
+        if (ticketsRes.status === "fulfilled") setTickets(ticketsRes.value.data.results ?? []);
+        if (projectsRes.status === "fulfilled") setProjects(projectsRes.value.data.results ?? []);
+        if (escInstRes.status === "fulfilled") setEscalatedInstalls(escInstRes.value.data.results ?? []);
 
         if (maintRes.status === "fulfilled") {
           const schedules = maintRes.value.data.results ?? [];
@@ -141,27 +173,56 @@ export default function DashboardPage() {
     fetchAll();
   }, []);
 
+  useEffect(() => {
+    const ordering = `${stockSortDesc ? "-" : ""}${stockSortField}`;
+    api
+      .get("/inventory/items/", { params: { page_size: 6, ordering } })
+      .then(({ data }) => setStock(data.results ?? []))
+      .catch(() => {});
+  }, [stockSortField, stockSortDesc]);
+
   const total = stats?.total ?? 0;
-  const working = stats?.working ?? 0;
-  const outOfOrder = stats?.out_of_order ?? 0;
-  const underMaint = stats?.under_maintenance ?? 0;
-  const inStock = stats?.in_stock ?? 0;
-  const installed = stats?.installed ?? 0;
+  const byStatus = stats?.by_status ?? {};
+  const sum = (...keys: string[]) => keys.reduce((acc, k) => acc + (byStatus[k] ?? 0), 0);
 
-  const installedPct = total > 0 ? (installed / total) * 100 : 0;
-  const workingPct = total > 0 ? (working / total) * 100 : 0;
-  const outPct = total > 0 ? (outOfOrder / total) * 100 : 0;
-  const maintPct = total > 0 ? (underMaint / total) * 100 : 0;
-  const inStockPct = total > 0 ? (inStock / total) * 100 : 0;
+  // Complete, non-overlapping breakdown — these six always sum to `total`.
+  const working = sum("active", "installed");
+  const inStock = sum("in_stock");
+  const pipeline = sum("procured", "in_transit", "assigned");
+  const underMaint = sum("under_maintenance");
+  const clientProperty = sum("client_property");
+  const outOfService = sum("decommissioned", "lost_stolen", "rma");
 
-  const assetHealth = total > 0 ? Math.round((working / total) * 100) : 0;
 
   const statusDistData = [
     { name: "Active", value: working, color: "#10b981" },
-    { name: "Decommissioned", value: outOfOrder, color: "#ef4444" },
-    { name: "Under Maintenance", value: underMaint, color: "#f59e0b" },
     { name: "In Stock", value: inStock, color: "#6366f1" },
+    { name: "Pipeline", value: pipeline, color: "#8b5cf6" },
+    { name: "Under Maintenance", value: underMaint, color: "#f59e0b" },
+    { name: "Client Property", value: clientProperty, color: "#14b8a6" },
+    { name: "Out of Service", value: outOfService, color: "#ef4444" },
   ].filter((d) => d.value > 0);
+
+  const escalatedTickets = tickets.filter((t) => t.escalated || t.is_response_overdue);
+  const openStatuses = ["open"];
+  const workingStatuses = ["in_progress", "blocked", "on_hold", "alignment_pending"];
+  const reviewStatuses = ["pending_review", "pending_ops_approval", "pending_client_approval"];
+  const ticketSummary = {
+    open: tickets.filter((t) => openStatuses.includes(t.status)).length,
+    inProgress: tickets.filter((t) => workingStatuses.includes(t.status)).length,
+    review: tickets.filter((t) => reviewStatuses.includes(t.status)).length,
+    closed: tickets.filter((t) => ["closed", "approved"].includes(t.status)).length,
+    escalated: escalatedTickets.length,
+  };
+
+  const projectSummary = {
+    total: projects.length,
+    onTrack: projects.filter((p) => p.status === "on_track").length,
+    atRisk: projects.filter((p) => p.status === "at_risk").length,
+    delayed: projects.filter((p) => p.status === "delayed").length,
+    completed: projects.filter((p) => p.status === "completed").length,
+    avgProgress: projects.length > 0 ? Math.round(projects.reduce((a, p) => a + (p.progress ?? 0), 0) / projects.length) : 0,
+  };
 
   const cityData = (stats?.by_city ?? [])
     .slice(0, 6)
@@ -184,50 +245,110 @@ export default function DashboardPage() {
         <p className="text-sm text-muted-foreground">Asset Overview</p>
       </div>
 
-      {/* Top stat cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-        <StatCard
-          label="Total Screens"
-          value={total}
-          subtitle="All Over Pakistan"
-          icon={<Monitor className="h-5 w-5" />}
-        />
-        <StatCard
-          label="Installed"
-          value={installed}
-          subtitle={`${installedPct.toFixed(1)}% deployed`}
-          icon={<MonitorCheck className="h-5 w-5" />}
-        />
-        <StatCard
-          label="Working"
-          value={working}
-          subtitle={`${workingPct.toFixed(1)}%`}
-          icon={<CheckCircle className="h-5 w-5" />}
-        />
-        <StatCard
-          label="Out of Order"
-          value={outOfOrder}
-          subtitle={`${outPct.toFixed(1)}%`}
-          icon={<XCircle className="h-5 w-5" />}
-        />
-        <StatCard
-          label="Under Maintenance"
-          value={underMaint}
-          subtitle={`${maintPct.toFixed(1)}%`}
-          icon={<Wrench className="h-5 w-5" />}
-        />
-        <StatCard
-          label="In Stock"
-          value={inStock}
-          subtitle={`${inStockPct.toFixed(1)}%`}
-          variant="highlighted"
-          icon={<Clock className="h-5 w-5" />}
-        />
+      {ticketSummary.escalated > 0 && (
+        <Link href="/tickets" className="flex items-center gap-3 rounded-xl border border-red-500/30 bg-red-500/5 px-4 py-3 transition-colors hover:bg-red-500/10">
+          <AlertCircle className="h-5 w-5 shrink-0 text-red-500" />
+          <p className="text-sm font-medium text-red-600">
+            {ticketSummary.escalated} ticket{ticketSummary.escalated > 1 ? "s" : ""} under-performance / unsatisfactory — response SLA breached
+          </p>
+          <span className="ml-auto text-xs font-semibold text-red-500">View →</span>
+        </Link>
+      )}
+
+      {/* Top stat cards — four plain-language tiles. The full status breakdown
+          lives in the Status chart below and on the Assets page. */}
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <Link href="/assets" className="block rounded-xl transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md">
+          <StatCard label="Total Assets" value={total} subtitle="across Pakistan" icon={<Monitor className="h-5 w-5" />} />
+        </Link>
+        <Link href="/assets" className="block rounded-xl transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md">
+          <StatCard label="Active" value={working} subtitle="installed & live at client sites" icon={<CheckCircle className="h-5 w-5" />} />
+        </Link>
+        <Link href="/assets?status=in_stock" className="block rounded-xl transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md">
+          <StatCard label="In Stock" value={inStock} subtitle="ready to install" variant="highlighted" icon={<Clock className="h-5 w-5" />} />
+        </Link>
+        <Link href="/assets?status=under_maintenance" className="block rounded-xl transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md">
+          <StatCard
+            label="Needs Attention"
+            value={underMaint + outOfService}
+            subtitle={underMaint + outOfService === 0 ? "all clear" : "maintenance or out of service"}
+            icon={<Wrench className="h-5 w-5" />}
+          />
+        </Link>
       </div>
 
-      {/* Map + Legend + Quick Summary + Alerts */}
-      <div className="grid gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2">
+      {/* In-hand stock: the assets on the shelf, plus the high-value unique
+          items the user has chosen to watch alongside them. */}
+      <div className="rounded-xl border border-border bg-card p-5">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <div>
+            <h2 className="text-base font-semibold text-foreground">In-Hand Stock</h2>
+            <p className="text-xs text-muted-foreground">
+              {inStock} asset{inStock === 1 ? "" : "s"} ready to install
+              {highValue.length > 0 ? ", plus the high-value items you are watching" : ""}
+            </p>
+          </div>
+          <Link href="/inventory" className="text-xs font-medium text-primary hover:underline">
+            Open inventory
+          </Link>
+        </div>
+
+        {highValue.length === 0 ? (
+          <p className="mt-4 rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
+            No high-value items selected. Tick &ldquo;Count in in-hand stock&rdquo; on a unique product
+            in Inventory to watch its quantity and value here.
+          </p>
+        ) : (
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
+                  <th className="py-2 font-medium">Item</th>
+                  <th className="py-2 text-right font-medium">Qty Available</th>
+                  <th className="py-2 text-right font-medium">Unit Cost</th>
+                  <th className="py-2 text-right font-medium">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {highValue.map((p) => {
+                  const amount = Number(p.unit_cost ?? 0) * p.in_stock_count;
+                  return (
+                    <tr key={p.id} className="border-b border-border/60 last:border-0">
+                      <td className="py-2 text-foreground">
+                        {p.name}
+                        <span className="block font-mono text-[11px] text-muted-foreground">{p.type_code}</span>
+                      </td>
+                      <td className="py-2 text-right font-medium text-foreground">{p.in_stock_count}</td>
+                      <td className="py-2 text-right text-muted-foreground">
+                        {p.unit_cost ? Number(p.unit_cost).toLocaleString() : "—"}
+                      </td>
+                      <td className="py-2 text-right font-medium text-foreground">
+                        {p.unit_cost ? amount.toLocaleString() : "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr className="border-t border-border">
+                  <td colSpan={3} className="py-2 text-right text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                    Total value in hand
+                  </td>
+                  <td className="py-2 text-right font-semibold text-foreground">
+                    {highValue
+                      .reduce((sum, p) => sum + Number(p.unit_cost ?? 0) * p.in_stock_count, 0)
+                      .toLocaleString()}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Map (squeezed to half) + summaries column */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div>
           <div className="rounded-xl border border-border bg-card overflow-hidden h-full flex flex-col">
             <div className="flex items-center justify-between px-5 py-4">
               <div>
@@ -246,23 +367,55 @@ export default function DashboardPage() {
         </div>
 
         <div className="space-y-4">
-          {/* Status Legend */}
-          <div className="rounded-xl border border-border bg-card p-5">
-            <h3 className="text-sm font-semibold text-foreground mb-3">Status Legend</h3>
-            <div className="space-y-2.5">
-              {STATUS_LEGEND.map((item) => (
-                <div key={item.label} className="flex items-start gap-2.5">
-                  <span
-                    className="mt-0.5 h-3 w-3 shrink-0 rounded-full"
-                    style={{ backgroundColor: item.color }}
-                  />
-                  <div>
-                    <p className="text-xs font-medium text-foreground">{item.label}</p>
-                    <p className="text-[10px] text-muted-foreground">{item.desc}</p>
-                  </div>
-                </div>
-              ))}
+          {/* Escalation Alerts — always on top of the summaries column */}
+          <div className="rounded-xl border border-red-500/30 bg-card p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="inline-flex items-center gap-2 text-sm font-semibold text-red-500">
+                <AlertCircle className="h-4 w-4" /> Escalation Alerts
+              </h3>
+              <Link href="/tickets" className="text-[11px] font-medium text-primary hover:underline">View All</Link>
             </div>
+            {escalatedTickets.length > 0 ? (
+              <div className="space-y-2">
+                {escalatedTickets.slice(0, 5).map((t) => (
+                  <Link key={t.id} href="/tickets" className="flex items-center justify-between gap-2 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 transition-colors hover:bg-red-500/10">
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-medium text-foreground">{t.ticket_number} — {t.title}</p>
+                      <p className="text-[10px] text-red-500">
+                        {t.escalated ? "Escalated" : "Response overdue"}{t.priority ? ` · ${t.priority}` : ""}
+                      </p>
+                    </div>
+                    <span className="shrink-0 text-[10px] font-semibold text-red-500">→</span>
+                  </Link>
+                ))}
+                {escalatedTickets.length > 5 && (
+                  <p className="text-center text-[10px] text-muted-foreground">+{escalatedTickets.length - 5} more</p>
+                )}
+              </div>
+            ) : (
+              escalatedInstalls.length === 0 && (
+                <p className="text-xs text-muted-foreground">No escalations — all tickets and installations within SLA</p>
+              )
+            )}
+            {escalatedInstalls.length > 0 && (
+              <div className={escalatedTickets.length > 0 ? "mt-3 border-t border-red-500/20 pt-3" : ""}>
+                <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-red-500">Overdue Installations</p>
+                <div className="space-y-2">
+                  {escalatedInstalls.map((inst) => (
+                    <Link key={inst.id} href="/installation-tracker" className="flex items-center justify-between gap-2 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 transition-colors hover:bg-red-500/10">
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-medium text-foreground">{inst.device_code} — {inst.site_name}</p>
+                        <p className="text-[10px] text-red-500">
+                          {Object.keys(inst.escalation_state ?? {}).some((k) => k.endsWith(":2")) ? "Escalated — L2" : "Escalated"}
+                          {inst.due_date ? ` · due ${formatDate(inst.due_date)}` : ""}
+                        </p>
+                      </div>
+                      <span className="shrink-0 text-[10px] font-semibold text-red-500">→</span>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Quick Summary */}
@@ -326,65 +479,143 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Bottom row: Status Distribution, Top Cities, Maintenance Overview, Asset Health */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {/* Project / Ticket summaries + In-Hand Stock */}
+      <div className="grid gap-6 lg:grid-cols-3">
+        {/* Project Summary */}
         <div className="rounded-xl border border-border bg-card p-5">
-          <h3 className="text-sm font-semibold text-foreground mb-4">Status Distribution</h3>
-          <DonutChart
-            data={statusDistData.length > 0 ? statusDistData : [{ name: "No Data", value: 1, color: "#94a3b8" }]}
-            size={120}
-            showLegend={true}
-          />
-        </div>
-
-        <div className="rounded-xl border border-border bg-card p-5">
-          <h3 className="text-sm font-semibold text-foreground mb-4">Top Cities by Screens</h3>
-          {cityData.length > 0 ? (
-            <BarChart data={cityData} height={160} />
-          ) : (
-            <p className="text-xs text-muted-foreground">No city data available</p>
-          )}
-        </div>
-
-        <div className="rounded-xl border border-border bg-card p-5">
-          <h3 className="text-sm font-semibold text-foreground mb-4">Maintenance Overview</h3>
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Wrench className="h-4 w-4 text-muted-foreground" />
-                <span className="text-xs text-muted-foreground">Total Maintenance</span>
-              </div>
-              <span className="text-lg font-bold text-foreground">{maintenance.total}</span>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-foreground">Project Summary</h3>
+            <Link href="/projects" className="text-[11px] font-medium text-primary hover:underline">View All</Link>
+          </div>
+          <div className="mb-3 flex items-end justify-between rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Active Projects</p>
+              <p className="text-lg font-bold text-foreground">{projectSummary.total - projectSummary.completed}</p>
             </div>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <CheckCircle className="h-4 w-4 text-emerald-500" />
-                <span className="text-xs text-muted-foreground">Completed</span>
-              </div>
-              <span className="text-lg font-bold text-foreground">{maintenance.completed}</span>
+            <div className="text-right text-[10px] text-muted-foreground">
+              <p>{projectSummary.total} total · {projectSummary.completed} completed</p>
+              <p>avg progress {projectSummary.avgProgress}%</p>
             </div>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Clock className="h-4 w-4 text-amber-500" />
-                <span className="text-xs text-muted-foreground">In Progress</span>
-              </div>
-              <span className="text-lg font-bold text-foreground">{maintenance.in_progress}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <AlertCircle className="h-4 w-4 text-muted-foreground" />
-                <span className="text-xs text-muted-foreground">Pending</span>
-              </div>
-              <span className="text-lg font-bold text-foreground">{maintenance.pending}</span>
-            </div>
+          </div>
+          <div className="mb-3 h-2 overflow-hidden rounded-full bg-secondary">
+            <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${projectSummary.avgProgress}%` }} />
+          </div>
+          <div className="space-y-2">
+            {[
+              { label: "On Track", value: projectSummary.onTrack, cls: "bg-emerald-500/10 text-emerald-600" },
+              { label: "At Risk", value: projectSummary.atRisk, cls: "bg-amber-500/10 text-amber-600" },
+              { label: "Delayed", value: projectSummary.delayed, cls: "bg-red-500/10 text-red-600" },
+              { label: "Completed", value: projectSummary.completed, cls: "bg-primary/10 text-primary" },
+            ].map((row) => (
+              <Link key={row.label} href="/projects" className="flex items-center justify-between rounded-lg border border-border/60 px-3 py-2 transition-colors hover:border-primary/40 hover:bg-primary/5">
+                <span className="text-xs font-medium text-foreground">{row.label}</span>
+                <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${row.cls}`}>{row.value}</span>
+              </Link>
+            ))}
           </div>
         </div>
 
-        <div className="rounded-xl border border-border bg-card p-5 flex flex-col items-center justify-center">
-          <h3 className="text-sm font-semibold text-foreground mb-4">Asset Health</h3>
-          <GaugeChart value={assetHealth} />
+        {/* Ticket Summary */}
+        <div className="rounded-xl border border-border bg-card p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-foreground">Ticket Summary</h3>
+            <Link href="/tickets" className="text-[11px] font-medium text-primary hover:underline">View All</Link>
+          </div>
+          <div className="mb-3 flex items-end justify-between rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Open Workload</p>
+              <p className="text-lg font-bold text-foreground">{ticketSummary.open + ticketSummary.inProgress + ticketSummary.review}</p>
+            </div>
+            <div className="text-right text-[10px] text-muted-foreground">
+              <p>{tickets.length} total tickets</p>
+              {ticketSummary.escalated > 0 && <p className="font-semibold text-red-500">{ticketSummary.escalated} escalated</p>}
+            </div>
+          </div>
+          <div className="space-y-2">
+            {[
+              { label: "Open", value: ticketSummary.open, href: "/tickets?status=open", cls: "bg-blue-500/10 text-blue-600" },
+              { label: "In Progress", value: ticketSummary.inProgress, href: "/tickets?status=in_progress", cls: "bg-amber-500/10 text-amber-600" },
+              { label: "Pending Review / Approval", value: ticketSummary.review, href: "/tickets?status=pending_review", cls: "bg-purple-500/10 text-purple-600" },
+              { label: "Closed / Approved", value: ticketSummary.closed, href: "/tickets?status=closed", cls: "bg-emerald-500/10 text-emerald-600" },
+            ].map((row) => (
+              <Link key={row.label} href={row.href} className="flex items-center justify-between rounded-lg border border-border/60 px-3 py-2 transition-colors hover:border-primary/40 hover:bg-primary/5">
+                <span className="text-xs font-medium text-foreground">{row.label}</span>
+                <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${row.cls}`}>{row.value}</span>
+              </Link>
+            ))}
+          </div>
+        </div>
+
+        {/* In-Hand Stock */}
+        <div className="rounded-xl border border-border bg-card p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-foreground">In-Hand Stock</h3>
+            <Link href="/inventory" className="text-[11px] font-medium text-primary hover:underline">
+              View All
+            </Link>
+          </div>
+          {stockSummary && (
+            <Link href="/inventory" className="mb-3 flex items-end justify-between rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5 transition-colors hover:bg-primary/10">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Total Stock Value</p>
+                <p className="text-lg font-bold text-foreground">PKR {Number(stockSummary.total_value).toLocaleString()}</p>
+                {stockSummary.unpriced_items > 0 && (
+                  <p className="text-[10px] text-muted-foreground">{stockSummary.unpriced_items} unpriced item{stockSummary.unpriced_items > 1 ? "s" : ""} excluded</p>
+                )}
+              </div>
+              <div className="text-right text-[10px] text-muted-foreground">
+                <p>{stockSummary.total_quantity.toLocaleString()} units · {stockSummary.items} items</p>
+                {stockSummary.low_stock > 0 && <p className="font-semibold text-red-500">{stockSummary.low_stock} low stock</p>}
+              </div>
+            </Link>
+          )}
+          <div className="mb-2 flex items-center gap-1.5">
+            <select
+              value={stockSortField}
+              onChange={(e) => setStockSortField(e.target.value as typeof stockSortField)}
+              className="h-6 rounded-md border border-border bg-background px-1.5 text-[10px] text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              aria-label="Sort stock by"
+            >
+              <option value="quantity">Sort: Quantity</option>
+              <option value="total_value">Sort: Value</option>
+              <option value="material_type__name">Sort: Name</option>
+            </select>
+            <button
+              onClick={() => setStockSortDesc((v) => !v)}
+              className="flex h-6 items-center gap-1 rounded-md border border-border bg-background px-1.5 text-[10px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+              title={stockSortDesc ? "Descending — click for ascending" : "Ascending — click for descending"}
+            >
+              {stockSortDesc ? "↓ Desc" : "↑ Asc"}
+            </button>
+          </div>
+          {stock.length > 0 ? (
+            <div className="space-y-2">
+              {stock.map((item) => {
+                const low = item.is_low_stock;
+                return (
+                  <Link key={item.id} href="/inventory" className="flex items-center justify-between gap-2 rounded-lg border border-border/60 px-3 py-2 transition-colors hover:border-primary/40 hover:bg-primary/5">
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-medium text-foreground">{item.material_name || item.sku}</p>
+                      <p className="text-[10px] text-muted-foreground">{item.sku}{item.category_name ? ` · ${item.category_name}` : ""}</p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${low ? "bg-red-500/10 text-red-600" : "bg-emerald-500/10 text-emerald-600"}`}>
+                        {item.quantity} {item.unit}
+                      </span>
+                      <p className="mt-0.5 text-[10px] text-muted-foreground">
+                        {item.total_value != null ? `PKR ${Number(item.total_value).toLocaleString()}` : "unpriced"}
+                      </p>
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="py-4 text-center text-xs text-muted-foreground">No stock items</p>
+          )}
         </div>
       </div>
+
     </div>
   );
 }
