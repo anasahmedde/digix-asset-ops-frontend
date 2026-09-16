@@ -19,7 +19,7 @@ const STATUS_META: Record<string, { color: string; label: string; pulse?: boolea
   in_stock:           { color: "#6366f1", label: "In Stock" },
   under_maintenance:  { color: "#f59e0b", label: "Under Maintenance",  pulse: true },
   client_property:    { color: "#14b8a6", label: "Client Property" },
-  procured:           { color: "#8b5cf6", label: "Procured" },
+  procured:           { color: "#8b5cf6", label: "In Procurement" },
   assigned:           { color: "#3b82f6", label: "Assigned" },
   decommissioned:     { color: "#ef4444", label: "Decommissioned" },
   lost_stolen:        { color: "#ef4444", label: "Lost / Stolen" },

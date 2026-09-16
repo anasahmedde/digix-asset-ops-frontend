@@ -63,7 +63,8 @@ const navigation: NavItem[] = [
   { name: "Quotations", href: "/quotations", icon: ReceiptText, roles: ["super_admin", "group_head", "ops_manager"] },
   { name: "Work Orders", href: "/work-orders", icon: ScrollText, roles: ["super_admin", "group_head", "ops_manager"] },
   { name: "Inventory", href: "/inventory", icon: Package, roles: ["super_admin", "group_head", "ops_manager", "warehouse"] },
-  { name: "Procurement", href: "/procurement", icon: ShoppingCart, roles: ["super_admin", "group_head", "ops_manager", "finance"] },
+  // Item 18: the store and supervisors see purchase orders too — without prices.
+  { name: "Procurement", href: "/procurement", icon: ShoppingCart, roles: ["super_admin", "group_head", "ops_manager", "finance", "warehouse", "supervisor"] },
   {
     name: "Reports", href: "/analytics", icon: BarChart3, roles: ["super_admin", "group_head", "ops_manager", "finance"],
     children: [

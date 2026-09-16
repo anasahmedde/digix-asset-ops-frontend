@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDownToLine, ArrowUpFromLine, Download, Info, Package, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Download, Info, Package, Pencil, Plus, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -11,7 +11,6 @@ import { UniqueItems } from "@/components/inventory/unique-items";
 import { CopyButton } from "@/components/ui/copy-button";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { Modal } from "@/components/ui/modal";
-import { SelectOrCreate } from "@/components/ui/select-or-create";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
@@ -27,6 +26,7 @@ interface InventoryItem {
   min_stock_level: number;
   location: string;
   storage_location: string;
+  unit: string | null;
   unit_cost: string | null;
   notes: string;
   is_low_stock: boolean;
@@ -71,7 +71,6 @@ export default function InventoryPage() {
   const [loading, setLoading] = useState(true);
   const [itemModal, setItemModal] = useState<"create" | "edit" | null>(null);
   const [selected, setSelected] = useState<InventoryItem | null>(null);
-  const [stockModal, setStockModal] = useState<{ type: "receive" | "issue"; item: InventoryItem } | null>(null);
   // Where a line's stock came from — asked for on demand, not shown in the list.
   const [detailsFor, setDetailsFor] = useState<InventoryItem | null>(null);
   const [movements, setMovements] = useState<StockMovement[]>([]);
@@ -86,8 +85,6 @@ export default function InventoryPage() {
     "generic" | "unique" | "inspection" | "requests" | "issuance"
   >("generic");
   const [pendingCount, setPendingCount] = useState(0);
-  const [formMaterial, setFormMaterial] = useState("");
-  const [formCategory, setFormCategory] = useState("");
 
   async function exportExcel() {
     setExporting(true);
@@ -150,8 +147,6 @@ export default function InventoryPage() {
 
   function openItemModal(mode: "create" | "edit", item: InventoryItem | null) {
     setSelected(item);
-    setFormMaterial(item?.material_type ?? "");
-    setFormCategory(item?.category ?? "");
     setItemModal(mode);
   }
 
@@ -176,12 +171,37 @@ export default function InventoryPage() {
     e.preventDefault();
     setSaving(true);
     const fd = new FormData(e.currentTarget);
+    const componentName = String(fd.get("component_name") || "").trim();
+    const unit = String(fd.get("unit") || "piece").trim() || "piece";
+    const categoryId = String(fd.get("category") || "");
+    if (!componentName) {
+      toast.error("Give the component a name.");
+      setSaving(false);
+      return;
+    }
+    // The component definition lives in Setup (Components). Reuse it by name;
+    // open it if it is new, so the stock row always points at a definition.
+    let materialTypeId = materialTypes.find((m) => m.name.trim().toLowerCase() === componentName.toLowerCase())?.id ?? null;
+    try {
+      if (!materialTypeId) {
+        const { data } = await api.post("/assets/material-types/", {
+          name: componentName, category: categoryId || null, unit,
+        });
+        materialTypeId = data.id;
+        setMaterialTypes((prev) => [...prev, { id: data.id, name: data.name }]);
+      } else {
+        await api.patch(`/assets/material-types/${materialTypeId}/`, { category: categoryId || null, unit });
+      }
+    } catch (err) {
+      toast.error(getApiError(err, "Could not save the component definition"));
+      setSaving(false);
+      return;
+    }
     const payload = {
-      material_type: formMaterial || null,
-      category: formCategory || null,
+      material_type: materialTypeId,
+      category: categoryId || null,
       quantity: Number(fd.get("quantity")),
       min_stock_level: Number(fd.get("min_stock_level")),
-      location: fd.get("location"),
       storage_location: fd.get("storage_location"),
       unit_cost: fd.get("unit_cost") || null,
       notes: fd.get("notes"),
@@ -203,32 +223,6 @@ export default function InventoryPage() {
     }
   }
 
-  async function handleStockSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    if (!stockModal) return;
-    setSaving(true);
-    const fd = new FormData(e.currentTarget);
-    const qty = Number(fd.get("quantity"));
-    try {
-      if (stockModal.type === "receive") {
-        await api.post("/inventory/receipts/", { item: stockModal.item.id, quantity: qty, reference: fd.get("reference") || "" });
-        toast.success(`Received ${qty} into stock`);
-      } else {
-        await api.post("/inventory/issuances/", {
-          item: stockModal.item.id, quantity: qty,
-          issued_to_site: fd.get("issued_to_site") || null,
-          reason: fd.get("reason") || "",
-        });
-        toast.success(`Issued ${qty} from stock`);
-      }
-      setStockModal(null);
-      fetchItems();
-    } catch (err) {
-      toast.error(getApiError(err, "Stock movement failed"));
-    } finally {
-      setSaving(false);
-    }
-  }
 
   async function handleDelete(item: InventoryItem) {
     if (!confirm(`Delete item "${item.sku}"? This cannot be undone.`)) return;
@@ -272,7 +266,7 @@ export default function InventoryPage() {
             </button>
             {canEdit && (
               <button onClick={() => openItemModal("create", null)} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-all">
-                <Plus className="h-4 w-4" /> Add Item
+                <Plus className="h-4 w-4" /> Add Component
               </button>
             )}
           </div>
@@ -281,9 +275,9 @@ export default function InventoryPage() {
 
       <div className="flex gap-1 border-b border-border">
         {([
-          { key: "generic", label: "Generic Items" },
-          { key: "unique", label: "Unique Items" },
-          { key: "inspection", label: "Pending Inspection" },
+          { key: "generic", label: "Generic Components" },
+          { key: "unique", label: "Unique Components" },
+          { key: "inspection", label: "Receiving" },
           { key: "requests", label: "Issue Requests" },
           { key: "issuance", label: "Issuance Log" },
         ] as const).map((t) => (
@@ -349,8 +343,8 @@ export default function InventoryPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
-                  <th className={thClass}>Item Code</th>
-                  <th className={thClass}>Material</th>
+                  <th className={thClass}>Component Code</th>
+                  <th className={thClass}>Component</th>
                   <th className={thClass}>Category</th>
                   <th className={thClass}>Location</th>
                   <th className={thClass}>Quantity</th>
@@ -386,12 +380,6 @@ export default function InventoryPage() {
                         </button>
                         {canEdit && (
                           <>
-                            <button onClick={() => setStockModal({ type: "receive", item })} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-emerald-500/10 hover:text-emerald-600" title="Receive stock">
-                              <ArrowDownToLine className="h-3.5 w-3.5" />
-                            </button>
-                            <button onClick={() => setStockModal({ type: "issue", item })} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-amber-500/10 hover:text-amber-600" title="Issue stock">
-                              <ArrowUpFromLine className="h-3.5 w-3.5" />
-                            </button>
                             <button onClick={() => openItemModal("edit", item)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground" title="Edit">
                               <Pencil className="h-3.5 w-3.5" />
                             </button>
@@ -417,40 +405,46 @@ export default function InventoryPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
           <div className="max-h-[88vh] overflow-y-auto w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl">
             <div className="mb-5 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-foreground">{itemModal === "create" ? "Add New Item" : "Edit Item"}</h2>
+              <h2 className="text-lg font-semibold text-foreground">{itemModal === "create" ? "Add Component" : "Edit Component"}</h2>
               <button onClick={closeItemModal} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"><X className="h-5 w-5" /></button>
             </div>
             <form onSubmit={handleItemSubmit} className="space-y-4">
               {itemModal === "edit" && (
                 <div className="space-y-1.5">
-                  <label className={labelClass}>Item Code (auto-generated)</label>
+                  <label className={labelClass}>Component Code (auto-generated)</label>
                   <p className="flex h-10 items-center rounded-lg border border-border bg-secondary/40 px-3 font-mono text-sm text-foreground">{selected?.sku}</p>
                 </div>
               )}
-              <div className="grid gap-4 sm:grid-cols-2">
-                <SelectOrCreate
-                  id="material_type"
-                  label="Material Type"
-                  required
-                  emptyLabel="Select…"
-                  value={formMaterial}
-                  onChange={setFormMaterial}
-                  options={materialTypes}
-                  onCreated={(created) => setMaterialTypes((prev) => [...prev, created])}
-                  endpoint="/assets/material-types/"
-                  extraCreateFields={{ unit: "piece" }}
-                  createPlaceholder="e.g. HDMI Cable 5m"
-                />
-                <SelectOrCreate
-                  id="category"
-                  label="Category"
-                  value={formCategory}
-                  onChange={setFormCategory}
-                  options={categories}
-                  onCreated={(created) => setCategories((prev) => [...prev, created])}
-                  endpoint="/inventory/categories/"
-                  createPlaceholder="e.g. Consumables"
-                />
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div className="space-y-1.5 sm:col-span-2">
+                  <label htmlFor="component_name" className={labelClass}>Component Name *</label>
+                  <input
+                    id="component_name"
+                    name="component_name"
+                    list="component-names"
+                    required
+                    defaultValue={selected?.material_name ?? ""}
+                    className={inputClass}
+                    placeholder="e.g. HDMI Cable 5m"
+                  />
+                  <datalist id="component-names">
+                    {materialTypes.map((m) => <option key={m.id} value={m.name} />)}
+                  </datalist>
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="unit" className={labelClass}>Unit of Measure</label>
+                  <select id="unit" name="unit" defaultValue={selected?.unit ?? "piece"} className={inputClass}>
+                    {["piece", "meter", "box", "roll", "kg", "litre", "set", "pair"].map((u) => <option key={u} value={u}>{u}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="category" className={labelClass}>Category</label>
+                <select id="category" name="category" defaultValue={selected?.category ?? ""} className={inputClass}>
+                  <option value="">Select a category…</option>
+                  {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+                <p className="text-[11px] text-muted-foreground">Categories are maintained under Setup.</p>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
@@ -463,13 +457,6 @@ export default function InventoryPage() {
                 </div>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <label htmlFor="location" className={labelClass}>Location</label>
-                  <select id="location" name="location" defaultValue={selected?.location ?? "warehouse"} className={inputClass}>
-                    <option value="warehouse">Warehouse</option>
-                    <option value="in_transit">In Transit</option>
-                  </select>
-                </div>
                 <div className="space-y-1.5">
                   <label htmlFor="unit_cost" className={labelClass}>Unit Cost</label>
                   <input id="unit_cost" name="unit_cost" type="number" step="0.01" min={0} defaultValue={selected?.unit_cost ?? ""} className={inputClass} placeholder="0.00" />
@@ -497,45 +484,6 @@ export default function InventoryPage() {
           </div>
         </div>
       )}
-
-      {/* Receive / issue stock */}
-      <Modal open={stockModal !== null} onClose={() => setStockModal(null)} title={stockModal?.type === "receive" ? "Receive Stock" : "Issue Stock"} size="sm">
-        {stockModal && (
-          <form onSubmit={handleStockSubmit} className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              {stockModal.item.material_name} <span className="font-mono">({stockModal.item.sku})</span> · in stock: <strong className="text-foreground">{stockModal.item.quantity}</strong>
-            </p>
-            <div className="space-y-1.5">
-              <label htmlFor="quantity" className={labelClass}>Quantity</label>
-              <input id="quantity" name="quantity" type="number" min={1} max={stockModal.type === "issue" ? stockModal.item.quantity : undefined} required className={inputClass} />
-            </div>
-            {stockModal.type === "receive" ? (
-              <div className="space-y-1.5">
-                <label htmlFor="reference" className={labelClass}>Reference (e.g. WO / GRN)</label>
-                <input id="reference" name="reference" className={inputClass} />
-              </div>
-            ) : (
-              <>
-                <div className="space-y-1.5">
-                  <label htmlFor="issued_to_site" className={labelClass}>Issue to Site</label>
-                  <select id="issued_to_site" name="issued_to_site" className={inputClass}>
-                    <option value="">—</option>
-                    {sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                  </select>
-                </div>
-                <div className="space-y-1.5">
-                  <label htmlFor="reason" className={labelClass}>Reason</label>
-                  <input id="reason" name="reason" className={inputClass} placeholder="e.g. site installation" />
-                </div>
-              </>
-            )}
-            <div className="flex justify-end gap-3 pt-1">
-              <button type="button" onClick={() => setStockModal(null)} className="inline-flex h-10 items-center rounded-lg border border-border bg-transparent px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">Cancel</button>
-              <button type="submit" disabled={saving} className="inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-medium text-white transition-all disabled:opacity-50">{saving ? "Saving..." : stockModal.type === "receive" ? "Receive" : "Issue"}</button>
-            </div>
-          </form>
-        )}
-      </Modal>
 
       {/* Where the stock came from: every receipt and issue against this line */}
       <Modal

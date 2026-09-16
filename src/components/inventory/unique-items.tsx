@@ -1,13 +1,12 @@
 "use client";
 
-import { ChevronDown, ChevronRight, Fingerprint, Pencil, Plus, ShieldCheck, Trash2, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Fingerprint, Pencil, Plus, Trash2, X } from "lucide-react";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { CopyButton } from "@/components/ui/copy-button";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { Modal } from "@/components/ui/modal";
-import { SelectOrCreate } from "@/components/ui/select-or-create";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
@@ -25,9 +24,10 @@ export interface UniqueProduct {
   brand_name: string | null;
   model_name: string;
   specifications: Record<string, string>;
+  unit: string;
   unit_cost: string | null;
   min_stock_level: number;
-  /** Counted in the dashboard's in-hand stock figure. */
+  /** Counted in the dashboard's in-hand stock figure (chosen on the dashboard). */
   is_high_value: boolean;
   default_has_warranty: boolean;
   default_warranty_type: string;
@@ -69,31 +69,19 @@ const WARRANTY_BADGES: Record<string, string> = {
   expired: "bg-red-500/10 text-red-600 ring-red-500/20",
   none: "bg-secondary text-muted-foreground ring-border",
 };
-const WARRANTY_TYPES = [
-  { value: "manufacturer", label: "Manufacturer" },
-  { value: "extended", label: "Extended" },
-  { value: "supplier", label: "Supplier" },
-  { value: "client", label: "Client Warranty" },
-];
-
 export function UniqueItems() {
   const { canWrite } = useUser();
   const canEdit = canWrite("inventory");
 
   const [products, setProducts] = useState<UniqueProduct[]>([]);
   const [categories, setCategories] = useState<Ref[]>([]);
-  const [materialTypes, setMaterialTypes] = useState<Ref[]>([]);
   const [brands, setBrands] = useState<Ref[]>([]);
-  const [suppliers, setSuppliers] = useState<Ref[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   const [modal, setModal] = useState<"open" | "edit" | null>(null);
   const [selected, setSelected] = useState<UniqueProduct | null>(null);
-  const [hasWarranty, setHasWarranty] = useState(false);
   const [specs, setSpecs] = useState<SpecRow[]>([]);
-  const [formMaterial, setFormMaterial] = useState("");
-  const [formCategory, setFormCategory] = useState("");
 
   const [expanded, setExpanded] = useState<string | null>(null);
   const [units, setUnits] = useState<Record<string, UnitRow[]>>({});
@@ -115,9 +103,7 @@ export function UniqueItems() {
   useEffect(() => {
     fetchProducts();
     api.get("/inventory/categories/").then((r) => setCategories(r.data.results ?? r.data)).catch(() => {});
-    api.get("/assets/material-types/").then((r) => setMaterialTypes(r.data.results ?? r.data)).catch(() => {});
     api.get("/assets/brands/").then((r) => setBrands(r.data.results ?? r.data)).catch(() => {});
-    api.get("/suppliers/").then((r) => setSuppliers(r.data.results ?? r.data)).catch(() => {});
   }, [fetchProducts]);
 
   async function toggleUnits(productId: string) {
@@ -136,10 +122,7 @@ export function UniqueItems() {
 
   function openNew() {
     setSelected(null);
-    setHasWarranty(false);
     setSpecs([{ key: "", value: "" }]);
-    setFormMaterial("");
-    setFormCategory("");
     setModal("open");
   }
   async function saveSerial(productId: string, unit: UnitRow, value: string) {
@@ -160,11 +143,8 @@ export function UniqueItems() {
 
   function openEdit(product: UniqueProduct) {
     setSelected(product);
-    setHasWarranty(product.default_has_warranty);
     const entries = Object.entries(product.specifications ?? {});
     setSpecs(entries.length ? entries.map(([key, value]) => ({ key, value: String(value) })) : [{ key: "", value: "" }]);
-    setFormMaterial(product.material_type ?? "");
-    setFormCategory(product.category ?? "");
     setModal("edit");
   }
 
@@ -177,21 +157,16 @@ export function UniqueItems() {
 
     const payload: Record<string, unknown> = {
       name: fd.get("name"),
-      material_type: formMaterial || null,
-      category: formCategory || null,
+      category: fd.get("category") || null,
       brand: fd.get("brand") || null,
       model_name: fd.get("model_name") || "",
-      supplier: fd.get("supplier") || null,
+      unit: fd.get("unit") || "piece",
       unit_cost: fd.get("unit_cost") || null,
       min_stock_level: Number(fd.get("min_stock_level") || 0),
-      is_high_value: fd.get("is_high_value") === "on",
       // Only meaningful on the way in; the API ignores it on an edit.
       ...(selected ? {} : { opening_quantity: Number(fd.get("opening_quantity") || 0) }),
       specifications,
       notes: fd.get("notes") || "",
-      default_has_warranty: hasWarranty,
-      default_warranty_type: hasWarranty ? fd.get("default_warranty_type") || "manufacturer" : "",
-      default_warranty_months: hasWarranty ? Number(fd.get("default_warranty_months") || 0) || null : null,
     };
     try {
       if (modal === "open") {
@@ -249,7 +224,7 @@ export function UniqueItems() {
             onClick={openNew}
             className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-all"
           >
-            <Plus className="h-4 w-4" /> Open Unique Item
+            <Plus className="h-4 w-4" /> Open Unique Component
           </button>
         )}
       </div>
@@ -296,7 +271,7 @@ export function UniqueItems() {
           <Fingerprint className="mx-auto h-12 w-12 text-muted-foreground/30" />
           <h3 className="mt-4 text-lg font-semibold text-foreground">No unique products</h3>
           <p className="mt-2 text-sm text-muted-foreground">
-            {products.length > 0 ? "Try adjusting your filters." : "Open a unique item to define what it is, before any stock arrives."}
+            {products.length > 0 ? "Try adjusting your filters." : "Open a unique component to define what it is, before any stock arrives."}
           </p>
         </div>
       ) : (
@@ -307,10 +282,10 @@ export function UniqueItems() {
                 <tr className="border-b border-border bg-secondary/50">
                   <th className={thClass} />
                   <th className={thClass}>Code</th>
-                  <th className={thClass}>Product</th>
+                  <th className={thClass}>Component</th>
                   <th className={thClass}>Make / Model</th>
                   <th className={thClass}>In Stock</th>
-                  <th className={thClass}>Default Warranty</th>
+                  <th className={thClass}>Unit</th>
                   <th className={thClass}>Unit Cost</th>
                   {canEdit && <th className={thClass}>Actions</th>}
                 </tr>
@@ -328,7 +303,7 @@ export function UniqueItems() {
                       <td className={`${tdClass} font-mono text-foreground`}>
                         <span className="inline-flex items-center gap-1">
                           {p.type_code}
-                          <CopyButton text={p.type_code} label="Product code" />
+                          <CopyButton text={p.type_code} label="Component code" />
                         </span>
                       </td>
                       <td className={`${tdClass} font-medium text-foreground`}>{p.name}</td>
@@ -340,15 +315,7 @@ export function UniqueItems() {
                           {p.in_stock_count}
                         </span>
                       </td>
-                      <td className={tdClass}>
-                        {p.default_has_warranty ? (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-medium text-emerald-600 ring-1 ring-emerald-500/20">
-                            <ShieldCheck className="h-3 w-3" /> {p.default_warranty_months} mo
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </td>
+                      <td className={`${tdClass} text-muted-foreground`}>{p.unit || "piece"}</td>
                       <td className={`${tdClass} text-muted-foreground`}>{p.unit_cost ?? "—"}</td>
                       {canEdit && (
                         <td className={tdClass} onClick={(e) => e.stopPropagation()}>
@@ -392,7 +359,6 @@ export function UniqueItems() {
                             <table className="w-full text-xs">
                               <thead>
                                 <tr className="text-left text-muted-foreground">
-                                  <th className="py-1.5 font-medium">Unit Code</th>
                                   <th className="py-1.5 font-medium">Serial No</th>
                                   <th className="py-1.5 font-medium">Status</th>
                                   <th className="py-1.5 font-medium">Batch</th>
@@ -403,7 +369,6 @@ export function UniqueItems() {
                               <tbody>
                                 {(units[p.id] ?? []).map((u) => (
                                   <tr key={u.id} className="border-t border-border/60">
-                                    <td className="py-1.5 font-mono text-muted-foreground">{u.unit_code}</td>
                                     <td className="py-1.5">
                                       {canEdit ? (
                                         <input
@@ -449,7 +414,7 @@ export function UniqueItems() {
       <Modal
         open={modal !== null}
         onClose={() => setModal(null)}
-        title={modal === "open" ? "Open Unique Item" : "Edit Product"}
+        title={modal === "open" ? "Open Unique Component" : "Edit Component"}
         size="lg"
       >
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -468,22 +433,17 @@ export function UniqueItems() {
             </div>
           )}
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <label htmlFor="name" className={labelClass}>Product Name *</label>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div className="space-y-1.5 sm:col-span-2">
+              <label htmlFor="name" className={labelClass}>Component Name *</label>
               <input id="name" name="name" required defaultValue={selected?.name ?? ""} className={inputClass} placeholder="e.g. 55in Media Player" />
             </div>
-            <SelectOrCreate
-              id="material_type"
-              label="Material Type"
-              value={formMaterial}
-              onChange={setFormMaterial}
-              options={materialTypes}
-              onCreated={(created) => setMaterialTypes((prev) => [...prev, created])}
-              endpoint="/assets/material-types/"
-              extraCreateFields={{ unit: "piece" }}
-              createPlaceholder="e.g. Media Player"
-            />
+            <div className="space-y-1.5">
+              <label htmlFor="unit" className={labelClass}>Unit of Measure</label>
+              <select id="unit" name="unit" defaultValue={selected?.unit ?? "piece"} className={inputClass}>
+                {["piece", "set", "pair", "box", "meter", "roll", "kg", "litre"].map((u) => <option key={u} value={u}>{u}</option>)}
+              </select>
+            </div>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-3">
@@ -498,26 +458,17 @@ export function UniqueItems() {
               <label htmlFor="model_name" className={labelClass}>Model</label>
               <input id="model_name" name="model_name" defaultValue={selected?.model_name ?? ""} className={inputClass} placeholder="e.g. MP-900" />
             </div>
-            <SelectOrCreate
-              id="category"
-              label="Category"
-              value={formCategory}
-              onChange={setFormCategory}
-              options={categories}
-              onCreated={(created) => setCategories((prev) => [...prev, created])}
-              endpoint="/inventory/categories/"
-              createPlaceholder="e.g. Spares"
-            />
+            <div className="space-y-1.5">
+              <label htmlFor="category" className={labelClass}>Category</label>
+              <select id="category" name="category" defaultValue={selected?.category ?? ""} className={inputClass}>
+                <option value="">Select a category…</option>
+                {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-3">
-            <div className="space-y-1.5">
-              <label htmlFor="supplier" className={labelClass}>Default Supplier</label>
-              <select id="supplier" name="supplier" defaultValue={selected?.supplier ?? ""} className={inputClass}>
-                <option value="">—</option>
-                {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-              </select>
-            </div>
+
             <div className="space-y-1.5">
               <label htmlFor="unit_cost" className={labelClass}>Unit Cost</label>
               <input id="unit_cost" name="unit_cost" type="number" step="0.01" min={0} defaultValue={selected?.unit_cost ?? ""} className={inputClass} placeholder="0.00" />
@@ -526,24 +477,7 @@ export function UniqueItems() {
               <label htmlFor="min_stock_level" className={labelClass}>Min Stock Level</label>
               <input id="min_stock_level" name="min_stock_level" type="number" min={0} defaultValue={selected?.min_stock_level ?? 0} className={inputClass} />
             </div>
-            <div className="space-y-1.5 sm:col-span-2">
-              <label htmlFor="is_high_value" className="flex items-start gap-2.5">
-                <input
-                  id="is_high_value"
-                  name="is_high_value"
-                  type="checkbox"
-                  defaultChecked={selected?.is_high_value ?? false}
-                  className="mt-0.5 h-4 w-4 rounded border-border"
-                />
-                <span>
-                  <span className="text-sm font-medium text-foreground">Count in in-hand stock</span>
-                  <span className="block text-xs text-muted-foreground">
-                    Shows this product&apos;s units and their value on the dashboard. For the few items
-                    worth watching at that level.
-                  </span>
-                </span>
-              </label>
-            </div>
+
             {/* Set once, when the product is first opened: a product usually
                 starts empty and fills from goods receipt, but stock already on
                 the shelf has to be recordable. */}
@@ -604,32 +538,10 @@ export function UniqueItems() {
             ))}
           </div>
 
-          {/* Warranty terms every unit inherits. */}
-          <div className="rounded-xl border border-border bg-secondary/20 p-4">
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                checked={hasWarranty}
-                onChange={(e) => setHasWarranty(e.target.checked)}
-                className="h-4 w-4 rounded border-border accent-primary"
-              />
-              <span className="text-sm font-medium text-foreground">Units of this product come with a warranty</span>
-            </label>
-            {hasWarranty && (
-              <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <label htmlFor="default_warranty_type" className={labelClass}>Warranty Type</label>
-                  <select id="default_warranty_type" name="default_warranty_type" defaultValue={selected?.default_warranty_type || "manufacturer"} className={inputClass}>
-                    {WARRANTY_TYPES.map((w) => <option key={w.value} value={w.value}>{w.label}</option>)}
-                  </select>
-                </div>
-                <div className="space-y-1.5">
-                  <label htmlFor="default_warranty_months" className={labelClass}>Term (months) *</label>
-                  <input id="default_warranty_months" name="default_warranty_months" type="number" min={1} defaultValue={selected?.default_warranty_months ?? 12} className={inputClass} />
-                </div>
-              </div>
-            )}
-          </div>
+          <p className="rounded-lg border border-dashed border-border px-3 py-2 text-[11px] text-muted-foreground">
+            Warranty is recorded when units are received — type the term at inspection and it runs from that day.
+            The dashboard&apos;s in-hand stock watchlist is chosen on the dashboard.
+          </p>
 
           <div className="space-y-1.5">
             <label htmlFor="notes" className={labelClass}>Notes</label>

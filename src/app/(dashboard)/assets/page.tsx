@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, BookmarkPlus, Check, Eye, HardDrive, ImagePlus, Pencil, Plus, Printer, QrCode, Trash2, Wand2, X, Download, MapPin, Clock, Shield, Wrench, FileText, ChevronRight, Calendar, DollarSign, Package, Zap, Monitor, Sun } from "lucide-react";
+import { ArrowLeft, Check, Eye, HardDrive, ImagePlus, Pencil, Plus, Printer, QrCode, Trash2, X, Download, MapPin, Clock, Shield, Wrench, FileText, ChevronRight, Calendar, DollarSign, Package, Zap, Monitor, Sun } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -30,6 +30,8 @@ interface Device {
   device_model_name: string | null;
   source_display: string;
   requires_production: boolean;
+  /** In execution under an approved project: components and route are fixed. */
+  is_locked?: boolean;
   requires_oversight: boolean;
   production_steps: ProductionStep[];
   route_template_available: boolean;
@@ -41,6 +43,8 @@ interface Device {
   asset_type_name: string | null;
   display_name: string;
   status: string;
+  /** The lifecycle stage as the API labels it (e.g. In Procurement). */
+  status_display?: string;
   warranty_status: string;
   image: string | null;
   current_site: string | null;
@@ -57,6 +61,8 @@ interface Device {
 
 interface DeviceDetail extends Device {
   source: string;
+  /** The lifecycle stage as the API labels it (e.g. In Procurement). */
+  status_display?: string;
   allowed_transitions?: string[];
   clients: string[];
   project_contract_type: "sold" | "rental" | "" | null;
@@ -166,6 +172,7 @@ interface AssetComponent {
   fulfilment: string;
   po_number: string | null;
   source_label: string | null;
+  unit?: string;
   active_warranty: { warranty_type: string; status: string; start_date: string; end_date: string; months: number | null } | null;
   notes: string;
 }
@@ -197,7 +204,7 @@ const EMPTY_COMPONENT: NewComponentRow = {
 };
 
 const STATUSES = [
-  { value: "procured", label: "Procured" },
+  { value: "procured", label: "In Procurement" },
   { value: "in_transit", label: "In Transit" },
   { value: "in_production", label: "In Production" },
   { value: "in_stock", label: "In Stock" },
@@ -435,7 +442,9 @@ export default function AssetsPage() {
   const [compItemId, setCompItemId] = useState("");
   const [compUnitType, setCompUnitType] = useState("");
   const [assetSource, setAssetSource] = useState("inhouse");
-  const [componentTemplateBusy, setComponentTemplateBusy] = useState(false);
+  const [compEdit, setCompEdit] = useState<{ id: string; quantity: number } | null>(null);
+  // Item 8: a new asset can start as a copy of an existing one.
+  const [copyFrom, setCopyFrom] = useState("");
   // Components and a production route only belong to an asset we build ourselves.
   const buildsInHouse = assetSource === "inhouse";
   const [formAssetType, setFormAssetType] = useState("");
@@ -672,21 +681,16 @@ export default function AssetsPage() {
     }
   }
 
-  async function handleComponentTemplate(deviceId: string, action: "apply" | "save") {
-    setComponentTemplateBusy(true);
+  /** Item 7/15: the one thing to change on a component is how many. */
+  async function saveComponentEdit(deviceId: string) {
+    if (!compEdit) return;
     try {
-      const { data } = await api.post(`/assets/devices/${deviceId}/${action}-component-template/`, {});
-      toast.success(
-        action === "apply"
-          ? `${data.applied} component(s) loaded from the saved set`
-          : data.detail ?? "Saved as the standard components",
-      );
+      await api.patch(`/assets/components/${compEdit.id}/`, { quantity: compEdit.quantity });
+      toast.success("Quantity updated");
+      setCompEdit(null);
       refreshDetail(deviceId);
-      loadInventorySources();
     } catch (err) {
-      toast.error(getApiError(err, "That did not work"));
-    } finally {
-      setComponentTemplateBusy(false);
+      toast.error(getApiError(err, "Could not update the component"));
     }
   }
 
@@ -815,6 +819,7 @@ export default function AssetsPage() {
   }
 
   function closeModal() {
+    setCopyFrom("");
     setModalMode(null);
     setSelected(null);
     setImageFiles([]);
@@ -910,6 +915,7 @@ export default function AssetsPage() {
       // No serial here: the platform generates the asset code (and its
       // QR/barcode label), and the serial defaults to it.
       source: assetSource,
+      ...(modalMode === "create" && copyFrom ? { copy_from: copyFrom } : {}),
       batch_number: fd.get("batch_number") || "",
       asset_type: formAssetType || null,
       display_name: fd.get("display_name") || "",
@@ -935,9 +941,7 @@ export default function AssetsPage() {
       purchase_date: fd.get("purchase_date") || null,
       purchase_price: fd.get("purchase_price") || null,
       installation_date: fd.get("installation_date") || null,
-      client_warranty_end: fd.get("client_warranty_end") || null,
       // Only a vendor route has one; the API ignores it on an in-house build.
-      vendor_warranty_end: buildsInHouse ? null : fd.get("vendor_warranty_end") || null,
     };
     // Status is read-only on update — existing assets change status only via
     // the guarded /transition/ action in the detail view.
@@ -1139,7 +1143,7 @@ export default function AssetsPage() {
                 {/* Name + metadata grid */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start gap-3 mb-4">
-                    <StatusBadge status={d.status} />
+                    <StatusBadge status={d.status} label={d.status_display ?? statusLabel(d.status)} />
                     <div>
                       <h1 className="text-xl font-bold text-foreground leading-tight">{d.display_name || d.asset_type_name || d.asset_code}</h1>
                       {d.brand_name && <p className="text-sm text-muted-foreground">{d.brand_name}</p>}
@@ -1169,10 +1173,10 @@ export default function AssetsPage() {
                     </div>
                     <MetaField label="Asset Type" value={d.asset_type_name} />
                     <MetaField label="Project" value={d.project_name} highlight />
-                    <MetaField label="Delivery Route" value={d.source_display} />
+                    <MetaField label="Manufacturing Route" value={d.source_display} />
                     <MetaField label="Installation Date" value={d.installation_date ? formatDate(d.installation_date) : null} />
                     <MetaField label="Location" value={d.site_name} highlight />
-                    <MetaField label="Status" value={d.status?.replace(/_/g, " ")} capitalize />
+                    <MetaField label="Status" value={d.status_display ?? statusLabel(d.status)} />
                     <MetaField label="Dimensions" value={d.length_in && d.width_in ? `${d.length_in} × ${d.width_in}${d.depth_in ? ` × ${d.depth_in}` : ""} in` : d.diagonal_inches ? `${d.diagonal_inches}"` : null} />
                   </div>
                 </div>
@@ -1185,7 +1189,7 @@ export default function AssetsPage() {
             <h3 className="text-sm font-semibold text-foreground mb-4">Quick Overview</h3>
             <div className="space-y-3">
               <OverviewRow icon={<Package className="h-4 w-4 text-blue-400" />} label="Components" value={String((d.components ?? []).length)} />
-              <OverviewRow icon={<HardDrive className="h-4 w-4 text-cyan-400" />} label="Delivery Route" value={d.source_display} />
+              <OverviewRow icon={<HardDrive className="h-4 w-4 text-cyan-400" />} label="Manufacturing Route" value={d.source_display} />
               <OverviewRow icon={<Zap className="h-4 w-4 text-amber-400" />} label="Production Steps" value={d.requires_production ? String((d.production_steps ?? []).length) : "—"} />
               <OverviewRow icon={<Clock className="h-4 w-4 text-green-400" />} label="Batch" value={d.batch_number || "—"} />
               <OverviewRow icon={<Wrench className="h-4 w-4 text-purple-400" />} label="Last Maintenance" value={maintSchedules.length > 0 ? formatDate(maintSchedules[0].next_due) : "—"} />
@@ -1497,22 +1501,18 @@ export default function AssetsPage() {
                           {d.project_name && (
                             <span className="text-xs text-muted-foreground">Project: <span className="font-medium text-foreground">{d.project_name}</span></span>
                           )}
-                          {canEdit && d.requires_production && (d.components ?? []).length > 0 && d.asset_type_name && (
-                            <button
-                              onClick={() => handleComponentTemplate(d.id, "save")}
-                              disabled={componentTemplateBusy}
-                              title="Save this parts list as the standard for this asset type"
-                              className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
-                            >
-                              <BookmarkPlus className="h-3 w-3" /> Save as standard components
-                            </button>
-                          )}
                         </div>
                       </div>
                       {!d.requires_production && (
                         <p className="mb-3 rounded-lg border border-dashed border-border px-3 py-2 text-[11px] text-muted-foreground">
                           {d.source_display} — this asset arrives complete from the vendor, so it is
                           not built from our inventory.
+                        </p>
+                      )}
+                      {d.is_locked && (
+                        <p className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-700">
+                          Locked — this asset is in execution{d.project_name ? ` under ${d.project_name}` : ""}. Its components
+                          and production route are fixed now; only its status can change.
                         </p>
                       )}
                       {(d.components ?? []).length > 0 ? (
@@ -1527,7 +1527,7 @@ export default function AssetsPage() {
                                 <th className="px-3 py-2 font-medium">In Stock</th>
                                 <th className="px-3 py-2 font-medium">From Inventory</th>
                                 <th className="px-3 py-2 font-medium">Fulfilment</th>
-                                <th className="px-3 py-2 font-medium">Warranty</th>
+                                <th className="px-3 py-2 font-medium">Unit</th>
                                 {canEdit && <th className="px-3 py-2" />}
                               </tr>
                             </thead>
@@ -1538,7 +1538,18 @@ export default function AssetsPage() {
                                   <td className="px-3 py-2 text-muted-foreground">{cmp.component_type || "—"}</td>
                                   <td className="px-3 py-2 font-mono text-muted-foreground">{cmp.serial_number || "—"}</td>
                                   <td className="px-3 py-2 text-foreground">
-                                    ×{cmp.quantity}
+                                    {compEdit?.id === cmp.id ? (
+                                      <input
+                                        type="number"
+                                        min={1}
+                                        value={compEdit.quantity}
+                                        onChange={(e) => setCompEdit({ id: cmp.id, quantity: Math.max(1, Number(e.target.value) || 1) })}
+                                        aria-label="Quantity"
+                                        className="h-7 w-16 rounded-lg border border-border bg-background px-2 text-xs text-foreground"
+                                      />
+                                    ) : (
+                                      <>×{cmp.quantity}</>
+                                    )}
                                     {cmp.issued_quantity > 0 && (
                                       <span className="block text-[10px] text-muted-foreground">
                                         {cmp.issued_quantity} issued
@@ -1559,25 +1570,28 @@ export default function AssetsPage() {
                                       <span className="block font-mono text-[10px] text-muted-foreground">{cmp.po_number}</span>
                                     )}
                                   </td>
-                                  <td className="px-3 py-2">
-                                    {cmp.active_warranty ? (
-                                      <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ${
-                                        ["active", "reissued"].includes(cmp.active_warranty.status)
-                                          ? "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20"
-                                          : "bg-secondary text-muted-foreground ring-border"
-                                      }`}>
-                                        {cmp.active_warranty.months ? `${cmp.active_warranty.months}mo ` : ""}
-                                        {cmp.active_warranty.warranty_type} · till {cmp.active_warranty.end_date}
-                                      </span>
-                                    ) : (
-                                      <span className="text-muted-foreground">—</span>
-                                    )}
-                                  </td>
+                                  <td className="px-3 py-2 text-muted-foreground">{cmp.unit || "piece"}</td>
                                   {canEdit && (
                                     <td className="px-3 py-2 text-right">
-                                      <button onClick={() => handleDeleteComponent(cmp.id, d.id)} disabled={!d.requires_production} className="text-muted-foreground transition-colors hover:text-destructive disabled:pointer-events-none disabled:opacity-50" title="Remove component">
-                                        <Trash2 className="h-3.5 w-3.5" />
-                                      </button>
+                                      {compEdit?.id === cmp.id ? (
+                                        <span className="inline-flex items-center gap-1.5">
+                                          <button type="button" onClick={() => saveComponentEdit(d.id)} className="text-emerald-600 transition-colors hover:text-emerald-700" title="Save quantity">
+                                            <Check className="h-3.5 w-3.5" />
+                                          </button>
+                                          <button type="button" onClick={() => setCompEdit(null)} className="text-muted-foreground transition-colors hover:text-foreground" title="Cancel">
+                                            <X className="h-3.5 w-3.5" />
+                                          </button>
+                                        </span>
+                                      ) : (
+                                        <span className="inline-flex items-center gap-2">
+                                          <button type="button" onClick={() => setCompEdit({ id: cmp.id, quantity: cmp.quantity })} disabled={!d.requires_production || d.is_locked} className="text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-50" title="Edit quantity">
+                                            <Pencil className="h-3.5 w-3.5" />
+                                          </button>
+                                          <button onClick={() => handleDeleteComponent(cmp.id, d.id)} disabled={!d.requires_production || d.is_locked} className="text-muted-foreground transition-colors hover:text-destructive disabled:pointer-events-none disabled:opacity-50" title="Remove component">
+                                            <Trash2 className="h-3.5 w-3.5" />
+                                          </button>
+                                        </span>
+                                      )}
                                     </td>
                                   )}
                                 </tr>
@@ -1588,28 +1602,9 @@ export default function AssetsPage() {
                       ) : (
                         <p className="text-xs text-muted-foreground">No components recorded — single-unit asset.</p>
                       )}
-                      {d.requires_production && (d.components ?? []).length === 0 && d.component_template_available && (
-                        <div className="mt-2 rounded-xl border border-dashed border-border p-4 text-center">
-                          <p className="text-xs text-foreground">
-                            A standard set of components already exists for this asset type.
-                          </p>
-                          <p className="mt-1 text-[11px] text-muted-foreground">
-                            Start from it, or list the parts one by one below.
-                          </p>
-                          {canEdit && (
-                            <button
-                              onClick={() => handleComponentTemplate(d.id, "apply")}
-                              disabled={componentTemplateBusy}
-                              className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
-                            >
-                              <Wand2 className="h-3.5 w-3.5" /> Use saved components
-                            </button>
-                          )}
-                        </div>
-                      )}
                       {canEdit && (
                         <form onSubmit={(e) => handleAddComponent(e, d.id)} className="mt-2">
-                          <fieldset disabled={!d.requires_production} className="space-y-2">
+                          <fieldset disabled={!d.requires_production || d.is_locked} className="space-y-2">
                             <p className="text-[11px] text-muted-foreground">
                               What this asset is built from. Stock is not reduced here — the project decides
                               later whether to take each line from inventory or procure it.
@@ -1694,9 +1689,9 @@ export default function AssetsPage() {
                         steps={d.production_steps ?? []}
                         onChanged={() => refreshDetail(d.id)}
                         assetTypeName={d.asset_type_name}
-                        templateAvailable={d.route_template_available}
                         readOnly={!d.requires_production}
                         readOnlyReason={d.source_display}
+                        locked={d.is_locked}
                       />
                     </div>
                     <div>
@@ -1755,7 +1750,7 @@ export default function AssetsPage() {
                           <InfoCard label="Serial Number" value={d.serial_number} />
                         )}
                         <InfoCard label="Project" value={d.project_name} />
-                        <InfoCard label="Delivery Route" value={d.source_display} />
+                        <InfoCard label="Manufacturing Route" value={d.source_display} />
                         <InfoCard label="Batch Number" value={d.batch_number} />
                         <InfoCard label="Asset Type" value={d.asset_type_name} />
                         {/* Technical detail now lives on the inventory records
@@ -2288,7 +2283,7 @@ export default function AssetsPage() {
                     </td>
                     <td className="px-5 py-3 text-foreground">{d.display_name || "—"}</td>
                     <td className="px-5 py-3 text-muted-foreground">{d.asset_type_name || "—"}</td>
-                    <td className="px-5 py-3"><StatusBadge status={d.status} /></td>
+                    <td className="px-5 py-3"><StatusBadge status={d.status} label={d.status_display ?? statusLabel(d.status)} /></td>
                     <td className="px-5 py-3">
                       {d.warranty_status === "active" ? (
                         <span className="inline-flex rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-500 ring-1 ring-emerald-500/20">Under Warranty</span>
@@ -2337,12 +2332,29 @@ export default function AssetsPage() {
           )}
 
           {modalMode === "create" && (
-            <div className="space-y-1.5">
-              <label className={labelClass}>Asset Code</label>
-              {/* Generated on save, together with the QR/barcode label. */}
-              <p className="flex h-10 items-center rounded-lg border border-dashed border-border px-3 text-sm text-muted-foreground">
-                Generated automatically
-              </p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <label className={labelClass}>Asset Code</label>
+                {/* Generated on save, together with the QR/barcode label. */}
+                <p className="flex h-10 items-center rounded-lg border border-dashed border-border px-3 text-sm text-muted-foreground">
+                  Generated automatically
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="copy_from" className={labelClass}>Start from an existing asset</label>
+                <select id="copy_from" value={copyFrom} onChange={(e) => setCopyFrom(e.target.value)} className={inputClass}>
+                  <option value="">Blank — fill everything in</option>
+                  {devices.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.asset_code} · {d.display_name || d.asset_type_name || "Asset"}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-muted-foreground">
+                  Copies its type, size, build source, components and production route. The code and
+                  serial stay this asset&apos;s own.
+                </p>
+              </div>
             </div>
           )}
 
@@ -2385,7 +2397,7 @@ export default function AssetsPage() {
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5 sm:col-span-2">
-              <label htmlFor="source" className={labelClass}>Delivery Route *</label>
+              <label htmlFor="source" className={labelClass}>Manufacturing Route *</label>
               {/* Decides what the asset needs: an in-house build carries a
                   production route, a vendor-built one does not. */}
               <select
@@ -2416,6 +2428,7 @@ export default function AssetsPage() {
             )}
           </div>
 
+          {modalMode === "edit" && (
           <div className="border-t border-border pt-4">
             <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Assignment</p>
             <div className="grid gap-4 sm:grid-cols-2">
@@ -2478,6 +2491,7 @@ export default function AssetsPage() {
               </div>
             </div>
           </div>
+          )}
 
           {/* Two vendors, two questions, two sections: who sold us the asset,
               and who puts it up. On a turnkey job they are usually the same
@@ -2561,51 +2575,37 @@ export default function AssetsPage() {
 
           {/* Warranty — the asset's own cover, named for who gives it. Parts
               carry their own warranties from inventory; those are separate. */}
+          {modalMode === "edit" && (
           <div className="border-t border-border pt-4">
             <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Warranty</p>
             <p className="mb-3 text-[10px] text-muted-foreground">
-              The asset as a whole. Warranties on the individual parts come from inventory and are
-              listed against each component.
+              For information — warranties are entered and renewed in Warranties. Our cover to the
+              client starts when the asset goes Active; a vendor&apos;s cover on a bought asset starts
+              when it is received; part warranties run from the day each part arrived.
             </p>
             <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <label htmlFor="client_warranty_end" className={labelClass}>
-                  Client Warranty Expiry
-                </label>
-                <input
-                  id="client_warranty_end"
-                  name="client_warranty_end"
-                  type="date"
-                  defaultValue={selected?.client_warranty?.end_date ?? ""}
-                  className={inputClass}
-                />
-                <p className="text-[10px] text-muted-foreground">
-                  What we warrant to the client the asset is installed for. The period is worked
-                  out from this date; it auto-completes once it lapses and can be reissued from
-                  Warranties.
+              <div className="rounded-lg border border-border bg-secondary/20 px-3 py-2">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Client warranty</p>
+                <p className="text-sm text-foreground">
+                  {selected?.client_warranty?.end_date ? `Until ${formatDate(selected.client_warranty.end_date)}` : "None on record"}
                 </p>
               </div>
               {!buildsInHouse && (
-                <div className="space-y-1.5">
-                  <label htmlFor="vendor_warranty_end" className={labelClass}>
-                    Vendor Warranty Expiry
-                  </label>
-                  <input
-                    id="vendor_warranty_end"
-                    name="vendor_warranty_end"
-                    type="date"
-                    defaultValue={selected?.vendor_warranty?.end_date ?? ""}
-                    className={inputClass}
-                  />
-                  <p className="text-[10px] text-muted-foreground">
-                    What the vendor warrants to us on the complete asset — the equivalent of the
-                    part warranties an in-house build inherits from inventory.
+                <div className="rounded-lg border border-border bg-secondary/20 px-3 py-2">
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Vendor warranty</p>
+                  <p className="text-sm text-foreground">
+                    {selected?.vendor_warranty?.end_date ? `Until ${formatDate(selected.vendor_warranty.end_date)}` : "None on record"}
                   </p>
                 </div>
               )}
             </div>
+            <Link href="/warranties" className="mt-2 inline-block text-xs font-medium text-primary hover:underline">
+              Open Warranties →
+            </Link>
           </div>
+          )}
 
+          {modalMode === "edit" && (
           <div className="border-t border-border pt-4">
             <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Procurement</p>
             <div className="grid gap-4 sm:grid-cols-3">
@@ -2630,7 +2630,9 @@ export default function AssetsPage() {
               </div>
             </div>
           </div>
+          )}
 
+          {modalMode === "edit" && (
           <div className="border-t border-border pt-4">
             <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Device Images</p>
             <div className="flex flex-wrap gap-3">
@@ -2672,6 +2674,7 @@ export default function AssetsPage() {
               />
             </div>
           </div>
+          )}
 
           {modalMode === "create" && (
             <div className={`border-t border-border pt-4 ${buildsInHouse ? "" : "opacity-60"}`}>
@@ -2851,7 +2854,11 @@ function WarrantyTimeline({ start, end, color }: { start: string; end: string; c
 function getWarrantyDuration(start: string, end: string): string {
   const startD = new Date(start);
   const endD = new Date(end);
+  const days = Math.round((endD.getTime() - startD.getTime()) / 86400000);
+  if (days < 0) return "—";
   const months = (endD.getFullYear() - startD.getFullYear()) * 12 + (endD.getMonth() - startD.getMonth());
+  // Under a month it is counted in days — "0 months" tells nobody anything.
+  if (months < 1) return `${days} Day${days !== 1 ? "s" : ""}`;
   if (months >= 12) {
     const years = Math.floor(months / 12);
     const rem = months % 12;

@@ -81,6 +81,16 @@ const STATUS_BADGES: Record<string, string> = {
   void: "bg-secondary/500/10 text-muted-foreground ring-gray-500/20",
 };
 
+/** Item 23: a term under a month reads in days — "0mo" tells nobody anything. */
+function termLabel(w: { months?: number | null; start_date?: string | null; end_date?: string | null }): string {
+  if (w.months) return ` · ${w.months}mo`;
+  if (w.start_date && w.end_date) {
+    const days = Math.round((new Date(w.end_date).getTime() - new Date(w.start_date).getTime()) / 86400000);
+    if (days > 0) return ` · ${days}d`;
+  }
+  return "";
+}
+
 const STATUS_LABELS: Record<string, string> = {
   active: "Active",
   expired: "Warranty Completed",
@@ -181,7 +191,7 @@ export default function WarrantiesPage() {
 
   const fetchWarranties = useCallback(async () => {
     try {
-      const { data } = await api.get("/warranties/");
+      const { data } = await api.get("/warranties/", { params: { page_size: 500 } });
       setWarranties(data.results ?? data);
     } catch (err: unknown) {
       toast.error(getApiError(err, "Failed to load warranties"));
@@ -484,7 +494,7 @@ export default function WarrantiesPage() {
                       <span
                         className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${STATUS_BADGES[w.status] ?? "bg-secondary/500/10 text-muted-foreground ring-gray-500/20"}`}
                       >
-                        {(w.status_display ?? STATUS_LABELS[w.status]) || w.status}{w.months ? ` · ${w.months}mo` : ""}
+                        {(w.status_display ?? STATUS_LABELS[w.status]) || w.status}{termLabel(w)}
                       </span>
                     </td>
                     <td className={`${tdClass} text-muted-foreground`}>
@@ -588,9 +598,10 @@ export default function WarrantiesPage() {
                     />
                   )}
                 </div>
+                {((modalMode === "create" && warrantySide === "supplier") || (selected != null && selected.warranty_type !== "client")) && (
                 <div className="space-y-1.5">
                   <label htmlFor="supplier" className={labelClass}>
-                    Supplier
+                    Vendor
                   </label>
                   <select
                     id="supplier"
@@ -607,6 +618,7 @@ export default function WarrantiesPage() {
                     )}
                   </select>
                 </div>
+                )}
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2">

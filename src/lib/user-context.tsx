@@ -33,18 +33,18 @@ const UserContext = createContext<UserContextValue>({
 
 const WRITE_RULES: Record<string, string[]> = {
   users: ["super_admin"],
-  setup: ["super_admin", "group_head", "ops_manager"],
+  setup: ["super_admin", "group_head", "ops_manager", "marketing_head"],
   devices: ["super_admin", "group_head", "ops_manager"],
-  sites: ["super_admin", "group_head", "ops_manager"],
+  sites: ["super_admin", "group_head", "ops_manager", "marketing_head", "marketing"],
   tickets: ["super_admin", "group_head", "ops_manager", "supervisor", "technician", "marketing", "marketing_head"],
   teams: ["super_admin"],
-  warranties: ["super_admin", "group_head", "ops_manager"],
+  warranties: ["super_admin", "group_head", "ops_manager", "marketing_head"],
   maintenance: ["super_admin", "group_head", "ops_manager", "supervisor", "technician"],
   inventory: ["super_admin", "group_head", "ops_manager", "warehouse"],
   suppliers: ["super_admin", "group_head", "ops_manager"],
-  clients: ["super_admin", "group_head", "ops_manager"],
-  procurement: ["super_admin", "group_head", "ops_manager", "finance"],
-  quotations: ["super_admin", "group_head", "ops_manager"],
+  clients: ["super_admin", "group_head", "ops_manager", "marketing_head"],
+  procurement: ["super_admin", "ops_manager", "finance"],
+  quotations: ["super_admin", "group_head", "ops_manager", "marketing_head"],
   finance: ["super_admin", "group_head", "ops_manager", "finance"],
 };
 
