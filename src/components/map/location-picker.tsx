@@ -190,7 +190,7 @@ export default function LocationPicker({ lat, lng, onChange }: LocationPickerPro
         </MapContainer>
       </div>
 
-      <p className="text-[11px] text-muted-foreground">
+      <p className="text-2xs text-muted-foreground">
         {position
           ? `Selected: ${position.lat.toFixed(6)}, ${position.lng.toFixed(6)}`
           : "Click on the map or search to set location"}

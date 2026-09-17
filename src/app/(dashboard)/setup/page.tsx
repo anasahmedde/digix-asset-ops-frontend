@@ -403,7 +403,7 @@ function SlaMatrixCard() {
     <div className="rounded-xl border border-border bg-card p-5">
       <div className="flex items-center gap-2">
         <h3 className="text-sm font-semibold text-foreground">SLA &amp; Escalation Matrix</h3>
-        <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-muted-foreground">Reference</span>
+        <span className="rounded-full bg-secondary px-2 py-0.5 text-2xs font-medium text-muted-foreground">Reference</span>
       </div>
       <p className="mt-1 text-xs text-muted-foreground">
         Ticket response and resolution targets by priority. The resolution target auto-sets a ticket&apos;s due date when it is created without one.
@@ -431,10 +431,10 @@ function SlaMatrixCard() {
         </table>
       </div>
       <div className="mt-4 rounded-lg border border-border bg-secondary/20 p-3">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Escalation Ladder</p>
+        <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">Escalation Ladder</p>
         <div className="mt-2 space-y-2">
           <div className="flex flex-wrap items-center gap-2 text-xs">
-            <span className="w-24 shrink-0 text-[11px] font-medium text-muted-foreground">Tickets</span>
+            <span className="w-24 shrink-0 text-2xs font-medium text-muted-foreground">Tickets</span>
             <span className="inline-flex items-center gap-1.5 rounded-lg border border-orange-500/30 bg-orange-500/10 px-2.5 py-1 font-medium text-orange-600">
               L1 · Operations Head
               <span className="font-normal text-muted-foreground">at SLA breach</span>
@@ -446,7 +446,7 @@ function SlaMatrixCard() {
             </span>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-xs">
-            <span className="w-24 shrink-0 text-[11px] font-medium text-muted-foreground">Installations</span>
+            <span className="w-24 shrink-0 text-2xs font-medium text-muted-foreground">Installations</span>
             <span className="inline-flex items-center gap-1.5 rounded-lg border border-orange-500/30 bg-orange-500/10 px-2.5 py-1 font-medium text-orange-600">
               L1 · Operations Head
               <span className="font-normal text-muted-foreground">at due date</span>

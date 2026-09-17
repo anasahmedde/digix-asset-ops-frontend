@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Printer, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -77,7 +77,7 @@ interface Actuals {
 const money = (v: string | number | null | undefined) =>
   `PKR ${new Intl.NumberFormat("en-PK", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(v ?? 0))}`;
 
-const thClass = "px-3 py-2 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground";
+const thClass = "px-3 py-2 text-left text-2xs font-medium uppercase tracking-wider text-muted-foreground";
 const tdClass = "px-3 py-2";
 const inputClass =
   "h-8 rounded-lg border border-border bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none";
@@ -124,6 +124,16 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
       toast.error(getApiError(err, "Could not raise the work order"));
     } finally {
       setWoSaving(false);
+    }
+  }
+
+  /** The complete actual-cost table as a PDF, fetched with the token and opened to print. */
+  async function printActuals() {
+    try {
+      const { data } = await api.get(`/teams/projects/${projectId}/actuals/document/`, { responseType: "blob" });
+      window.open(URL.createObjectURL(data), "_blank", "noopener");
+    } catch (err) {
+      toast.error(getApiError(err, "Could not build the document"));
     }
   }
 
@@ -231,25 +241,34 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
 
   return (
     <div className="space-y-5">
-      <p className="text-sm text-muted-foreground">
-        What the project has cost so far: materials at what they were actually bought or drawn for, and
-        the planned overheads with what each one really came to. Costs move on site, so these are yours
-        to edit — the approved estimate stays as it was signed off.
-      </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <p className="max-w-3xl text-sm text-muted-foreground">
+          What the project has cost so far: materials at what they were actually bought or drawn for, and
+          the planned overheads with what each one really came to. Costs move on site, so these are yours
+          to edit — the approved estimate stays as it was signed off.
+        </p>
+        <button
+          onClick={printActuals}
+          title="Print the complete actual-cost table: every asset, its parts, production and vendor work, the overheads and the position against the budget"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+        >
+          <Printer className="h-3.5 w-3.5" /> Print actuals
+        </button>
+      </div>
 
       {/* ── Materials actually used ── */}
       <div>
         <div className="mb-2 flex items-end justify-between">
           <div>
             <h4 className="text-sm font-semibold text-foreground">Assets — materials, production and vendor work</h4>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-2xs text-muted-foreground">
               Materials count as each line is issued from stock or received against its purchase order;
               production as each step&apos;s actual cost is typed; vendor builds at their work-order amount.
             </p>
           </div>
           <p className="shrink-0 text-right text-sm font-semibold text-foreground">
             {money(Number(data.materials_actual) + Number(data.production_actual ?? 0) + Number(data.work_orders_actual ?? 0))}
-            <span className="block text-[10px] font-normal text-muted-foreground">
+            <span className="block text-2xs font-normal text-muted-foreground">
               materials {money(data.materials_actual)} · production {money(data.production_actual ?? 0)} · vendor {money(data.work_orders_actual ?? 0)}
             </span>
           </p>
@@ -278,7 +297,7 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
                       <span className="font-mono font-semibold text-foreground">{asset.asset_code}</span>
                       {asset.asset_name && <span className="ml-2 text-muted-foreground">{asset.asset_name}</span>}
                       {asset.outstanding > 0 && (
-                        <span className="ml-2 text-[11px] font-medium text-amber-600">
+                        <span className="ml-2 text-2xs font-medium text-amber-600">
                           · {asset.outstanding} still to come
                         </span>
                       )}
@@ -287,7 +306,7 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
                   </tr>
                   {asset.lines.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className={`${tdClass} pl-6 text-[11px] text-muted-foreground`}>
+                      <td colSpan={6} className={`${tdClass} pl-6 text-2xs text-muted-foreground`}>
                         No components on this asset.
                       </td>
                     </tr>
@@ -308,9 +327,9 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
                   {(asset.steps ?? []).map((st) => (
                     <tr key={st.id} className="border-t border-border/50 bg-secondary/10">
                       <td className={`${tdClass} pl-6 text-foreground`}>
-                        <span className="mr-1.5 font-mono text-[10px] text-muted-foreground">#{st.step_number}</span>
+                        <span className="mr-1.5 font-mono text-2xs text-muted-foreground">#{st.step_number}</span>
                         {st.name}
-                        <span className="ml-1.5 text-[10px] text-muted-foreground">production · {(st.status ?? "pending").replace(/_/g, " ")}</span>
+                        <span className="ml-1.5 text-2xs text-muted-foreground">production · {(st.status ?? "pending").replace(/_/g, " ")}</span>
                       </td>
                       <td className={`${tdClass} text-right text-muted-foreground`} colSpan={2}>
                         planned {st.planned_cost != null ? money(st.planned_cost) : "—"}
@@ -339,8 +358,8 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
                   {(asset.work_orders ?? []).map((w) => (
                     <tr key={w.id} className="border-t border-border/50 bg-secondary/10">
                       <td className={`${tdClass} pl-6 text-foreground`} colSpan={4}>
-                        <span className="font-mono text-[11px]">{w.wo_number}</span>
-                        <span className="ml-1.5 text-[10px] text-muted-foreground">vendor work order · {w.supplier || "—"} · {(w.status ?? "").replace(/_/g, " ")}</span>
+                        <span className="font-mono text-2xs">{w.wo_number}</span>
+                        <span className="ml-1.5 text-2xs text-muted-foreground">vendor work order · {w.supplier || "—"} · {(w.status ?? "").replace(/_/g, " ")}</span>
                       </td>
                       <td className={`${tdClass} text-muted-foreground`}>work order</td>
                       <td className={`${tdClass} text-right font-medium text-foreground`}>{w.amount != null ? money(w.amount) : "—"}</td>
@@ -351,7 +370,7 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
                       <td colSpan={6} className={`${tdClass} pl-6`}>
                         <button
                           onClick={() => openWorkOrder(asset)}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-2xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                         >
                           <Plus className="h-3 w-3" /> Raise work order — the vendor builds this asset
                         </button>
@@ -370,13 +389,13 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
         <div className="mb-2 flex items-end justify-between">
           <div>
             <h4 className="text-sm font-semibold text-foreground">Overheads</h4>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-2xs text-muted-foreground">
               Carried over from planning. Record what each actually came to; add anything nobody planned for.
             </p>
           </div>
           <p className="shrink-0 text-sm font-semibold text-foreground">
             {money(data.overheads_actual_total)}
-            <span className="ml-2 text-[11px] font-normal text-muted-foreground">
+            <span className="ml-2 text-2xs font-normal text-muted-foreground">
               planned {money(data.overheads_planned_total)}
             </span>
           </p>
@@ -406,8 +425,8 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
                   return (
                     <tr key={o.id} className="border-b border-border/60 last:border-0">
                       <td className={tdClass}>
-                        <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] font-medium text-foreground">{o.cost_type}</span>
-                        {o.unplanned && <span className="ml-1 text-[10px] text-amber-600">unplanned</span>}
+                        <span className="rounded-full bg-secondary px-2 py-0.5 text-2xs font-medium text-foreground">{o.cost_type}</span>
+                        {o.unplanned && <span className="ml-1 text-2xs text-amber-600">unplanned</span>}
                       </td>
                       <td className={`${tdClass} text-muted-foreground`}>{o.description || "—"}</td>
                       <td className={`${tdClass} text-right text-muted-foreground`}>{money(o.planned_amount)}</td>
@@ -436,7 +455,7 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
                       <td className={`${tdClass} text-right font-medium text-foreground`}>
                         {o.actual_amount == null ? <span className="text-muted-foreground">not recorded</span> : money(o.actual_amount)}
                         {diff != null && Math.abs(diff) >= 0.01 && (
-                          <span className={`block text-[10px] ${diff > 0 ? "text-amber-600" : "text-emerald-600"}`}>
+                          <span className={`block text-2xs ${diff > 0 ? "text-amber-600" : "text-emerald-600"}`}>
                             {diff > 0 ? "+" : "−"}{money(Math.abs(diff))} vs plan
                           </span>
                         )}
@@ -542,7 +561,7 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
                 <input id="wo_amount" type="number" min={0} step="0.01" value={wo.amount} onChange={(e) => setWo({ ...wo, amount: e.target.value })} placeholder="Blank uses the asset's purchase price" className={`${inputClass} h-10 w-full`} />
               </div>
               <div className="space-y-1.5">
-                <label htmlFor="wo_delivery" className="text-xs font-medium text-muted-foreground">Expected delivery</label>
+                <label htmlFor="wo_delivery" className="text-xs font-medium text-muted-foreground">Required delivery</label>
                 <input id="wo_delivery" type="date" value={wo.expected_delivery} onChange={(e) => setWo({ ...wo, expected_delivery: e.target.value })} className={`${inputClass} h-10 w-full`} />
               </div>
               <div className="space-y-1.5 sm:col-span-2">

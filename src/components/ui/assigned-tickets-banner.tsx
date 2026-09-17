@@ -92,7 +92,7 @@ export function AssignedTicketsBanner() {
                   <Link
                     key={t.id}
                     href="/tickets"
-                    className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[12px] transition-colors hover:bg-primary/5"
+                    className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition-colors hover:bg-primary/5"
                   >
                     <span className={`h-1.5 w-1.5 rounded-full ${
                       t.priority === "critical" ? "bg-red-500" :
@@ -100,18 +100,18 @@ export function AssignedTicketsBanner() {
                       t.priority === "medium" ? "bg-amber-500" : "bg-gray-400"
                     }`} />
                     <span className="flex-1 truncate font-medium text-foreground">{t.title}</span>
-                    <span className={`shrink-0 text-[10px] font-medium ${priorityColor[t.priority] || "text-gray-400"}`}>
+                    <span className={`shrink-0 text-2xs font-medium ${priorityColor[t.priority] || "text-gray-400"}`}>
                       {t.priority.charAt(0).toUpperCase() + t.priority.slice(1)}
                     </span>
                     {t.due_date && new Date(t.due_date) < new Date() && (
-                      <span className="shrink-0 rounded bg-destructive/10 px-1.5 py-0.5 text-[9px] font-bold text-destructive">
+                      <span className="shrink-0 rounded bg-destructive/10 px-1.5 py-0.5 text-2xs font-bold text-destructive">
                         OVERDUE
                       </span>
                     )}
                   </Link>
                 ))}
                 {summary.tickets.length > 5 && (
-                  <p className="px-2 text-[11px] text-muted-foreground">
+                  <p className="px-2 text-2xs text-muted-foreground">
                     +{summary.tickets.length - 5} more...
                   </p>
                 )}
@@ -121,13 +121,13 @@ export function AssignedTicketsBanner() {
             <div className="mt-2 flex items-center gap-3">
               <button
                 onClick={() => setExpanded(!expanded)}
-                className="text-[11px] font-medium text-primary hover:underline"
+                className="text-2xs font-medium text-primary hover:underline"
               >
                 {expanded ? "Hide details" : "Show details"}
               </button>
               <Link
                 href="/tickets"
-                className="inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline"
+                className="inline-flex items-center gap-1 text-2xs font-medium text-primary hover:underline"
               >
                 Go to Tickets <ArrowRight className="h-3 w-3" />
               </Link>

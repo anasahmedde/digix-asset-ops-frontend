@@ -292,7 +292,7 @@ export default function InventoryPage() {
           >
             {t.label}
             {t.key === "inspection" && pendingCount > 0 && (
-              <span className="ml-2 inline-flex min-w-5 items-center justify-center rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 ring-1 ring-amber-500/20">
+              <span className="ml-2 inline-flex min-w-5 items-center justify-center rounded-full bg-amber-500/15 px-1.5 py-0.5 text-2xs font-semibold text-amber-600 ring-1 ring-amber-500/20">
                 {pendingCount}
               </span>
             )}
@@ -444,7 +444,7 @@ export default function InventoryPage() {
                   <option value="">Select a category…</option>
                   {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
-                <p className="text-[11px] text-muted-foreground">Categories are maintained under Setup.</p>
+                <p className="text-2xs text-muted-foreground">Categories are maintained under Setup.</p>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
@@ -533,10 +533,10 @@ export default function InventoryPage() {
                             <span>
                               <span className="font-mono text-foreground">{m.po_number ?? m.grn_number}</span>
                               {m.supplier_name && (
-                                <span className="block text-[11px] text-muted-foreground">{m.supplier_name}</span>
+                                <span className="block text-2xs text-muted-foreground">{m.supplier_name}</span>
                               )}
                               {m.po_number && m.grn_number && (
-                                <span className="block text-[11px] text-muted-foreground">GRN {m.grn_number}</span>
+                                <span className="block text-2xs text-muted-foreground">GRN {m.grn_number}</span>
                               )}
                             </span>
                           ) : (
@@ -545,7 +545,7 @@ export default function InventoryPage() {
                             </span>
                           )}
                           {m.batch_number && (
-                            <span className="block text-[11px] text-muted-foreground">Batch {m.batch_number}</span>
+                            <span className="block text-2xs text-muted-foreground">Batch {m.batch_number}</span>
                           )}
                         </td>
                         <td className="px-3 py-2 text-muted-foreground">{m.performed_by_name ?? "—"}</td>

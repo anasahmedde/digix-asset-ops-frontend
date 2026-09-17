@@ -62,7 +62,7 @@ export function DonutChart({
               </span>
             )}
             {centerLabel && (
-              <span className="text-[10px] text-muted-foreground">{centerLabel}</span>
+              <span className="text-2xs text-muted-foreground">{centerLabel}</span>
             )}
           </div>
         )}

@@ -290,18 +290,18 @@ function ActivityItem({ comment, onImageClick }: { comment: TicketComment; onIma
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold text-foreground">{comment.author_name || "System"}</span>
           {comment.comment_type === "status_change" && comment.old_status && (
-            <span className="rounded-md bg-secondary px-2 py-0.5 text-[11px] text-muted-foreground">
+            <span className="rounded-md bg-secondary px-2 py-0.5 text-2xs text-muted-foreground">
               {formatLabel(comment.old_status)} → {formatLabel(comment.new_status)}
             </span>
           )}
           {comment.comment_type === "completion" && (
-            <span className="rounded-md bg-purple-500/10 px-2 py-0.5 text-[11px] font-medium text-purple-500">Submitted for Review</span>
+            <span className="rounded-md bg-purple-500/10 px-2 py-0.5 text-2xs font-medium text-purple-500">Submitted for Review</span>
           )}
           {comment.comment_type === "approval" && (
-            <span className="rounded-md bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-500">Approved</span>
+            <span className="rounded-md bg-emerald-500/10 px-2 py-0.5 text-2xs font-medium text-emerald-500">Approved</span>
           )}
           {comment.comment_type === "rejection" && (
-            <span className="rounded-md bg-red-500/10 px-2 py-0.5 text-[11px] font-medium text-red-500">Rejected</span>
+            <span className="rounded-md bg-red-500/10 px-2 py-0.5 text-2xs font-medium text-red-500">Rejected</span>
           )}
         </div>
         {comment.content ? <p className="mt-1 text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">{comment.content}</p> : null}
@@ -314,7 +314,7 @@ function ActivityItem({ comment, onImageClick }: { comment: TicketComment; onIma
             onClick={() => onImageClick?.(comment.image!)}
           />
         )}
-        <p className="mt-1.5 text-[11px] text-muted-foreground/60">{formatDateTime(comment.created_at)}</p>
+        <p className="mt-1.5 text-2xs text-muted-foreground/60">{formatDateTime(comment.created_at)}</p>
       </div>
     </div>
   );
@@ -573,7 +573,7 @@ function TicketDetailView({
             <div className="h-4 w-px bg-border" />
             <span className="text-xs font-semibold text-foreground">{ticket.ticket_number || `#${ticket.id.slice(0, 8)}`}</span>
             {ticket.device_code && ticket.occurrence > 0 && (
-              <Link href={`/assets?device=${ticket.device}`} className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/10" title={`Ticket #${ticket.occurrence} raised against ${ticket.device_code} — view asset`}>
+              <Link href={`/assets?device=${ticket.device}`} className="rounded-full bg-secondary px-2 py-0.5 text-2xs font-medium text-primary hover:bg-primary/10" title={`Ticket #${ticket.occurrence} raised against ${ticket.device_code} — view asset`}>
                 #{ticket.occurrence} for {ticket.device_code}
               </Link>
             )}
@@ -581,10 +581,10 @@ function TicketDetailView({
               {statusIcon[ticket.status]} {formatLabel(ticket.status)}
             </span>
             {ticket.issue_type_name && (
-              <span className="rounded-full bg-rose-500/10 px-2 py-0.5 text-[10px] font-medium text-rose-500 ring-1 ring-rose-500/20">{ticket.issue_type_name}</span>
+              <span className="rounded-full bg-rose-500/10 px-2 py-0.5 text-2xs font-medium text-rose-500 ring-1 ring-rose-500/20">{ticket.issue_type_name}</span>
             )}
             {(escalation || ticket.escalated || ticket.is_response_overdue || ticket.assignment_escalated || ticket.due_date_escalated) && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-0.5 text-[10px] font-semibold text-red-500 ring-1 ring-red-500/20">
+              <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-0.5 text-2xs font-semibold text-red-500 ring-1 ring-red-500/20">
                 <AlertTriangle className="h-3 w-3" />
                 {escalation
                   ? `Escalated — L${escalation.stage}${escalation.reason ? ` · ${escalation.reason}` : ""}`
@@ -701,7 +701,7 @@ function TicketDetailView({
                             <div className="absolute inset-0 flex items-center justify-center bg-black/0 transition-colors group-hover:bg-black/30">
                               <ImageIcon className="h-5 w-5 text-white opacity-0 transition-opacity group-hover:opacity-100" />
                             </div>
-                            {att.caption && <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-2 py-1.5"><p className="text-[10px] text-white truncate">{att.caption}</p></div>}
+                            {att.caption && <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-2 py-1.5"><p className="text-2xs text-white truncate">{att.caption}</p></div>}
                           </button>
                         ))}
                       </div>
@@ -768,7 +768,7 @@ function TicketDetailView({
                     </div>
                     <div className="flex-1 pb-5">
                       <p className="text-sm font-semibold text-foreground">Ticket created</p>
-                      <p className="text-[11px] text-muted-foreground/60">{formatDateTime(ticket.created_at)}</p>
+                      <p className="text-2xs text-muted-foreground/60">{formatDateTime(ticket.created_at)}</p>
                     </div>
                   </div>
                   {(ticket.comments || []).map((c) => (
@@ -946,7 +946,7 @@ function TicketDetailView({
                   <div className="space-y-4">
                     {ticket.warranty_info && (
                       <span
-                        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ${
+                        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-2xs font-semibold ring-1 ${
                           ticket.warranty_info.status === "active"
                             ? "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20"
                             : "bg-amber-500/10 text-amber-600 ring-amber-500/20"
@@ -1041,7 +1041,7 @@ function TicketDetailView({
                 {activeAction === "completion" && (
                   <div className="mb-4 space-y-3 rounded-lg border border-purple-500/20 bg-purple-500/5 p-3">
                     <p className="text-xs font-semibold text-purple-500">Submit for Review</p>
-                    <p className="text-[11px] text-muted-foreground">Describe work done &amp; upload evidence. This goes to your supervisor.</p>
+                    <p className="text-2xs text-muted-foreground">Describe work done &amp; upload evidence. This goes to your supervisor.</p>
                     <textarea value={completionNotes} onChange={(e) => setCompletionNotes(e.target.value)} placeholder="What was completed? (required)" rows={3} className={`${inputClass} h-auto py-2 text-xs`} />
                     <textarea value={partsUsed} onChange={(e) => setPartsUsed(e.target.value)} placeholder="Parts used (e.g. 1x P6 module, 2x ribbon cables)" rows={2} className={`${inputClass} h-auto py-2 text-xs`} />
                     <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleImageSelect} />
@@ -1099,7 +1099,7 @@ function TicketDetailView({
                 {activeAction === "reopen" && (
                   <div className="mb-4 space-y-3 rounded-lg border border-blue-500/20 bg-blue-500/5 p-3">
                     <p className="text-xs font-semibold text-blue-500">Reopen Ticket</p>
-                    <p className="text-[11px] text-muted-foreground">Moves the ticket back to In Progress. Available within 7 days of closure.</p>
+                    <p className="text-2xs text-muted-foreground">Moves the ticket back to In Progress. Available within 7 days of closure.</p>
                     <textarea value={transitionNotes} onChange={(e) => setTransitionNotes(e.target.value)} placeholder="Why is this being reopened? (required)" rows={2} className={`${inputClass} h-auto py-2 text-xs`} />
                     <div className="flex gap-2">
                       <button onClick={() => setActiveAction(null)} className="flex-1 h-8 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-secondary">Cancel</button>
@@ -1111,14 +1111,14 @@ function TicketDetailView({
                   <div className="mb-4 space-y-3 rounded-lg border border-primary/20 bg-primary/5 p-3">
                     <p className="text-xs font-semibold text-primary">Assign Ticket</p>
                     <div className="space-y-1">
-                      <label className="text-[11px] text-muted-foreground">Employee</label>
+                      <label className="text-2xs text-muted-foreground">Employee</label>
                       <select value={assignUser} onChange={(e) => setAssignUser(e.target.value)} className={`${inputClass} text-xs`}>
                         <option value="">Unassigned</option>
                         {assignUsers.map((u) => <option key={u.id} value={u.id}>{u.label}</option>)}
                       </select>
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[11px] text-muted-foreground">Vendor (for in-warranty assets)</label>
+                      <label className="text-2xs text-muted-foreground">Vendor (for in-warranty assets)</label>
                       <select value={assignVendor} onChange={(e) => setAssignVendor(e.target.value)} className={`${inputClass} text-xs`}>
                         <option value="">No vendor</option>
                         {assignVendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
@@ -1240,11 +1240,11 @@ function TicketDetailView({
                     {/* Site-visit photos (any stage before closure) */}
                     {!isClosed && (
                       <div className="mt-3 space-y-2 rounded-lg border border-border bg-secondary/20 p-3">
-                        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Attach Visit Photos</p>
+                        <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">Attach Visit Photos</p>
                         <input
                           type="file" accept="image/*" multiple
                           onChange={(e) => setVisitFiles(Array.from(e.target.files ?? []))}
-                          className="block w-full text-xs text-muted-foreground file:mr-2 file:rounded file:border-0 file:bg-primary/10 file:px-2 file:py-1 file:text-[11px] file:text-primary"
+                          className="block w-full text-xs text-muted-foreground file:mr-2 file:rounded file:border-0 file:bg-primary/10 file:px-2 file:py-1 file:text-2xs file:text-primary"
                         />
                         <input value={visitCaption} onChange={(e) => setVisitCaption(e.target.value)} placeholder="Describe the issue seen…" className={`${inputClass} h-8 text-xs`} />
                         <button onClick={handleVisitUpload} disabled={visitUploading || visitFiles.length === 0} className="flex h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-primary/90 text-xs font-medium text-white disabled:opacity-50">
@@ -1675,8 +1675,8 @@ export default function TicketsPage() {
                           {t.title}
                           {(t.attachment_count > 0 || t.comment_count > 0) && (
                             <span className="flex items-center gap-1.5 text-muted-foreground">
-                              {t.attachment_count > 0 && <span className="flex items-center gap-0.5 text-[10px]"><ImageIcon className="h-3 w-3" />{t.attachment_count}</span>}
-                              {t.comment_count > 0 && <span className="flex items-center gap-0.5 text-[10px]"><MessageSquare className="h-3 w-3" />{t.comment_count}</span>}
+                              {t.attachment_count > 0 && <span className="flex items-center gap-0.5 text-2xs"><ImageIcon className="h-3 w-3" />{t.attachment_count}</span>}
+                              {t.comment_count > 0 && <span className="flex items-center gap-0.5 text-2xs"><MessageSquare className="h-3 w-3" />{t.comment_count}</span>}
                             </span>
                           )}
                         </div>
@@ -1828,7 +1828,7 @@ export default function TicketsPage() {
                       <option value="vendor">Vendor</option>
                     </select>
                   </div>
-                  <p className="text-[11px] text-muted-foreground">
+                  <p className="text-2xs text-muted-foreground">
                     Defaults derive from the asset&apos;s warranty — change only if this ticket differs.
                   </p>
                 </div>
@@ -1920,7 +1920,7 @@ export default function TicketsPage() {
                   </label>
                   <input id="due_date" name="due_date" type="date" defaultValue={selected?.due_date ?? ""} className={inputClass} />
                   {modalMode === "create" && (
-                    <p className="text-[11px] text-muted-foreground">Auto-set from priority if left empty (critical 24h · high 48h · medium 5bd · low 10bd)</p>
+                    <p className="text-2xs text-muted-foreground">Auto-set from priority if left empty (critical 24h · high 48h · medium 5bd · low 10bd)</p>
                   )}
                 </div>
               </div>
@@ -1932,10 +1932,10 @@ export default function TicketsPage() {
                     onChange={(e) => setFaultFiles(Array.from(e.target.files ?? []))}
                     className="block w-full text-xs text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-primary/10 file:px-3 file:py-2 file:text-xs file:font-medium file:text-primary hover:file:bg-primary/20"
                   />
-                  {faultFiles.length > 0 && <p className="text-[11px] text-muted-foreground">{faultFiles.length} photo(s) will be attached as fault evidence.</p>}
+                  {faultFiles.length > 0 && <p className="text-2xs text-muted-foreground">{faultFiles.length} photo(s) will be attached as fault evidence.</p>}
                 </div>
               )}
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-2xs text-muted-foreground">
                 Assignment is done by Operations after the ticket is raised.
               </p>
               </div>

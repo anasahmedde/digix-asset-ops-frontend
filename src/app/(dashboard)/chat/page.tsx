@@ -308,21 +308,21 @@ export default function ChatPage() {
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between">
-                    <p className="truncate text-[13px] font-medium text-foreground">
+                    <p className="truncate text-sm font-medium text-foreground">
                       {getRoomDisplayName(room)}
                     </p>
                     {room.last_message && (
-                      <span className="ml-2 shrink-0 text-[10px] text-muted-foreground">
+                      <span className="ml-2 shrink-0 text-2xs text-muted-foreground">
                         {new Date(room.last_message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                       </span>
                     )}
                   </div>
                   <div className="flex items-center justify-between">
-                    <p className="truncate text-[11px] text-muted-foreground">
+                    <p className="truncate text-2xs text-muted-foreground">
                       {room.last_message?.content || "No messages yet"}
                     </p>
                     {room.unread_count > 0 && (
-                      <span className="ml-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-bold text-primary-foreground">
+                      <span className="ml-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-2xs font-bold text-primary-foreground">
                         {room.unread_count}
                       </span>
                     )}
@@ -355,7 +355,7 @@ export default function ChatPage() {
               )}
               <div>
                 <p className="text-sm font-semibold text-foreground">{getRoomDisplayName(activeRoom)}</p>
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-2xs text-muted-foreground">
                   {activeRoom.participant_names.join(", ")}
                 </p>
               </div>
@@ -382,12 +382,12 @@ export default function ChatPage() {
                           {!isMe && <Avatar name={msg.sender_name} src={msg.sender_avatar} size="sm" />}
                           <div>
                             {!isMe && (
-                              <p className="mb-0.5 ml-1 text-[10px] font-medium text-muted-foreground">
+                              <p className="mb-0.5 ml-1 text-2xs font-medium text-muted-foreground">
                                 {msg.sender_name}
                               </p>
                             )}
                             <div
-                              className={`rounded-2xl px-3.5 py-2 text-[13px] leading-relaxed ${
+                              className={`rounded-2xl px-3.5 py-2 text-sm leading-relaxed ${
                                 isMe
                                   ? "bg-primary text-primary-foreground"
                                   : "bg-secondary text-foreground"
@@ -395,7 +395,7 @@ export default function ChatPage() {
                             >
                               {msg.content}
                             </div>
-                            <p className={`mt-0.5 text-[9px] text-muted-foreground ${isMe ? "text-right mr-1" : "ml-1"}`}>
+                            <p className={`mt-0.5 text-2xs text-muted-foreground ${isMe ? "text-right mr-1" : "ml-1"}`}>
                               {formatDateTime(msg.created_at)}
                             </p>
                           </div>
@@ -407,7 +407,7 @@ export default function ChatPage() {
                 </div>
               )}
               {typingUser && (
-                <div className="mt-2 text-[11px] text-muted-foreground italic">
+                <div className="mt-2 text-2xs text-muted-foreground italic">
                   {typingUser} is typing...
                 </div>
               )}
@@ -473,8 +473,8 @@ export default function ChatPage() {
                   >
                     <Avatar name={u.full_name || u.username} src={u.avatar} size="md" />
                     <div>
-                      <p className="text-[13px] font-medium text-foreground">{u.full_name || u.username}</p>
-                      <p className="text-[11px] capitalize text-muted-foreground">{u.role.replace(/_/g, " ")}</p>
+                      <p className="text-sm font-medium text-foreground">{u.full_name || u.username}</p>
+                      <p className="text-2xs capitalize text-muted-foreground">{u.role.replace(/_/g, " ")}</p>
                     </div>
                   </button>
                 ))

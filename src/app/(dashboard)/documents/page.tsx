@@ -161,11 +161,11 @@ export default function DocumentsPage() {
                 <FileText className={`h-8 w-8 shrink-0 ${typeIcons[doc.doc_type] || "text-muted-foreground"}`} />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-foreground truncate">{doc.title}</p>
-                  <p className="text-[10px] text-muted-foreground capitalize">{doc.doc_type.replace(/_/g, " ")}</p>
+                  <p className="text-2xs text-muted-foreground capitalize">{doc.doc_type.replace(/_/g, " ")}</p>
                 </div>
               </div>
               {doc.description && <p className="text-xs text-muted-foreground mb-3 line-clamp-2">{doc.description}</p>}
-              <div className="space-y-1 text-[10px] text-muted-foreground">
+              <div className="space-y-1 text-2xs text-muted-foreground">
                 {doc.device_code && <p>Device: {doc.device_code}</p>}
                 {doc.site_name && <p>Site: {doc.site_name}</p>}
                 {doc.project_name && <p>Project: {doc.project_name}</p>}

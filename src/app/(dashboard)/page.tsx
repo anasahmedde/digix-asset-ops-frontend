@@ -380,7 +380,7 @@ export default function DashboardPage() {
                     <tr key={`p-${p.id}`} className="border-b border-border/60 last:border-0">
                       <td className="py-2 text-foreground">
                         {p.name}
-                        <span className="block font-mono text-[11px] text-muted-foreground">{p.type_code} · unique</span>
+                        <span className="block font-mono text-2xs text-muted-foreground">{p.type_code} · unique</span>
                       </td>
                       <td className="py-2 text-right font-medium text-foreground">{p.in_stock_count}</td>
                       <td className="py-2 text-right text-muted-foreground">
@@ -401,7 +401,7 @@ export default function DashboardPage() {
                   <tr key={`i-${it.id}`} className="border-b border-border/60 last:border-0">
                     <td className="py-2 text-foreground">
                       {it.material_name ?? it.sku}
-                      <span className="block font-mono text-[11px] text-muted-foreground">{it.sku} · generic{it.unit ? ` · ${it.unit}` : ""}</span>
+                      <span className="block font-mono text-2xs text-muted-foreground">{it.sku} · generic{it.unit ? ` · ${it.unit}` : ""}</span>
                     </td>
                     <td className="py-2 text-right font-medium text-foreground">{it.quantity}</td>
                     <td className="py-2 text-right text-muted-foreground">
@@ -446,7 +446,7 @@ export default function DashboardPage() {
                 <h2 className="text-base font-semibold text-foreground">Screen Status Map</h2>
                 <p className="text-xs text-muted-foreground">Live status of screens across Pakistan</p>
               </div>
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-3 py-1 text-[11px] font-medium text-emerald-400">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-3 py-1 text-2xs font-medium text-emerald-400">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
                 Live
               </span>
@@ -464,7 +464,7 @@ export default function DashboardPage() {
               <h3 className="inline-flex items-center gap-2 text-sm font-semibold text-red-500">
                 <AlertCircle className="h-4 w-4" /> Escalation Alerts
               </h3>
-              <Link href="/tickets" className="text-[11px] font-medium text-primary hover:underline">View All</Link>
+              <Link href="/tickets" className="text-2xs font-medium text-primary hover:underline">View All</Link>
             </div>
             {escalatedTickets.length > 0 ? (
               <div className="space-y-2">
@@ -472,15 +472,15 @@ export default function DashboardPage() {
                   <Link key={t.id} href="/tickets" className="flex items-center justify-between gap-2 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 transition-colors hover:bg-red-500/10">
                     <div className="min-w-0">
                       <p className="truncate text-xs font-medium text-foreground">{t.ticket_number} — {t.title}</p>
-                      <p className="text-[10px] text-red-500">
+                      <p className="text-2xs text-red-500">
                         {t.escalated ? "Escalated" : "Response overdue"}{t.priority ? ` · ${t.priority}` : ""}
                       </p>
                     </div>
-                    <span className="shrink-0 text-[10px] font-semibold text-red-500">→</span>
+                    <span className="shrink-0 text-2xs font-semibold text-red-500">→</span>
                   </Link>
                 ))}
                 {escalatedTickets.length > 5 && (
-                  <p className="text-center text-[10px] text-muted-foreground">+{escalatedTickets.length - 5} more</p>
+                  <p className="text-center text-2xs text-muted-foreground">+{escalatedTickets.length - 5} more</p>
                 )}
               </div>
             ) : (
@@ -490,18 +490,18 @@ export default function DashboardPage() {
             )}
             {escalatedInstalls.length > 0 && (
               <div className={escalatedTickets.length > 0 ? "mt-3 border-t border-red-500/20 pt-3" : ""}>
-                <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-red-500">Overdue Installations</p>
+                <p className="mb-2 text-2xs font-semibold uppercase tracking-wider text-red-500">Overdue Installations</p>
                 <div className="space-y-2">
                   {escalatedInstalls.map((inst) => (
                     <Link key={inst.id} href="/installation-tracker" className="flex items-center justify-between gap-2 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 transition-colors hover:bg-red-500/10">
                       <div className="min-w-0">
                         <p className="truncate text-xs font-medium text-foreground">{inst.device_code} — {inst.site_name}</p>
-                        <p className="text-[10px] text-red-500">
+                        <p className="text-2xs text-red-500">
                           {Object.keys(inst.escalation_state ?? {}).some((k) => k.endsWith(":2")) ? "Escalated — L2" : "Escalated"}
                           {inst.due_date ? ` · due ${formatDate(inst.due_date)}` : ""}
                         </p>
                       </div>
-                      <span className="shrink-0 text-[10px] font-semibold text-red-500">→</span>
+                      <span className="shrink-0 text-2xs font-semibold text-red-500">→</span>
                     </Link>
                   ))}
                 </div>
@@ -531,7 +531,7 @@ export default function DashboardPage() {
           <div className="rounded-xl border border-border bg-card p-5">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-foreground">Recent Alerts</h3>
-              <Link href="/alerts" className="text-[11px] font-medium text-primary hover:underline">
+              <Link href="/alerts" className="text-2xs font-medium text-primary hover:underline">
                 View All
               </Link>
             </div>
@@ -552,12 +552,12 @@ export default function DashboardPage() {
                       <p className="text-xs font-medium text-foreground truncate">
                         {alert.device_code && `Screen ID: ${alert.device_code}`}
                       </p>
-                      <p className="text-[10px] text-muted-foreground truncate">{alert.title}</p>
+                      <p className="text-2xs text-muted-foreground truncate">{alert.title}</p>
                       {alert.site_name && (
-                        <p className="text-[10px] text-muted-foreground">{alert.site_name}{alert.site_city ? `, ${alert.site_city}` : ""}</p>
+                        <p className="text-2xs text-muted-foreground">{alert.site_name}{alert.site_city ? `, ${alert.site_city}` : ""}</p>
                       )}
                     </div>
-                    <span className="shrink-0 text-[10px] text-muted-foreground">
+                    <span className="shrink-0 text-2xs text-muted-foreground">
                       {new Date(alert.created_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
                     </span>
                   </div>
@@ -576,14 +576,14 @@ export default function DashboardPage() {
         <div className="rounded-xl border border-border bg-card p-5">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-foreground">Project Summary</h3>
-            <Link href="/projects" className="text-[11px] font-medium text-primary hover:underline">View All</Link>
+            <Link href="/projects" className="text-2xs font-medium text-primary hover:underline">View All</Link>
           </div>
           <div className="mb-3 flex items-end justify-between rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5">
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Active Projects</p>
+              <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">Active Projects</p>
               <p className="text-lg font-bold text-foreground">{projectSummary.total - projectSummary.completed}</p>
             </div>
-            <div className="text-right text-[10px] text-muted-foreground">
+            <div className="text-right text-2xs text-muted-foreground">
               <p>{projectSummary.total} total · {projectSummary.completed} completed</p>
               <p>avg progress {projectSummary.avgProgress}%</p>
             </div>
@@ -600,7 +600,7 @@ export default function DashboardPage() {
             ].map((row) => (
               <Link key={row.label} href="/projects" className="flex items-center justify-between rounded-lg border border-border/60 px-3 py-2 transition-colors hover:border-primary/40 hover:bg-primary/5">
                 <span className="text-xs font-medium text-foreground">{row.label}</span>
-                <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${row.cls}`}>{row.value}</span>
+                <span className={`rounded-full px-2 py-0.5 text-2xs font-semibold ${row.cls}`}>{row.value}</span>
               </Link>
             ))}
           </div>
@@ -610,14 +610,14 @@ export default function DashboardPage() {
         <div className="rounded-xl border border-border bg-card p-5">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-foreground">Ticket Summary</h3>
-            <Link href="/tickets" className="text-[11px] font-medium text-primary hover:underline">View All</Link>
+            <Link href="/tickets" className="text-2xs font-medium text-primary hover:underline">View All</Link>
           </div>
           <div className="mb-3 flex items-end justify-between rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5">
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Open Workload</p>
+              <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">Open Workload</p>
               <p className="text-lg font-bold text-foreground">{ticketSummary.open + ticketSummary.inProgress + ticketSummary.review}</p>
             </div>
-            <div className="text-right text-[10px] text-muted-foreground">
+            <div className="text-right text-2xs text-muted-foreground">
               <p>{tickets.length} total tickets</p>
               {ticketSummary.escalated > 0 && <p className="font-semibold text-red-500">{ticketSummary.escalated} escalated</p>}
             </div>
@@ -631,7 +631,7 @@ export default function DashboardPage() {
             ].map((row) => (
               <Link key={row.label} href={row.href} className="flex items-center justify-between rounded-lg border border-border/60 px-3 py-2 transition-colors hover:border-primary/40 hover:bg-primary/5">
                 <span className="text-xs font-medium text-foreground">{row.label}</span>
-                <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${row.cls}`}>{row.value}</span>
+                <span className={`rounded-full px-2 py-0.5 text-2xs font-semibold ${row.cls}`}>{row.value}</span>
               </Link>
             ))}
           </div>
@@ -641,20 +641,20 @@ export default function DashboardPage() {
         <div className="rounded-xl border border-border bg-card p-5">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-foreground">In-Hand Stock</h3>
-            <Link href="/inventory" className="text-[11px] font-medium text-primary hover:underline">
+            <Link href="/inventory" className="text-2xs font-medium text-primary hover:underline">
               View All
             </Link>
           </div>
           {stockSummary && (
             <Link href="/inventory" className="mb-3 flex items-end justify-between rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5 transition-colors hover:bg-primary/10">
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Total Stock Value</p>
+                <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">Total Stock Value</p>
                 <p className="text-lg font-bold text-foreground">PKR {Number(stockSummary.total_value).toLocaleString()}</p>
                 {stockSummary.unpriced_items > 0 && (
-                  <p className="text-[10px] text-muted-foreground">{stockSummary.unpriced_items} unpriced item{stockSummary.unpriced_items > 1 ? "s" : ""} excluded</p>
+                  <p className="text-2xs text-muted-foreground">{stockSummary.unpriced_items} unpriced item{stockSummary.unpriced_items > 1 ? "s" : ""} excluded</p>
                 )}
               </div>
-              <div className="text-right text-[10px] text-muted-foreground">
+              <div className="text-right text-2xs text-muted-foreground">
                 <p>{stockSummary.total_quantity.toLocaleString()} units · {stockSummary.items} items</p>
                 {stockSummary.low_stock > 0 && <p className="font-semibold text-red-500">{stockSummary.low_stock} low stock</p>}
               </div>
@@ -664,7 +664,7 @@ export default function DashboardPage() {
             <select
               value={stockSortField}
               onChange={(e) => setStockSortField(e.target.value as typeof stockSortField)}
-              className="h-6 rounded-md border border-border bg-background px-1.5 text-[10px] text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              className="h-6 rounded-md border border-border bg-background px-1.5 text-2xs text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
               aria-label="Sort stock by"
             >
               <option value="quantity">Sort: Quantity</option>
@@ -673,7 +673,7 @@ export default function DashboardPage() {
             </select>
             <button
               onClick={() => setStockSortDesc((v) => !v)}
-              className="flex h-6 items-center gap-1 rounded-md border border-border bg-background px-1.5 text-[10px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+              className="flex h-6 items-center gap-1 rounded-md border border-border bg-background px-1.5 text-2xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
               title={stockSortDesc ? "Descending — click for ascending" : "Ascending — click for descending"}
             >
               {stockSortDesc ? "↓ Desc" : "↑ Asc"}
@@ -687,13 +687,13 @@ export default function DashboardPage() {
                   <Link key={item.id} href="/inventory" className="flex items-center justify-between gap-2 rounded-lg border border-border/60 px-3 py-2 transition-colors hover:border-primary/40 hover:bg-primary/5">
                     <div className="min-w-0">
                       <p className="truncate text-xs font-medium text-foreground">{item.material_name || item.sku}</p>
-                      <p className="text-[10px] text-muted-foreground">{item.sku}{item.category_name ? ` · ${item.category_name}` : ""}</p>
+                      <p className="text-2xs text-muted-foreground">{item.sku}{item.category_name ? ` · ${item.category_name}` : ""}</p>
                     </div>
                     <div className="shrink-0 text-right">
-                      <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${low ? "bg-red-500/10 text-red-600" : "bg-emerald-500/10 text-emerald-600"}`}>
+                      <span className={`inline-block rounded-full px-2 py-0.5 text-2xs font-semibold ${low ? "bg-red-500/10 text-red-600" : "bg-emerald-500/10 text-emerald-600"}`}>
                         {item.quantity} {item.unit}
                       </span>
-                      <p className="mt-0.5 text-[10px] text-muted-foreground">
+                      <p className="mt-0.5 text-2xs text-muted-foreground">
                         {item.total_value != null ? `PKR ${Number(item.total_value).toLocaleString()}` : "unpriced"}
                       </p>
                     </div>

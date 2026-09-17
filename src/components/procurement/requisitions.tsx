@@ -235,7 +235,7 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
                       )}
                       <td className={`${tdClass} font-medium text-foreground`}>
                         {r.name}
-                        <span className={`ml-2 inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ${
+                        <span className={`ml-2 inline-flex rounded-full px-2 py-0.5 text-2xs font-medium ring-1 ${
                           isAsset ? "bg-indigo-500/10 text-indigo-600 ring-indigo-500/20" : "bg-secondary text-muted-foreground ring-border"
                         }`}>
                           {isAsset ? "Whole asset" : "Component"}
@@ -253,7 +253,7 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
                               {r.available_quantity ?? 0}
                             </span>
                             {(r.available_quantity ?? 0) >= r.outstanding_quantity && (
-                              <span className="block text-[10px] text-muted-foreground">stock would cover it</span>
+                              <span className="block text-2xs text-muted-foreground">stock would cover it</span>
                             )}
                           </>
                         )}
@@ -284,7 +284,7 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
               </select>
             </div>
             <div className="space-y-1.5">
-              <label htmlFor="req_delivery" className={labelClass}>Expected delivery</label>
+              <label htmlFor="req_delivery" className={labelClass}>Required delivery</label>
               <input id="req_delivery" type="date" value={expectedDelivery} onChange={(e) => setExpectedDelivery(e.target.value)} className={inputClass} />
             </div>
           </div>
@@ -336,7 +336,7 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
               </tfoot>
             </table>
           </div>
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-2xs text-muted-foreground">
             A blank price falls back to what we last paid for that line, or zero if we never have.
           </p>
 

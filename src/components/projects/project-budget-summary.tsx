@@ -48,26 +48,26 @@ export function ProjectBudgetSummary({ projectId }: { projectId: string }) {
     <div className="rounded-xl border border-border bg-card p-4">
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
             Approved Budget
           </p>
           <p className="text-lg font-semibold text-foreground">
             {approved != null ? money(approved) : "Not approved yet"}
           </p>
           {approved == null && (
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-2xs text-muted-foreground">
               The estimate stands at {money(actuals.estimate_total)}.
             </p>
           )}
         </div>
 
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
             Cost Incurred
           </p>
           <p className="text-lg font-semibold text-foreground">{money(incurred)}</p>
           {remaining != null && (
-            <p className={`text-[11px] ${remaining < 0 ? "text-red-600" : "text-muted-foreground"}`}>
+            <p className={`text-2xs ${remaining < 0 ? "text-red-600" : "text-muted-foreground"}`}>
               {remaining < 0
                 ? `${money(Math.abs(remaining))} over budget`
                 : `${money(remaining)} left`}
@@ -77,7 +77,7 @@ export function ProjectBudgetSummary({ projectId }: { projectId: string }) {
 
         <div className="sm:col-span-2 lg:col-span-1">
           <div className="flex items-baseline justify-between">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
               Budget Utilisation
             </p>
             <p className={`text-sm font-semibold ${over ? "text-red-600" : "text-foreground"}`}>
@@ -92,7 +92,7 @@ export function ProjectBudgetSummary({ projectId }: { projectId: string }) {
               style={{ width: `${Math.min(used ?? 0, 100)}%` }}
             />
           </div>
-          <p className="mt-1.5 text-[11px] text-muted-foreground">
+          <p className="mt-1.5 text-2xs text-muted-foreground">
             {used == null
               ? "Approve the budget to track utilisation."
               : over

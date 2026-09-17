@@ -860,7 +860,7 @@ export default function InstallationTrackerPage() {
                 <StatusBadge status={selected.device_status} />
                 <span
                   title={selected.health_reason || undefined}
-                  className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ring-1 ${healthStyle(selected.health).badge}`}
+                  className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-2xs font-semibold ring-1 ${healthStyle(selected.health).badge}`}
                 >
                   {(selected.health === "on_hold" || selected.health === "overdue" || selected.health === "delayed") && (
                     <AlertTriangle className="h-3 w-3" />
@@ -868,20 +868,20 @@ export default function InstallationTrackerPage() {
                   {selected.health_display}
                 </span>
                 {selected.handover && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-600">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-2xs font-semibold text-emerald-600">
                     <ClipboardCheck className="h-3 w-3" /> Handed over
                   </span>
                 )}
                 {selected.escalated && (
                   <span
                     title="This installation breached its due date and escalation notifications have fired"
-                    className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-0.5 text-[11px] font-semibold text-red-500"
+                    className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-0.5 text-2xs font-semibold text-red-500"
                   >
                     <AlertTriangle className="h-3 w-3" /> {escalationLabel(selected.escalation_state)}
                   </span>
                 )}
                 {selected.client_delays > 0 && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-0.5 text-[11px] font-semibold text-red-500">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-0.5 text-2xs font-semibold text-red-500">
                     <AlertTriangle className="h-3 w-3" /> {selected.client_delays} client delay{selected.client_delays > 1 ? "s" : ""}
                   </span>
                 )}
@@ -996,7 +996,7 @@ export default function InstallationTrackerPage() {
           <div className="mb-6 flex flex-wrap items-center justify-between gap-2">
             <div>
               <h2 className="text-base font-semibold text-foreground">Installation Steps</h2>
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-2xs text-muted-foreground">
                 {editableChecklist
                   ? "Lay out what this installation actually involves, then save it as the standard for this asset type."
                   : "The checklist this installation is being run through."}
@@ -1009,7 +1009,7 @@ export default function InstallationTrackerPage() {
                     onClick={() => stepTemplate("apply")}
                     disabled={templateBusy}
                     title={`Load the saved checklist for ${selected.asset_type_name}`}
-                    className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
+                    className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-2xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
                   >
                     <Layers className="h-3 w-3" /> Use saved checklist
                   </button>
@@ -1019,7 +1019,7 @@ export default function InstallationTrackerPage() {
                     onClick={() => stepTemplate("save")}
                     disabled={templateBusy}
                     title={`Save this checklist as the standard for ${selected.asset_type_name}`}
-                    className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
+                    className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-2xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
                   >
                     <ClipboardCheck className="h-3 w-3" /> Save as standard checklist
                   </button>
@@ -1044,7 +1044,7 @@ export default function InstallationTrackerPage() {
                 {selected.steps.map((step) => (
                   <span
                     key={step.id}
-                    className="inline-flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[11px] text-foreground"
+                    className="inline-flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-2xs text-foreground"
                   >
                     {step.step_number}. {step.step_type_display}
                     <button
@@ -1126,17 +1126,17 @@ export default function InstallationTrackerPage() {
                                   : "bg-amber-500/5"
                               }`}
                             >
-                              <p className={`inline-flex items-center gap-1 text-[10px] font-semibold ${
+                              <p className={`inline-flex items-center gap-1 text-2xs font-semibold ${
                                 d.resolved_at ? "text-muted-foreground line-through" : d.cause === "client" ? "text-red-500" : "text-amber-600"
                               }`}>
                                 <AlertTriangle className="h-2.5 w-2.5" />
                                 {step.status === "on_hold" && !d.resolved_at ? "On hold" : "Delay"} — caused by {d.cause_display}
                               </p>
                               {d.cause === "client" && selected.client_names.length > 0 && (
-                                <p className="text-[10px] text-muted-foreground">Client: {selected.client_names.join(", ")}</p>
+                                <p className="text-2xs text-muted-foreground">Client: {selected.client_names.join(", ")}</p>
                               )}
-                              {d.description && <p className="text-[10px] text-foreground">{d.description}</p>}
-                              <p className="text-[10px] text-muted-foreground">
+                              {d.description && <p className="text-2xs text-foreground">{d.description}</p>}
+                              <p className="text-2xs text-muted-foreground">
                                 {d.reported_by_name ? `By ${d.reported_by_name} · ` : ""}{formatDate(d.created_at)}
                                 {d.resolved_at ? ` · resolved ${formatDate(d.resolved_at)}` : ""}
                               </p>
@@ -1149,26 +1149,26 @@ export default function InstallationTrackerPage() {
                     {isSuperAdmin && (
                       <div className="mt-3 flex flex-wrap gap-1.5 border-t border-border pt-3">
                         {step.status !== "in_progress" && step.status !== "completed" && (
-                          <button disabled={updatingStep === step.id} onClick={() => updateStep(step.id, "in_progress")} className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 px-2 py-1 text-[11px] font-medium text-amber-600 transition-colors hover:bg-amber-500/20 disabled:opacity-50">
+                          <button disabled={updatingStep === step.id} onClick={() => updateStep(step.id, "in_progress")} className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 px-2 py-1 text-2xs font-medium text-amber-600 transition-colors hover:bg-amber-500/20 disabled:opacity-50">
                             <Play className="h-3 w-3" /> Start
                           </button>
                         )}
                         {step.status !== "completed" && (
-                          <button disabled={updatingStep === step.id} onClick={() => updateStep(step.id, "completed")} className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-1 text-[11px] font-medium text-emerald-600 transition-colors hover:bg-emerald-500/20 disabled:opacity-50">
+                          <button disabled={updatingStep === step.id} onClick={() => updateStep(step.id, "completed")} className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-1 text-2xs font-medium text-emerald-600 transition-colors hover:bg-emerald-500/20 disabled:opacity-50">
                             <Check className="h-3 w-3" /> Complete
                           </button>
                         )}
                         {step.status !== "on_hold" && step.status !== "completed" && (
-                          <button onClick={() => { setDelayCause("client"); setDelayFor({ stepId: step.id, label: `${step.step_number}. ${step.step_type_display}`, hold: true }); }} className="inline-flex items-center gap-1 rounded-md bg-orange-500/10 px-2 py-1 text-[11px] font-medium text-orange-500 transition-colors hover:bg-orange-500/20">
+                          <button onClick={() => { setDelayCause("client"); setDelayFor({ stepId: step.id, label: `${step.step_number}. ${step.step_type_display}`, hold: true }); }} className="inline-flex items-center gap-1 rounded-md bg-orange-500/10 px-2 py-1 text-2xs font-medium text-orange-500 transition-colors hover:bg-orange-500/20">
                             <Pause className="h-3 w-3" /> Hold
                           </button>
                         )}
                         {step.status !== "not_started" && (
-                          <button disabled={updatingStep === step.id} onClick={() => updateStep(step.id, "not_started")} className="inline-flex items-center gap-1 rounded-md bg-secondary px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-secondary/70 disabled:opacity-50">
+                          <button disabled={updatingStep === step.id} onClick={() => updateStep(step.id, "not_started")} className="inline-flex items-center gap-1 rounded-md bg-secondary px-2 py-1 text-2xs font-medium text-muted-foreground transition-colors hover:bg-secondary/70 disabled:opacity-50">
                             <RotateCcw className="h-3 w-3" /> Reset
                           </button>
                         )}
-                        <button onClick={() => setDelayFor({ stepId: step.id, label: `${step.step_number}. ${step.step_type_display}` })} className="inline-flex items-center gap-1 rounded-md bg-red-500/10 px-2 py-1 text-[11px] font-medium text-red-500 transition-colors hover:bg-red-500/20">
+                        <button onClick={() => setDelayFor({ stepId: step.id, label: `${step.step_number}. ${step.step_type_display}` })} className="inline-flex items-center gap-1 rounded-md bg-red-500/10 px-2 py-1 text-2xs font-medium text-red-500 transition-colors hover:bg-red-500/20">
                           <AlertTriangle className="h-3 w-3" /> Flag Delay
                         </button>
                       </div>
@@ -1191,7 +1191,7 @@ export default function InstallationTrackerPage() {
                         className="h-32 w-44 rounded-lg object-cover border border-border"
                       />
                       {photo.caption && (
-                        <p className="mt-1 text-[10px] text-muted-foreground max-w-44 truncate">{photo.caption}</p>
+                        <p className="mt-1 text-2xs text-muted-foreground max-w-44 truncate">{photo.caption}</p>
                       )}
                     </div>
                   ))}
@@ -1252,7 +1252,7 @@ export default function InstallationTrackerPage() {
                 {isSuperAdmin && (
                   <button
                     onClick={() => setDelayFor({ stepId: null, label: "Whole installation" })}
-                    className="text-[10px] font-medium text-red-500 hover:underline"
+                    className="text-2xs font-medium text-red-500 hover:underline"
                   >
                     + Flag Delay
                   </button>
@@ -1263,31 +1263,31 @@ export default function InstallationTrackerPage() {
                   {selected.delays.map((d) => (
                     <div key={d.id} className="rounded-lg border border-border/60 p-2.5">
                       <div className="flex items-center justify-between gap-2">
-                        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-2xs font-semibold ${
                           d.cause === "client" ? "bg-red-500/10 text-red-600" : "bg-amber-500/10 text-amber-600"
                         }`}>
                           <AlertTriangle className="h-2.5 w-2.5" /> {d.cause_display}
                         </span>
-                        <span className="text-[10px] text-muted-foreground">{formatDate(d.created_at)}</span>
+                        <span className="text-2xs text-muted-foreground">{formatDate(d.created_at)}</span>
                       </div>
                       {d.step_type_display && (
-                        <p className="mt-1 text-[11px] font-medium text-foreground">{d.step_type_display}</p>
+                        <p className="mt-1 text-2xs font-medium text-foreground">{d.step_type_display}</p>
                       )}
                       {/* Remarks get their own row: they are the part someone
                           actually needs to read, not a suffix on the step. */}
                       <div className="mt-1.5 rounded-md bg-secondary/50 px-2 py-1.5">
-                        <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Remarks</p>
+                        <p className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">Remarks</p>
                         <p className="mt-0.5 whitespace-pre-wrap text-xs text-foreground">
                           {d.description || "No details recorded"}
                         </p>
                       </div>
                       <div className="mt-1 flex items-center justify-between">
-                        <span className="text-[10px] text-muted-foreground">{d.reported_by_name || ""}</span>
+                        <span className="text-2xs text-muted-foreground">{d.reported_by_name || ""}</span>
                         {d.resolved_at ? (
-                          <span className="text-[10px] font-medium text-emerald-600">Resolved {formatDate(d.resolved_at)}</span>
+                          <span className="text-2xs font-medium text-emerald-600">Resolved {formatDate(d.resolved_at)}</span>
                         ) : (
                           isManager && (
-                            <button onClick={() => resolveDelay(d.id)} className="text-[10px] font-medium text-primary hover:underline">
+                            <button onClick={() => resolveDelay(d.id)} className="text-2xs font-medium text-primary hover:underline">
                               Mark resolved
                             </button>
                           )
@@ -1340,7 +1340,7 @@ export default function InstallationTrackerPage() {
             <div className="rounded-xl border border-border bg-card p-5">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-semibold text-foreground">Related Documents</h3>
-                <Link href="/documents" className="text-[10px] font-medium text-primary hover:underline">View All</Link>
+                <Link href="/documents" className="text-2xs font-medium text-primary hover:underline">View All</Link>
               </div>
               {documents.length > 0 ? (
                 <div className="space-y-2">
@@ -1429,7 +1429,7 @@ export default function InstallationTrackerPage() {
                   <button
                     type="button"
                     onClick={() => { setEditVendorManual((v) => !v); setEditVendor(""); }}
-                    className="text-[11px] font-medium text-primary hover:underline"
+                    className="text-2xs font-medium text-primary hover:underline"
                   >
                     {editVendorManual ? "Pick a registered vendor" : "Not registered? Enter manually"}
                   </button>
@@ -1528,7 +1528,7 @@ export default function InstallationTrackerPage() {
                 className={createInputClass}
               />
               {activatePhotos.length > 0 && (
-                <p className="mt-1 text-[11px] text-muted-foreground">
+                <p className="mt-1 text-2xs text-muted-foreground">
                   {activatePhotos.length} photo{activatePhotos.length > 1 ? "s" : ""} ready to upload.
                 </p>
               )}
@@ -1544,7 +1544,7 @@ export default function InstallationTrackerPage() {
                 placeholder="e.g. 12"
                 className={createInputClass}
               />
-              <p className="mt-1 text-[11px] text-muted-foreground">
+              <p className="mt-1 text-2xs text-muted-foreground">
                 Our cover to the client starts today and is filed under Warranties. Leave blank if none.
               </p>
             </div>
@@ -1856,7 +1856,7 @@ export default function InstallationTrackerPage() {
                         {inst.escalated && (
                           <span
                             title="Due date breached — escalation notifications have fired"
-                            className="mt-1 flex w-fit items-center gap-0.5 rounded-full bg-red-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-red-500"
+                            className="mt-1 flex w-fit items-center gap-0.5 rounded-full bg-red-500/10 px-1.5 py-0.5 text-2xs font-semibold text-red-500"
                           >
                             <AlertTriangle className="h-2.5 w-2.5" /> {escalationLabel(inst.escalation_state)}
                           </span>
@@ -1868,7 +1868,7 @@ export default function InstallationTrackerPage() {
                       <td className="px-4 py-3.5">
                         <span
                           title={inst.health_reason || undefined}
-                          className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-0.5 text-[11px] font-semibold ring-1 ${healthStyle(inst.health).badge}`}
+                          className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-0.5 text-2xs font-semibold ring-1 ${healthStyle(inst.health).badge}`}
                         >
                           {["on_hold", "overdue", "delayed"].includes(inst.health) && (
                             <AlertTriangle className="h-2.5 w-2.5" />
@@ -1887,7 +1887,7 @@ export default function InstallationTrackerPage() {
                             />
                           </div>
                           {inst.client_delays > 0 && (
-                            <span title={`${inst.client_delays} client delay(s)`} className="inline-flex items-center gap-0.5 rounded-full bg-red-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-red-500">
+                            <span title={`${inst.client_delays} client delay(s)`} className="inline-flex items-center gap-0.5 rounded-full bg-red-500/10 px-1.5 py-0.5 text-2xs font-semibold text-red-500">
                               <AlertTriangle className="h-2.5 w-2.5" /> {inst.client_delays}
                             </span>
                           )}
@@ -1973,7 +1973,7 @@ export default function InstallationTrackerPage() {
                     <button
                       type="button"
                       onClick={() => { setCreateVendorManual((v) => !v); setCreateVendor(""); }}
-                      className="text-[11px] font-medium text-primary hover:underline"
+                      className="text-2xs font-medium text-primary hover:underline"
                     >
                       {createVendorManual ? "Pick a registered vendor" : "Not registered? Enter manually"}
                     </button>
@@ -2088,7 +2088,7 @@ export default function InstallationTrackerPage() {
                     <Plus className="h-3.5 w-3.5" /> Add Step
                   </button>
                 </div>
-                <p className="mt-1 text-[10px] text-muted-foreground">
+                <p className="mt-1 text-2xs text-muted-foreground">
                   Untick steps that don&apos;t apply, or add your own with the + button — pipelines can be 3 steps or 10.
                 </p>
               </div>

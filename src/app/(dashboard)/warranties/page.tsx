@@ -633,7 +633,7 @@ export default function WarrantiesPage() {
                       <input type="hidden" name="warranty_type" value="supplier" />
                       <div className={`${inputClass} items-center justify-between bg-secondary/40`}>
                         <span>Vendor</span>
-                        <span className="text-[10px] text-muted-foreground">Fixed — extend it instead</span>
+                        <span className="text-2xs text-muted-foreground">Fixed — extend it instead</span>
                       </div>
                     </>
                   ) : (
@@ -804,7 +804,7 @@ export default function WarrantiesPage() {
               <label htmlFor="ext-notes" className={labelClass}>Notes</label>
               <textarea id="ext-notes" name="notes" rows={2} placeholder="What the extension covers" className={`${inputClass} h-auto py-2`} />
             </div>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-2xs text-muted-foreground">
               The warranty keeps its start date and its history — each extension is written onto it
               and journalled on the asset.
             </p>

@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, Check, Factory, Lock, PackagePlus, PackageSearch, RotateCcw, ShoppingCart, Split, Truck, Warehouse, X } from "lucide-react";
+import { ArrowRight, Check, Factory, Lock, PackagePlus, PackageSearch, RotateCcw, ShoppingCart, Truck, Warehouse, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
@@ -17,6 +17,10 @@ interface RequirementRow {
   quantity: number;
   issued_quantity: number;
   outstanding_quantity: number;
+  /** Decisions already taken on this line, and what is still open. */
+  stock_requested_quantity?: number;
+  procure_quantity?: number;
+  undecided_quantity?: number;
   available_quantity: number | null;
   can_use_stock: boolean;
   fulfilment: string;
@@ -97,7 +101,7 @@ const INCREASE_REASONS = [
   { value: "other", label: "Other" },
 ];
 
-const thClass = "px-3 py-2 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground";
+const thClass = "px-3 py-2 text-left text-2xs font-medium uppercase tracking-wider text-muted-foreground";
 const tdClass = "px-4 py-2.5";
 const fieldClass =
   "h-9 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none";
@@ -122,8 +126,9 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
   const [increaseFor, setIncreaseFor] = useState<RequirementRow | null>(null);
   const [increase, setIncrease] = useState({ additional: "1", reason: "damaged", notes: "" });
   // Covering one requirement from both sides at once.
-  const [splitFor, setSplitFor] = useState<RequirementRow | null>(null);
-  const [split, setSplit] = useState({ fromStock: "0", toProcure: "0" });
+  // The decision being taken: from inventory or to procure, and how many.
+  const [decideFor, setDecideFor] = useState<{ row: RequirementRow; mode: "inventory" | "procure" } | null>(null);
+  const [decideQty, setDecideQty] = useState("1");
 
   const fetchRequirements = useCallback(async () => {
     setLoading(true);
@@ -255,45 +260,35 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
     }
   }
 
-  function openSplit(row: RequirementRow) {
-    // Default to taking what the warehouse can actually cover.
-    const fromStock = Math.min(row.available_quantity ?? 0, row.outstanding_quantity);
-    setSplit({
-      fromStock: String(fromStock),
-      toProcure: String(row.outstanding_quantity - fromStock),
-    });
-    setSplitFor(row);
+  /** How much of a line is still open to a decision — the cap on any prompt. */
+  function openQty(row: RequirementRow): number {
+    return row.undecided_quantity ?? row.outstanding_quantity;
   }
 
-  async function submitSplit(e: React.FormEvent<HTMLFormElement>) {
+  function openDecision(row: RequirementRow, mode: "inventory" | "procure") {
+    const cap = openQty(row);
+    // Default to everything still undecided; for inventory, no more than the shelf holds.
+    const start = mode === "inventory" ? Math.min(cap, Math.max(1, row.available_quantity ?? cap)) : cap;
+    setDecideQty(String(Math.max(1, start)));
+    setDecideFor({ row, mode });
+  }
+
+  async function submitDecision(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (!splitFor) return;
-    const fromStock = Number(split.fromStock) || 0;
-    const toProcure = Number(split.toProcure) || 0;
-    if (fromStock + toProcure !== splitFor.outstanding_quantity) {
-      toast.error(`The two must add up to ${splitFor.outstanding_quantity} still outstanding.`);
+    if (!decideFor) return;
+    const { row, mode } = decideFor;
+    const cap = openQty(row);
+    const qty = Number(decideQty) || 0;
+    if (qty < 1 || qty > cap) {
+      toast.error(`Enter between 1 and ${cap}.`);
       return;
     }
-    if (fromStock > (splitFor.available_quantity ?? 0)) {
-      toast.error(`Only ${splitFor.available_quantity ?? 0} in stock.`);
-      return;
-    }
-    setBusy(splitFor.id);
+    setBusy(row.id);
     try {
-      // Issue first: that reduces what is outstanding, so flagging the rest
-      // for procurement covers exactly the remainder.
-      if (fromStock > 0) {
-        await api.post(`/assets/components/${splitFor.id}/fulfil-from-stock/`, { quantity: fromStock });
-      }
-      if (toProcure > 0) {
-        await api.post(`/assets/components/${splitFor.id}/mark-for-procurement/`, {});
-      }
-      toast.success(
-        fromStock && toProcure
-          ? `${fromStock} asked of the store, ${toProcure} to procure`
-          : fromStock ? "Asked the store for this" : "Flagged for procurement",
-      );
-      setSplitFor(null);
+      const path = mode === "inventory" ? "fulfil-from-stock" : "mark-for-procurement";
+      await api.post(`/assets/components/${row.id}/${path}/`, { quantity: qty });
+      toast.success(mode === "inventory" ? `${qty} × ${row.name} asked of the store` : `${qty} × ${row.name} to procure`);
+      setDecideFor(null);
       fetchRequirements();
     } catch (err) {
       toast.error(getApiError(err, "Could not record that decision"));
@@ -336,7 +331,7 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
         </div>
       )}
       {budget != null && !budget.has_plan && (
-        <p className="rounded-lg border border-dashed border-border px-3 py-2 text-[11px] text-muted-foreground">
+        <p className="rounded-lg border border-dashed border-border px-3 py-2 text-2xs text-muted-foreground">
           No budget has been planned for this project. Plan and approve it first to keep execution within an agreed figure.
         </p>
       )}
@@ -381,7 +376,7 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   {asset.vendor_asset && (
-                    <span className="rounded-full bg-indigo-500/10 px-2.5 py-0.5 text-[11px] font-medium text-indigo-600 ring-1 ring-indigo-500/20">
+                    <span className="rounded-full bg-indigo-500/10 px-2.5 py-0.5 text-2xs font-medium text-indigo-600 ring-1 ring-indigo-500/20">
                       {asset.source_display ?? "Vendor supplied"}
                     </span>
                   )}
@@ -478,7 +473,7 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                             <td className={`${tdClass} font-medium text-foreground`}>
                               {row.name}
                               {row.source_label && (
-                                <span className="block text-[11px] font-normal text-muted-foreground">
+                                <span className="block text-2xs font-normal text-muted-foreground">
                                   {row.source_label}
                                 </span>
                               )}
@@ -488,21 +483,30 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                             <td className={`${tdClass} ${short ? "text-amber-600" : "text-muted-foreground"}`}>
                               {row.available_quantity ?? "—"}
                               {short && row.outstanding_quantity > 0 && (
-                                <span className="block text-[11px]">
+                                <span className="block text-2xs">
                                   short {row.outstanding_quantity - (row.available_quantity ?? 0)}
                                 </span>
                               )}
                             </td>
                             <td className={tdClass}>
-                              <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-medium ring-1 ${FULFILMENT_BADGES[row.fulfilment]}`}>
+                              <span className={`inline-flex rounded-full px-2.5 py-0.5 text-2xs font-medium ring-1 ${FULFILMENT_BADGES[row.fulfilment]}`}>
                                 {FULFILMENT_LABELS[row.fulfilment] ?? row.fulfilment}
                               </span>
+                              {((row.stock_requested_quantity ?? 0) > 0 || (row.procure_quantity ?? 0) > 0) && (
+                                <span className="mt-1 block text-2xs text-muted-foreground">
+                                  {[
+                                    (row.stock_requested_quantity ?? 0) > 0 ? `Inventory ${row.stock_requested_quantity}` : null,
+                                    (row.procure_quantity ?? 0) > 0 ? `Procure ${row.procure_quantity}` : null,
+                                    openQty(row) > 0 ? `${openQty(row)} to decide` : null,
+                                  ].filter(Boolean).join(" · ")}
+                                </span>
+                              )}
                               {row.po_number && (
-                                <span className="block font-mono text-[11px] text-muted-foreground">{row.po_number}</span>
+                                <span className="block font-mono text-2xs text-muted-foreground">{row.po_number}</span>
                               )}
                               {row.pending_increase ? (
                                 <span
-                                  className="mt-1 inline-flex rounded-full bg-violet-500/10 px-2 py-0.5 text-[10px] font-medium text-violet-600 ring-1 ring-violet-500/20"
+                                  className="mt-1 inline-flex rounded-full bg-violet-500/10 px-2 py-0.5 text-2xs font-medium text-violet-600 ring-1 ring-violet-500/20"
                                   title={
                                     `+${row.pending_increase} asked for` +
                                     (row.increase_requested_by_name ? ` by ${row.increase_requested_by_name}` : "") +
@@ -516,31 +520,23 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                             {canDecide && (
                               <td className={tdClass}>
                                 <div className="flex flex-wrap items-center gap-1.5">
-                                  {row.outstanding_quantity > 0 && (
+                                  {openQty(row) > 0 && (
                                     <>
                                       <button
-                                        onClick={() => act(row, "fulfil-from-stock", "Asked the store for this")}
+                                        onClick={() => openDecision(row, "inventory")}
                                         disabled={locked || busy === row.id}
-                                        title={locked ? "Locked until the budget is approved" : "Ask the store to issue this from inventory"}
-                                        className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-[11px] font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-40"
+                                        title={locked ? "Locked until the budget is approved" : `Take up to ${openQty(row)} from inventory — the store issues it`}
+                                        className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-2xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-40"
                                       >
-                                        <Warehouse className="h-3 w-3" /> Ask store
+                                        <Warehouse className="h-3 w-3" /> Inventory
                                       </button>
                                       <button
-                                        onClick={() => act(row, "mark-for-procurement", "Flagged for procurement")}
-                                        disabled={locked || busy === row.id || row.fulfilment === "procurement"}
-                                        title={locked ? "Locked until the budget is approved" : "Buy this, even if stock is available"}
-                                        className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-[11px] font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-40"
+                                        onClick={() => openDecision(row, "procure")}
+                                        disabled={locked || busy === row.id}
+                                        title={locked ? "Locked until the budget is approved" : `Buy up to ${openQty(row)}, even if stock is available`}
+                                        className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-2xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-40"
                                       >
                                         <ShoppingCart className="h-3 w-3" /> Procure
-                                      </button>
-                                      <button
-                                        onClick={() => openSplit(row)}
-                                        disabled={locked || busy === row.id}
-                                        title={locked ? "Locked until the budget is approved" : "Take some from inventory and buy the rest"}
-                                        className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-[11px] font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-40"
-                                      >
-                                        <Split className="h-3 w-3" /> Split
                                       </button>
                                     </>
                                   )}
@@ -550,7 +546,7 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                                         onClick={() => decideIncrease(row, "approve")}
                                         disabled={busy === row.id}
                                         title={`Approve +${row.pending_increase}`}
-                                        className="inline-flex items-center gap-1 rounded-lg border border-emerald-500/30 px-2.5 py-1 text-[11px] font-medium text-emerald-600 transition-colors hover:bg-emerald-500/10 disabled:opacity-40"
+                                        className="inline-flex items-center gap-1 rounded-lg border border-emerald-500/30 px-2.5 py-1 text-2xs font-medium text-emerald-600 transition-colors hover:bg-emerald-500/10 disabled:opacity-40"
                                       >
                                         <Check className="h-3 w-3" /> Approve
                                       </button>
@@ -568,7 +564,7 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                                     onClick={() => { setIncrease({ additional: "1", reason: "damaged", notes: "" }); setIncreaseFor(row); }}
                                     disabled={busy === row.id || !!row.pending_increase}
                                     title={row.pending_increase ? "An increase is already waiting for approval" : "Need more than planned? Ask for an increase"}
-                                    className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-40"
+                                    className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-2xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-40"
                                   >
                                     <PackagePlus className="h-3 w-3" /> Qty
                                   </button>
@@ -597,7 +593,7 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                 <div className="border-t border-border">
                   <div className="flex flex-wrap items-center justify-between gap-2 px-4 pt-3">
                     <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Production route</p>
-                    <p className="text-[11px] text-muted-foreground">
+                    <p className="text-2xs text-muted-foreground">
                       Each operation is done in-house or given to a workshop on a work order.
                       {asset.route_complete ? " Route complete." : ""}
                     </p>
@@ -619,7 +615,7 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                           return (
                             <tr key={st.id} className="border-t border-border/60">
                               <td className={`${tdClass} font-medium text-foreground`}>
-                                <span className="mr-1.5 font-mono text-[11px] text-muted-foreground">{st.step_number}.</span>
+                                <span className="mr-1.5 font-mono text-2xs text-muted-foreground">{st.step_number}.</span>
                                 {st.name}
                               </td>
                               <td className={`${tdClass} text-muted-foreground`}>
@@ -628,13 +624,13 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                                   {st.workshop_display ?? "In-house"}
                                 </span>
                                 {st.work_order && (
-                                  <Link href="/work-orders" className="block font-mono text-[10px] text-indigo-600 hover:underline">
+                                  <Link href="/work-orders" className="block font-mono text-2xs text-indigo-600 hover:underline">
                                     {st.work_order.wo_number} · {st.work_order.status_display}
                                   </Link>
                                 )}
                               </td>
                               <td className={tdClass}>
-                                <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ${
+                                <span className={`inline-flex rounded-full px-2 py-0.5 text-2xs font-medium ring-1 ${
                                   done ? "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20" : "bg-secondary text-muted-foreground ring-border"
                                 }`}>
                                   {st.status_display}
@@ -701,7 +697,7 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                 <input id="swo_amount" type="number" min={0} step="0.01" value={wo.amount} onChange={(e) => setWo({ ...wo, amount: e.target.value })} placeholder="Blank uses the planned step cost" className="flex h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground focus:border-primary/50 focus:outline-none" />
               </div>
               <div className="space-y-1.5">
-                <label htmlFor="swo_delivery" className="text-xs font-medium text-muted-foreground">Expected back</label>
+                <label htmlFor="swo_delivery" className="text-xs font-medium text-muted-foreground">Required back</label>
                 <input id="swo_delivery" type="date" value={wo.expected_delivery} onChange={(e) => setWo({ ...wo, expected_delivery: e.target.value })} className="flex h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground focus:border-primary/50 focus:outline-none" />
               </div>
               <div className="space-y-1.5 sm:col-span-2">
@@ -794,90 +790,54 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
 
       {/* Covering one requirement from both sides: some stock, the rest bought. */}
       <Modal
-        open={!!splitFor}
-        onClose={() => setSplitFor(null)}
-        title={splitFor ? `Split the decision — ${splitFor.name}` : "Split the decision"}
+        open={!!decideFor}
+        onClose={() => setDecideFor(null)}
+        title={decideFor ? `${decideFor.mode === "inventory" ? "From inventory" : "Procure"} — ${decideFor.row.name}` : "Decision"}
         size="sm"
       >
-        {splitFor && (() => {
-          const fromStock = Number(split.fromStock) || 0;
-          const toProcure = Number(split.toProcure) || 0;
-          const balanced = fromStock + toProcure === splitFor.outstanding_quantity;
-          const overStock = fromStock > (splitFor.available_quantity ?? 0);
+        {decideFor && (() => {
+          const cap = openQty(decideFor.row);
+          const qty = Number(decideQty) || 0;
+          const shelf = decideFor.row.available_quantity ?? 0;
+          const overShelf = decideFor.mode === "inventory" && qty > shelf;
           return (
-            <form onSubmit={submitSplit} className="space-y-4">
+            <form onSubmit={submitDecision} className="space-y-4">
               <p className="text-xs text-muted-foreground">
-                <span className="font-semibold text-foreground">{splitFor.outstanding_quantity}</span> still
-                outstanding, <span className="font-semibold text-foreground">{splitFor.available_quantity ?? 0}</span>{" "}
-                on the shelf. Decide how much to ask the store for and how much to buy — the store issues
-                what it can, and anything short stays on its queue.
+                <span className="font-semibold text-foreground">{decideFor.row.quantity}</span> required,{" "}
+                <span className="font-semibold text-foreground">{cap}</span> still to decide,{" "}
+                <span className="font-semibold text-foreground">{shelf}</span> on the shelf.
+                {decideFor.mode === "inventory"
+                  ? " The store issues what you ask for; anything it cannot cover stays on its queue."
+                  : " What you buy goes to Procurement → To Procure for the purchase order; the rest of the line stays open to decide."}
               </p>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <label htmlFor="split-stock" className="text-xs font-medium text-muted-foreground">
-                    Ask the store for
-                  </label>
-                  <input
-                    id="split-stock"
-                    type="number"
-                    min={0}
-                    max={Math.min(splitFor.available_quantity ?? 0, splitFor.outstanding_quantity)}
-                    value={split.fromStock}
-                    onChange={(e) => {
-                      const next = e.target.value;
-                      setSplit({
-                        fromStock: next,
-                        toProcure: String(Math.max(0, splitFor.outstanding_quantity - (Number(next) || 0))),
-                      });
-                    }}
-                    className={fieldClass}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label htmlFor="split-procure" className="text-xs font-medium text-muted-foreground">
-                    To procure
-                  </label>
-                  <input
-                    id="split-procure"
-                    type="number"
-                    min={0}
-                    max={splitFor.outstanding_quantity}
-                    value={split.toProcure}
-                    onChange={(e) => {
-                      const next = e.target.value;
-                      setSplit({
-                        fromStock: String(Math.max(0, splitFor.outstanding_quantity - (Number(next) || 0))),
-                        toProcure: next,
-                      });
-                    }}
-                    className={fieldClass}
-                  />
-                </div>
+              <div className="space-y-1.5">
+                <label htmlFor="decide-qty" className="text-xs font-medium text-muted-foreground">
+                  Quantity (1 to {cap})
+                </label>
+                <input
+                  id="decide-qty"
+                  type="number"
+                  min={1}
+                  max={cap}
+                  value={decideQty}
+                  onChange={(e) => setDecideQty(e.target.value)}
+                  autoFocus
+                  className={fieldClass}
+                />
+                {overShelf && (
+                  <p className="text-2xs text-amber-600">Only {shelf} in stock — the store will be short by {qty - shelf}.</p>
+                )}
+                {(qty < 1 || qty > cap) && (
+                  <p className="text-2xs text-amber-600">Enter between 1 and {cap}.</p>
+                )}
               </div>
-              {!balanced && (
-                <p className="text-[11px] text-amber-600">
-                  The two must add up to {splitFor.outstanding_quantity}.
-                </p>
-              )}
-              {overStock && (
-                <p className="text-[11px] text-amber-600">
-                  Only {splitFor.available_quantity ?? 0} in stock.
-                </p>
-              )}
               <div className="flex justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => setSplitFor(null)}
-                  className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary"
-                >
+                <button type="button" onClick={() => setDecideFor(null)} className="inline-flex h-9 items-center rounded-lg border border-border px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
                   Cancel
                 </button>
-                <button
-                  type="submit"
-                  disabled={busy === splitFor.id || !balanced || overStock}
-                  className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
-                >
-                  Confirm split
+                <button type="submit" disabled={busy === decideFor.row.id || qty < 1 || qty > cap} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-medium text-white transition-all disabled:opacity-50">
+                  {decideFor.mode === "inventory" ? <Warehouse className="h-3.5 w-3.5" /> : <ShoppingCart className="h-3.5 w-3.5" />}
+                  {decideFor.mode === "inventory" ? `Ask the store for ${qty || 0}` : `Procure ${qty || 0}`}
                 </button>
               </div>
             </form>

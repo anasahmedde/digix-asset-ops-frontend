@@ -92,20 +92,20 @@ function NotificationItem({
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <p className="text-[13px] font-medium leading-tight text-foreground">{notif.title}</p>
+          <p className="text-sm font-medium leading-tight text-foreground">{notif.title}</p>
           {info && (
-            <span className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold text-white ${info.color}`}>
+            <span className={`shrink-0 rounded px-1.5 py-0.5 text-2xs font-bold text-white ${info.color}`}>
               {info.label}
             </span>
           )}
         </div>
         {notif.message && (
-          <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground line-clamp-2">
+          <p className="mt-0.5 text-2xs leading-snug text-muted-foreground line-clamp-2">
             {notif.message}
           </p>
         )}
         <div className="mt-1 flex items-center justify-between">
-          <p className="text-[10px] text-muted-foreground">{formatDateTime(notif.created_at)}</p>
+          <p className="text-2xs text-muted-foreground">{formatDateTime(notif.created_at)}</p>
           <ChevronRight className="h-3 w-3 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
         </div>
       </div>
@@ -172,7 +172,7 @@ export function Header() {
           >
             <Bell className="h-4 w-4" />
             {unreadCount > 0 && (
-              <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-bold text-destructive-foreground">
+              <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-2xs font-bold text-destructive-foreground">
                 {unreadCount > 99 ? "99+" : unreadCount}
               </span>
             )}
@@ -186,7 +186,7 @@ export function Header() {
                   {unreadCount > 0 && (
                     <button
                       onClick={() => markAllRead()}
-                      className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                      className="flex items-center gap-1 rounded-md px-2 py-1 text-2xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                     >
                       <Check className="h-3 w-3" />
                       Mark all read
@@ -207,7 +207,7 @@ export function Header() {
                       <>
                         <div className="flex items-center gap-2 bg-amber-500/5 px-4 py-2">
                           <Ticket className="h-3 w-3 text-amber-500" />
-                          <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-600">
+                          <span className="text-2xs font-semibold uppercase tracking-wider text-amber-600">
                             Active Tickets ({pinnedNotifs.length})
                           </span>
                         </div>
@@ -221,7 +221,7 @@ export function Header() {
                         {pinnedNotifs.length > 0 && (
                           <div className="flex items-center gap-2 bg-secondary/30 px-4 py-2">
                             <Bell className="h-3 w-3 text-muted-foreground" />
-                            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                            <span className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
                               Other
                             </span>
                           </div>
@@ -239,7 +239,7 @@ export function Header() {
                 <Link
                   href="/alerts"
                   onClick={closeDropdown}
-                  className="block rounded-md py-1.5 text-center text-[12px] font-medium text-primary transition-colors hover:bg-primary/5"
+                  className="block rounded-md py-1.5 text-center text-xs font-medium text-primary transition-colors hover:bg-primary/5"
                 >
                   View all alerts
                 </Link>
@@ -264,7 +264,7 @@ export function Header() {
               <p className="text-sm font-medium leading-none text-foreground">
                 {user.full_name || user.username}
               </p>
-              <p className="mt-0.5 text-[11px] capitalize text-muted-foreground">
+              <p className="mt-0.5 text-2xs capitalize text-muted-foreground">
                 {user.role.replace(/_/g, " ")}
               </p>
             </div>

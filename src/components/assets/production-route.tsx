@@ -192,19 +192,19 @@ export function ProductionRoute({
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-2xs text-muted-foreground">
           {readOnly
             ? `${readOnlyReason ?? "This asset"} — the vendor builds it, so there is no in-house route to run.`
             : "How this asset gets built. Mark each operation as done on our own floor or at an outside workshop, so the asset says where it physically is while it is away."}
         </p>
         <div className="flex shrink-0 items-center gap-2">
           {locked && (
-            <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-amber-500/20">
+            <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-2xs font-medium text-amber-700 ring-1 ring-amber-500/20">
               Route fixed — in execution
             </span>
           )}
           {steps.length > 0 && (
-            <span className="text-[11px] font-medium text-muted-foreground">
+            <span className="text-2xs font-medium text-muted-foreground">
               {done} of {steps.length} done
             </span>
           )}
@@ -286,7 +286,7 @@ export function ProductionRoute({
                     ) : (
                       <>
                         {step.name}
-                        {step.expected_days ? <span className="ml-1 text-[10px] font-normal text-muted-foreground">· {step.expected_days}d</span> : null}
+                        {step.expected_days ? <span className="ml-1 text-2xs font-normal text-muted-foreground">· {step.expected_days}d</span> : null}
                       </>
                     )}
                   </td>
@@ -299,7 +299,7 @@ export function ProductionRoute({
                     </span>
                   </td>
                   <td className="px-3 py-2">
-                    <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ${STATUS_BADGES[step.status]}`}>
+                    <span className={`inline-flex rounded-full px-2 py-0.5 text-2xs font-medium ring-1 ${STATUS_BADGES[step.status]}`}>
                       {step.status_display}
                     </span>
                   </td>
@@ -314,7 +314,7 @@ export function ProductionRoute({
                           value=""
                           disabled={busy === step.id || step.allowed_transitions.length === 0}
                           onChange={(e) => e.target.value && advance(step, e.target.value)}
-                          className="h-7 rounded-lg border border-border bg-background px-1.5 text-[11px] text-muted-foreground disabled:opacity-40"
+                          className="h-7 rounded-lg border border-border bg-background px-1.5 text-2xs text-muted-foreground disabled:opacity-40"
                         >
                           <option value="">
                             {step.allowed_transitions.length === 0 ? "Finished" : "Move to…"}

@@ -38,7 +38,7 @@ export function StatTiles({ tiles }: { tiles: StripTile[] }) {
             } ${t.onClick ? "cursor-pointer hover:-translate-y-0.5 hover:shadow-md" : "cursor-default"}`}
             title={t.onClick ? `Click to ${t.active ? "clear this filter" : "filter the table"}` : undefined}
           >
-            <p className="truncate text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{t.label}</p>
+            <p className="truncate text-2xs font-semibold uppercase tracking-wider text-muted-foreground">{t.label}</p>
             <p className={`text-xl font-bold ${tone.text}`}>{t.value}</p>
           </button>
         );
@@ -87,7 +87,7 @@ export function SegmentBar({
             key={s.key}
             type="button"
             onClick={() => onSelect?.(s.key)}
-            className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors ${
+            className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-2xs font-medium transition-colors ${
               active === s.key
                 ? "border-primary/50 bg-primary/10 text-foreground"
                 : "border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"

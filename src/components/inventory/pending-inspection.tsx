@@ -417,7 +417,7 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
                           title="Warranty months, counted from today"
                           className={`${smallInput} w-40`}
                         />
-                        <span className="text-[11px] text-muted-foreground">from today · blank = no warranty</span>
+                        <span className="text-2xs text-muted-foreground">from today · blank = no warranty</span>
                       </div>
                     </div>
                   ))}

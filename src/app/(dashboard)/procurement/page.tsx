@@ -771,7 +771,7 @@ export default function ProcurementPage() {
                   <th className={thClass}>Status</th>
                   <th className={thClass}>Items</th>
                   <th className={thClass}>Order Date</th>
-                  <th className={thClass}>Expected Delivery</th>
+                  <th className={thClass}>Required Delivery</th>
                   <th className={thClass}>Total Amount</th>
                   <th className={thClass}>Ordered By</th>
                   <th className={thClass}>Actions</th>
@@ -954,7 +954,7 @@ export default function ProcurementPage() {
                     <input id="order_date" type="text" value={form.order_date || "Set when the order is placed"} disabled className={`${inputClass} bg-secondary/40 text-muted-foreground`} />
                   </div>
                   <div className="space-y-1.5">
-                    <label htmlFor="expected_delivery" className={labelClass}>Expected Delivery</label>
+                    <label htmlFor="expected_delivery" className={labelClass}>Required Delivery</label>
                     <input id="expected_delivery" type="date" value={form.expected_delivery} onChange={(e) => setForm({ ...form, expected_delivery: e.target.value })} className={inputClass} />
                   </div>
                 </div>
@@ -1132,7 +1132,7 @@ export default function ProcurementPage() {
                             <p className="mt-0.5 text-xs text-muted-foreground">
                               Ordered {r.ordered} · Received {r.received} · Outstanding {r.outstanding}
                               {r.serialized && (
-                                <span className="ml-2 inline-flex rounded-full bg-indigo-500/10 px-2 py-0.5 text-[10px] font-medium text-indigo-400 ring-1 ring-indigo-500/20">
+                                <span className="ml-2 inline-flex rounded-full bg-indigo-500/10 px-2 py-0.5 text-2xs font-medium text-indigo-400 ring-1 ring-indigo-500/20">
                                   Serialized
                                 </span>
                               )}

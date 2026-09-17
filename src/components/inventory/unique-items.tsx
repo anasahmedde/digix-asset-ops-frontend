@@ -344,7 +344,7 @@ export function UniqueItems() {
                           {Object.keys(p.specifications ?? {}).length > 0 && (
                             <div className="mb-3 flex flex-wrap gap-2">
                               {Object.entries(p.specifications).map(([k, v]) => (
-                                <span key={k} className="rounded-full bg-card px-2.5 py-0.5 text-[11px] text-muted-foreground ring-1 ring-border">
+                                <span key={k} className="rounded-full bg-card px-2.5 py-0.5 text-2xs text-muted-foreground ring-1 ring-border">
                                   <span className="font-medium text-foreground">{k}:</span> {String(v)}
                                 </span>
                               ))}
@@ -387,11 +387,11 @@ export function UniqueItems() {
                                     <td className="py-1.5 font-mono text-muted-foreground">
                                       {[u.grn_number, u.po_number].filter(Boolean).join(" · ") || "Entered by hand"}
                                       {u.supplier_name && (
-                                        <span className="block font-sans text-[11px] text-muted-foreground">{u.supplier_name}</span>
+                                        <span className="block font-sans text-2xs text-muted-foreground">{u.supplier_name}</span>
                                       )}
                                     </td>
                                     <td className="py-1.5">
-                                      <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ${WARRANTY_BADGES[u.warranty_state]}`}>
+                                      <span className={`inline-flex rounded-full px-2 py-0.5 text-2xs font-medium ring-1 ${WARRANTY_BADGES[u.warranty_state]}`}>
                                         {u.warranty_state === "active" ? `till ${u.warranty_end}` : u.warranty_state === "expired" ? "Expired" : "None"}
                                       </span>
                                     </td>
@@ -493,7 +493,7 @@ export function UniqueItems() {
                   defaultValue={0}
                   className={inputClass}
                 />
-                <p className="text-[10px] text-muted-foreground">
+                <p className="text-2xs text-muted-foreground">
                   Units already on the shelf. Each gets a provisional serial from the product
                   code — correct them as the units are found. Leave at 0 to open empty.
                 </p>
@@ -508,7 +508,7 @@ export function UniqueItems() {
               <button
                 type="button"
                 onClick={() => setSpecs((prev) => [...prev, { key: "", value: "" }])}
-                className="text-[11px] font-medium text-primary hover:underline"
+                className="text-2xs font-medium text-primary hover:underline"
               >
                 + Add detail
               </button>
@@ -538,7 +538,7 @@ export function UniqueItems() {
             ))}
           </div>
 
-          <p className="rounded-lg border border-dashed border-border px-3 py-2 text-[11px] text-muted-foreground">
+          <p className="rounded-lg border border-dashed border-border px-3 py-2 text-2xs text-muted-foreground">
             Warranty is recorded when units are received — type the term at inspection and it runs from that day.
             The dashboard&apos;s in-hand stock watchlist is chosen on the dashboard.
           </p>

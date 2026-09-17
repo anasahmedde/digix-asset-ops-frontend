@@ -100,7 +100,7 @@ function BillingChip({ billable, chargeTo }: { billable: boolean; chargeTo: stri
     : `Covered by warranty${chargeTo ? ` — ${chargeTo}` : ""}`;
   return (
     <span
-      className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-medium ring-1 ${
+      className={`inline-flex rounded-full px-2.5 py-0.5 text-2xs font-medium ring-1 ${
         billable
           ? "bg-amber-500/10 text-amber-600 ring-amber-500/20"
           : "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20"
@@ -459,7 +459,7 @@ export default function MaintenancePage() {
               <div className="mb-2 flex items-center gap-2">
                 <CalendarClock className="h-4 w-4 text-blue-600" />
                 <p className="text-sm font-semibold text-foreground">Upcoming planned maintenance</p>
-                <span className="ml-auto rounded-full bg-blue-500/10 px-2 py-0.5 text-[11px] font-semibold text-blue-600">{upcoming.length} in 7 days</span>
+                <span className="ml-auto rounded-full bg-blue-500/10 px-2 py-0.5 text-2xs font-semibold text-blue-600">{upcoming.length} in 7 days</span>
               </div>
               {upcoming.length === 0 ? (
                 <p className="text-xs text-muted-foreground">No preventive visits due this week.</p>
@@ -473,7 +473,7 @@ export default function MaintenancePage() {
                       </button>
                     </li>
                   ))}
-                  {upcoming.length > 4 && <li className="px-2 text-[11px] text-muted-foreground">+{upcoming.length - 4} more</li>}
+                  {upcoming.length > 4 && <li className="px-2 text-2xs text-muted-foreground">+{upcoming.length - 4} more</li>}
                 </ul>
               )}
             </div>
@@ -481,7 +481,7 @@ export default function MaintenancePage() {
               <div className="mb-2 flex items-center gap-2">
                 <AlertTriangle className={`h-4 w-4 ${late.length ? "text-red-600" : "text-muted-foreground"}`} />
                 <p className="text-sm font-semibold text-foreground">Corrective maintenance past due</p>
-                <span className={`ml-auto rounded-full px-2 py-0.5 text-[11px] font-semibold ${late.length ? "bg-red-500/10 text-red-600" : "bg-secondary text-muted-foreground"}`}>{late.length} overdue</span>
+                <span className={`ml-auto rounded-full px-2 py-0.5 text-2xs font-semibold ${late.length ? "bg-red-500/10 text-red-600" : "bg-secondary text-muted-foreground"}`}>{late.length} overdue</span>
               </div>
               {late.length === 0 ? (
                 <p className="text-xs text-muted-foreground">Every repair is within the date it was promised by.</p>
@@ -495,7 +495,7 @@ export default function MaintenancePage() {
                       </button>
                     </li>
                   ))}
-                  {late.length > 4 && <li className="px-2 text-[11px] text-muted-foreground">+{late.length - 4} more</li>}
+                  {late.length > 4 && <li className="px-2 text-2xs text-muted-foreground">+{late.length - 4} more</li>}
                 </ul>
               )}
             </div>
@@ -625,7 +625,7 @@ export default function MaintenancePage() {
                           {["active", "pending", "overdue"].includes(s.effective_status || s.status) && (
                             <button
                               onClick={() => startWork(s)}
-                              className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 px-2 py-1 text-[11px] font-medium text-amber-600 transition-colors hover:bg-amber-500/20"
+                              className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 px-2 py-1 text-2xs font-medium text-amber-600 transition-colors hover:bg-amber-500/20"
                               title="Start maintenance"
                             >
                               <Play className="h-3 w-3" /> Start
@@ -634,7 +634,7 @@ export default function MaintenancePage() {
                           {s.maintenance_type === "preventive" && s.device && (
                             <Link
                               href={`/tickets?create=1&device=${s.device}&category=repair`}
-                              className="inline-flex items-center gap-1 rounded-md bg-red-500/10 px-2 py-1 text-[11px] font-medium text-red-600 transition-colors hover:bg-red-500/20"
+                              className="inline-flex items-center gap-1 rounded-md bg-red-500/10 px-2 py-1 text-2xs font-medium text-red-600 transition-colors hover:bg-red-500/20"
                               title="Found a major fault? Raise a maintenance ticket"
                             >
                               <Ticket className="h-3 w-3" /> Ticket
@@ -643,7 +643,7 @@ export default function MaintenancePage() {
                           {(s.effective_status || s.status) !== "completed" && (
                             <button
                               onClick={() => openComplete(s)}
-                              className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-1 text-[11px] font-medium text-emerald-600 transition-colors hover:bg-emerald-500/20"
+                              className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-1 text-2xs font-medium text-emerald-600 transition-colors hover:bg-emerald-500/20"
                               title="Complete this cycle"
                             >
                               <Check className="h-3 w-3" /> Complete
@@ -811,7 +811,7 @@ export default function MaintenancePage() {
                   {formAssetInfo.components.length > 0 ? (
                     <div className="flex flex-wrap gap-1.5">
                       {formAssetInfo.components.map((c, i) => (
-                        <span key={i} className="rounded-full bg-card px-2 py-0.5 text-[11px] text-muted-foreground ring-1 ring-border">
+                        <span key={i} className="rounded-full bg-card px-2 py-0.5 text-2xs text-muted-foreground ring-1 ring-border">
                           {c.name} ×{c.quantity}
                         </span>
                       ))}
@@ -827,13 +827,13 @@ export default function MaintenancePage() {
                   <button
                     type="button"
                     onClick={() => setReqComponents((rows) => [...rows, { name: "", quantity: 1 }])}
-                    className="inline-flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[11px] font-medium text-primary transition-colors hover:bg-primary/5"
+                    className="inline-flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-2xs font-medium text-primary transition-colors hover:bg-primary/5"
                   >
                     <Plus className="h-3 w-3" /> Add
                   </button>
                 </div>
                 {reqComponents.length === 0 ? (
-                  <p className="text-[11px] text-muted-foreground">None added — pick what the technician takes along from inventory.</p>
+                  <p className="text-2xs text-muted-foreground">None added — pick what the technician takes along from inventory.</p>
                 ) : (
                   <div className="space-y-2">
                     {reqComponents.map((row, i) => (
@@ -988,7 +988,7 @@ export default function MaintenancePage() {
             </div>
             <form onSubmit={submitComplete} className="space-y-4">
               {completeFor.maintenance_type === "preventive" && completeFor.device && (
-                <p className="rounded-lg border border-dashed border-border px-3 py-2 text-[11px] text-muted-foreground">
+                <p className="rounded-lg border border-dashed border-border px-3 py-2 text-2xs text-muted-foreground">
                   Found something this visit cannot fix?{" "}
                   <Link href={`/tickets?create=1&device=${completeFor.device}&category=repair`} className="font-medium text-primary hover:underline">
                     Raise a maintenance ticket
@@ -1001,7 +1001,7 @@ export default function MaintenancePage() {
                   <p className="mb-1 text-xs font-semibold text-foreground">Required for this maintenance</p>
                   <div className="flex flex-wrap gap-1.5">
                     {completeFor.required_components.map((rc, i) => (
-                      <span key={i} className="rounded-full bg-card px-2 py-0.5 text-[11px] text-muted-foreground ring-1 ring-border">
+                      <span key={i} className="rounded-full bg-card px-2 py-0.5 text-2xs text-muted-foreground ring-1 ring-border">
                         {rc.name} ×{rc.quantity}
                       </span>
                     ))}
@@ -1051,7 +1051,7 @@ export default function MaintenancePage() {
                     className="block w-full text-xs text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-primary/10 file:px-3 file:py-2 file:text-xs file:font-medium file:text-primary"
                   />
                   {completePhotos.length > 0 && (
-                    <p className="text-[10px] text-muted-foreground">{completePhotos.length} photo{completePhotos.length > 1 ? "s" : ""} selected</p>
+                    <p className="text-2xs text-muted-foreground">{completePhotos.length} photo{completePhotos.length > 1 ? "s" : ""} selected</p>
                   )}
                 </div>
               </div>
@@ -1061,7 +1061,7 @@ export default function MaintenancePage() {
                   {completeBilling ? (
                     <BillingChip billable={completeBilling.is_billable} chargeTo={completeBilling.charge_to} />
                   ) : (
-                    <span className="text-[10px] text-muted-foreground">Derived from the asset&apos;s warranty on save</span>
+                    <span className="text-2xs text-muted-foreground">Derived from the asset&apos;s warranty on save</span>
                   )}
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -1097,12 +1097,12 @@ export default function MaintenancePage() {
                   </select>
                 </div>
                 {!billingEdit && (
-                  <p className="text-[10px] text-muted-foreground">
+                  <p className="text-2xs text-muted-foreground">
                     Left untouched, billing is derived from the asset&apos;s warranty automatically.
                   </p>
                 )}
               </div>
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-2xs text-muted-foreground">
                 Completing logs a maintenance record and rolls the schedule to its next {FREQ_LABEL[completeFor.frequency]?.toLowerCase() ?? ""} cycle{completeFor.frequency === "one_time" ? " (one-time schedules close out)" : ""}.
               </p>
               <div className="flex justify-end gap-3 pt-2">

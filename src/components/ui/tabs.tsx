@@ -34,7 +34,7 @@ export function Tabs({ tabs, active, onChange, className }: TabsProps) {
             {tab.count !== undefined && (
               <span
                 className={cn(
-                  "inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[10px] font-semibold",
+                  "inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-2xs font-semibold",
                   active === tab.key
                     ? "bg-primary/10 text-primary"
                     : "bg-secondary text-muted-foreground"
