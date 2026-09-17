@@ -29,6 +29,9 @@ interface POItem {
   asset_type?: string | null;
   device_model?: string | null;
   material_type?: string | null;
+  /** What the line is, worked out from what it points at (asset, part, stock row). */
+  line_title?: string | null;
+  line_detail?: string | null;
   /** Set when the line is for a serialized inventory product. */
   inventory_unit_type?: string | null;
   inventory_item?: string | null;
@@ -833,7 +836,10 @@ export default function ProcurementPage() {
                                 <tbody>
                                   {po.items.map((item, i) => (
                                     <tr key={item.id ?? i} className="border-b border-border last:border-0">
-                                      <td className="px-4 py-2 text-foreground">{item.description}</td>
+                                      <td className="px-4 py-2 text-foreground">
+                                        {item.line_title ?? item.description}
+                                        {item.line_detail && <span className="block text-2xs text-muted-foreground">{item.line_detail}</span>}
+                                      </td>
                                       <td className="px-4 py-2 text-muted-foreground">{itemTypeLabel(item)}</td>
                                       <td className="px-4 py-2 text-right text-muted-foreground">{item.quantity}</td>
                                       <td className="px-4 py-2 text-right text-muted-foreground">{po.prices_hidden ? "—" : Number(item.unit_price).toLocaleString()}</td>
@@ -951,7 +957,7 @@ export default function ProcurementPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1.5">
                     <label htmlFor="order_date" className={labelClass}>Order Date</label>
-                    <input id="order_date" type="text" value={form.order_date || "Set when the order is placed"} disabled className={`${inputClass} bg-secondary/40 text-muted-foreground`} />
+                    <input id="order_date" type="text" value={form.order_date || "Set when the Group Head approves the order"} disabled className={`${inputClass} bg-secondary/40 text-muted-foreground`} />
                   </div>
                   <div className="space-y-1.5">
                     <label htmlFor="expected_delivery" className={labelClass}>Required Delivery</label>
