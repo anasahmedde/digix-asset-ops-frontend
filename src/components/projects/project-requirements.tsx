@@ -46,6 +46,8 @@ interface StepRow {
   location_display: string;
   workshop_display: string | null;
   planned_cost: string | null;
+  /** True while the project still has to say where this operation happens. */
+  decision_pending?: boolean;
   work_order: { id: string; wo_number: string; status: string; status_display: string; amount: string } | null;
 }
 interface AssetGroup {
@@ -645,21 +647,27 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                               {canDecide && (
                                 <td className={tdClass}>
                                   <div className="flex items-center gap-1.5">
-                                    <button
-                                      onClick={() => stepInhouse(st)}
-                                      disabled={locked || done || busy === st.id || (st.location === "in_house" && !st.work_order)}
-                                      title={st.work_order ? "On a work order — cancel it in Work Orders to bring it in-house" : "Do this operation on our own floor"}
-                                      className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors disabled:opacity-40 ${
-                                        st.location === "in_house" && !st.work_order ? "border-primary/40 bg-primary/10 text-primary" : "border-border text-foreground hover:bg-secondary"
-                                      }`}
-                                    >
-                                      <Factory className="h-3.5 w-3.5" /> In-house
-                                    </button>
+                                    {st.location === "in_house" && !st.work_order ? (
+                                      // The decision has been made: it reads as chosen, and the
+                                      // other option stays live in case it changes.
+                                      <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-primary/40 bg-primary/10 px-2.5 py-1.5 text-xs font-medium text-primary">
+                                        <Check className="h-3.5 w-3.5" /> In-house
+                                      </span>
+                                    ) : (
+                                      <button
+                                        onClick={() => stepInhouse(st)}
+                                        disabled={locked || done || busy === st.id || !!st.work_order}
+                                        title={st.work_order ? "On a work order — cancel it in Work Orders to bring it in-house" : "Do this operation on our own floor"}
+                                        className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-40"
+                                      >
+                                        <Factory className="h-3.5 w-3.5" /> In-house
+                                      </button>
+                                    )}
                                     <button
                                       onClick={() => openStepWorkOrder(asset, st)}
                                       disabled={locked || done || busy === st.id || !!st.work_order}
                                       title={locked ? "Locked until the budget is approved" : st.work_order ? "Already on a work order" : "Give this operation to an outside workshop on a work order"}
-                                      className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-40"
+                                      className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-40"
                                     >
                                       <Truck className="h-3.5 w-3.5" /> Work order
                                     </button>

@@ -16,6 +16,8 @@ export interface ProductionStep {
   location: "undecided" | "in_house" | "external";
   location_display: string;
   hold_reason?: string;
+  /** True while the project still has to say where this operation happens. */
+  decision_pending?: boolean;
   workshop: string | null;
   workshop_name: string;
   workshop_display: string | null;
@@ -257,14 +259,14 @@ export function ProductionRoute({
                     )}
                   </td>
                   <td className="px-3 py-2 text-muted-foreground">
-                    <span className={`inline-flex items-center gap-1 ${step.location === "undecided" ? "italic" : ""}`}>
+                    <span className={`inline-flex items-center gap-1 ${step.decision_pending ? "italic" : ""}`}>
                       {step.location === "external"
                         ? <Truck className="h-3 w-3 text-amber-500" />
-                        : step.location === "in_house"
-                          ? <Factory className="h-3 w-3 text-muted-foreground" />
-                          : null}
+                        : step.decision_pending
+                          ? null
+                          : <Factory className="h-3 w-3 text-muted-foreground" />}
                       {step.location === "external" ? (step.workshop_display ?? "Outside workshop")
-                        : step.location === "in_house" ? "In-house" : "Not decided"}
+                        : step.decision_pending ? "Not decided" : "In-house"}
                     </span>
                   </td>
                   <td className="px-3 py-2">
