@@ -13,8 +13,9 @@ export interface ProductionStep {
   device: string;
   step_number: number;
   name: string;
-  location: "in_house" | "external";
+  location: "undecided" | "in_house" | "external";
   location_display: string;
+  hold_reason?: string;
   workshop: string | null;
   workshop_name: string;
   workshop_display: string | null;
@@ -42,7 +43,7 @@ const STATUS_BADGES: Record<string, string> = {
 const STATUS_LABELS: Record<string, string> = {
   pending: "Pending",
   in_progress: "In Progress",
-  sent_out: "Sent to Workshop",
+  sent_out: "Work order raised",
   returned: "Returned",
   completed: "Completed",
   skipped: "Skipped",
@@ -78,34 +79,15 @@ export function ProductionRoute({
   const canEdit = canWrite("devices") && !readOnly;
   const canRestructure = canEdit && !locked;
   // Item 7: one step at a time can be renamed / re-timed in place.
-  const [editing, setEditing] = useState<{ id: string; name: string; expected_days: string } | null>(null);
+  const [editing, setEditing] = useState<{ id: string; name: string } | null>(null);
 
-  const [suppliers, setSuppliers] = useState<Ref[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
-  const [location, setLocation] = useState<"in_house" | "external">("in_house");
-  const [workshop, setWorkshop] = useState("");
-  const [workshopManual, setWorkshopManual] = useState("");
-  const [expectedDays, setExpectedDays] = useState("");
 
-  const loadSuppliers = useCallback(async () => {
-    try {
-      const { data } = await api.get("/suppliers/", { params: { page_size: 500 } });
-      setSuppliers(data.results ?? data);
-    } catch {
-      /* the picker degrades to manual entry */
-    }
-  }, []);
-
-  useEffect(() => { loadSuppliers(); }, [loadSuppliers]);
 
   function resetForm() {
     setName("");
-    setLocation("in_house");
-    setWorkshop("");
-    setWorkshopManual("");
-    setExpectedDays("");
   }
 
   async function addStep(e: React.FormEvent<HTMLFormElement>) {
@@ -115,13 +97,10 @@ export function ProductionRoute({
     try {
       await api.post("/assets/production-steps/", {
         device: deviceId,
-        // Steps are numbered in the order they are laid out.
+        // Steps are numbered in the order they are laid out; where each one
+        // happens is the project's decision, made in Execution.
         step_number: (steps[steps.length - 1]?.step_number ?? 0) + 1,
         name: name.trim(),
-        location,
-        workshop: location === "external" && workshop ? workshop : null,
-        workshop_name: location === "external" && !workshop ? workshopManual.trim() : "",
-        expected_days: expectedDays ? Number(expectedDays) : null,
       });
       toast.success("Step added to the route");
       resetForm();
@@ -162,10 +141,7 @@ export function ProductionRoute({
     if (!editing || !editing.name.trim()) return;
     setBusy(editing.id);
     try {
-      await api.patch(`/assets/production-steps/${editing.id}/`, {
-        name: editing.name.trim(),
-        expected_days: editing.expected_days ? Number(editing.expected_days) : null,
-      });
+      await api.patch(`/assets/production-steps/${editing.id}/`, { name: editing.name.trim() });
       toast.success("Step updated");
       setEditing(null);
       onChanged();
@@ -273,29 +249,22 @@ export function ProductionRoute({
                           aria-label="Operation"
                           className={`${rowInput} w-44`}
                         />
-                        <input
-                          type="number"
-                          min={1}
-                          value={editing.expected_days}
-                          onChange={(e) => setEditing({ ...editing, expected_days: e.target.value })}
-                          placeholder="Days"
-                          aria-label="Expected days"
-                          className={`${rowInput} w-16`}
-                        />
                       </div>
                     ) : (
                       <>
                         {step.name}
-                        {step.expected_days ? <span className="ml-1 text-2xs font-normal text-muted-foreground">· {step.expected_days}d</span> : null}
                       </>
                     )}
                   </td>
                   <td className="px-3 py-2 text-muted-foreground">
-                    <span className="inline-flex items-center gap-1">
+                    <span className={`inline-flex items-center gap-1 ${step.location === "undecided" ? "italic" : ""}`}>
                       {step.location === "external"
                         ? <Truck className="h-3 w-3 text-amber-500" />
-                        : <Factory className="h-3 w-3 text-muted-foreground" />}
-                      {step.workshop_display ?? "In-house"}
+                        : step.location === "in_house"
+                          ? <Factory className="h-3 w-3 text-muted-foreground" />
+                          : null}
+                      {step.location === "external" ? (step.workshop_display ?? "Outside workshop")
+                        : step.location === "in_house" ? "In-house" : "Not decided"}
                     </span>
                   </td>
                   <td className="px-3 py-2">
@@ -317,7 +286,9 @@ export function ProductionRoute({
                           className="h-7 rounded-lg border border-border bg-background px-1.5 text-2xs text-muted-foreground disabled:opacity-40"
                         >
                           <option value="">
-                            {step.allowed_transitions.length === 0 ? "Finished" : "Move to…"}
+                            {step.allowed_transitions.length === 0
+                              ? (["completed", "skipped"].includes(step.status) ? "Finished" : step.location === "external" ? "Follows the work order" : "Decide in Execution")
+                              : "Move to…"}
                           </option>
                           {step.allowed_transitions.map((t) => (
                             <option key={t} value={t}>{STATUS_LABELS[t] ?? t}</option>
@@ -344,7 +315,7 @@ export function ProductionRoute({
                         ) : (
                           <>
                             <button
-                              onClick={() => setEditing({ id: step.id, name: step.name, expected_days: step.expected_days ? String(step.expected_days) : "" })}
+                              onClick={() => setEditing({ id: step.id, name: step.name })}
                               className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground"
                               title="Edit step"
                             >
@@ -375,54 +346,18 @@ export function ProductionRoute({
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Operation (e.g. Panaflex pasting)"
-            className={`${rowInput} w-56`}
-          />
-          <select
-            value={location}
-            onChange={(e) => { setLocation(e.target.value as "in_house" | "external"); setWorkshop(""); setWorkshopManual(""); }}
-            className={`${rowInput} w-36`}
-          >
-            <option value="in_house">In-house</option>
-            <option value="external">Outside workshop</option>
-          </select>
-
-          {location === "external" && (
-            <>
-              <select
-                value={workshop}
-                onChange={(e) => setWorkshop(e.target.value)}
-                className={`${rowInput} w-48`}
-              >
-                <option value="">Select workshop…</option>
-                {suppliers.map((sup) => <option key={sup.id} value={sup.id}>{sup.name}</option>)}
-              </select>
-              {!workshop && (
-                <input
-                  value={workshopManual}
-                  onChange={(e) => setWorkshopManual(e.target.value)}
-                  placeholder="…or name it by hand"
-                  className={`${rowInput} w-44`}
-                />
-              )}
-            </>
-          )}
-
-          <input
-            type="number"
-            min={1}
-            value={expectedDays}
-            onChange={(e) => setExpectedDays(e.target.value)}
-            placeholder="Days"
-            title="Expected days"
-            className={`${rowInput} w-20`}
+            className={`${rowInput} w-72`}
           />
           <button
             type="submit"
-            disabled={adding || !name.trim() || (location === "external" && !workshop && !workshopManual.trim())}
+            disabled={adding || !name.trim()}
             className="inline-flex h-8 items-center gap-1 rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
           >
             <Plus className="h-3.5 w-3.5" /> Add Step
           </button>
+          <span className="text-2xs text-muted-foreground">
+            Where each operation happens — in-house or on a work order — is decided in the project&apos;s Execution tab.
+          </span>
         </form>
       )}
     </div>

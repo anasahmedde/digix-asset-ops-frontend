@@ -12,6 +12,7 @@ import { useUser } from "@/lib/user-context";
 interface ActualLine {
   component: string;
   name: string;
+  unit?: string;
   required: number;
   issued: number;
   unit_price: string | null;
@@ -314,8 +315,8 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
                     asset.lines.map((l) => (
                       <tr key={l.component} className="border-t border-border/50">
                         <td className={`${tdClass} pl-6 font-medium text-foreground`}>{l.name}</td>
-                        <td className={`${tdClass} text-right text-muted-foreground`}>{l.required}</td>
-                        <td className={`${tdClass} text-right text-foreground`}>{l.issued}</td>
+                        <td className={`${tdClass} text-right text-muted-foreground`}>{l.required} <span className="text-2xs">{l.unit || "piece"}</span></td>
+                        <td className={`${tdClass} text-right text-foreground`}>{l.issued} <span className="text-2xs text-muted-foreground">{l.unit || "piece"}</span></td>
                         <td className={`${tdClass} text-right text-foreground`}>{l.unit_price != null ? money(l.unit_price) : "—"}</td>
                         <td className={`${tdClass} text-muted-foreground`}>{l.price_source}</td>
                         <td className={`${tdClass} text-right font-medium text-foreground`}>

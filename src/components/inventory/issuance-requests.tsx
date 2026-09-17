@@ -17,6 +17,8 @@ interface RequestRow {
   item_sku: string | null;
   unit_type_name: string | null;
   quantity_requested: number;
+  /** Unit of measure of what is asked for (piece, meter, box…). */
+  unit?: string;
   quantity_issued: number;
   outstanding_quantity: number;
   available_quantity: number | null;
@@ -249,7 +251,7 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                         </span>
                       </td>
                       <td className={`${tdClass} text-foreground`}>{row.what}</td>
-                      <td className={`${tdClass} text-foreground`}>{row.quantity_requested}</td>
+                      <td className={`${tdClass} text-foreground`}>{row.quantity_requested} <span className="text-2xs text-muted-foreground">{row.unit ?? ""}</span></td>
                       <td className={`${tdClass} text-muted-foreground`}>
                         {row.quantity_issued}
                         {row.outstanding_quantity > 0 && (

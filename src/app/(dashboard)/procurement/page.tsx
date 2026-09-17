@@ -32,6 +32,8 @@ interface POItem {
   /** What the line is, worked out from what it points at (asset, part, stock row). */
   line_title?: string | null;
   line_detail?: string | null;
+  /** Unit of measure of the line (piece, meter, asset…). */
+  unit?: string;
   /** Set when the line is for a serialized inventory product. */
   inventory_unit_type?: string | null;
   inventory_item?: string | null;
@@ -841,7 +843,7 @@ export default function ProcurementPage() {
                                         {item.line_detail && <span className="block text-2xs text-muted-foreground">{item.line_detail}</span>}
                                       </td>
                                       <td className="px-4 py-2 text-muted-foreground">{itemTypeLabel(item)}</td>
-                                      <td className="px-4 py-2 text-right text-muted-foreground">{item.quantity}</td>
+                                      <td className="px-4 py-2 text-right text-muted-foreground">{item.quantity} <span className="text-2xs">{item.unit ?? ""}</span></td>
                                       <td className="px-4 py-2 text-right text-muted-foreground">{po.prices_hidden ? "—" : Number(item.unit_price).toLocaleString()}</td>
                                       <td className="px-4 py-2 text-right text-muted-foreground">{item.received_quantity ?? 0} / {item.quantity}</td>
                                       <td className="px-4 py-2 text-right font-medium text-foreground">

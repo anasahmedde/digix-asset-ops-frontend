@@ -15,6 +15,8 @@ interface RequirementRow {
   id: string;
   name: string;
   quantity: number;
+  /** Unit of measure the line is counted in. */
+  unit?: string;
   issued_quantity: number;
   outstanding_quantity: number;
   /** Decisions already taken on this line, and what is still open. */
@@ -39,7 +41,7 @@ interface StepRow {
   name: string;
   status: string;
   status_display: string;
-  location: "in_house" | "external";
+  location: "undecided" | "in_house" | "external";
   location_display: string;
   workshop_display: string | null;
   planned_cost: string | null;
@@ -478,8 +480,8 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                                 </span>
                               )}
                             </td>
-                            <td className={`${tdClass} text-foreground`}>{row.quantity}</td>
-                            <td className={`${tdClass} text-muted-foreground`}>{row.issued_quantity}</td>
+                            <td className={`${tdClass} text-foreground`}>{row.quantity} <span className="text-2xs text-muted-foreground">{row.unit || "piece"}</span></td>
+                            <td className={`${tdClass} text-muted-foreground`}>{row.issued_quantity} <span className="text-2xs">{row.unit || "piece"}</span></td>
                             <td className={`${tdClass} ${short ? "text-amber-600" : "text-muted-foreground"}`}>
                               {row.available_quantity ?? "—"}
                               {short && row.outstanding_quantity > 0 && (
@@ -619,9 +621,9 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                                 {st.name}
                               </td>
                               <td className={`${tdClass} text-muted-foreground`}>
-                                <span className="inline-flex items-center gap-1">
-                                  {st.location === "external" ? <Truck className="h-3 w-3 text-amber-500" /> : <Factory className="h-3 w-3" />}
-                                  {st.workshop_display ?? "In-house"}
+                                <span className={`inline-flex items-center gap-1 ${st.location === "undecided" ? "italic" : ""}`}>
+                                  {st.location === "external" ? <Truck className="h-3 w-3 text-amber-500" /> : st.location === "in_house" ? <Factory className="h-3 w-3" /> : null}
+                                  {st.location === "external" ? (st.workshop_display ?? "Outside workshop") : st.location === "in_house" ? "In-house" : "Not decided"}
                                 </span>
                                 {st.work_order && (
                                   <Link href="/work-orders" className="block font-mono text-2xs text-indigo-600 hover:underline">

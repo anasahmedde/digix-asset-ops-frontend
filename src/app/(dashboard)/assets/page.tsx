@@ -925,7 +925,6 @@ export default function AssetsPage() {
       // QR/barcode label), and the serial defaults to it.
       source: assetSource,
       ...(modalMode === "create" && copyFrom ? { copy_from: copyFrom } : {}),
-      batch_number: fd.get("batch_number") || "",
       asset_type: formAssetType || null,
       display_name: fd.get("display_name") || "",
       length_in: fd.get("length_in") || null,
@@ -1788,18 +1787,9 @@ export default function AssetsPage() {
                       <h4 className="text-sm font-semibold text-foreground mb-3">Device Information</h4>
                       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                         <InfoCard label="Asset Code" value={d.asset_code} />
-                        {/* The serial defaults to the asset code, so it is only
-                            worth a card when it is a real, different serial. */}
-                        {d.serial_number && d.serial_number !== d.asset_code && (
-                          <InfoCard label="Serial Number" value={d.serial_number} />
-                        )}
                         <InfoCard label="Project" value={d.project_name} />
                         <InfoCard label="Manufacturing Route" value={d.source_display} />
-                        <InfoCard label="Batch Number" value={d.batch_number} />
                         <InfoCard label="Asset Type" value={d.asset_type_name} />
-                        {/* Technical detail now lives on the inventory records
-                            the asset is built from, not on the asset itself. */}
-                        <InfoCard label="Hardware Revision" value={d.hardware_revision} />
                       </div>
                     </div>
                     <div>
@@ -1958,7 +1948,6 @@ export default function AssetsPage() {
                         <InfoCard label="Purchase Date" value={d.purchase_date ? formatDate(d.purchase_date) : null} />
                         <InfoCard label="Purchase Price" value={d.purchase_price ? `PKR ${Number(d.purchase_price).toLocaleString()}` : null} />
                         <InfoCard label="Invoice Reference" value={d.invoice_reference} />
-                        <InfoCard label="Batch Number" value={d.batch_number} />
                       </div>
                     </div>
                     {d.purchase_price && (
@@ -2667,10 +2656,6 @@ export default function AssetsPage() {
               <div className="space-y-1.5">
                 <label htmlFor="purchase_price" className={labelClass}>Purchase Price</label>
                 <input id="purchase_price" name="purchase_price" type="number" step="0.01" defaultValue={selected?.purchase_price ?? ""} className={inputClass} />
-              </div>
-              <div className="space-y-1.5">
-                <label htmlFor="batch_number" className={labelClass}>Batch Number</label>
-                <input id="batch_number" name="batch_number" defaultValue={selected?.batch_number ?? ""} className={inputClass} placeholder="e.g. B-2026-014" />
               </div>
             </div>
           </div>

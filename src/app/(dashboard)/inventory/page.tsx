@@ -369,7 +369,7 @@ export default function InventoryPage() {
                         {LOCATION_LABELS[item.location] ?? item.location}
                       </span>
                     </td>
-                    <td className={`${tdClass} font-medium ${item.is_low_stock ? "text-red-600" : "text-foreground"}`}>{item.quantity}</td>
+                    <td className={`${tdClass} font-medium ${item.is_low_stock ? "text-red-600" : "text-foreground"}`}>{item.quantity} <span className="text-2xs font-normal text-muted-foreground">{item.unit || "piece"}</span></td>
                     <td className={`${tdClass} text-muted-foreground`}>{item.min_stock_level}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{item.unit_cost ? item.unit_cost : "-"}</td>
                     <td className={tdClass} onClick={(e) => e.stopPropagation()}>

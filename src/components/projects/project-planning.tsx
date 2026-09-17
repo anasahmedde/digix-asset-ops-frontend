@@ -16,6 +16,7 @@ interface MaterialLine {
   asset_name: string;
   name: string;
   quantity: number;
+  unit?: string;
   unit_price: string | null;
   price_source: string;
   line_total: string | null;
@@ -576,7 +577,7 @@ export function ProjectPlanning({
                       lines.map((m) => (
                         <tr key={m.component} className="border-t border-border/50">
                           <td className={`${tdClass} pl-10 font-medium text-foreground`}>{m.name}</td>
-                          <td className={`${tdClass} text-right text-foreground`}>{m.quantity}</td>
+                          <td className={`${tdClass} text-right text-foreground`}>{m.quantity} <span className="text-2xs text-muted-foreground">{m.unit || "piece"}</span></td>
                           <td className={`${tdClass} text-right`}>
                             {editable ? (
                               <input
