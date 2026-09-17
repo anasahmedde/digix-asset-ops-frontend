@@ -17,6 +17,7 @@ import { DeviceImage } from "@/components/ui/device-image";
 import { StatusBadge } from "@/components/ui/badge";
 import { Tabs } from "@/components/ui/tabs";
 import { Modal } from "@/components/ui/modal";
+import { Qty } from "@/components/ui/qty";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { formatDate, formatDateTime } from "@/lib/utils";
@@ -60,6 +61,9 @@ interface Device {
 }
 
 interface DeviceDetail extends Device {
+  procurement_po_number?: string | null;
+  procurement_requested_at?: string | null;
+  route_complete?: boolean;
   source: string;
   /** The lifecycle stage as the API labels it (e.g. In Procurement). */
   status_display?: string;
@@ -248,7 +252,7 @@ const SOURCE_LABELS: Record<string, string> = {
 };
 
 // The build-and-deploy line, in the order it actually happens.
-const TRACK_MAIN = ["procured", "in_production", "in_stock", "assigned", "installed", "active"] as const;
+const TRACK_ALL = ["procured", "in_production", "in_stock", "assigned", "installed", "active"] as const;
 // Where an asset's life ends. Drawn as a spur, not more track: it is not the
 // next step for every asset, and nothing comes back from it.
 const TRACK_END = ["client_property", "decommissioned"] as const;
@@ -268,8 +272,10 @@ function shortDate(iso: string | undefined) {
  * (the asset comes back from it), so it branches below that checkpoint rather
  * than sitting on the line as if it came next.
  */
-function LifecycleStepper({ status, stageDates }: { status: string; stageDates: Record<string, string> }) {
+function LifecycleStepper({ status, stageDates, requiresProduction = true }: { status: string; stageDates: Record<string, string>; requiresProduction?: boolean }) {
   const label = (s: string) => STATUSES.find((x) => x.value === s)?.label ?? s;
+  // A vendor-supplied asset is bought complete: its rail has no production stage.
+  const TRACK_MAIN = requiresProduction ? TRACK_ALL : TRACK_ALL.filter((st) => st !== "in_production");
   const inMaintenance = status === "under_maintenance";
   const ended = (TRACK_END as readonly string[]).includes(status);
   const offTrack = OFF_TRACK.includes(status);
@@ -307,14 +313,14 @@ function LifecycleStepper({ status, stageDates }: { status: string; stageDates: 
               />
               <span className="relative flex h-7 w-7 items-center justify-center">
                 {current && <span aria-hidden className="absolute inset-0 rounded-full bg-primary/25 motion-safe:animate-ping" />}
-                <span className={`relative flex h-7 w-7 items-center justify-center rounded-full border-2 text-[11px] font-bold ${node(reached, current)}`}>
+                <span className={`relative flex h-7 w-7 items-center justify-center rounded-full border-2 text-2xs font-bold ${node(reached, current)}`}>
                   {reached && !current ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : i + 1}
                 </span>
               </span>
-              <span className={`mt-1.5 text-[11px] leading-tight ${current ? "font-semibold text-primary" : reached ? "font-medium text-foreground" : "text-muted-foreground"}`}>
+              <span className={`mt-1.5 text-2xs leading-tight ${current ? "font-semibold text-primary" : reached ? "font-medium text-foreground" : "text-muted-foreground"}`}>
                 {label(stage)}
               </span>
-              <span className="text-[10px] tabular-nums text-muted-foreground" title={stageDates[stage] ? new Date(stageDates[stage]).toLocaleString() : undefined}>
+              <span className="text-2xs tabular-nums text-muted-foreground" title={stageDates[stage] ? new Date(stageDates[stage]).toLocaleString() : undefined}>
                 {reached && date ? date : " "}
               </span>
 
@@ -322,12 +328,12 @@ function LifecycleStepper({ status, stageDates }: { status: string; stageDates: 
               {stage === "active" && (inMaintenance || stageDates.under_maintenance) && (
                 <span className="mt-1 flex flex-col items-center">
                   <span aria-hidden className={`h-3 border-l-2 border-dashed ${inMaintenance ? "border-amber-500" : "border-border"}`} />
-                  <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ${
+                  <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-2xs font-semibold ring-1 ${
                     inMaintenance ? "bg-amber-500/10 text-amber-600 ring-amber-500/30" : "bg-secondary text-muted-foreground ring-border"
                   }`}>
                     {inMaintenance ? "Under maintenance" : "Last maintenance"}
                   </span>
-                  <span className="mt-0.5 text-[10px] tabular-nums text-muted-foreground">
+                  <span className="mt-0.5 text-2xs tabular-nums text-muted-foreground">
                     {inMaintenance ? `since ${shortDate(stageDates.under_maintenance) ?? "—"}` : shortDate(stageDates.under_maintenance)}
                   </span>
                 </span>
@@ -343,13 +349,13 @@ function LifecycleStepper({ status, stageDates }: { status: string; stageDates: 
           return (
             <li key={stage} className="relative flex w-[92px] flex-col items-center text-center">
               {i === 0 && <span aria-hidden className="absolute left-1/2 top-[13px] w-full border-t-2 border-dashed border-border" />}
-              <span className={`relative flex h-7 w-7 items-center justify-center rounded-full border-2 border-dashed text-[11px] font-bold ${node(reached, false, "slate")}`}>
+              <span className={`relative flex h-7 w-7 items-center justify-center rounded-full border-2 border-dashed text-2xs font-bold ${node(reached, false, "slate")}`}>
                 {reached ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : "•"}
               </span>
-              <span className={`mt-1.5 text-[11px] leading-tight ${current ? "font-semibold text-foreground" : "text-muted-foreground"}`}>
+              <span className={`mt-1.5 text-2xs leading-tight ${current ? "font-semibold text-foreground" : "text-muted-foreground"}`}>
                 {label(stage)}
               </span>
-              <span className="text-[10px] tabular-nums text-muted-foreground">
+              <span className="text-2xs tabular-nums text-muted-foreground">
                 {reached ? shortDate(stageDates[stage]) ?? " " : " "}
               </span>
             </li>
@@ -358,7 +364,7 @@ function LifecycleStepper({ status, stageDates }: { status: string; stageDates: 
       </ol>
 
       {offTrack && (
-        <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-red-500/10 px-2.5 py-1 text-[11px] font-medium text-red-600 ring-1 ring-red-500/20">
+        <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-red-500/10 px-2.5 py-1 text-2xs font-medium text-red-600 ring-1 ring-red-500/20">
           Off the normal line: {label(status)}
           {stageDates[status] && <span className="font-normal text-red-500/80">· since {shortDate(stageDates[status])}</span>}
         </p>
@@ -555,6 +561,10 @@ export default function AssetsPage() {
     api.get(`/assets/devices/${deviceId}/`).then(({ data }) => {
       setDetailView(data);
       setDetailTab("overview");
+      // Coming from a project's Execution tab: straight to assigning the site and technician.
+      if (searchParams.get("assign") && (data.allowed_transitions ?? []).includes("assigned")) {
+        setTransitionTarget("assigned");
+      }
       fetchRelatedData(data.id);
       // Deep-linking straight to an asset still needs the technician, site and
       // client pickers the detail view's own dialogs use.
@@ -916,7 +926,6 @@ export default function AssetsPage() {
       // QR/barcode label), and the serial defaults to it.
       source: assetSource,
       ...(modalMode === "create" && copyFrom ? { copy_from: copyFrom } : {}),
-      batch_number: fd.get("batch_number") || "",
       asset_type: formAssetType || null,
       display_name: fd.get("display_name") || "",
       length_in: fd.get("length_in") || null,
@@ -1134,7 +1143,7 @@ export default function AssetsPage() {
                         <img key={img.id} src={img.image} alt={img.caption} className="h-10 w-12 rounded-md object-cover border border-border" />
                       ))}
                       {allImages.length > 4 && (
-                        <div className="flex h-10 w-12 items-center justify-center rounded-md bg-secondary/50 text-[10px] font-medium text-muted-foreground">+{allImages.length - 4}</div>
+                        <div className="flex h-10 w-12 items-center justify-center rounded-md bg-secondary/50 text-2xs font-medium text-muted-foreground">+{allImages.length - 4}</div>
                       )}
                     </div>
                   )}
@@ -1188,7 +1197,7 @@ export default function AssetsPage() {
           <div className="rounded-xl border border-border bg-card p-5">
             <h3 className="text-sm font-semibold text-foreground mb-4">Quick Overview</h3>
             <div className="space-y-3">
-              <OverviewRow icon={<Package className="h-4 w-4 text-blue-400" />} label="Components" value={String((d.components ?? []).length)} />
+              <OverviewRow icon={<Package className="h-4 w-4 text-blue-400" />} label="Components" value={d.requires_production ? String((d.components ?? []).length) : "—"} />
               <OverviewRow icon={<HardDrive className="h-4 w-4 text-cyan-400" />} label="Manufacturing Route" value={d.source_display} />
               <OverviewRow icon={<Zap className="h-4 w-4 text-amber-400" />} label="Production Steps" value={d.requires_production ? String((d.production_steps ?? []).length) : "—"} />
               <OverviewRow icon={<Clock className="h-4 w-4 text-green-400" />} label="Batch" value={d.batch_number || "—"} />
@@ -1227,7 +1236,7 @@ export default function AssetsPage() {
                   <div className="space-y-6">
                     <div>
                       <h4 className="text-sm font-semibold text-foreground mb-3">Asset Lifecycle</h4>
-                      <LifecycleStepper status={d.status} stageDates={d.stage_dates ?? {}} />
+                      <LifecycleStepper requiresProduction={d.requires_production} status={d.status} stageDates={d.stage_dates ?? {}} />
                       {canEdit && (
                         <div className="mt-4 rounded-lg border border-border bg-secondary/20 p-3">
                           <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Change Status</p>
@@ -1235,7 +1244,7 @@ export default function AssetsPage() {
                               tracker, with the technician's photo — not typed
                               in here — so say where they come from. */}
                           {["assigned", "installed"].includes(d.status) && (
-                            <p className="mb-2 text-[11px] text-muted-foreground">
+                            <p className="mb-2 text-2xs text-muted-foreground">
                               {d.status === "assigned" ? "Installed" : "Active"} is recorded by the technician in the{" "}
                               <Link href={`/installation-tracker?device=${d.id}`} className="font-medium text-primary hover:underline">
                                 Installation Tracker
@@ -1304,7 +1313,7 @@ export default function AssetsPage() {
                                           <option key={t.id} value={t.id}>{t.label}</option>
                                         ))}
                                       </select>
-                                      <p className="text-[10px] text-muted-foreground">
+                                      <p className="text-2xs text-muted-foreground">
                                         {d.source === "vendor_turnkey"
                                           ? "The vendor supplies and installs it; our technician oversees."
                                           : d.source === "vendor_supplied"
@@ -1325,7 +1334,7 @@ export default function AssetsPage() {
                                           <option key={site.id} value={site.id}>{site.label}</option>
                                         ))}
                                       </select>
-                                      <p className="text-[10px] text-muted-foreground">
+                                      <p className="text-2xs text-muted-foreground">
                                         This opens the asset's job on the Installation Tracker.
                                       </p>
                                     </div>
@@ -1335,7 +1344,7 @@ export default function AssetsPage() {
                                       are two views of the same event, so say
                                       what this change does to the other one. */}
                                   {d.status === "under_maintenance" && (
-                                    <p className="rounded-lg border border-dashed border-border px-3 py-2 text-[11px] text-muted-foreground">
+                                    <p className="rounded-lg border border-dashed border-border px-3 py-2 text-2xs text-muted-foreground">
                                       The open maintenance job is closed off with a completion record
                                       against your notes.
                                     </p>
@@ -1357,14 +1366,14 @@ export default function AssetsPage() {
                                     <div className="space-y-2.5 rounded-lg border border-border bg-secondary/20 p-3">
                                       <div>
                                         <p className="text-xs font-medium text-foreground">Corrective maintenance job</p>
-                                        <p className="text-[10px] text-muted-foreground">
+                                        <p className="text-2xs text-muted-foreground">
                                           Raised in Maintenance the moment the asset goes down. When the technician
                                           completes it there, the asset returns to Active on its own.
                                         </p>
                                       </div>
                                       <div className="grid gap-2 sm:grid-cols-3">
                                         <div className="space-y-1">
-                                          <label className="text-[10px] font-medium text-muted-foreground">Technician *</label>
+                                          <label className="text-2xs font-medium text-muted-foreground">Technician *</label>
                                           <select
                                             value={maintTech}
                                             onChange={(e) => setMaintTech(e.target.value)}
@@ -1375,7 +1384,7 @@ export default function AssetsPage() {
                                           </select>
                                         </div>
                                         <div className="space-y-1">
-                                          <label className="text-[10px] font-medium text-muted-foreground">Repair due by *</label>
+                                          <label className="text-2xs font-medium text-muted-foreground">Repair due by *</label>
                                           <input
                                             type="date"
                                             value={maintDue}
@@ -1385,7 +1394,7 @@ export default function AssetsPage() {
                                           />
                                         </div>
                                         <div className="space-y-1">
-                                          <label className="text-[10px] font-medium text-muted-foreground">Priority</label>
+                                          <label className="text-2xs font-medium text-muted-foreground">Priority</label>
                                           <select
                                             value={maintPriority}
                                             onChange={(e) => setMaintPriority(e.target.value)}
@@ -1439,7 +1448,7 @@ export default function AssetsPage() {
                                           className="flex h-20 w-20 flex-col items-center justify-center rounded-lg border-2 border-dashed border-border text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
                                         >
                                           <ImagePlus className="h-5 w-5" />
-                                          <span className="mt-1 text-[9px]">Add Photo</span>
+                                          <span className="mt-1 text-2xs">Add Photo</span>
                                         </button>
                                         <input
                                           ref={activePhotoInputRef}
@@ -1451,7 +1460,7 @@ export default function AssetsPage() {
                                           onChange={handleActivePhotoSelect}
                                         />
                                       </div>
-                                      <p className="text-[10px] text-muted-foreground">
+                                      <p className="text-2xs text-muted-foreground">
                                         {activePhotos.length > 0
                                           ? `${activePhotos.length} photo${activePhotos.length === 1 ? "" : "s"} will be attached to this asset.`
                                           : "Attach a photo of the asset back in service (optional)."}
@@ -1494,6 +1503,40 @@ export default function AssetsPage() {
                     </div>
                     {/* Only an in-house build has a bill of materials of ours;
                         for vendor routes the section stays visible but inert. */}
+                    {!d.requires_production && (
+                      <div className="rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <h4 className="text-sm font-semibold text-foreground">Complete asset from the vendor</h4>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {d.source_display} — bought whole on a purchase order, so it has no components or
+                              production route of its own. Its price and warranty come from the order.
+                            </p>
+                          </div>
+                          <span className="rounded-full bg-card px-2.5 py-0.5 text-2xs font-medium text-indigo-600 ring-1 ring-indigo-500/20">
+                            {d.status_display ?? statusLabel(d.status)}
+                          </span>
+                        </div>
+                        <dl className="mt-3 grid gap-3 text-xs sm:grid-cols-4">
+                          <div><dt className="text-2xs uppercase tracking-wider text-muted-foreground">Vendor</dt><dd className="text-foreground">{d.supply_vendor_name || d.supplier_name || "—"}</dd></div>
+                          <div><dt className="text-2xs uppercase tracking-wider text-muted-foreground">Price</dt><dd className="text-foreground">{d.purchase_price ? `PKR ${Number(d.purchase_price).toLocaleString()}` : "—"}</dd></div>
+                          <div><dt className="text-2xs uppercase tracking-wider text-muted-foreground">Purchase order</dt><dd className="font-mono text-foreground">{d.procurement_po_number ?? (d.procurement_requested_at ? "Awaiting PO" : "—")}</dd></div>
+                          <div><dt className="text-2xs uppercase tracking-wider text-muted-foreground">Project</dt><dd className="text-foreground">{d.project_name ?? "—"}</dd></div>
+                        </dl>
+                        <p className="mt-3 text-2xs text-muted-foreground">
+                          {d.status === "procured"
+                            ? d.procurement_po_number
+                              ? "On order — it comes into stock when the delivery is received against the PO."
+                              : d.project_name
+                                ? "Awaiting the project's Execution decision to procure it, then the PO in Procurement."
+                                : "Awaiting its purchase order in Procurement → To Procure."
+                            : d.status === "in_stock"
+                              ? "In stock — assign it to a site above to open its installation."
+                              : ""}
+                        </p>
+                      </div>
+                    )}
+                    {d.requires_production && (<>
                     <div className={d.requires_production ? undefined : "opacity-60"}>
                       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                         <h4 className="text-sm font-semibold text-foreground">Components</h4>
@@ -1504,13 +1547,13 @@ export default function AssetsPage() {
                         </div>
                       </div>
                       {!d.requires_production && (
-                        <p className="mb-3 rounded-lg border border-dashed border-border px-3 py-2 text-[11px] text-muted-foreground">
+                        <p className="mb-3 rounded-lg border border-dashed border-border px-3 py-2 text-2xs text-muted-foreground">
                           {d.source_display} — this asset arrives complete from the vendor, so it is
                           not built from our inventory.
                         </p>
                       )}
                       {d.is_locked && (
-                        <p className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-700">
+                        <p className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-2xs text-amber-700">
                           Locked — this asset is in execution{d.project_name ? ` under ${d.project_name}` : ""}. Its components
                           and production route are fixed now; only its status can change.
                         </p>
@@ -1527,7 +1570,6 @@ export default function AssetsPage() {
                                 <th className="px-3 py-2 font-medium">In Stock</th>
                                 <th className="px-3 py-2 font-medium">From Inventory</th>
                                 <th className="px-3 py-2 font-medium">Fulfilment</th>
-                                <th className="px-3 py-2 font-medium">Unit</th>
                                 {canEdit && <th className="px-3 py-2" />}
                               </tr>
                             </thead>
@@ -1548,10 +1590,10 @@ export default function AssetsPage() {
                                         className="h-7 w-16 rounded-lg border border-border bg-background px-2 text-xs text-foreground"
                                       />
                                     ) : (
-                                      <>×{cmp.quantity}</>
+                                      <Qty value={cmp.quantity} unit={cmp.unit} prefix="×" />
                                     )}
                                     {cmp.issued_quantity > 0 && (
-                                      <span className="block text-[10px] text-muted-foreground">
+                                      <span className="block text-2xs text-muted-foreground">
                                         {cmp.issued_quantity} issued
                                       </span>
                                     )}
@@ -1561,16 +1603,15 @@ export default function AssetsPage() {
                                   </td>
                                   <td className="px-3 py-2 text-muted-foreground">{cmp.source_label || "—"}</td>
                                   <td className="px-3 py-2">
-                                    <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ${
+                                    <span className={`inline-flex rounded-full px-2 py-0.5 text-2xs font-medium ring-1 ${
                                       FULFILMENT_BADGES[cmp.fulfilment] ?? "bg-secondary text-muted-foreground ring-border"
                                     }`}>
                                       {FULFILMENT_LABELS[cmp.fulfilment] ?? cmp.fulfilment}
                                     </span>
                                     {cmp.po_number && (
-                                      <span className="block font-mono text-[10px] text-muted-foreground">{cmp.po_number}</span>
+                                      <span className="block font-mono text-2xs text-muted-foreground">{cmp.po_number}</span>
                                     )}
                                   </td>
-                                  <td className="px-3 py-2 text-muted-foreground">{cmp.unit || "piece"}</td>
                                   {canEdit && (
                                     <td className="px-3 py-2 text-right">
                                       {compEdit?.id === cmp.id ? (
@@ -1605,7 +1646,7 @@ export default function AssetsPage() {
                       {canEdit && (
                         <form onSubmit={(e) => handleAddComponent(e, d.id)} className="mt-2">
                           <fieldset disabled={!d.requires_production || d.is_locked} className="space-y-2">
-                            <p className="text-[11px] text-muted-foreground">
+                            <p className="text-2xs text-muted-foreground">
                               What this asset is built from. Stock is not reduced here — the project decides
                               later whether to take each line from inventory or procure it.
                             </p>
@@ -1653,7 +1694,7 @@ export default function AssetsPage() {
                               )}
 
                               <div className="flex items-center gap-1">
-                                <label htmlFor="comp_qty" className="text-[11px] text-muted-foreground">Qty needed</label>
+                                <label htmlFor="comp_qty" className="text-2xs text-muted-foreground">Qty needed</label>
                                 <input
                                   id="comp_qty"
                                   type="number"
@@ -1674,7 +1715,7 @@ export default function AssetsPage() {
                             </div>
 
                             {compSelected && compQty > compAvailable && (
-                              <p className="text-[11px] text-amber-600">
+                              <p className="text-2xs text-amber-600">
                                 Only {compAvailable} in stock — the shortfall can be procured from the project.
                               </p>
                             )}
@@ -1694,13 +1735,14 @@ export default function AssetsPage() {
                         locked={d.is_locked}
                       />
                     </div>
+                    </>)}
                     <div>
                       <h4 className="text-sm font-semibold text-foreground mb-3">Service History</h4>
                       <div className="grid gap-3 sm:grid-cols-2">
                         <div className="rounded-xl border border-border p-4">
                           <div className="flex items-center justify-between">
                             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Tickets</p>
-                            <Link href={`/tickets?device=${d.id}`} className="text-[11px] font-medium text-primary hover:underline">View all →</Link>
+                            <Link href={`/tickets?device=${d.id}`} className="text-2xs font-medium text-primary hover:underline">View all →</Link>
                           </div>
                           <div className="mt-2 flex gap-4 text-sm">
                             <span className="font-bold text-foreground">{deviceTickets.length} total</span>
@@ -1721,7 +1763,7 @@ export default function AssetsPage() {
                         <div className="rounded-xl border border-border p-4">
                           <div className="flex items-center justify-between">
                             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Maintenance</p>
-                            <Link href="/maintenance" className="text-[11px] font-medium text-primary hover:underline">View all →</Link>
+                            <Link href="/maintenance" className="text-2xs font-medium text-primary hover:underline">View all →</Link>
                           </div>
                           <div className="mt-2 flex gap-4 text-sm">
                             <span className="font-bold text-foreground">{maintSchedules.length} total</span>
@@ -1744,18 +1786,9 @@ export default function AssetsPage() {
                       <h4 className="text-sm font-semibold text-foreground mb-3">Device Information</h4>
                       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                         <InfoCard label="Asset Code" value={d.asset_code} />
-                        {/* The serial defaults to the asset code, so it is only
-                            worth a card when it is a real, different serial. */}
-                        {d.serial_number && d.serial_number !== d.asset_code && (
-                          <InfoCard label="Serial Number" value={d.serial_number} />
-                        )}
                         <InfoCard label="Project" value={d.project_name} />
                         <InfoCard label="Manufacturing Route" value={d.source_display} />
-                        <InfoCard label="Batch Number" value={d.batch_number} />
                         <InfoCard label="Asset Type" value={d.asset_type_name} />
-                        {/* Technical detail now lives on the inventory records
-                            the asset is built from, not on the asset itself. */}
-                        <InfoCard label="Hardware Revision" value={d.hardware_revision} />
                       </div>
                     </div>
                     <div>
@@ -1764,12 +1797,12 @@ export default function AssetsPage() {
                         <InfoCard label="Site" value={d.site_name} />
                         <InfoCard label="Client" value={(d.client_names ?? []).length > 0 ? d.client_names.join(", ") : d.client_name} />
                         <div className="rounded-lg bg-secondary/30 px-4 py-3">
-                          <p className="mb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Assigned To</p>
+                          <p className="mb-1 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Assigned To</p>
                           <p className="text-sm font-medium text-foreground">
                             {d.assigned_to_display ?? d.technician_name ?? "—"}
                           </p>
                           {d.technician_phone && (
-                            <p className="text-[11px] text-muted-foreground">{d.technician_phone}</p>
+                            <p className="text-2xs text-muted-foreground">{d.technician_phone}</p>
                           )}
                         </div>
                         <InfoCard label="Installation Date" value={d.installation_date ? formatDate(d.installation_date) : null} />
@@ -1820,11 +1853,11 @@ export default function AssetsPage() {
                                 <h4 className="text-sm font-semibold text-foreground">
                                   {w.component_name ?? (WARRANTY_TYPE_LABELS[w.warranty_type] ?? w.warranty_type)}
                                 </h4>
-                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${w.is_expired ? "bg-red-500/10 text-red-600" : "bg-green-500/10 text-green-600"}`}>
+                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-2xs font-medium ${w.is_expired ? "bg-red-500/10 text-red-600" : "bg-green-500/10 text-green-600"}`}>
                                   {w.is_expired ? "Expired" : "Active"}
                                 </span>
                                 {w.component_name && (
-                                  <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] text-muted-foreground">
+                                  <span className="rounded-full bg-secondary px-2 py-0.5 text-2xs text-muted-foreground">
                                     {WARRANTY_TYPE_LABELS[w.warranty_type] ?? w.warranty_type}
                                   </span>
                                 )}
@@ -1832,10 +1865,10 @@ export default function AssetsPage() {
                               {w.supplier_name && <p className="text-xs text-muted-foreground mb-1">Provider: {w.supplier_name}</p>}
                               <p className="text-xs text-muted-foreground">{w.coverage_details || "Comprehensive coverage"}</p>
                               <div className="flex items-center gap-4 mt-2">
-                                <span className="text-[11px] text-muted-foreground">
+                                <span className="text-2xs text-muted-foreground">
                                   <Calendar className="inline h-3 w-3 mr-1" />{formatDate(w.start_date)} → {formatDate(w.end_date)}
                                 </span>
-                                {w.reference_number && <span className="text-[11px] text-muted-foreground">Ref: {w.reference_number}</span>}
+                                {w.reference_number && <span className="text-2xs text-muted-foreground">Ref: {w.reference_number}</span>}
                               </div>
                               <div className="mt-3">
                                 <WarrantyTimeline start={w.start_date} end={w.end_date} color={WARRANTY_COLORS[w.warranty_type] ?? "#6366f1"} />
@@ -1870,11 +1903,11 @@ export default function AssetsPage() {
                                 <h4 className="text-sm font-semibold text-foreground">
                                   {w.component_name ?? (WARRANTY_TYPE_LABELS[w.warranty_type] ?? w.warranty_type)}
                                 </h4>
-                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${w.is_expired ? "bg-red-500/10 text-red-600" : "bg-green-500/10 text-green-600"}`}>
+                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-2xs font-medium ${w.is_expired ? "bg-red-500/10 text-red-600" : "bg-green-500/10 text-green-600"}`}>
                                   {w.is_expired ? "Expired" : "Active"}
                                 </span>
                                 {w.component_name && (
-                                  <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] text-muted-foreground">
+                                  <span className="rounded-full bg-secondary px-2 py-0.5 text-2xs text-muted-foreground">
                                     {WARRANTY_TYPE_LABELS[w.warranty_type] ?? w.warranty_type}
                                   </span>
                                 )}
@@ -1882,10 +1915,10 @@ export default function AssetsPage() {
                               {w.supplier_name && <p className="text-xs text-muted-foreground mb-1">Provider: {w.supplier_name}</p>}
                               <p className="text-xs text-muted-foreground">{w.coverage_details || "Comprehensive coverage"}</p>
                               <div className="flex items-center gap-4 mt-2">
-                                <span className="text-[11px] text-muted-foreground">
+                                <span className="text-2xs text-muted-foreground">
                                   <Calendar className="inline h-3 w-3 mr-1" />{formatDate(w.start_date)} → {formatDate(w.end_date)}
                                 </span>
-                                {w.reference_number && <span className="text-[11px] text-muted-foreground">Ref: {w.reference_number}</span>}
+                                {w.reference_number && <span className="text-2xs text-muted-foreground">Ref: {w.reference_number}</span>}
                               </div>
                               <div className="mt-3">
                                 <WarrantyTimeline start={w.start_date} end={w.end_date} color={WARRANTY_COLORS[w.warranty_type] ?? "#6366f1"} />
@@ -1914,7 +1947,6 @@ export default function AssetsPage() {
                         <InfoCard label="Purchase Date" value={d.purchase_date ? formatDate(d.purchase_date) : null} />
                         <InfoCard label="Purchase Price" value={d.purchase_price ? `PKR ${Number(d.purchase_price).toLocaleString()}` : null} />
                         <InfoCard label="Invoice Reference" value={d.invoice_reference} />
-                        <InfoCard label="Batch Number" value={d.batch_number} />
                       </div>
                     </div>
                     {d.purchase_price && (
@@ -1947,7 +1979,7 @@ export default function AssetsPage() {
                             </div>
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-medium text-foreground truncate">{doc.title}</p>
-                              <p className="text-[11px] text-muted-foreground">{doc.doc_type} · {doc.uploaded_by_name} · {formatDate(doc.created_at)}</p>
+                              <p className="text-2xs text-muted-foreground">{doc.doc_type} · {doc.uploaded_by_name} · {formatDate(doc.created_at)}</p>
                             </div>
                             {doc.file && (
                               <a href={doc.file} target="_blank" rel="noopener noreferrer" className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground">
@@ -1976,7 +2008,7 @@ export default function AssetsPage() {
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 mb-1">
                                 <p className="text-sm font-medium text-foreground">{m.title}</p>
-                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset ring-current/20 ${MAINT_TYPE_BADGE[m.maintenance_type] ?? "bg-gray-500/10 text-gray-600"}`}>
+                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-2xs font-medium ring-1 ring-inset ring-current/20 ${MAINT_TYPE_BADGE[m.maintenance_type] ?? "bg-gray-500/10 text-gray-600"}`}>
                                   {m.maintenance_type}
                                 </span>
                               </div>
@@ -1985,7 +2017,7 @@ export default function AssetsPage() {
                                 {m.assigned_to_name && ` · Assigned: ${m.assigned_to_name}`}
                               </p>
                             </div>
-                            <span className={`shrink-0 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${m.is_active ? "bg-green-500/10 text-green-600" : "bg-gray-500/10 text-gray-600"}`}>
+                            <span className={`shrink-0 inline-flex items-center rounded-full px-2 py-0.5 text-2xs font-medium ${m.is_active ? "bg-green-500/10 text-green-600" : "bg-gray-500/10 text-gray-600"}`}>
                               {m.is_active ? "Active" : "Inactive"}
                             </span>
                           </div>
@@ -2050,7 +2082,7 @@ export default function AssetsPage() {
                 {(d.lifecycle_events ?? []).length > 0 && (
                   <button
                     onClick={() => setDetailTab("history")}
-                    className="text-[11px] font-medium text-primary hover:underline"
+                    className="text-2xs font-medium text-primary hover:underline"
                   >
                     View all →
                   </button>
@@ -2072,7 +2104,7 @@ export default function AssetsPage() {
                     <div key={w.id} className="space-y-1">
                       <div className="flex items-center justify-between">
                         <span className="text-xs text-muted-foreground">{WARRANTY_TYPE_LABELS[w.warranty_type] ?? w.warranty_type}</span>
-                        <span className="text-[10px] text-muted-foreground">{formatDate(w.end_date)}</span>
+                        <span className="text-2xs text-muted-foreground">{formatDate(w.end_date)}</span>
                       </div>
                       <WarrantyTimeline start={w.start_date} end={w.end_date} color={WARRANTY_COLORS[w.warranty_type] ?? "#6366f1"} />
                     </div>
@@ -2350,7 +2382,7 @@ export default function AssetsPage() {
                     </option>
                   ))}
                 </select>
-                <p className="text-[10px] text-muted-foreground">
+                <p className="text-2xs text-muted-foreground">
                   Copies its type, size, build source, components and production route. The code and
                   serial stay this asset&apos;s own.
                 </p>
@@ -2411,7 +2443,7 @@ export default function AssetsPage() {
                 <option value="vendor_supplied">Vendor Supplied — installed by our technician</option>
                 <option value="vendor_turnkey">Vendor Supplied &amp; Installed — our technician oversees</option>
               </select>
-              <p className="text-[10px] text-muted-foreground">
+              <p className="text-2xs text-muted-foreground">
                 {assetSource === "inhouse"
                   ? "You will define the production steps and draw components from inventory."
                   : assetSource === "vendor_turnkey"
@@ -2423,7 +2455,7 @@ export default function AssetsPage() {
               <div className="space-y-1.5 sm:col-span-2">
                 <label className={labelClass}>Status</label>
                 <input type="text" value={statusLabel(selected?.status ?? "")} disabled className="flex h-10 w-full rounded-lg border border-border bg-secondary px-3 text-sm text-foreground" />
-                <p className="text-[10px] text-muted-foreground">Tracked automatically — it moves as the asset is built, assigned and installed.</p>
+                <p className="text-2xs text-muted-foreground">Tracked automatically — it moves as the asset is built, assigned and installed.</p>
               </div>
             )}
           </div>
@@ -2472,7 +2504,7 @@ export default function AssetsPage() {
                   <option value="">None</option>
                   {technicians.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
                 </select>
-                <p className="text-[10px] text-muted-foreground">
+                <p className="text-2xs text-muted-foreground">
                   {assetSource === "vendor_turnkey"
                     ? "The vendor does the work; our technician oversees it. Details come from the manpower records."
                     : "Details come from the manpower records."}
@@ -2501,7 +2533,7 @@ export default function AssetsPage() {
               <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Vendor Supply Details
               </p>
-              <p className="mb-3 text-[10px] text-muted-foreground">
+              <p className="mb-3 text-2xs text-muted-foreground">
                 Who the finished asset was bought from.
               </p>
               <div className="grid gap-4 sm:grid-cols-2">
@@ -2536,7 +2568,7 @@ export default function AssetsPage() {
               <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Vendor Installation Details
               </p>
-              <p className="mb-3 text-[10px] text-muted-foreground">
+              <p className="mb-3 text-2xs text-muted-foreground">
                 Who puts it up on site. Often the supplying vendor, but not always.
               </p>
               <div className="grid gap-4 sm:grid-cols-2">
@@ -2566,7 +2598,7 @@ export default function AssetsPage() {
               <button
                 type="button"
                 onClick={() => { setAssignVendorName(supplyVendorName); setAssignVendorContact(supplyVendorContact); }}
-                className="mt-2 text-[11px] font-medium text-primary hover:underline"
+                className="mt-2 text-2xs font-medium text-primary hover:underline"
               >
                 Same as the supplying vendor
               </button>
@@ -2578,21 +2610,21 @@ export default function AssetsPage() {
           {modalMode === "edit" && (
           <div className="border-t border-border pt-4">
             <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Warranty</p>
-            <p className="mb-3 text-[10px] text-muted-foreground">
+            <p className="mb-3 text-2xs text-muted-foreground">
               For information — warranties are entered and renewed in Warranties. Our cover to the
               client starts when the asset goes Active; a vendor&apos;s cover on a bought asset starts
               when it is received; part warranties run from the day each part arrived.
             </p>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="rounded-lg border border-border bg-secondary/20 px-3 py-2">
-                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Client warranty</p>
+                <p className="text-2xs uppercase tracking-wider text-muted-foreground">Client warranty</p>
                 <p className="text-sm text-foreground">
                   {selected?.client_warranty?.end_date ? `Until ${formatDate(selected.client_warranty.end_date)}` : "None on record"}
                 </p>
               </div>
               {!buildsInHouse && (
                 <div className="rounded-lg border border-border bg-secondary/20 px-3 py-2">
-                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Vendor warranty</p>
+                  <p className="text-2xs uppercase tracking-wider text-muted-foreground">Vendor warranty</p>
                   <p className="text-sm text-foreground">
                     {selected?.vendor_warranty?.end_date ? `Until ${formatDate(selected.vendor_warranty.end_date)}` : "None on record"}
                   </p>
@@ -2624,10 +2656,6 @@ export default function AssetsPage() {
                 <label htmlFor="purchase_price" className={labelClass}>Purchase Price</label>
                 <input id="purchase_price" name="purchase_price" type="number" step="0.01" defaultValue={selected?.purchase_price ?? ""} className={inputClass} />
               </div>
-              <div className="space-y-1.5">
-                <label htmlFor="batch_number" className={labelClass}>Batch Number</label>
-                <input id="batch_number" name="batch_number" defaultValue={selected?.batch_number ?? ""} className={inputClass} placeholder="e.g. B-2026-014" />
-              </div>
             </div>
           </div>
           )}
@@ -2640,7 +2668,7 @@ export default function AssetsPage() {
                 <div key={img.id} className="relative group">
                   <img src={img.image} alt={img.caption || "Device"} className="h-20 w-20 rounded-lg object-cover border border-border" />
                   {img.is_primary && (
-                    <span className="absolute -top-1.5 -left-1.5 rounded-full bg-primary px-1.5 py-0.5 text-[9px] font-bold text-primary-foreground">Primary</span>
+                    <span className="absolute -top-1.5 -left-1.5 rounded-full bg-primary px-1.5 py-0.5 text-2xs font-bold text-primary-foreground">Primary</span>
                   )}
                 </div>
               ))}
@@ -2662,7 +2690,7 @@ export default function AssetsPage() {
                 className="flex h-20 w-20 flex-col items-center justify-center rounded-lg border-2 border-dashed border-border text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
               >
                 <ImagePlus className="h-5 w-5" />
-                <span className="mt-1 text-[9px]">Add Image</span>
+                <span className="mt-1 text-2xs">Add Image</span>
               </button>
               <input
                 ref={fileInputRef}
@@ -2689,7 +2717,7 @@ export default function AssetsPage() {
                   <Plus className="h-3.5 w-3.5" /> Add Component
                 </button>
               </div>
-              <p className="mb-3 text-[10px] text-muted-foreground">
+              <p className="mb-3 text-2xs text-muted-foreground">
                 {buildsInHouse
                   ? "CMS, stand, SMD modules, receiving cards, frame, accessories… each drawn from the warehouse. Stock is not reduced here — the project decides later whether to take each line from inventory or procure it."
                   : "Only in-house builds are assembled from our inventory — a vendor-supplied asset arrives complete."}
@@ -2748,7 +2776,7 @@ export default function AssetsPage() {
                           className="flex h-9 w-20 shrink-0 rounded-lg border border-border bg-card px-3 text-sm text-foreground focus:border-primary/50 focus:outline-none"
                         />
                       </div>
-                      <span className="text-[11px] text-muted-foreground">
+                      <span className="text-2xs text-muted-foreground">
                         Name, serial, supplier and warranty are imported from inventory.
                       </span>
                       <button
@@ -2788,7 +2816,7 @@ export default function AssetsPage() {
 function MetaField({ label, value, mono, highlight, capitalize: cap }: { label: string; value: string | null | undefined; mono?: boolean; highlight?: boolean; capitalize?: boolean }) {
   return (
     <div>
-      <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground mb-0.5">{label}</p>
+      <p className="text-2xs font-medium uppercase tracking-wider text-muted-foreground mb-0.5">{label}</p>
       <p className={`text-sm ${mono ? "font-mono" : ""} ${highlight ? "text-primary font-medium" : "text-foreground"} ${cap ? "capitalize" : ""}`}>
         {value || "—"}
       </p>
@@ -2799,7 +2827,7 @@ function MetaField({ label, value, mono, highlight, capitalize: cap }: { label: 
 function InfoCard({ label, value }: { label: string; value: string | null | undefined }) {
   return (
     <div className="rounded-lg bg-secondary/30 px-4 py-3">
-      <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground mb-1">{label}</p>
+      <p className="text-2xs font-medium uppercase tracking-wider text-muted-foreground mb-1">{label}</p>
       <p className="text-sm font-medium text-foreground">{value || "—"}</p>
     </div>
   );
@@ -2826,12 +2854,12 @@ function WarrantyCard({ title, duration, detail, validTill, color, expired }: { 
         </div>
         <div>
           <h4 className="text-xs font-semibold text-foreground">{title}</h4>
-          {expired && <span className="text-[10px] text-red-400">Expired</span>}
+          {expired && <span className="text-2xs text-red-400">Expired</span>}
         </div>
       </div>
       <p className="text-2xl font-bold text-foreground mb-0.5">{duration}</p>
       <p className="text-xs text-muted-foreground mb-1">{detail}</p>
-      <p className="text-[11px] text-muted-foreground">Valid Till: {formatDate(validTill)}</p>
+      <p className="text-2xs text-muted-foreground">Valid Till: {formatDate(validTill)}</p>
     </div>
   );
 }

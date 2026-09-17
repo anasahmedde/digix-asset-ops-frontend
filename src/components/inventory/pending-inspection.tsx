@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Modal } from "@/components/ui/modal";
+import { Qty } from "@/components/ui/qty";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
@@ -20,6 +21,8 @@ interface ReceiptLine {
   material_name: string | null;
   device_model_name: string | null;
   quantity: number;
+  /** Unit of measure of the delivered line. */
+  unit?: string;
   batch_number: string;
   serial_numbers: string[];
   inspection_status: string;
@@ -277,7 +280,7 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
                     <td className={`${tdClass} text-foreground`}>
                       {line.po_item_description ?? line.material_name ?? line.device_model_name ?? "—"}
                     </td>
-                    <td className={`${tdClass} font-medium text-foreground`}>{line.quantity}</td>
+                    <td className={`${tdClass} font-medium text-foreground`}><Qty value={line.quantity} unit={line.unit} /></td>
                     <td className={`${tdClass} font-mono text-muted-foreground`}>{line.batch_number || "—"}</td>
                     <td className={`${tdClass} text-muted-foreground`}>
                       {line.serial_numbers.length > 0 ? `${line.serial_numbers.length} captured` : "—"}
@@ -417,7 +420,7 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
                           title="Warranty months, counted from today"
                           className={`${smallInput} w-40`}
                         />
-                        <span className="text-[11px] text-muted-foreground">from today · blank = no warranty</span>
+                        <span className="text-2xs text-muted-foreground">from today · blank = no warranty</span>
                       </div>
                     </div>
                   ))}

@@ -80,7 +80,7 @@ export function SelectOrCreate({
           <button
             type="button"
             onClick={() => { setCreating(false); setDraft(""); }}
-            className="text-[11px] font-medium text-primary hover:underline"
+            className="text-2xs font-medium text-primary hover:underline"
           >
             Pick an existing one
           </button>
@@ -119,7 +119,7 @@ export function SelectOrCreate({
         <button
           type="button"
           onClick={() => setCreating(true)}
-          className="text-[11px] font-medium text-primary hover:underline"
+          className="text-2xs font-medium text-primary hover:underline"
         >
           + Add new
         </button>

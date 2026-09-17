@@ -160,7 +160,7 @@ export function Sidebar() {
                     <button
                       onClick={() => toggleExpand(item.name)}
                       className={cn(
-                        "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium transition-all duration-150",
+                        "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-150",
                         childActive
                           ? "text-primary"
                           : "text-sidebar-foreground hover:bg-secondary hover:text-foreground"
@@ -188,7 +188,7 @@ export function Sidebar() {
                                 href={child.href}
                                 onClick={closeMobile}
                                 className={cn(
-                                  "flex items-center gap-3 rounded-lg px-3 py-2 text-[12px] font-medium transition-all duration-150",
+                                  "flex items-center gap-3 rounded-lg px-3 py-2 text-xs font-medium transition-all duration-150",
                                   childIsActive
                                     ? "bg-primary/10 text-primary"
                                     : "text-sidebar-foreground hover:bg-secondary hover:text-foreground"
@@ -208,7 +208,7 @@ export function Sidebar() {
                     href={item.href}
                     onClick={closeMobile}
                     className={cn(
-                      "flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium transition-all duration-150",
+                      "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-150",
                       isActive
                         ? "bg-primary/10 text-primary"
                         : "text-sidebar-foreground hover:bg-secondary hover:text-foreground"
@@ -221,7 +221,7 @@ export function Sidebar() {
                       <>
                         <span className="flex-1">{item.name}</span>
                         {item.badge !== undefined && item.badge > 0 && (
-                          <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-bold text-primary-foreground">
+                          <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-2xs font-bold text-primary-foreground">
                             {item.badge > 99 ? "99+" : item.badge}
                           </span>
                         )}
@@ -241,7 +241,7 @@ export function Sidebar() {
       <div className="border-t border-border p-3">
         <button
           onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-          className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium text-sidebar-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-sidebar-foreground transition-colors hover:bg-secondary hover:text-foreground"
         >
           {theme === "dark" ? (
             <Sun className="h-[18px] w-[18px] shrink-0" />

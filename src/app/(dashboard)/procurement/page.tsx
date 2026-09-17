@@ -6,6 +6,7 @@ import { toast } from "sonner";
 
 import { Requisitions } from "@/components/procurement/requisitions";
 import { FilterBar } from "@/components/ui/filter-bar";
+import { Qty } from "@/components/ui/qty";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { CURRENCIES } from "@/lib/currency";
@@ -29,6 +30,11 @@ interface POItem {
   asset_type?: string | null;
   device_model?: string | null;
   material_type?: string | null;
+  /** What the line is, worked out from what it points at (asset, part, stock row). */
+  line_title?: string | null;
+  line_detail?: string | null;
+  /** Unit of measure of the line (piece, meter, asset…). */
+  unit?: string;
   /** Set when the line is for a serialized inventory product. */
   inventory_unit_type?: string | null;
   inventory_item?: string | null;
@@ -771,7 +777,7 @@ export default function ProcurementPage() {
                   <th className={thClass}>Status</th>
                   <th className={thClass}>Items</th>
                   <th className={thClass}>Order Date</th>
-                  <th className={thClass}>Expected Delivery</th>
+                  <th className={thClass}>Required Delivery</th>
                   <th className={thClass}>Total Amount</th>
                   <th className={thClass}>Ordered By</th>
                   <th className={thClass}>Actions</th>
@@ -833,9 +839,12 @@ export default function ProcurementPage() {
                                 <tbody>
                                   {po.items.map((item, i) => (
                                     <tr key={item.id ?? i} className="border-b border-border last:border-0">
-                                      <td className="px-4 py-2 text-foreground">{item.description}</td>
+                                      <td className="px-4 py-2 text-foreground">
+                                        {item.line_title ?? item.description}
+                                        {item.line_detail && <span className="block text-2xs text-muted-foreground">{item.line_detail}</span>}
+                                      </td>
                                       <td className="px-4 py-2 text-muted-foreground">{itemTypeLabel(item)}</td>
-                                      <td className="px-4 py-2 text-right text-muted-foreground">{item.quantity}</td>
+                                      <td className="px-4 py-2 text-right text-muted-foreground"><Qty value={item.quantity} unit={item.unit} /></td>
                                       <td className="px-4 py-2 text-right text-muted-foreground">{po.prices_hidden ? "—" : Number(item.unit_price).toLocaleString()}</td>
                                       <td className="px-4 py-2 text-right text-muted-foreground">{item.received_quantity ?? 0} / {item.quantity}</td>
                                       <td className="px-4 py-2 text-right font-medium text-foreground">
@@ -951,10 +960,10 @@ export default function ProcurementPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1.5">
                     <label htmlFor="order_date" className={labelClass}>Order Date</label>
-                    <input id="order_date" type="text" value={form.order_date || "Set when the order is placed"} disabled className={`${inputClass} bg-secondary/40 text-muted-foreground`} />
+                    <input id="order_date" type="text" value={form.order_date || "Set when the Group Head approves the order"} disabled className={`${inputClass} bg-secondary/40 text-muted-foreground`} />
                   </div>
                   <div className="space-y-1.5">
-                    <label htmlFor="expected_delivery" className={labelClass}>Expected Delivery</label>
+                    <label htmlFor="expected_delivery" className={labelClass}>Required Delivery</label>
                     <input id="expected_delivery" type="date" value={form.expected_delivery} onChange={(e) => setForm({ ...form, expected_delivery: e.target.value })} className={inputClass} />
                   </div>
                 </div>
@@ -1132,7 +1141,7 @@ export default function ProcurementPage() {
                             <p className="mt-0.5 text-xs text-muted-foreground">
                               Ordered {r.ordered} · Received {r.received} · Outstanding {r.outstanding}
                               {r.serialized && (
-                                <span className="ml-2 inline-flex rounded-full bg-indigo-500/10 px-2 py-0.5 text-[10px] font-medium text-indigo-400 ring-1 ring-indigo-500/20">
+                                <span className="ml-2 inline-flex rounded-full bg-indigo-500/10 px-2 py-0.5 text-2xs font-medium text-indigo-400 ring-1 ring-indigo-500/20">
                                   Serialized
                                 </span>
                               )}

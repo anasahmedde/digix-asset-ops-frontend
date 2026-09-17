@@ -397,7 +397,7 @@ export default function WorkOrdersPage() {
                   <input type="date" value={form.order_date} onChange={(e) => setForm({ ...form, order_date: e.target.value })} className={inputClass} />
                 </div>
                 <div className="space-y-1.5">
-                  <label className={labelClass}>Expected Delivery</label>
+                  <label className={labelClass}>Required Delivery</label>
                   <input type="date" value={form.expected_delivery} onChange={(e) => setForm({ ...form, expected_delivery: e.target.value })} className={inputClass} />
                 </div>
               </div>

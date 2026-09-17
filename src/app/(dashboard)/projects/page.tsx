@@ -81,7 +81,7 @@ function ContractBadge({ contractType, rentalEndDate, compact = false }: { contr
       ? `Rental${rentalEndDate ? ` until ${rentalEndDate}` : ""}`
       : "Sold Outright";
   return (
-    <span className={`inline-flex items-center rounded-full font-semibold ${compact ? "px-2 py-0.5 text-[10px]" : "px-3 py-1 text-xs"} ${
+    <span className={`inline-flex items-center rounded-full font-semibold ${compact ? "px-2 py-0.5 text-2xs" : "px-3 py-1 text-xs"} ${
       isRental ? "bg-blue-500/10 text-blue-600 ring-1 ring-blue-500/20" : "bg-emerald-500/10 text-emerald-600 ring-1 ring-emerald-500/20"
     }`}>
       {label}
@@ -674,7 +674,7 @@ export default function ProjectsPage() {
           >
             {siteOptions.map((st) => <option key={st.id} value={st.id}>{st.label}</option>)}
           </select>
-          <p className="mt-1 text-[11px] text-muted-foreground">Hold Ctrl (Cmd on Mac) to pick more than one. Locations are defined under Sites.</p>
+          <p className="mt-1 text-2xs text-muted-foreground">Hold Ctrl (Cmd on Mac) to pick more than one. Locations are defined under Sites.</p>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -837,7 +837,7 @@ export default function ProjectsPage() {
             { label: "Progress", value: `${d.progress}%` },
           ].map((f) => (
             <div key={f.label} className="rounded-xl border border-border bg-card px-4 py-3">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{f.label}</p>
+              <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">{f.label}</p>
               <p className="text-sm font-medium text-foreground">{f.value}</p>
             </div>
           ))}
@@ -867,7 +867,7 @@ export default function ProjectsPage() {
               </span>
               <span>
                 <span className={`block text-sm font-semibold ${projectTab === t.key ? "text-primary" : "text-foreground"}`}>{t.label}</span>
-                <span className="block text-[11px] text-muted-foreground">{t.hint}</span>
+                <span className="block text-2xs text-muted-foreground">{t.hint}</span>
               </span>
             </button>
           ))}
@@ -954,7 +954,7 @@ export default function ProjectsPage() {
               )}
               {canEdit && (
                 <form onSubmit={addScopeItem} className="mt-3 space-y-2 rounded-lg border border-border/70 p-3">
-                  <p className="text-[11px] text-muted-foreground">
+                  <p className="text-2xs text-muted-foreground">
                     Every asset has its own ID: add each one once. An asset already on another project cannot be added.
                   </p>
                   <div className="grid gap-2 sm:grid-cols-3">
@@ -1033,7 +1033,7 @@ export default function ProjectsPage() {
                     { label: "Shortage", value: bomTotals.shortage, alert: bomTotals.shortage > 0 },
                   ].map((t) => (
                     <div key={t.label} className="rounded-lg border border-border/70 px-3 py-2">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{t.label}</p>
+                      <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">{t.label}</p>
                       <p className={`text-sm font-semibold ${t.alert ? "text-red-500" : "text-foreground"}`}>{t.value}</p>
                     </div>
                   ))}
@@ -1071,7 +1071,7 @@ export default function ProjectsPage() {
                                 <td className="px-3 py-2 text-right">
                                   <button
                                     onClick={() => openAllocate(l)}
-                                    className="rounded-md border border-border px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                                    className="rounded-md border border-border px-2 py-1 text-2xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                                   >
                                     Allocate
                                   </button>
@@ -1086,7 +1086,7 @@ export default function ProjectsPage() {
                                       <span key={a.id} className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-card px-2.5 py-1">
                                         <span className="font-medium text-foreground">{a.device_code || a.item_name || "—"}</span>
                                         <span className="text-muted-foreground">×{a.quantity}</span>
-                                        <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold capitalize ${
+                                        <span className={`rounded-full px-1.5 py-0.5 text-2xs font-semibold capitalize ${
                                           a.status === "issued" ? "bg-emerald-500/10 text-emerald-600" : "bg-blue-500/10 text-blue-600"
                                         }`}>{a.status}</span>
                                         {canEdit && a.inventory_item && a.status === "allocated" && (
@@ -1094,7 +1094,7 @@ export default function ProjectsPage() {
                                             onClick={() => issueAllocation(l, a.id)}
                                             disabled={issuingId === a.id}
                                             title="Issue this stock out of the warehouse to the project"
-                                            className="rounded-md bg-primary px-2 py-0.5 text-[10px] font-medium text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
+                                            className="rounded-md bg-primary px-2 py-0.5 text-2xs font-medium text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
                                           >
                                             {issuingId === a.id ? "Issuing…" : "Issue"}
                                           </button>
@@ -1159,7 +1159,7 @@ export default function ProjectsPage() {
                       </button>
                       <div className="min-w-0 flex-1">
                         <p className={`text-xs font-medium ${m.completed_at ? "text-muted-foreground line-through" : "text-foreground"}`}>{m.title}</p>
-                        <p className="text-[10px] text-muted-foreground">
+                        <p className="text-2xs text-muted-foreground">
                           {m.due_date ? `Due ${m.due_date}` : ""}
                           {m.completed_at ? `${m.due_date ? " · " : ""}done ${new Date(m.completed_at).toLocaleDateString()}` : ""}
                         </p>
@@ -1191,7 +1191,7 @@ export default function ProjectsPage() {
                   {d.bottlenecks.map((b) => (
                     <div key={b.id} className="flex items-center justify-between rounded-lg border border-border/60 px-3 py-2">
                       <span className={`text-xs font-medium ${b.is_resolved ? "text-muted-foreground line-through" : "text-foreground"}`}>{b.title}</span>
-                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold capitalize ${
+                      <span className={`rounded-full px-2 py-0.5 text-2xs font-semibold capitalize ${
                         b.severity === "critical" || b.severity === "high" ? "bg-red-500/10 text-red-600" : "bg-amber-500/10 text-amber-600"
                       }`}>{b.severity}</span>
                     </div>
@@ -1239,7 +1239,7 @@ export default function ProjectsPage() {
                   </label>
                   <SearchSelect options={allocDeviceOptions} value={allocDevice} onChange={setAllocDevice} placeholder="Search in-stock devices…" />
                   {allocDeviceOptions.length === 0 && (
-                    <p className="mt-1 text-[11px] text-muted-foreground">
+                    <p className="mt-1 text-2xs text-muted-foreground">
                       No in-stock devices{allocLine.device_model_name ? ` of model ${allocLine.device_model_name}` : ""} available.
                     </p>
                   )}
@@ -1447,7 +1447,7 @@ export default function ProjectsPage() {
                     <td className="px-5 py-3.5">
                       <div>
                         <p className="text-foreground">{project.target_date || "—"}</p>
-                        <p className="text-[10px] text-muted-foreground">{daysLeft(project.target_date)}</p>
+                        <p className="text-2xs text-muted-foreground">{daysLeft(project.target_date)}</p>
                       </div>
                     </td>
                     <td className="px-5 py-3.5">
@@ -1500,7 +1500,7 @@ export default function ProjectsPage() {
             {(stats?.top_bottlenecks ?? []).map((b, i) => (
               <div key={i} className="flex items-center justify-between">
                 <span className="text-xs text-muted-foreground">{b.title}</span>
-                <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-500">
+                <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-2xs font-semibold text-amber-500">
                   {b.project_count} Project{b.project_count !== 1 ? "s" : ""}
                 </span>
               </div>
@@ -1530,7 +1530,7 @@ export default function ProjectsPage() {
                 <div className="mt-2 flex items-center gap-2">
                   <span className="text-xs text-destructive font-semibold">{fp.progress}%</span>
                   {fp.bottleneck_count > 0 && (
-                    <span className="text-[10px] text-muted-foreground">
+                    <span className="text-2xs text-muted-foreground">
                       ▸ {fp.bottleneck_count} Critical Flag{fp.bottleneck_count > 1 ? "s" : ""}
                     </span>
                   )}

@@ -103,9 +103,9 @@ export function ProgressStepper({ steps, className }: ProgressStepperProps) {
               >
                 {step.label}
               </span>
-              <span className={cn("mt-0.5 text-[10px]", STATUS_TEXT[step.status])}>{STATUS_LABEL[step.status]}</span>
+              <span className={cn("mt-0.5 text-2xs", STATUS_TEXT[step.status])}>{STATUS_LABEL[step.status]}</span>
               {step.meta && (
-                <span className="mt-0.5 text-[10px] tabular-nums text-muted-foreground">{step.meta}</span>
+                <span className="mt-0.5 text-2xs tabular-nums text-muted-foreground">{step.meta}</span>
               )}
             </li>
           );

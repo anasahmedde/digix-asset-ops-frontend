@@ -37,13 +37,6 @@ const STATE_BADGES: Record<string, string> = {
   none: "bg-secondary text-muted-foreground ring-gray-500/20",
 };
 const STATE_LABELS: Record<string, string> = { active: "Active", expired: "Expired", none: "No cover" };
-const TYPE_LABELS: Record<string, string> = {
-  manufacturer: "Manufacturer",
-  extended: "Extended",
-  supplier: "Supplier",
-  client: "Client",
-};
-
 export function ComponentWarranties() {
   const [units, setUnits] = useState<UnitWarranty[]>([]);
   const [loading, setLoading] = useState(true);
@@ -132,7 +125,6 @@ export function ComponentWarranties() {
                   <th className={thClass}>Sr. No.</th>
                   <th className={thClass}>Serial Number</th>
                   <th className={thClass}>Component</th>
-                  <th className={thClass}>Type</th>
                   <th className={thClass}>Cover</th>
                   <th className={thClass}>Start</th>
                   <th className={thClass}>End</th>
@@ -149,9 +141,6 @@ export function ComponentWarranties() {
                       {unit.brand_name && (
                         <span className="block text-xs text-muted-foreground">{unit.brand_name}</span>
                       )}
-                    </td>
-                    <td className={`${tdClass} text-muted-foreground`}>
-                      {TYPE_LABELS[unit.warranty_type] ?? unit.warranty_type ?? "—"}
                     </td>
                     <td className={tdClass}>
                       <span

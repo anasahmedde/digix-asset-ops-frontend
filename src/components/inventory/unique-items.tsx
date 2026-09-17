@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { CopyButton } from "@/components/ui/copy-button";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { Modal } from "@/components/ui/modal";
+import { Qty } from "@/components/ui/qty";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
@@ -85,6 +86,8 @@ export function UniqueItems() {
 
   const [expanded, setExpanded] = useState<string | null>(null);
   const [units, setUnits] = useState<Record<string, UnitRow[]>>({});
+  // A serial is text until its pencil is clicked; nothing changes by accident.
+  const [editingSerial, setEditingSerial] = useState<string | null>(null);
   const [filterValues, setFilterValues] = useState<Record<string, string>>({ stock: "", category: "" });
   const [search, setSearch] = useState("");
 
@@ -285,7 +288,6 @@ export function UniqueItems() {
                   <th className={thClass}>Component</th>
                   <th className={thClass}>Make / Model</th>
                   <th className={thClass}>In Stock</th>
-                  <th className={thClass}>Unit</th>
                   <th className={thClass}>Unit Cost</th>
                   {canEdit && <th className={thClass}>Actions</th>}
                 </tr>
@@ -312,10 +314,9 @@ export function UniqueItems() {
                       </td>
                       <td className={tdClass}>
                         <span className={`font-semibold ${p.in_stock_count === 0 ? "text-muted-foreground" : "text-foreground"}`}>
-                          {p.in_stock_count}
+                          <Qty value={p.in_stock_count} unit={p.unit} />
                         </span>
                       </td>
-                      <td className={`${tdClass} text-muted-foreground`}>{p.unit || "piece"}</td>
                       <td className={`${tdClass} text-muted-foreground`}>{p.unit_cost ?? "—"}</td>
                       {canEdit && (
                         <td className={tdClass} onClick={(e) => e.stopPropagation()}>
@@ -344,7 +345,7 @@ export function UniqueItems() {
                           {Object.keys(p.specifications ?? {}).length > 0 && (
                             <div className="mb-3 flex flex-wrap gap-2">
                               {Object.entries(p.specifications).map(([k, v]) => (
-                                <span key={k} className="rounded-full bg-card px-2.5 py-0.5 text-[11px] text-muted-foreground ring-1 ring-border">
+                                <span key={k} className="rounded-full bg-card px-2.5 py-0.5 text-2xs text-muted-foreground ring-1 ring-border">
                                   <span className="font-medium text-foreground">{k}:</span> {String(v)}
                                 </span>
                               ))}
@@ -370,16 +371,32 @@ export function UniqueItems() {
                                 {(units[p.id] ?? []).map((u) => (
                                   <tr key={u.id} className="border-t border-border/60">
                                     <td className="py-1.5">
-                                      {canEdit ? (
+                                      {editingSerial === u.id ? (
                                         <input
+                                          autoFocus
                                           defaultValue={u.serial_number}
-                                          onBlur={(e) => saveSerial(p.id, u, e.target.value)}
-                                          onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                                          title="Type the real serial number — it saves when you leave the box"
+                                          onBlur={(e) => { saveSerial(p.id, u, e.target.value); setEditingSerial(null); }}
+                                          onKeyDown={(e) => {
+                                            if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                                            if (e.key === "Escape") setEditingSerial(null);
+                                          }}
+                                          title="Type the real serial number — Enter or leaving the box saves it"
                                           className="h-7 w-44 rounded-md border border-border bg-background px-2 font-mono text-xs text-foreground focus:border-primary/50 focus:outline-none"
                                         />
                                       ) : (
-                                        <span className="font-mono text-foreground">{u.serial_number}</span>
+                                        <span className="inline-flex items-center gap-2">
+                                          <span className="font-mono text-foreground">{u.serial_number}</span>
+                                          {canEdit && (
+                                            <button
+                                              type="button"
+                                              onClick={() => setEditingSerial(u.id)}
+                                              title="Edit this serial number"
+                                              className="text-muted-foreground transition-colors hover:text-foreground"
+                                            >
+                                              <Pencil className="h-3 w-3" />
+                                            </button>
+                                          )}
+                                        </span>
                                       )}
                                     </td>
                                     <td className="py-1.5 text-muted-foreground">{STATUS_LABELS[u.status] ?? u.status}</td>
@@ -387,11 +404,11 @@ export function UniqueItems() {
                                     <td className="py-1.5 font-mono text-muted-foreground">
                                       {[u.grn_number, u.po_number].filter(Boolean).join(" · ") || "Entered by hand"}
                                       {u.supplier_name && (
-                                        <span className="block font-sans text-[11px] text-muted-foreground">{u.supplier_name}</span>
+                                        <span className="block font-sans text-2xs text-muted-foreground">{u.supplier_name}</span>
                                       )}
                                     </td>
                                     <td className="py-1.5">
-                                      <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ${WARRANTY_BADGES[u.warranty_state]}`}>
+                                      <span className={`inline-flex rounded-full px-2 py-0.5 text-2xs font-medium ring-1 ${WARRANTY_BADGES[u.warranty_state]}`}>
                                         {u.warranty_state === "active" ? `till ${u.warranty_end}` : u.warranty_state === "expired" ? "Expired" : "None"}
                                       </span>
                                     </td>
@@ -493,7 +510,7 @@ export function UniqueItems() {
                   defaultValue={0}
                   className={inputClass}
                 />
-                <p className="text-[10px] text-muted-foreground">
+                <p className="text-2xs text-muted-foreground">
                   Units already on the shelf. Each gets a provisional serial from the product
                   code — correct them as the units are found. Leave at 0 to open empty.
                 </p>
@@ -508,7 +525,7 @@ export function UniqueItems() {
               <button
                 type="button"
                 onClick={() => setSpecs((prev) => [...prev, { key: "", value: "" }])}
-                className="text-[11px] font-medium text-primary hover:underline"
+                className="text-2xs font-medium text-primary hover:underline"
               >
                 + Add detail
               </button>
@@ -538,7 +555,7 @@ export function UniqueItems() {
             ))}
           </div>
 
-          <p className="rounded-lg border border-dashed border-border px-3 py-2 text-[11px] text-muted-foreground">
+          <p className="rounded-lg border border-dashed border-border px-3 py-2 text-2xs text-muted-foreground">
             Warranty is recorded when units are received — type the term at inspection and it runs from that day.
             The dashboard&apos;s in-hand stock watchlist is chosen on the dashboard.
           </p>

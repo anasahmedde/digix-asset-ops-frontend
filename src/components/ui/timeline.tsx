@@ -83,7 +83,7 @@ export function Timeline({
       {groups.map((group, g) => (
         <section key={`${group.label}-${g}`}>
           {group.label && (
-            <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <p className="mb-2 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
               {group.label}
             </p>
           )}
@@ -102,13 +102,13 @@ export function Timeline({
                   <div className="text-xs leading-snug text-foreground">{item.title}</div>
                   {item.description && (
                     <p
-                      className={cn("mt-0.5 text-[11px] text-muted-foreground", compact && "truncate")}
+                      className={cn("mt-0.5 text-2xs text-muted-foreground", compact && "truncate")}
                       title={compact ? item.description : undefined}
                     >
                       {item.description}
                     </p>
                   )}
-                  <p className="mt-0.5 text-[10px] tabular-nums text-muted-foreground">
+                  <p className="mt-0.5 text-2xs tabular-nums text-muted-foreground">
                     <span className="font-medium">{item.actor || "System"}</span>
                     {item.at && (
                       <>
