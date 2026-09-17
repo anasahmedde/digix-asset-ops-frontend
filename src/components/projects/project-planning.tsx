@@ -49,6 +49,11 @@ interface Plan {
     id: string;
     asset_code: string;
     asset_name: string;
+    /** Bought complete from a vendor — priced as one line. */
+    vendor_asset?: boolean;
+    source?: string;
+    asset_price?: string | null;
+    supply_vendor_name?: string | null;
     lines: number;
     materials_total: string;
     unpriced_lines: number;
@@ -235,6 +240,19 @@ export function ProjectPlanning({
       await api.patch(`/assets/components/${componentId}/`, { planned_unit_price: value || null });
       await load();
       toast.success(value ? "Price set" : "Price back to the last procured figure");
+    } catch (err) {
+      toast.error(getApiError(err, "Could not set that price"));
+    }
+  }
+
+  /** The vendor's price for a complete asset — the plan's one line for it. */
+  async function saveAssetPrice(deviceId: string, raw: string, current: string | null | undefined) {
+    const value = raw.trim();
+    if (value === (current == null ? "" : String(Number(current)))) return;
+    try {
+      await api.patch(`/assets/devices/${deviceId}/`, { purchase_price: value || null });
+      await load();
+      toast.success(value ? "Vendor price set" : "Vendor price cleared");
     } catch (err) {
       toast.error(getApiError(err, "Could not set that price"));
     }
@@ -502,6 +520,44 @@ export function ProjectPlanning({
                       <td className={`${tdClass} text-right font-semibold text-foreground`}>{money(asset.asset_total)}</td>
                     </tr>
 
+                    {asset.vendor_asset ? (
+                      <tr className="border-t border-border/50">
+                        <td className={`${tdClass} pl-6 font-medium text-foreground`}>
+                          Complete asset from the vendor
+                          <span className="block text-[11px] font-normal text-muted-foreground">
+                            Bought whole on a purchase order — no components or production route.
+                            {asset.supply_vendor_name ? ` Vendor: ${asset.supply_vendor_name}.` : ""}
+                          </span>
+                        </td>
+                        <td className={`${tdClass} text-right text-foreground`}>1</td>
+                        <td className={`${tdClass} text-right`}>
+                          {editable ? (
+                            <input
+                              key={`${asset.id}-${asset.asset_price ?? ""}`}
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              defaultValue={asset.asset_price ?? ""}
+                              onBlur={(e) => saveAssetPrice(asset.id, e.target.value, asset.asset_price)}
+                              placeholder="Vendor price"
+                              title="The vendor's price for the complete asset; the purchase order suggests it"
+                              className={`${inputClass} w-28 text-right`}
+                            />
+                          ) : (
+                            <span className="text-foreground">{asset.asset_price != null ? money(asset.asset_price) : "—"}</span>
+                          )}
+                        </td>
+                        <td className={tdClass}>
+                          <span className={asset.asset_price == null ? "font-medium text-amber-600" : "text-muted-foreground"}>
+                            {asset.asset_price == null ? "No price on record" : "Vendor price"}
+                          </span>
+                        </td>
+                        <td className={`${tdClass} text-right font-medium text-foreground`}>
+                          {asset.asset_price != null ? money(asset.asset_price) : "—"}
+                        </td>
+                      </tr>
+                    ) : (
+                    <>
                     <tr>
                       <td colSpan={4} className={`${tdClass} pl-6 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground`}>
                         Components
@@ -597,6 +653,8 @@ export function ProjectPlanning({
                           </td>
                         </tr>
                       ))
+                    )}
+                    </>
                     )}
                   </tbody>
                 );

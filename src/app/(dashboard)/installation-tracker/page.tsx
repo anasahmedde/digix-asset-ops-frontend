@@ -896,6 +896,10 @@ export default function InstallationTrackerPage() {
                   <p className="font-medium text-foreground">{selected.client_names.length > 0 ? selected.client_names.join(", ") : "—"}</p>
                 </div>
                 <div>
+                  <p className="text-xs text-muted-foreground">Project</p>
+                  <p className="font-medium text-foreground">{selected.project_name || "—"}</p>
+                </div>
+                <div>
                   <p className="text-xs text-muted-foreground">POC</p>
                   <p className="font-medium text-foreground">
                     {selected.poc_name || "—"}

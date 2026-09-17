@@ -60,6 +60,9 @@ interface Device {
 }
 
 interface DeviceDetail extends Device {
+  procurement_po_number?: string | null;
+  procurement_requested_at?: string | null;
+  route_complete?: boolean;
   source: string;
   /** The lifecycle stage as the API labels it (e.g. In Procurement). */
   status_display?: string;
@@ -248,7 +251,7 @@ const SOURCE_LABELS: Record<string, string> = {
 };
 
 // The build-and-deploy line, in the order it actually happens.
-const TRACK_MAIN = ["procured", "in_production", "in_stock", "assigned", "installed", "active"] as const;
+const TRACK_ALL = ["procured", "in_production", "in_stock", "assigned", "installed", "active"] as const;
 // Where an asset's life ends. Drawn as a spur, not more track: it is not the
 // next step for every asset, and nothing comes back from it.
 const TRACK_END = ["client_property", "decommissioned"] as const;
@@ -268,8 +271,10 @@ function shortDate(iso: string | undefined) {
  * (the asset comes back from it), so it branches below that checkpoint rather
  * than sitting on the line as if it came next.
  */
-function LifecycleStepper({ status, stageDates }: { status: string; stageDates: Record<string, string> }) {
+function LifecycleStepper({ status, stageDates, requiresProduction = true }: { status: string; stageDates: Record<string, string>; requiresProduction?: boolean }) {
   const label = (s: string) => STATUSES.find((x) => x.value === s)?.label ?? s;
+  // A vendor-supplied asset is bought complete: its rail has no production stage.
+  const TRACK_MAIN = requiresProduction ? TRACK_ALL : TRACK_ALL.filter((st) => st !== "in_production");
   const inMaintenance = status === "under_maintenance";
   const ended = (TRACK_END as readonly string[]).includes(status);
   const offTrack = OFF_TRACK.includes(status);
@@ -555,6 +560,10 @@ export default function AssetsPage() {
     api.get(`/assets/devices/${deviceId}/`).then(({ data }) => {
       setDetailView(data);
       setDetailTab("overview");
+      // Coming from a project's Execution tab: straight to assigning the site and technician.
+      if (searchParams.get("assign") && (data.allowed_transitions ?? []).includes("assigned")) {
+        setTransitionTarget("assigned");
+      }
       fetchRelatedData(data.id);
       // Deep-linking straight to an asset still needs the technician, site and
       // client pickers the detail view's own dialogs use.
@@ -1188,7 +1197,7 @@ export default function AssetsPage() {
           <div className="rounded-xl border border-border bg-card p-5">
             <h3 className="text-sm font-semibold text-foreground mb-4">Quick Overview</h3>
             <div className="space-y-3">
-              <OverviewRow icon={<Package className="h-4 w-4 text-blue-400" />} label="Components" value={String((d.components ?? []).length)} />
+              <OverviewRow icon={<Package className="h-4 w-4 text-blue-400" />} label="Components" value={d.requires_production ? String((d.components ?? []).length) : "—"} />
               <OverviewRow icon={<HardDrive className="h-4 w-4 text-cyan-400" />} label="Manufacturing Route" value={d.source_display} />
               <OverviewRow icon={<Zap className="h-4 w-4 text-amber-400" />} label="Production Steps" value={d.requires_production ? String((d.production_steps ?? []).length) : "—"} />
               <OverviewRow icon={<Clock className="h-4 w-4 text-green-400" />} label="Batch" value={d.batch_number || "—"} />
@@ -1227,7 +1236,7 @@ export default function AssetsPage() {
                   <div className="space-y-6">
                     <div>
                       <h4 className="text-sm font-semibold text-foreground mb-3">Asset Lifecycle</h4>
-                      <LifecycleStepper status={d.status} stageDates={d.stage_dates ?? {}} />
+                      <LifecycleStepper requiresProduction={d.requires_production} status={d.status} stageDates={d.stage_dates ?? {}} />
                       {canEdit && (
                         <div className="mt-4 rounded-lg border border-border bg-secondary/20 p-3">
                           <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Change Status</p>
@@ -1494,6 +1503,40 @@ export default function AssetsPage() {
                     </div>
                     {/* Only an in-house build has a bill of materials of ours;
                         for vendor routes the section stays visible but inert. */}
+                    {!d.requires_production && (
+                      <div className="rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <h4 className="text-sm font-semibold text-foreground">Complete asset from the vendor</h4>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {d.source_display} — bought whole on a purchase order, so it has no components or
+                              production route of its own. Its price and warranty come from the order.
+                            </p>
+                          </div>
+                          <span className="rounded-full bg-card px-2.5 py-0.5 text-[11px] font-medium text-indigo-600 ring-1 ring-indigo-500/20">
+                            {d.status_display ?? statusLabel(d.status)}
+                          </span>
+                        </div>
+                        <dl className="mt-3 grid gap-3 text-xs sm:grid-cols-4">
+                          <div><dt className="text-[10px] uppercase tracking-wider text-muted-foreground">Vendor</dt><dd className="text-foreground">{d.supply_vendor_name || d.supplier_name || "—"}</dd></div>
+                          <div><dt className="text-[10px] uppercase tracking-wider text-muted-foreground">Price</dt><dd className="text-foreground">{d.purchase_price ? `PKR ${Number(d.purchase_price).toLocaleString()}` : "—"}</dd></div>
+                          <div><dt className="text-[10px] uppercase tracking-wider text-muted-foreground">Purchase order</dt><dd className="font-mono text-foreground">{d.procurement_po_number ?? (d.procurement_requested_at ? "Awaiting PO" : "—")}</dd></div>
+                          <div><dt className="text-[10px] uppercase tracking-wider text-muted-foreground">Project</dt><dd className="text-foreground">{d.project_name ?? "—"}</dd></div>
+                        </dl>
+                        <p className="mt-3 text-[11px] text-muted-foreground">
+                          {d.status === "procured"
+                            ? d.procurement_po_number
+                              ? "On order — it comes into stock when the delivery is received against the PO."
+                              : d.project_name
+                                ? "Awaiting the project's Execution decision to procure it, then the PO in Procurement."
+                                : "Awaiting its purchase order in Procurement → To Procure."
+                            : d.status === "in_stock"
+                              ? "In stock — assign it to a site above to open its installation."
+                              : ""}
+                        </p>
+                      </div>
+                    )}
+                    {d.requires_production && (<>
                     <div className={d.requires_production ? undefined : "opacity-60"}>
                       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                         <h4 className="text-sm font-semibold text-foreground">Components</h4>
@@ -1694,6 +1737,7 @@ export default function AssetsPage() {
                         locked={d.is_locked}
                       />
                     </div>
+                    </>)}
                     <div>
                       <h4 className="text-sm font-semibold text-foreground mb-3">Service History</h4>
                       <div className="grid gap-3 sm:grid-cols-2">
