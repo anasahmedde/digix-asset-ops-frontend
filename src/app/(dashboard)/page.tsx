@@ -9,13 +9,14 @@ import {
   Wrench,
 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import api from "@/lib/api";
 import { AssignedTicketsBanner } from "@/components/ui/assigned-tickets-banner";
 import { StatCard } from "@/components/ui/stat-card";
 import { DonutChart } from "@/components/charts/donut-chart";
 import { BarChart } from "@/components/charts/bar-chart";
+import { useUser } from "@/lib/user-context";
 import { formatDate } from "@/lib/utils";
 
 const StatusMap = dynamic(() => import("@/components/map/status-map"), {
@@ -123,8 +124,47 @@ export default function DashboardPage() {
   const [escalatedInstalls, setEscalatedInstalls] = useState<EscalatedInstallLite[]>([]);
   const [stock, setStock] = useState<{ id: string; sku: string; material_name: string | null; category_name: string | null; quantity: number; unit: string | null; total_value: number | null; is_low_stock: boolean }[]>([]);
   const [stockSummary, setStockSummary] = useState<{ total_value: number; total_quantity: number; items: number; low_stock: number; unpriced_items: number } | null>(null);
-  // Unique products the user has chosen to watch as in-hand stock.
+  // Item 1: the components the user has chosen to watch as in-hand stock —
+  // unique products by their units, generic items by their quantity.
+  const { canWrite } = useUser();
+  const canWatch = canWrite("inventory");
   const [highValue, setHighValue] = useState<{ id: string; name: string; type_code: string; in_stock_count: number; unit_cost: string | null }[]>([]);
+  const [watchedItems, setWatchedItems] = useState<{ id: string; sku: string; material_name: string | null; quantity: number; unit: string | null; unit_cost: string | null; total_value: number | null }[]>([]);
+  const [watchOptions, setWatchOptions] = useState<{ products: { id: string; name: string; type_code: string; is_high_value: boolean }[]; items: { id: string; sku: string; material_name: string | null; watch_on_dashboard: boolean }[] }>({ products: [], items: [] });
+
+  const loadWatched = useCallback(() => {
+    api.get("/inventory/products/", { params: { is_high_value: true, page_size: 100 } })
+      .then((r) => setHighValue(r.data.results ?? r.data))
+      .catch(() => {});
+    api.get("/inventory/items/", { params: { watch_on_dashboard: true, page_size: 100 } })
+      .then((r) => setWatchedItems(r.data.results ?? r.data))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!canWatch) return;
+    Promise.all([
+      api.get("/inventory/products/", { params: { page_size: 500 } }),
+      api.get("/inventory/items/", { params: { page_size: 500 } }),
+    ])
+      .then(([p, i]) => setWatchOptions({ products: p.data.results ?? p.data, items: i.data.results ?? i.data }))
+      .catch(() => {});
+  }, [canWatch]);
+
+  /** Add a component to the in-hand watchlist, or take it off again. */
+  async function setWatch(kind: "product" | "item", id: string, on: boolean) {
+    try {
+      if (kind === "product") await api.patch(`/inventory/products/${id}/`, { is_high_value: on });
+      else await api.patch(`/inventory/items/${id}/`, { watch_on_dashboard: on });
+      loadWatched();
+      setWatchOptions((prev) => ({
+        products: prev.products.map((p) => (p.id === id ? { ...p, is_high_value: on } : p)),
+        items: prev.items.map((it) => (it.id === id ? { ...it, watch_on_dashboard: on } : it)),
+      }));
+    } catch {
+      /* the list simply stays as it was */
+    }
+  }
   const [stockSortField, setStockSortField] = useState<"quantity" | "total_value" | "material_type__name">("quantity");
   const [stockSortDesc, setStockSortDesc] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -149,9 +189,7 @@ export default function DashboardPage() {
         if (maintMapRes.status === "fulfilled") setMaintSites(maintMapRes.value.data);
         if (alertsRes.status === "fulfilled") setAlerts(alertsRes.value.data.results ?? []);
         if (stockSummaryRes.status === "fulfilled") setStockSummary(stockSummaryRes.value.data);
-        api.get("/inventory/products/", { params: { is_high_value: true, page_size: 100 } })
-          .then((r) => setHighValue(r.data.results ?? r.data))
-          .catch(() => {});
+        loadWatched();
         if (ticketsRes.status === "fulfilled") setTickets(ticketsRes.value.data.results ?? []);
         if (projectsRes.status === "fulfilled") setProjects(projectsRes.value.data.results ?? []);
         if (escInstRes.status === "fulfilled") setEscalatedInstalls(escInstRes.value.data.results ?? []);
@@ -171,7 +209,7 @@ export default function DashboardPage() {
       }
     }
     fetchAll();
-  }, []);
+  }, [loadWatched]);
 
   useEffect(() => {
     const ordering = `${stockSortDesc ? "-" : ""}${stockSortField}`;
@@ -277,46 +315,72 @@ export default function DashboardPage() {
         </Link>
       </div>
 
-      {/* In-hand stock: the assets on the shelf, plus the high-value unique
-          items the user has chosen to watch alongside them. */}
+      {/* In-hand stock: the assets on the shelf, plus the components the user
+          has chosen to watch alongside them (item 1). */}
       <div className="rounded-xl border border-border bg-card p-5">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <div>
             <h2 className="text-base font-semibold text-foreground">In-Hand Stock</h2>
             <p className="text-xs text-muted-foreground">
               {inStock} asset{inStock === 1 ? "" : "s"} ready to install
-              {highValue.length > 0 ? ", plus the high-value items you are watching" : ""}
+              {highValue.length + watchedItems.length > 0 ? ", plus the components you are watching" : ""}
             </p>
           </div>
-          <Link href="/inventory" className="text-xs font-medium text-primary hover:underline">
-            Open inventory
-          </Link>
+          <div className="flex flex-wrap items-center gap-3">
+            {canWatch && (
+              <select
+                value=""
+                onChange={(e) => {
+                  const [kind, id] = e.target.value.split(":");
+                  if (kind === "product" || kind === "item") setWatch(kind, id, true);
+                }}
+                aria-label="Add a component to in-hand stock"
+                className="h-8 rounded-lg border border-border bg-background px-2 text-xs text-foreground focus:border-primary/50 focus:outline-none"
+              >
+                <option value="">+ Watch a component…</option>
+                <optgroup label="Unique components">
+                  {watchOptions.products.filter((p) => !p.is_high_value).map((p) => (
+                    <option key={p.id} value={`product:${p.id}`}>{p.name} · {p.type_code}</option>
+                  ))}
+                </optgroup>
+                <optgroup label="Generic components">
+                  {watchOptions.items.filter((it) => !it.watch_on_dashboard).map((it) => (
+                    <option key={it.id} value={`item:${it.id}`}>{it.material_name ?? it.sku} · {it.sku}</option>
+                  ))}
+                </optgroup>
+              </select>
+            )}
+            <Link href="/inventory" className="text-xs font-medium text-primary hover:underline">
+              Open inventory
+            </Link>
+          </div>
         </div>
 
-        {highValue.length === 0 ? (
+        {highValue.length + watchedItems.length === 0 ? (
           <p className="mt-4 rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
-            No high-value items selected. Tick &ldquo;Count in in-hand stock&rdquo; on a unique product
-            in Inventory to watch its quantity and value here.
+            No components on the watchlist yet. Pick one from &ldquo;Watch a component&rdquo; to see its
+            quantity and value here.
           </p>
         ) : (
           <div className="mt-4 overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
-                  <th className="py-2 font-medium">Item</th>
+                  <th className="py-2 font-medium">Component</th>
                   <th className="py-2 text-right font-medium">Qty Available</th>
                   <th className="py-2 text-right font-medium">Unit Cost</th>
                   <th className="py-2 text-right font-medium">Amount</th>
+                  {canWatch && <th className="py-2" />}
                 </tr>
               </thead>
               <tbody>
                 {highValue.map((p) => {
                   const amount = Number(p.unit_cost ?? 0) * p.in_stock_count;
                   return (
-                    <tr key={p.id} className="border-b border-border/60 last:border-0">
+                    <tr key={`p-${p.id}`} className="border-b border-border/60 last:border-0">
                       <td className="py-2 text-foreground">
                         {p.name}
-                        <span className="block font-mono text-[11px] text-muted-foreground">{p.type_code}</span>
+                        <span className="block font-mono text-[11px] text-muted-foreground">{p.type_code} · unique</span>
                       </td>
                       <td className="py-2 text-right font-medium text-foreground">{p.in_stock_count}</td>
                       <td className="py-2 text-right text-muted-foreground">
@@ -325,9 +389,34 @@ export default function DashboardPage() {
                       <td className="py-2 text-right font-medium text-foreground">
                         {p.unit_cost ? amount.toLocaleString() : "—"}
                       </td>
+                      {canWatch && (
+                        <td className="py-2 text-right">
+                          <button onClick={() => setWatch("product", p.id, false)} title="Stop watching" className="text-xs text-muted-foreground hover:text-destructive">×</button>
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
+                {watchedItems.map((it) => (
+                  <tr key={`i-${it.id}`} className="border-b border-border/60 last:border-0">
+                    <td className="py-2 text-foreground">
+                      {it.material_name ?? it.sku}
+                      <span className="block font-mono text-[11px] text-muted-foreground">{it.sku} · generic{it.unit ? ` · ${it.unit}` : ""}</span>
+                    </td>
+                    <td className="py-2 text-right font-medium text-foreground">{it.quantity}</td>
+                    <td className="py-2 text-right text-muted-foreground">
+                      {it.unit_cost ? Number(it.unit_cost).toLocaleString() : "—"}
+                    </td>
+                    <td className="py-2 text-right font-medium text-foreground">
+                      {it.total_value != null ? Number(it.total_value).toLocaleString() : "—"}
+                    </td>
+                    {canWatch && (
+                      <td className="py-2 text-right">
+                        <button onClick={() => setWatch("item", it.id, false)} title="Stop watching" className="text-xs text-muted-foreground hover:text-destructive">×</button>
+                      </td>
+                    )}
+                  </tr>
+                ))}
               </tbody>
               <tfoot>
                 <tr className="border-t border-border">
@@ -335,10 +424,12 @@ export default function DashboardPage() {
                     Total value in hand
                   </td>
                   <td className="py-2 text-right font-semibold text-foreground">
-                    {highValue
-                      .reduce((sum, p) => sum + Number(p.unit_cost ?? 0) * p.in_stock_count, 0)
-                      .toLocaleString()}
+                    {(
+                      highValue.reduce((sum, p) => sum + Number(p.unit_cost ?? 0) * p.in_stock_count, 0) +
+                      watchedItems.reduce((sum, it) => sum + Number(it.total_value ?? 0), 0)
+                    ).toLocaleString()}
                   </td>
+                  {canWatch && <td />}
                 </tr>
               </tfoot>
             </table>

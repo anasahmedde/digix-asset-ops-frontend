@@ -32,6 +32,8 @@ interface POItem {
   /** Set when the line is for a serialized inventory product. */
   inventory_unit_type?: string | null;
   inventory_item?: string | null;
+  /** Asset codes when the line buys complete assets (already in the registry). */
+  procured_asset_codes?: string[];
   received_quantity: number;
   line_total: string;
 }
@@ -46,6 +48,8 @@ interface PurchaseOrder {
   order_date: string | null;
   expected_delivery: string | null;
   total_amount: string;
+  /** True when the API withheld prices for this user's role. */
+  prices_hidden?: boolean;
   notes: string;
   /** Terms as typed on this order; `effective_terms` falls back to the standard. */
   terms: string;
@@ -72,6 +76,8 @@ interface ReceiveRow {
   quantity: string;
   batch_number: string;
   serials: string; // textarea raw value, one serial per line
+  /** Vendor warranty on a complete asset, in months from receipt (asset lines only). */
+  warranty_months: string;
 }
 
 interface CreatedDevice {
@@ -237,7 +243,7 @@ function parseReceiveErrors(err: unknown): { general: string[]; perLine: Record<
 }
 
 export default function ProcurementPage() {
-  const { canWrite } = useUser();
+  const { canWrite, user } = useUser();
   const canEdit = canWrite("procurement");
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -272,7 +278,8 @@ export default function ProcurementPage() {
 
   const fetchOrders = useCallback(async () => {
     try {
-      const { data } = await api.get("/procurement/purchase-orders/");
+      // The list filters and searches on the client, so it needs more than one page.
+      const { data } = await api.get("/procurement/purchase-orders/", { params: { page_size: 200 } });
       setOrders(data.results ?? data);
     } catch (err: unknown) {
       toast.error(getApiError(err, "Failed to load purchase orders"));
@@ -475,7 +482,6 @@ export default function ProcurementPage() {
     const payload = {
       supplier: form.supplier,
       currency: form.currency,
-      order_date: form.order_date || null,
       expected_delivery: form.expected_delivery || null,
       notes: form.notes,
       terms: form.terms,
@@ -526,12 +532,13 @@ export default function ProcurementPage() {
               description: i.description,
               // Assets and serialized inventory products both arrive with
               // serial numbers; generic stock does not.
-              serialized: Boolean(i.device_model || i.inventory_unit_type),
+              serialized: Boolean(i.device_model || i.inventory_unit_type || (i.procured_asset_codes?.length ?? 0) > 0),
               ordered: i.quantity,
               received,
               outstanding: Math.max(i.quantity - received, 0),
               quantity: "0",
               batch_number: "",
+              warranty_months: "",
               serials: "",
             };
           })
@@ -590,6 +597,7 @@ export default function ProcurementPage() {
       quantity: Number(r.quantity),
       ...(r.batch_number.trim() ? { batch_number: r.batch_number.trim() } : {}),
       ...(r.serialized ? { serial_numbers: parseSerials(r.serials) } : {}),
+      ...(r.serialized && r.warranty_months ? { warranty_months: Number(r.warranty_months) } : {}),
     }));
     setReceiveSaving(true);
     setReceiveError(null);
@@ -641,7 +649,10 @@ export default function ProcurementPage() {
   }
 
   function renderTransitionBar(po: PurchaseOrder) {
-    const actions = TRANSITIONS[po.status] ?? [];
+    // Approval is the Group Head's (or the Super Admin's) — the API refuses
+    // anyone else, so the button is not offered to them.
+    const canApprove = user?.role === "group_head" || user?.role === "super_admin";
+    const actions = (TRANSITIONS[po.status] ?? []).filter((a) => a.status !== "approved" || canApprove);
     const receivable = RECEIVABLE_STATUSES.includes(po.status);
     if (!canEdit) return null;
     if (actions.length === 0 && !receivable) return null;
@@ -785,7 +796,7 @@ export default function ProcurementPage() {
                     <td className={`${tdClass} text-muted-foreground`}>{po.items?.length ?? 0}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{po.order_date || "-"}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{po.expected_delivery || "-"}</td>
-                    <td className={`${tdClass} font-medium text-foreground`}>{po.currency} {Number(po.total_amount).toLocaleString()}</td>
+                    <td className={`${tdClass} font-medium text-foreground`}>{po.prices_hidden ? <span className="text-xs text-muted-foreground">—</span> : `${po.currency} ${Number(po.total_amount).toLocaleString()}`}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{po.ordered_by_name || "-"}</td>
                     <td className={tdClass} onClick={(e) => e.stopPropagation()}>
                       {canEdit ? (
@@ -825,10 +836,10 @@ export default function ProcurementPage() {
                                       <td className="px-4 py-2 text-foreground">{item.description}</td>
                                       <td className="px-4 py-2 text-muted-foreground">{itemTypeLabel(item)}</td>
                                       <td className="px-4 py-2 text-right text-muted-foreground">{item.quantity}</td>
-                                      <td className="px-4 py-2 text-right text-muted-foreground">{Number(item.unit_price).toLocaleString()}</td>
+                                      <td className="px-4 py-2 text-right text-muted-foreground">{po.prices_hidden ? "—" : Number(item.unit_price).toLocaleString()}</td>
                                       <td className="px-4 py-2 text-right text-muted-foreground">{item.received_quantity ?? 0} / {item.quantity}</td>
                                       <td className="px-4 py-2 text-right font-medium text-foreground">
-                                        {Number(item.line_total ?? Number(item.quantity) * Number(item.unit_price)).toLocaleString()}
+                                        {po.prices_hidden ? "—" : Number(item.line_total ?? Number(item.quantity) * Number(item.unit_price)).toLocaleString()}
                                       </td>
                                     </tr>
                                   ))}
@@ -836,7 +847,7 @@ export default function ProcurementPage() {
                                 <tfoot>
                                   <tr className="bg-secondary/30">
                                     <td colSpan={5} className="px-4 py-2 text-right text-xs font-medium uppercase tracking-wider text-muted-foreground">Grand Total</td>
-                                    <td className="px-4 py-2 text-right font-semibold text-foreground">{po.currency} {Number(po.total_amount).toLocaleString()}</td>
+                                    <td className="px-4 py-2 text-right font-semibold text-foreground">{po.prices_hidden ? "Prices not shown for your role" : `${po.currency} ${Number(po.total_amount).toLocaleString()}`}</td>
                                   </tr>
                                 </tfoot>
                               </table>
@@ -940,7 +951,7 @@ export default function ProcurementPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1.5">
                     <label htmlFor="order_date" className={labelClass}>Order Date</label>
-                    <input id="order_date" type="date" value={form.order_date} onChange={(e) => setForm({ ...form, order_date: e.target.value })} className={inputClass} />
+                    <input id="order_date" type="text" value={form.order_date || "Set when the order is placed"} disabled className={`${inputClass} bg-secondary/40 text-muted-foreground`} />
                   </div>
                   <div className="space-y-1.5">
                     <label htmlFor="expected_delivery" className={labelClass}>Expected Delivery</label>
@@ -1169,6 +1180,17 @@ export default function ProcurementPage() {
                               placeholder={"SN-0001\nSN-0002"}
                               className={`${inputClass} h-auto py-2 font-mono text-xs`}
                             />
+                              <label htmlFor={`wty-${r.po_item}`} className={`${labelClass} mt-2 block`}>Vendor warranty (months, from today)</label>
+                              <input
+                                id={`wty-${r.po_item}`}
+                                type="number"
+                                min={1}
+                                max={120}
+                                value={r.warranty_months}
+                                onChange={(e) => updateReceiveRow(r.po_item, { warranty_months: e.target.value })}
+                                placeholder="Blank = no vendor warranty"
+                                className={`${rowInputClass} w-56`}
+                              />
                           </div>
                         )}
                         {problem && qty > 0 && <p className="text-xs text-amber-500">{problem}</p>}

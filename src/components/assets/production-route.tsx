@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDown, ArrowUp, BookmarkPlus, Factory, Plus, Trash2, Truck, Wand2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, Factory, Pencil, Plus, Trash2, Truck, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -60,22 +60,25 @@ export function ProductionRoute({
   steps,
   onChanged,
   assetTypeName,
-  templateAvailable,
   readOnly = false,
   readOnlyReason,
+  locked = false,
 }: {
   deviceId: string;
   steps: ProductionStep[];
   onChanged: () => void;
-  /** Routes are held per asset type, so both are needed to reuse one. */
   assetTypeName?: string | null;
-  templateAvailable?: boolean;
   /** Vendor-built assets keep the section on screen but inert. */
   readOnly?: boolean;
   readOnlyReason?: string | null;
+  /** Item 10: in execution the route is fixed — steps still move through their statuses. */
+  locked?: boolean;
 }) {
   const { canWrite } = useUser();
   const canEdit = canWrite("devices") && !readOnly;
+  const canRestructure = canEdit && !locked;
+  // Item 7: one step at a time can be renamed / re-timed in place.
+  const [editing, setEditing] = useState<{ id: string; name: string; expected_days: string } | null>(null);
 
   const [suppliers, setSuppliers] = useState<Ref[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
@@ -143,32 +146,6 @@ export function ProductionRoute({
     }
   }
 
-  async function applyTemplate() {
-    setBusy("template");
-    try {
-      const { data } = await api.post(`/assets/devices/${deviceId}/apply-route-template/`, {});
-      toast.success(`${data.applied} step(s) loaded from the saved route`);
-      onChanged();
-    } catch (err) {
-      toast.error(getApiError(err, "Could not load the saved route"));
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function saveTemplate() {
-    setBusy("template");
-    try {
-      const { data } = await api.post(`/assets/devices/${deviceId}/save-route-template/`, {});
-      toast.success(data.detail ?? "Saved as the standard route");
-      onChanged();
-    } catch (err) {
-      toast.error(getApiError(err, "Could not save the route"));
-    } finally {
-      setBusy(null);
-    }
-  }
-
   async function move(step: ProductionStep, direction: "up" | "down") {
     setBusy(step.id);
     try {
@@ -176,6 +153,24 @@ export function ProductionRoute({
       onChanged();
     } catch (err) {
       toast.error(getApiError(err, "Could not move that step"));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function saveEdit() {
+    if (!editing || !editing.name.trim()) return;
+    setBusy(editing.id);
+    try {
+      await api.patch(`/assets/production-steps/${editing.id}/`, {
+        name: editing.name.trim(),
+        expected_days: editing.expected_days ? Number(editing.expected_days) : null,
+      });
+      toast.success("Step updated");
+      setEditing(null);
+      onChanged();
+    } catch (err) {
+      toast.error(getApiError(err, "Could not update the step"));
     } finally {
       setBusy(null);
     }
@@ -203,52 +198,28 @@ export function ProductionRoute({
             : "How this asset gets built. Mark each operation as done on our own floor or at an outside workshop, so the asset says where it physically is while it is away."}
         </p>
         <div className="flex shrink-0 items-center gap-2">
+          {locked && (
+            <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-amber-500/20">
+              Route fixed — in execution
+            </span>
+          )}
           {steps.length > 0 && (
             <span className="text-[11px] font-medium text-muted-foreground">
               {done} of {steps.length} done
             </span>
-          )}
-          {canEdit && steps.length > 0 && assetTypeName && (
-            <button
-              onClick={saveTemplate}
-              disabled={busy === "template"}
-              title="Save this sequence as the standard route for this asset type"
-              className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
-            >
-              <BookmarkPlus className="h-3 w-3" /> Save as standard route
-            </button>
           )}
         </div>
       </div>
 
       {steps.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border p-4 text-center">
-          {templateAvailable && !readOnly ? (
-            <>
-              <p className="text-xs text-foreground">
-                A standard route already exists for this asset type.
-              </p>
-              <p className="mt-1 text-[11px] text-muted-foreground">
-                Start from it, or build a new one step by step below.
-              </p>
-              {canEdit && (
-                <button
-                  onClick={applyTemplate}
-                  disabled={busy === "template"}
-                  className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
-                >
-                  <Wand2 className="h-3.5 w-3.5" /> Use saved route
-                </button>
-              )}
-            </>
-          ) : readOnly ? (
+          {readOnly ? (
             <p className="text-xs text-muted-foreground">
               No production route — this asset is not built in-house.
             </p>
           ) : (
             <p className="text-xs text-muted-foreground">
-              No production route defined for this asset type yet — add the steps below, then save
-              them as the standard route.
+              No production route yet — add the operations below in the order they happen.
             </p>
           )}
         </div>
@@ -271,7 +242,7 @@ export function ProductionRoute({
                   <td className="px-3 py-2">
                     <div className="flex items-center gap-1">
                       <span className="font-mono text-muted-foreground">{step.step_number}</span>
-                      {canEdit && steps.length > 1 && (
+                      {canRestructure && steps.length > 1 && (
                         <div className="flex flex-col">
                           <button
                             onClick={() => move(step, "up")}
@@ -293,7 +264,32 @@ export function ProductionRoute({
                       )}
                     </div>
                   </td>
-                  <td className="px-3 py-2 font-medium text-foreground">{step.name}</td>
+                  <td className="px-3 py-2 font-medium text-foreground">
+                    {editing?.id === step.id ? (
+                      <div className="flex items-center gap-1">
+                        <input
+                          value={editing.name}
+                          onChange={(e) => setEditing({ ...editing, name: e.target.value })}
+                          aria-label="Operation"
+                          className={`${rowInput} w-44`}
+                        />
+                        <input
+                          type="number"
+                          min={1}
+                          value={editing.expected_days}
+                          onChange={(e) => setEditing({ ...editing, expected_days: e.target.value })}
+                          placeholder="Days"
+                          aria-label="Expected days"
+                          className={`${rowInput} w-16`}
+                        />
+                      </div>
+                    ) : (
+                      <>
+                        {step.name}
+                        {step.expected_days ? <span className="ml-1 text-[10px] font-normal text-muted-foreground">· {step.expected_days}d</span> : null}
+                      </>
+                    )}
+                  </td>
                   <td className="px-3 py-2 text-muted-foreground">
                     <span className="inline-flex items-center gap-1">
                       {step.location === "external"
@@ -327,13 +323,42 @@ export function ProductionRoute({
                             <option key={t} value={t}>{STATUS_LABELS[t] ?? t}</option>
                           ))}
                         </select>
-                        <button
-                          onClick={() => remove(step)}
-                          className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-destructive"
-                          title="Remove step"
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </button>
+                        {canRestructure && (editing?.id === step.id ? (
+                          <>
+                            <button
+                              onClick={saveEdit}
+                              disabled={busy === step.id || !editing.name.trim()}
+                              className="flex h-7 w-7 items-center justify-center rounded-lg text-emerald-600 transition-colors hover:text-emerald-700 disabled:opacity-40"
+                              title="Save step"
+                            >
+                              <Check className="h-3 w-3" />
+                            </button>
+                            <button
+                              onClick={() => setEditing(null)}
+                              className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground"
+                              title="Cancel"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => setEditing({ id: step.id, name: step.name, expected_days: step.expected_days ? String(step.expected_days) : "" })}
+                              className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground"
+                              title="Edit step"
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </button>
+                            <button
+                              onClick={() => remove(step)}
+                              className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-destructive"
+                              title="Remove step"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          </>
+                        ))}
                       </div>
                     </td>
                   )}
@@ -344,7 +369,7 @@ export function ProductionRoute({
         </div>
       )}
 
-      {canEdit && (
+      {canRestructure && (
         <form onSubmit={addStep} className="flex flex-wrap items-end gap-2">
           <input
             value={name}

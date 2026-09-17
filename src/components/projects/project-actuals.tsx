@@ -4,6 +4,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { Modal } from "@/components/ui/modal";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
@@ -17,11 +18,33 @@ interface ActualLine {
   price_source: string;
   line_total: string | null;
 }
+/** A production step with what it really cost (item 22). */
+interface ActualStep {
+  id: string;
+  step_number: number;
+  name: string;
+  status?: string;
+  planned_cost: string | null;
+  actual_cost: string | null;
+}
+interface ActualWorkOrder {
+  id: string;
+  wo_number: string;
+  status: string;
+  supplier: string;
+  amount: string | null;
+}
 interface ActualAsset {
   id: string;
   asset_code: string;
   asset_name: string;
+  source: string;
   lines: ActualLine[];
+  steps: ActualStep[];
+  work_orders: ActualWorkOrder[];
+  materials_actual: string;
+  production_actual: string;
+  work_orders_actual: string;
   actual_total: string;
   outstanding: number;
 }
@@ -41,6 +64,8 @@ interface Actuals {
   estimate_total: string;
   assets: ActualAsset[];
   materials_actual: string;
+  production_actual: string;
+  work_orders_actual: string;
   overheads: Overhead[];
   overheads_planned_total: string;
   overheads_actual_total: string;
@@ -64,6 +89,56 @@ const inputClass =
  */
 export function ProjectActuals({ projectId }: { projectId: string }) {
   const { canWrite } = useUser();
+  const canBuy = canWrite("procurement");
+  // Item 22: a vendor-built asset is given to its vendor on a work order.
+  const [woModal, setWoModal] = useState<ActualAsset | null>(null);
+  const [woSuppliers, setWoSuppliers] = useState<{ id: string; name: string }[]>([]);
+  const [wo, setWo] = useState({ supplier: "", amount: "", expected_delivery: "", notes: "" });
+  const [woSaving, setWoSaving] = useState(false);
+
+  async function openWorkOrder(asset: ActualAsset) {
+    setWo({ supplier: "", amount: "", expected_delivery: "", notes: "" });
+    setWoModal(asset);
+    if (woSuppliers.length === 0) {
+      api.get("/suppliers/", { params: { page_size: 500 } })
+        .then((r) => setWoSuppliers(r.data.results ?? r.data))
+        .catch(() => {});
+    }
+  }
+
+  async function raiseWorkOrder() {
+    if (!woModal || !wo.supplier) return;
+    setWoSaving(true);
+    try {
+      const { data } = await api.post(`/teams/projects/${projectId}/raise-work-order/`, {
+        device: woModal.id,
+        supplier: wo.supplier,
+        amount: wo.amount || null,
+        expected_delivery: wo.expected_delivery || null,
+        notes: wo.notes,
+      });
+      toast.success(`${data.wo_number ?? "Work order"} raised for ${woModal.asset_code}`);
+      setWoModal(null);
+      load();
+    } catch (err) {
+      toast.error(getApiError(err, "Could not raise the work order"));
+    } finally {
+      setWoSaving(false);
+    }
+  }
+
+  /** What a production step really cost, typed once it is known. */
+  async function saveStepActual(stepId: string, raw: string, current: string | null) {
+    const value = raw.trim();
+    if (value === (current ?? "")) return;
+    try {
+      await api.patch(`/assets/production-steps/${stepId}/`, { actual_cost: value || null });
+      await load();
+      toast.success(value ? "Actual cost recorded" : "Actual cost cleared");
+    } catch (err) {
+      toast.error(getApiError(err, "Could not record that cost"));
+    }
+  }
   const canEdit = canWrite("devices") || canWrite("inventory");
 
   const [data, setData] = useState<Actuals | null>(null);
@@ -112,13 +187,13 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
 
   async function addUnplanned(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (!extra.cost_type.trim() || !extra.unit_cost) return;
+    if (!extra.description.trim() || !extra.unit_cost) return;
     setBusy(true);
     try {
       // Planned stays zero: the approved estimate never moves after sign-off.
       await api.post("/teams/cost-lines/", {
         project: projectId,
-        cost_type: extra.cost_type.trim(),
+        cost_type: extra.description.trim(),
         description: extra.description,
         actual_quantity: extra.quantity || "1",
         actual_unit_cost: extra.unit_cost,
@@ -166,12 +241,18 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
       <div>
         <div className="mb-2 flex items-end justify-between">
           <div>
-            <h4 className="text-sm font-semibold text-foreground">Materials used</h4>
+            <h4 className="text-sm font-semibold text-foreground">Assets — materials, production and vendor work</h4>
             <p className="text-[11px] text-muted-foreground">
-              Counted as each line is issued from stock or received against its purchase order.
+              Materials count as each line is issued from stock or received against its purchase order;
+              production as each step&apos;s actual cost is typed; vendor builds at their work-order amount.
             </p>
           </div>
-          <p className="shrink-0 text-sm font-semibold text-foreground">{money(data.materials_actual)}</p>
+          <p className="shrink-0 text-right text-sm font-semibold text-foreground">
+            {money(Number(data.materials_actual) + Number(data.production_actual ?? 0) + Number(data.work_orders_actual ?? 0))}
+            <span className="block text-[10px] font-normal text-muted-foreground">
+              materials {money(data.materials_actual)} · production {money(data.production_actual ?? 0)} · vendor {money(data.work_orders_actual ?? 0)}
+            </span>
+          </p>
         </div>
         {data.assets.length === 0 ? (
           <p className="rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
@@ -223,6 +304,59 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
                         </td>
                       </tr>
                     ))
+                  )}
+                  {(asset.steps ?? []).map((st) => (
+                    <tr key={st.id} className="border-t border-border/50 bg-secondary/10">
+                      <td className={`${tdClass} pl-6 text-foreground`}>
+                        <span className="mr-1.5 font-mono text-[10px] text-muted-foreground">#{st.step_number}</span>
+                        {st.name}
+                        <span className="ml-1.5 text-[10px] text-muted-foreground">production · {(st.status ?? "pending").replace(/_/g, " ")}</span>
+                      </td>
+                      <td className={`${tdClass} text-right text-muted-foreground`} colSpan={2}>
+                        planned {st.planned_cost != null ? money(st.planned_cost) : "—"}
+                      </td>
+                      <td className={`${tdClass} text-right`} colSpan={2}>
+                        {canEdit ? (
+                          <input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            defaultValue={st.actual_cost ?? ""}
+                            onBlur={(e) => saveStepActual(st.id, e.target.value, st.actual_cost)}
+                            placeholder="actual"
+                            aria-label={`Actual cost of ${st.name}`}
+                            className={`${inputClass} w-28 text-right`}
+                          />
+                        ) : (
+                          <span className="text-muted-foreground">{st.actual_cost != null ? money(st.actual_cost) : "—"}</span>
+                        )}
+                      </td>
+                      <td className={`${tdClass} text-right font-medium text-foreground`}>
+                        {st.actual_cost != null ? money(st.actual_cost) : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                  {(asset.work_orders ?? []).map((w) => (
+                    <tr key={w.id} className="border-t border-border/50 bg-secondary/10">
+                      <td className={`${tdClass} pl-6 text-foreground`} colSpan={4}>
+                        <span className="font-mono text-[11px]">{w.wo_number}</span>
+                        <span className="ml-1.5 text-[10px] text-muted-foreground">vendor work order · {w.supplier || "—"} · {(w.status ?? "").replace(/_/g, " ")}</span>
+                      </td>
+                      <td className={`${tdClass} text-muted-foreground`}>work order</td>
+                      <td className={`${tdClass} text-right font-medium text-foreground`}>{w.amount != null ? money(w.amount) : "—"}</td>
+                    </tr>
+                  ))}
+                  {asset.source !== "inhouse" && (asset.work_orders ?? []).filter((w) => w.status !== "cancelled").length === 0 && canBuy && (
+                    <tr className="border-t border-border/50">
+                      <td colSpan={6} className={`${tdClass} pl-6`}>
+                        <button
+                          onClick={() => openWorkOrder(asset)}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                        >
+                          <Plus className="h-3 w-3" /> Raise work order — the vendor builds this asset
+                        </button>
+                      </td>
+                    </tr>
                   )}
                 </tbody>
               ))}
@@ -327,19 +461,9 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
         {canEdit && (
           <form onSubmit={addUnplanned} className="mt-2 flex flex-wrap items-center gap-2">
             <input
-              list="actual-cost-types"
-              value={extra.cost_type}
-              onChange={(e) => setExtra({ ...extra, cost_type: e.target.value })}
-              placeholder="Unplanned cost (e.g. Crane hire)"
-              className={`${inputClass} w-48`}
-            />
-            <datalist id="actual-cost-types">
-              {data.cost_types.map((t) => <option key={t} value={t} />)}
-            </datalist>
-            <input
               value={extra.description}
               onChange={(e) => setExtra({ ...extra, description: e.target.value })}
-              placeholder="Description"
+              placeholder="What the cost is (e.g. Travelling, Crane hire)"
               className={`${inputClass} min-w-40 flex-1`}
             />
             <input
@@ -354,7 +478,7 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
             />
             <button
               type="submit"
-              disabled={busy || !extra.cost_type.trim() || !extra.unit_cost}
+              disabled={busy || !extra.description.trim() || !extra.unit_cost}
               className="inline-flex h-8 items-center gap-1 rounded-lg bg-primary px-3 text-xs font-medium text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
             >
               <Plus className="h-3.5 w-3.5" /> Record cost
@@ -398,6 +522,43 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
           )}
         </dl>
       </div>
+      <Modal open={woModal !== null} onClose={() => setWoModal(null)} title={woModal ? `Work Order — ${woModal.asset_code}` : "Work Order"} size="md">
+        {woModal && (
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Gives {woModal.asset_name || woModal.asset_code} to its vendor to build. The amount counts
+              as this asset&apos;s production cost; the vendor&apos;s cover on the finished asset is recorded when it arrives.
+            </p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <label htmlFor="wo_supplier" className="text-xs font-medium text-muted-foreground">Vendor *</label>
+                <select id="wo_supplier" value={wo.supplier} onChange={(e) => setWo({ ...wo, supplier: e.target.value })} className={`${inputClass} h-10 w-full`}>
+                  <option value="">Select vendor…</option>
+                  {woSuppliers.map((sup) => <option key={sup.id} value={sup.id}>{sup.name}</option>)}
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="wo_amount" className="text-xs font-medium text-muted-foreground">Amount (PKR)</label>
+                <input id="wo_amount" type="number" min={0} step="0.01" value={wo.amount} onChange={(e) => setWo({ ...wo, amount: e.target.value })} placeholder="Blank uses the asset's purchase price" className={`${inputClass} h-10 w-full`} />
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="wo_delivery" className="text-xs font-medium text-muted-foreground">Expected delivery</label>
+                <input id="wo_delivery" type="date" value={wo.expected_delivery} onChange={(e) => setWo({ ...wo, expected_delivery: e.target.value })} className={`${inputClass} h-10 w-full`} />
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <label htmlFor="wo_notes" className="text-xs font-medium text-muted-foreground">Notes</label>
+                <textarea id="wo_notes" rows={2} value={wo.notes} onChange={(e) => setWo({ ...wo, notes: e.target.value })} className={`${inputClass} h-auto w-full py-2`} />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3">
+              <button type="button" onClick={() => setWoModal(null)} className="inline-flex h-10 items-center rounded-lg border border-border px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">Cancel</button>
+              <button type="button" onClick={raiseWorkOrder} disabled={woSaving || !wo.supplier} className="inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-medium text-white transition-all disabled:opacity-50">
+                {woSaving ? "Raising…" : "Raise work order"}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

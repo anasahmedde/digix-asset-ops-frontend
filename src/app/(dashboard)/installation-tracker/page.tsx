@@ -691,6 +691,8 @@ export default function InstallationTrackerPage() {
     activatePhotos.forEach((f) => fd.append("photos", f));
     const notes = String(fields.get("notes") ?? "").trim();
     if (notes) fd.append("notes", notes);
+    const months = String(fields.get("client_warranty_months") ?? "").trim();
+    if (months) fd.append("client_warranty_months", months);
     setActivateSaving(true);
     try {
       const { data } = await api.post(`/sites/installations/${selected.id}/activate/`, fd, {
@@ -1526,6 +1528,21 @@ export default function InstallationTrackerPage() {
                   {activatePhotos.length} photo{activatePhotos.length > 1 ? "s" : ""} ready to upload.
                 </p>
               )}
+            </div>
+            <div>
+              <label htmlFor="activate-warranty" className={createLabelClass}>Client warranty (months)</label>
+              <input
+                id="activate-warranty"
+                name="client_warranty_months"
+                type="number"
+                min={1}
+                max={120}
+                placeholder="e.g. 12"
+                className={createInputClass}
+              />
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Our cover to the client starts today and is filed under Warranties. Leave blank if none.
+              </p>
             </div>
             <div>
               <label htmlFor="activate-notes" className={createLabelClass}>Notes</label>

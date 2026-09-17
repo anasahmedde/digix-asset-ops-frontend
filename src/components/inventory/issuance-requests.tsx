@@ -33,6 +33,9 @@ interface RequestRow {
   issued_serials: string[];
   status: string;
   status_display: string;
+  /** Item 19: the part is on order; it is issued once it has been received. */
+  awaiting_procurement?: boolean;
+  po_number?: string | null;
   created_at: string;
 }
 
@@ -273,13 +276,20 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                         >
                           {row.status_display}
                         </span>
+                        {row.awaiting_procurement && (
+                          <span className="mt-1 block text-[10px] font-medium text-indigo-600">
+                            Procurement in progress{row.po_number ? ` · ${row.po_number}` : ""}
+                          </span>
+                        )}
                       </td>
                       <td className={tdClass}>
                         <div className="flex items-center gap-1.5">
                           {canIssue && !settled && (
                             <button
                               onClick={() => openIssue(row)}
-                              className="inline-flex items-center gap-1 rounded-lg bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+                              disabled={!!row.awaiting_procurement}
+                              title={row.awaiting_procurement ? "On order — issue it once the delivery has been received and inspected" : "Issue from stock"}
+                              className="inline-flex items-center gap-1 rounded-lg bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
                             >
                               <PackageCheck className="h-3.5 w-3.5" /> Issue
                             </button>

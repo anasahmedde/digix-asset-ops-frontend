@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, Plus, RotateCcw, Send, Trash2, XCircle } from "lucide-react";
+import { CheckCircle2, FileText, Plus, Printer, RotateCcw, Save, Send, Trash2, XCircle } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -73,6 +73,22 @@ interface Plan {
   cost_types: string[];
 }
 
+/** One line of the bill of quantities: a component summed across the project's assets. */
+interface BoqLine {
+  name: string;
+  unit: string;
+  quantity: number;
+  unit_price: string | null;
+  price_source: string;
+  assets: (string | { asset_code?: string })[];
+  amount: string | null;
+}
+interface Boq {
+  lines: BoqLine[];
+  total: string;
+  unpriced_lines: number;
+}
+
 // Who can sign a budget off (mirrors the backend).
 const APPROVER_ROLES = ["super_admin", "group_head", "finance"];
 
@@ -98,10 +114,13 @@ const inputClass =
  */
 export function ProjectPlanning({
   projectId,
+  refreshKey,
   onGoToExecution,
   onChanged,
 }: {
   projectId: string;
+  /** Changes when the scope does, so the estimate re-reads at once. */
+  refreshKey?: string;
   onGoToExecution?: () => void;
   /** Called after a budget decision, so the page can show the new figure. */
   onChanged?: () => void;
@@ -116,6 +135,33 @@ export function ProjectPlanning({
   const [contingency, setContingency] = useState("");
   const [decisionNotes, setDecisionNotes] = useState("");
   const [line, setLine] = useState({ cost_type: "", description: "", quantity: "1", unit_cost: "" });
+  // Item 6: the consolidated bill of quantities, and printable documents.
+  const [showBoq, setShowBoq] = useState(false);
+  const [boq, setBoq] = useState<Boq | null>(null);
+  const [boqLoading, setBoqLoading] = useState(false);
+
+  async function loadBoq() {
+    setBoqLoading(true);
+    try {
+      const { data } = await api.get(`/teams/projects/${projectId}/boq/`);
+      setBoq(data);
+    } catch (err) {
+      toast.error(getApiError(err, "Could not build the bill of quantities"));
+    } finally {
+      setBoqLoading(false);
+    }
+  }
+
+  /** Fetch a PDF through the API (so the token goes with it) and open it to print. */
+  async function openDocument(path: string) {
+    try {
+      const { data } = await api.get(path, { responseType: "blob" });
+      const url = URL.createObjectURL(data);
+      window.open(url, "_blank", "noopener");
+    } catch (err) {
+      toast.error(getApiError(err, "Could not build the document"));
+    }
+  }
 
   const load = useCallback(async () => {
     try {
@@ -129,7 +175,8 @@ export function ProjectPlanning({
     }
   }, [projectId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); }, [load, refreshKey]);
+  useEffect(() => { if (showBoq) loadBoq(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [refreshKey, plan?.materials_total, showBoq]);
 
   async function run(fn: () => Promise<{ data: Plan }>, success: string) {
     setBusy(true);
@@ -156,10 +203,10 @@ export function ProjectPlanning({
 
   async function addLine(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (!line.cost_type.trim() || !line.unit_cost) return;
+    if (!line.description.trim() || !line.unit_cost) return;
     setBusy(true);
     try {
-      await api.post("/teams/cost-lines/", { project: projectId, ...line, cost_type: line.cost_type.trim() });
+      await api.post("/teams/cost-lines/", { project: projectId, ...line, cost_type: line.description.trim() });
       setLine({ cost_type: "", description: "", quantity: "1", unit_cost: "" });
       await load();
       toast.success("Cost added");
@@ -243,6 +290,32 @@ export function ProjectPlanning({
         <div className="flex flex-wrap items-center gap-2">
           {editable && (
             <button
+              onClick={() => run(() => api.patch(`/teams/projects/${projectId}/plan/`, { contingency_percent: contingency || "0" }), "Draft saved")}
+              disabled={busy}
+              title="Keep the plan as a draft — nothing goes for approval yet"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
+            >
+              <Save className="h-3.5 w-3.5" /> Save draft
+            </button>
+          )}
+          <button
+            onClick={() => openDocument(`/teams/projects/${projectId}/plan/document/`)}
+            disabled={!plan.has_plan && plan.materials.length === 0}
+            title="Print the cost plan — per-asset BOM, production, overheads and total"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
+          >
+            <Printer className="h-3.5 w-3.5" /> Print cost plan
+          </button>
+          <button
+            onClick={() => setShowBoq((v) => !v)}
+            className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+              showBoq ? "border-primary/40 bg-primary/10 text-primary" : "border-border text-muted-foreground hover:bg-secondary hover:text-foreground"
+            }`}
+          >
+            <FileText className="h-3.5 w-3.5" /> {showBoq ? "Hide BOQ" : "Bill of quantities"}
+          </button>
+          {editable && (
+            <button
               onClick={() => run(() => api.post(`/teams/projects/${projectId}/submit-budget/`, {}), "Sent for approval")}
               disabled={busy || Number(plan.total) <= 0}
               className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
@@ -305,6 +378,73 @@ export function ProjectPlanning({
           </div>
         )}
       </div>
+
+      {showBoq && (
+        <div className="rounded-xl border border-border bg-card p-4">
+          <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+            <div>
+              <h4 className="text-sm font-semibold text-foreground">Bill of quantities</h4>
+              <p className="text-[11px] text-muted-foreground">
+                Every component the project needs, summed across its assets. Each asset&apos;s own list is its BOM below.
+              </p>
+            </div>
+            <button
+              onClick={() => openDocument(`/teams/projects/${projectId}/boq/document/`)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            >
+              <Printer className="h-3.5 w-3.5" /> Print BOQ
+            </button>
+          </div>
+          {boqLoading && !boq ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+            </div>
+          ) : !boq || boq.lines.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
+              No components yet — add assets to the scope and list their parts.
+            </p>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-border">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border bg-secondary/50">
+                    <th className={thClass}>Component</th>
+                    <th className={thClass}>Unit</th>
+                    <th className={`${thClass} text-right`}>Qty</th>
+                    <th className={`${thClass} text-right`}>Unit price</th>
+                    <th className={thClass}>Priced from</th>
+                    <th className={thClass}>Used on</th>
+                    <th className={`${thClass} text-right`}>Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {boq.lines.map((l, i) => (
+                    <tr key={`${l.name}-${i}`} className="border-b border-border/60 last:border-0">
+                      <td className={`${tdClass} font-medium text-foreground`}>{l.name}</td>
+                      <td className={`${tdClass} text-muted-foreground`}>{l.unit}</td>
+                      <td className={`${tdClass} text-right text-foreground`}>{l.quantity}</td>
+                      <td className={`${tdClass} text-right text-foreground`}>{l.unit_price != null ? money(l.unit_price) : "—"}</td>
+                      <td className={`${tdClass} text-muted-foreground`}>{l.price_source}</td>
+                      <td className={`${tdClass} font-mono text-[11px] text-muted-foreground`}>
+                        {l.assets.map((a) => (typeof a === "string" ? a : a.asset_code ?? "")).filter(Boolean).join(", ")}
+                      </td>
+                      <td className={`${tdClass} text-right font-medium text-foreground`}>{l.amount != null ? money(l.amount) : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t border-border bg-secondary/30">
+                    <td colSpan={6} className={`${tdClass} text-right font-medium text-muted-foreground`}>
+                      Total{boq.unpriced_lines > 0 ? ` · ${boq.unpriced_lines} unpriced line${boq.unpriced_lines === 1 ? "" : "s"}` : ""}
+                    </td>
+                    <td className={`${tdClass} text-right font-semibold text-foreground`}>{money(boq.total)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Asset Development Cost: the parts plus the work, asset by asset ── */}
       <div>
@@ -521,19 +661,9 @@ export function ProjectPlanning({
         {editable && (
           <form onSubmit={addLine} className="mt-2 flex flex-wrap items-center gap-2">
             <input
-              list="project-cost-types"
-              value={line.cost_type}
-              onChange={(e) => setLine({ ...line, cost_type: e.target.value })}
-              placeholder="Cost type (e.g. Travelling)"
-              className={`${inputClass} w-44`}
-            />
-            <datalist id="project-cost-types">
-              {plan.cost_types.map((t) => <option key={t} value={t} />)}
-            </datalist>
-            <input
               value={line.description}
               onChange={(e) => setLine({ ...line, description: e.target.value })}
-              placeholder="Description"
+              placeholder="What the cost is (e.g. Travelling, Crane hire)"
               className={`${inputClass} min-w-40 flex-1`}
             />
             <input
@@ -556,7 +686,7 @@ export function ProjectPlanning({
             />
             <button
               type="submit"
-              disabled={busy || !line.cost_type.trim() || !line.unit_cost}
+              disabled={busy || !line.description.trim() || !line.unit_cost}
               className="inline-flex h-8 items-center gap-1 rounded-lg bg-primary px-3 text-xs font-medium text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
             >
               <Plus className="h-3.5 w-3.5" /> Add cost
