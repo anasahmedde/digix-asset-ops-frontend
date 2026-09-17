@@ -19,6 +19,8 @@ export interface FieldSpec {
   placeholder?: string;
   help?: string;
   options?: { value: string; label: string }[];
+  /** Load the options from a collection endpoint (rows with id + name). */
+  optionsEndpoint?: string;
   /** default for "create" mode */
   default?: string | number | boolean;
   /** bounds for number fields — also switches the input to integer steps */
@@ -93,6 +95,18 @@ export function CrudManager<T extends { id: string; [key: string]: unknown }>({
   const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
   const [selected, setSelected] = useState<T | null>(null);
   const [saving, setSaving] = useState(false);
+  // Options for selects that read their choices from another collection.
+  const [dynamicOptions, setDynamicOptions] = useState<Record<string, { value: string; label: string }[]>>({});
+  useEffect(() => {
+    fields.filter((f) => f.optionsEndpoint).forEach((f) => {
+      api.get(f.optionsEndpoint as string, { params: { page_size: 500 } })
+        .then((r) => {
+          const rows: { id: string; name: string }[] = r.data.results ?? r.data;
+          setDynamicOptions((prev) => ({ ...prev, [f.name]: rows.map((row) => ({ value: row.id, label: row.name })) }));
+        })
+        .catch(() => {});
+    });
+  }, [fields]);
   const [search, setSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState<"" | "active" | "inactive">("");
 
@@ -340,7 +354,7 @@ export function CrudManager<T extends { id: string; [key: string]: unknown }>({
                       className={inputClass}
                     >
                       <option value="">Select…</option>
-                      {f.options?.map((o) => (
+                      {(f.options ?? dynamicOptions[f.name] ?? []).map((o) => (
                         <option key={o.value} value={o.value}>{o.label}</option>
                       ))}
                     </select>

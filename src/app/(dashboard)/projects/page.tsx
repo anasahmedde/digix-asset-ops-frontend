@@ -13,6 +13,7 @@ import {
   ShoppingCart,
   Trash2,
   Truck,
+  X,
   XCircle,
 } from "lucide-react";
 import Link from "next/link";
@@ -56,21 +57,18 @@ const PHASES = [
   { value: "delivery", label: "Delivery" },
   { value: "installation", label: "Installation" },
   { value: "handover", label: "Handing Over" },
-  { value: "under_warranty", label: "Under Warranty" },
-  { value: "extended_warranty", label: "Extended Warranty" },
-  { value: "decommissioned", label: "De-Commissioned" },
 ];
 const OFF_RAMP_PHASES = [
   { value: "on_hold", label: "On Hold" },
-  { value: "lost", label: "Lost" },
+  { value: "lost", label: "Order Lost" },
 ];
 const CONTRACT_TYPES = [
   { value: "sold", label: "Sold Outright" },
   { value: "rental", label: "Rental" },
 ];
 const emptyForm = {
-  name: "", location: "", description: "", status: "planning", phase: "query",
-  client: "", site: "", manager: "", start_date: "", target_date: "", budget: "",
+  name: "", description: "", status: "planning", phase: "query",
+  client: "", site: "", sites: [] as string[], manager: "", start_date: "", target_date: "",
   contract_type: "", rental_end_date: "",
 };
 
@@ -122,6 +120,9 @@ interface ProjectDetail {
   client_name: string | null;
   site: string | null;
   site_name: string | null;
+  /** Item 4: a project can cover several sites. */
+  sites: string[];
+  site_names: string[];
   status: string;
   status_display: string;
   phase: string;
@@ -234,6 +235,8 @@ interface ProjectStats {
 interface Project {
   id: string;
   name: string;
+  site_name?: string | null;
+  site_names?: string[];
   location: string;
   image: string | null;
   status: string;
@@ -358,10 +361,10 @@ export default function ProjectsPage() {
       await api.post("/teams/scope-items/", {
         project: detail.id,
         device: fd.get("scope_device"),
-        component: fd.get("scope_component") || null,
-        quantity: Number(fd.get("scope_qty") || 1),
+        component: null,
+        quantity: 1,
         site: fd.get("scope_site") || null,
-        start_date: fd.get("scope_start") || null,
+        start_date: null,
         notes: fd.get("scope_notes") || "",
       });
       formEl.reset();
@@ -373,6 +376,20 @@ export default function ProjectsPage() {
       toast.error(getApiError(err, "Failed to add scope item"));
     } finally {
       setAddingScope(false);
+    }
+  }
+
+  const [editingScope, setEditingScope] = useState<string | null>(null);
+  const [scopeEdit, setScopeEdit] = useState({ site: "", notes: "" });
+
+  async function saveScopeItem(id: string) {
+    try {
+      await api.patch(`/teams/scope-items/${id}/`, { site: scopeEdit.site || null, notes: scopeEdit.notes });
+      setEditingScope(null);
+      if (detail) await loadDetail(detail.id);
+      toast.success("Scope updated");
+    } catch (err) {
+      toast.error(getApiError(err, "Failed to update the scope item"));
     }
   }
 
@@ -536,16 +553,15 @@ export default function ProjectsPage() {
   function openEdit(p: ProjectDetail) {
     setForm({
       name: p.name,
-      location: p.location ?? "",
       description: p.description ?? "",
       status: p.status,
       phase: p.phase,
       client: p.client ?? "",
       site: p.site ?? "",
+      sites: (p.sites ?? []).map(String),
       manager: p.manager ?? "",
       start_date: p.start_date ?? "",
       target_date: p.target_date ?? "",
-      budget: p.budget ? String(p.budget) : "",
       contract_type: p.contract_type ?? "",
       rental_end_date: p.rental_end_date ?? "",
     });
@@ -588,7 +604,7 @@ export default function ProjectsPage() {
     setSaving(true);
     const payload = {
       name: form.name.trim(),
-      location: form.location,
+      sites: form.sites,
       description: form.description,
       status: form.status,
       phase: form.phase,
@@ -597,7 +613,6 @@ export default function ProjectsPage() {
       manager: form.manager || null,
       start_date: form.start_date || null,
       target_date: form.target_date || null,
-      budget: form.budget ? Number(form.budget) : null,
       contract_type: form.contract_type,
       rental_end_date: form.contract_type === "rental" && form.rental_end_date ? form.rental_end_date : null,
     };
@@ -650,8 +665,16 @@ export default function ProjectsPage() {
           </div>
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-muted-foreground">Location</label>
-          <input value={form.location} onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))} placeholder="City / mall / area" className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none" />
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">Sites (one order can span several)</label>
+          <select
+            multiple
+            value={form.sites}
+            onChange={(e) => setForm((f) => ({ ...f, sites: Array.from(e.target.selectedOptions).map((o) => o.value) }))}
+            className="h-28 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none"
+          >
+            {siteOptions.map((st) => <option key={st.id} value={st.id}>{st.label}</option>)}
+          </select>
+          <p className="mt-1 text-[11px] text-muted-foreground">Hold Ctrl (Cmd on Mac) to pick more than one. Locations are defined under Sites.</p>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -699,10 +722,6 @@ export default function ProjectsPage() {
           </div>
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-muted-foreground">Budget (optional)</label>
-          <input type="number" min="0" step="0.01" value={form.budget} onChange={(e) => setForm((f) => ({ ...f, budget: e.target.value }))} placeholder="0" className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none" />
-        </div>
-        <div>
           <label className="mb-1 block text-xs font-medium text-muted-foreground">Description</label>
           <textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={3} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none" />
         </div>
@@ -744,7 +763,7 @@ export default function ProjectsPage() {
               <CopyButton text={d.name} label="project name" />
             </h1>
             <p className="text-sm text-muted-foreground">
-              {d.client_name ? `${d.client_name} · ` : ""}{d.location || d.site_name || ""}
+              {d.client_name ? `${d.client_name} · ` : ""}{(d.site_names ?? []).join(", ") || d.site_name || ""}
             </p>
           </div>
           <div className="ml-auto flex items-center gap-2">
@@ -860,17 +879,14 @@ export default function ProjectsPage() {
               <>
             {/* Scope */}
             <div className="rounded-xl border border-border bg-card p-5">
-              <h3 className="mb-3 text-sm font-semibold text-foreground">Scope — assets, components, quantities & locations</h3>
+              <h3 className="mb-3 text-sm font-semibold text-foreground">Scope — assets, sites & notes</h3>
               {d.scope_items.length > 0 ? (
                 <div className="overflow-x-auto rounded-xl border border-border">
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="border-b border-border bg-secondary/50 text-left text-muted-foreground">
                         <th className="px-3 py-2 font-medium">Asset</th>
-                        <th className="px-3 py-2 font-medium">Component</th>
-                        <th className="px-3 py-2 font-medium">Qty</th>
-                        <th className="px-3 py-2 font-medium">Location</th>
-                        <th className="px-3 py-2 font-medium">Start</th>
+                        <th className="px-3 py-2 font-medium">Site</th>
                         <th className="px-3 py-2 font-medium">Notes</th>
                         {canEdit && <th className="px-3 py-2" />}
                       </tr>
@@ -884,16 +900,48 @@ export default function ProjectsPage() {
                             </Link>
                             {it.device_name && <span className="block text-muted-foreground">{it.device_name}</span>}
                           </td>
-                          <td className="px-3 py-2 text-foreground">{it.component_name || "Whole asset"}</td>
-                          <td className="px-3 py-2 text-foreground">×{it.quantity}</td>
-                          <td className="px-3 py-2 text-muted-foreground">{it.site_name || "—"}</td>
-                          <td className="px-3 py-2 text-muted-foreground">{it.start_date || "—"}</td>
-                          <td className="px-3 py-2 text-muted-foreground">{it.notes || "—"}</td>
+                          <td className="px-3 py-2 text-muted-foreground">
+                            {editingScope === it.id ? (
+                              <select
+                                value={scopeEdit.site}
+                                onChange={(e) => setScopeEdit((v) => ({ ...v, site: e.target.value }))}
+                                className="h-8 rounded-lg border border-border bg-card px-2 text-xs text-foreground focus:outline-none"
+                              >
+                                <option value="">No site</option>
+                                {siteOptions.map((st) => <option key={st.id} value={st.id}>{st.label}</option>)}
+                              </select>
+                            ) : (it.site_name || "—")}
+                          </td>
+                          <td className="px-3 py-2 text-muted-foreground">
+                            {editingScope === it.id ? (
+                              <input
+                                value={scopeEdit.notes}
+                                onChange={(e) => setScopeEdit((v) => ({ ...v, notes: e.target.value }))}
+                                className="h-8 w-full rounded-lg border border-border bg-card px-2 text-xs text-foreground focus:outline-none"
+                              />
+                            ) : (it.notes || "—")}
+                          </td>
                           {canEdit && (
                             <td className="px-3 py-2 text-right">
-                              <button onClick={() => deleteScopeItem(it.id)} className="text-muted-foreground transition-colors hover:text-destructive" title="Remove">
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
+                              <div className="inline-flex items-center gap-1.5">
+                                {editingScope === it.id ? (
+                                  <>
+                                    <button onClick={() => saveScopeItem(it.id)} className="text-emerald-600 transition-colors hover:text-emerald-700" title="Save">
+                                      <Check className="h-3.5 w-3.5" />
+                                    </button>
+                                    <button onClick={() => setEditingScope(null)} className="text-muted-foreground transition-colors hover:text-foreground" title="Cancel">
+                                      <X className="h-3.5 w-3.5" />
+                                    </button>
+                                  </>
+                                ) : (
+                                  <button onClick={() => { setEditingScope(it.id); setScopeEdit({ site: it.site ?? "", notes: it.notes ?? "" }); }} className="text-muted-foreground transition-colors hover:text-foreground" title="Edit">
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </button>
+                                )}
+                                <button onClick={() => deleteScopeItem(it.id)} className="text-muted-foreground transition-colors hover:text-destructive" title="Remove">
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
                             </td>
                           )}
                         </tr>
@@ -906,6 +954,9 @@ export default function ProjectsPage() {
               )}
               {canEdit && (
                 <form onSubmit={addScopeItem} className="mt-3 space-y-2 rounded-lg border border-border/70 p-3">
+                  <p className="text-[11px] text-muted-foreground">
+                    Every asset has its own ID: add each one once. An asset already on another project cannot be added.
+                  </p>
                   <div className="grid gap-2 sm:grid-cols-3">
                     <div className="sm:col-span-2">
                       <SearchSelect
@@ -917,20 +968,14 @@ export default function ProjectsPage() {
                         placeholder="Search asset…"
                       />
                     </div>
-                    <select name="scope_component" defaultValue="" className="h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-muted-foreground focus:outline-none" disabled={scopeComponents.length === 0}>
-                      <option value="">{scopeComponents.length === 0 ? "Whole asset" : "Component: whole asset"}</option>
-                      {scopeComponents.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+                    <select name="scope_site" defaultValue="" title="Site" className="h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-muted-foreground focus:outline-none">
+                      <option value="">Site: none</option>
+                      {siteOptions
+                        .filter((st) => !d.sites || d.sites.length === 0 || d.sites.map(String).includes(String(st.id)))
+                        .map((st) => <option key={st.id} value={st.id}>{st.label}</option>)}
                     </select>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <input name="scope_qty" type="number" min={1} defaultValue={1} title="Quantity" placeholder="Qty" className="h-10 w-20 shrink-0 rounded-lg border border-border bg-card px-3 text-sm text-foreground focus:outline-none" />
-                    <select name="scope_site" defaultValue="" title="Deployment location" className="h-10 min-w-40 flex-1 rounded-lg border border-border bg-card px-3 text-sm text-muted-foreground focus:outline-none">
-                      <option value="">Location: none</option>
-                      {siteOptions.map((st) => <option key={st.id} value={st.id}>{st.label}</option>)}
-                    </select>
-                    <input name="scope_start" type="date" title="Start date at this location" className="h-10 w-40 shrink-0 rounded-lg border border-border bg-card px-3 text-sm text-muted-foreground focus:outline-none" />
-                    <input name="scope_notes" placeholder="Notes" className="h-10 min-w-40 flex-1 rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none" />
-                  </div>
+                  <input name="scope_notes" placeholder="Notes" className="h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none" />
                   <button type="submit" disabled={addingScope} className="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-primary/90 disabled:opacity-50">
                     <Plus className="h-3.5 w-3.5" /> Add to Scope
                   </button>
@@ -941,7 +986,7 @@ export default function ProjectsPage() {
             {/* The cost plan reads the scope above it, so it follows it. */}
             <div className="rounded-xl border border-border bg-card p-5">
               <h3 className="mb-3 text-sm font-semibold text-foreground">Cost Plan — estimate &amp; budget approval</h3>
-              <ProjectPlanning projectId={detail.id} onGoToExecution={() => setProjectTab("execution")} onChanged={() => loadDetail(detail.id)} />
+              <ProjectPlanning projectId={detail.id} refreshKey={d.scope_items.map((it) => it.id).join(",")} onGoToExecution={() => setProjectTab("execution")} onChanged={() => loadDetail(detail.id)} />
             </div>
 
               </>
@@ -1357,7 +1402,7 @@ export default function ProjectsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
-                  <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Project / Location</th>
+                  <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Project / Sites</th>
                   <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Phase</th>
                   <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Progress</th>
                   <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Health</th>
@@ -1376,7 +1421,7 @@ export default function ProjectsPage() {
                           <p className="font-medium text-foreground">{project.name}</p>
                           <ContractBadge contractType={project.contract_type} rentalEndDate={project.rental_end_date} compact />
                         </div>
-                        <p className="text-xs text-muted-foreground">{project.location}</p>
+                        <p className="text-xs text-muted-foreground">{(project.site_names ?? []).join(", ") || project.site_name || ""}</p>
                       </div>
                     </td>
                     <td className="px-5 py-3.5">

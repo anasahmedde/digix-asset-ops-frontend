@@ -1,6 +1,7 @@
 "use client";
 
-import { ClipboardCheck, PackageCheck } from "lucide-react";
+import { ClipboardCheck, PackageCheck, Undo2 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -28,9 +29,7 @@ interface Ref { id: string; name: string }
 interface UnitRow {
   serial_number: string;
   model_name: string;
-  has_warranty: boolean;
-  warranty_type: string;
-  warranty_start: string;
+  /** Supplier cover on this unit, in months from the day it was received. */
   warranty_months: string;
 }
 
@@ -42,20 +41,14 @@ const labelClass = "text-xs font-medium text-muted-foreground";
 const thClass = "px-5 py-3.5 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground";
 const tdClass = "px-5 py-3.5";
 
-const WARRANTY_TYPES = [
-  { value: "manufacturer", label: "Manufacturer" },
-  { value: "extended", label: "Extended" },
-  { value: "supplier", label: "Supplier" },
-  { value: "client", label: "Client Warranty" },
-];
-
 function emptyUnit(serial = ""): UnitRow {
-  return { serial_number: serial, model_name: "", has_warranty: false, warranty_type: "supplier", warranty_start: "", warranty_months: "" };
+  return { serial_number: serial, model_name: "", warranty_months: "" };
 }
 
 export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
   const { canWrite } = useUser();
   const canInspect = canWrite("inventory");
+  const router = useRouter();
 
   const [lines, setLines] = useState<ReceiptLine[]>([]);
   const [categories, setCategories] = useState<Ref[]>([]);
@@ -72,6 +65,60 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
   const [category, setCategory] = useState("");
   // Where the storekeeper is putting this delivery.
   const [storageLocation, setStorageLocation] = useState("");
+
+  // Item 17: components coming back from a project or from maintenance.
+  const [returnOpen, setReturnOpen] = useState(false);
+  const [returnSaving, setReturnSaving] = useState(false);
+  const [returnForm, setReturnForm] = useState({
+    source: "project_return",
+    kind: "generic" as "generic" | "unique",
+    inventory_item: "",
+    unit_type: "",
+    quantity: "1",
+    serials: "",
+    reference: "",
+    notes: "",
+  });
+  const [genericItems, setGenericItems] = useState<{ id: string; sku: string; material_name: string | null }[]>([]);
+  const [uniqueProducts, setUniqueProducts] = useState<{ id: string; type_code: string; name: string }[]>([]);
+
+  function openReturn() {
+    setReturnForm({ source: "project_return", kind: "generic", inventory_item: "", unit_type: "", quantity: "1", serials: "", reference: "", notes: "" });
+    setReturnOpen(true);
+    if (genericItems.length === 0) {
+      api.get("/inventory/items/", { params: { page_size: 500 } }).then((r) => setGenericItems(r.data.results ?? r.data)).catch(() => {});
+      api.get("/inventory/products/", { params: { page_size: 500 } }).then((r) => setUniqueProducts(r.data.results ?? r.data)).catch(() => {});
+    }
+  }
+
+  async function submitReturn(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const qty = Number(returnForm.quantity || 0);
+    const serials = returnForm.serials.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+    if (returnForm.kind === "unique" && serials.length !== qty) {
+      toast.error(`Give ${qty} serial number${qty === 1 ? "" : "s"} — one per unit coming back`);
+      return;
+    }
+    setReturnSaving(true);
+    try {
+      const { data } = await api.post("/inventory/receipts/return/", {
+        source: returnForm.source,
+        inventory_item: returnForm.kind === "generic" ? returnForm.inventory_item || null : null,
+        unit_type: returnForm.kind === "unique" ? returnForm.unit_type || null : null,
+        quantity: qty,
+        serial_numbers: returnForm.kind === "unique" ? serials : [],
+        reference: returnForm.reference,
+        notes: returnForm.notes,
+      });
+      toast.success(`${data.grn_number ?? "Return"} recorded — inspect it to put it back in stock`);
+      setReturnOpen(false);
+      fetchLines();
+    } catch (err) {
+      toast.error(getApiError(err, "Could not record the return"));
+    } finally {
+      setReturnSaving(false);
+    }
+  }
 
   const fetchLines = useCallback(async () => {
     setLoading(true);
@@ -141,29 +188,31 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
           payload.units = units.slice(0, accepted).map((u) => ({
             serial_number: u.serial_number,
             model_name: u.model_name,
-            has_warranty: u.has_warranty,
-            ...(u.has_warranty
-              ? {
-                  warranty_type: u.warranty_type,
-                  warranty_start: u.warranty_start || null,
-                  warranty_months: u.warranty_months ? Number(u.warranty_months) : null,
-                }
-              : {}),
+            has_warranty: !!u.warranty_months,
+            warranty_months: u.warranty_months ? Number(u.warranty_months) : null,
           }));
         }
       }
       const { data } = await api.post(`/inventory/receipt-lines/${active.id}/inspect/`, payload);
       const stocked = data.stocked_units?.length ?? 0;
+      const withWarranty = route === "unique" && accepted > 0
+        ? units.slice(0, accepted).filter((u) => u.warranty_months).length
+        : 0;
       toast.success(
         accepted === 0
           ? "Line rejected — nothing stocked"
           : route === "unique"
-            ? `${stocked} unique item${stocked === 1 ? "" : "s"} added to inventory`
+            ? `${stocked} unique component${stocked === 1 ? "" : "s"} added to inventory`
             : `${accepted} added to generic stock`,
       );
       setActive(null);
       fetchLines();
       onStocked?.();
+      // Item 23: the receipt ends where the cover it created is kept.
+      if (withWarranty > 0) {
+        toast.message(`${withWarranty} warrant${withWarranty === 1 ? "y" : "ies"} recorded from today — opening Warranties`);
+        router.push("/warranties");
+      }
     } catch (err) {
       toast.error(getApiError(err, "Inspection failed"));
     } finally {
@@ -175,10 +224,21 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
 
   return (
     <div className="space-y-6">
-      <p className="text-sm text-muted-foreground">
-        Goods received against purchase orders wait here. A technician inspects each delivery and files
-        the accepted items into generic stock or unique items — nothing enters inventory until then.
-      </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <p className="max-w-3xl text-sm text-muted-foreground">
+          Everything coming into the store waits here: purchase deliveries, components left over from a
+          project, and parts back from maintenance. A supervisor or the store inspects each line and files
+          what passes into generic or unique components — nothing enters inventory until then.
+        </p>
+        {canInspect && (
+          <button
+            onClick={openReturn}
+            className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          >
+            <Undo2 className="h-4 w-4" /> Record a return
+          </button>
+        )}
+      </div>
 
       {loading ? (
         <div className="flex items-center justify-center py-20">
@@ -189,7 +249,7 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
           <PackageCheck className="mx-auto h-12 w-12 text-muted-foreground/30" />
           <h3 className="mt-4 text-lg font-semibold text-foreground">Nothing awaiting inspection</h3>
           <p className="mt-2 text-sm text-muted-foreground">
-            Received purchase-order lines appear here for checking.
+            Purchase deliveries, project leftovers and maintenance returns appear here for checking.
           </p>
         </div>
       ) : (
@@ -329,6 +389,7 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
               <div className="space-y-2 rounded-xl border border-border bg-secondary/20 p-4">
                 <p className="text-xs text-muted-foreground">
                   One row per physical unit. Make, supplier, price and batch are taken from the purchase order.
+                  A warranty term runs from today, the day the unit was received.
                 </p>
                 <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
                   {units.slice(0, accepted).map((u, i) => (
@@ -345,37 +406,19 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
                         placeholder="Model"
                         className={`${smallInput} sm:col-span-3`}
                       />
-                      <label className="flex items-center gap-1.5 text-xs text-muted-foreground sm:col-span-2">
+                      <div className="flex items-center gap-2 sm:col-span-5">
                         <input
-                          type="checkbox"
-                          checked={u.has_warranty}
-                          onChange={(e) => patchUnit(i, { has_warranty: e.target.checked })}
-                          className="h-3.5 w-3.5 rounded border-border accent-primary"
+                          type="number"
+                          min={1}
+                          max={120}
+                          value={u.warranty_months}
+                          onChange={(e) => patchUnit(i, { warranty_months: e.target.value })}
+                          placeholder="Warranty (months)"
+                          title="Warranty months, counted from today"
+                          className={`${smallInput} w-40`}
                         />
-                        Warranty
-                      </label>
-                      {u.has_warranty ? (
-                        <>
-                          <input
-                            type="date"
-                            value={u.warranty_start}
-                            onChange={(e) => patchUnit(i, { warranty_start: e.target.value })}
-                            title="Warranty start"
-                            className={`${smallInput} sm:col-span-2`}
-                          />
-                          <input
-                            type="number"
-                            min={1}
-                            value={u.warranty_months}
-                            onChange={(e) => patchUnit(i, { warranty_months: e.target.value })}
-                            placeholder="mo"
-                            title="Months"
-                            className={`${smallInput} sm:col-span-1`}
-                          />
-                        </>
-                      ) : (
-                        <span className="text-[11px] text-muted-foreground sm:col-span-3">No warranty</span>
-                      )}
+                        <span className="text-[11px] text-muted-foreground">from today · blank = no warranty</span>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -413,6 +456,72 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
             </div>
           </div>
         )}
+      </Modal>
+      <Modal open={returnOpen} onClose={() => setReturnOpen(false)} title="Record a return" size="md">
+        <form onSubmit={submitReturn} className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            Components coming back to the store. They are inspected like any delivery before they count as stock.
+          </p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <label htmlFor="ret_source" className={labelClass}>Coming back from *</label>
+              <select id="ret_source" value={returnForm.source} onChange={(e) => setReturnForm({ ...returnForm, source: e.target.value })} className={inputClass}>
+                <option value="project_return">A project (leftovers)</option>
+                <option value="maintenance_return">Maintenance</option>
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="ret_kind" className={labelClass}>Kind of component *</label>
+              <select
+                id="ret_kind"
+                value={returnForm.kind}
+                onChange={(e) => setReturnForm({ ...returnForm, kind: e.target.value as "generic" | "unique", inventory_item: "", unit_type: "", serials: "" })}
+                className={inputClass}
+              >
+                <option value="generic">Generic (counted)</option>
+                <option value="unique">Unique (serialised)</option>
+              </select>
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <label htmlFor="ret_component" className={labelClass}>Component *</label>
+              {returnForm.kind === "generic" ? (
+                <select id="ret_component" required value={returnForm.inventory_item} onChange={(e) => setReturnForm({ ...returnForm, inventory_item: e.target.value })} className={inputClass}>
+                  <option value="">Select a generic component…</option>
+                  {genericItems.map((it) => <option key={it.id} value={it.id}>{it.material_name ?? it.sku} · {it.sku}</option>)}
+                </select>
+              ) : (
+                <select id="ret_component" required value={returnForm.unit_type} onChange={(e) => setReturnForm({ ...returnForm, unit_type: e.target.value })} className={inputClass}>
+                  <option value="">Select a unique component…</option>
+                  {uniqueProducts.map((u) => <option key={u.id} value={u.id}>{u.name} · {u.type_code}</option>)}
+                </select>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="ret_qty" className={labelClass}>Quantity *</label>
+              <input id="ret_qty" type="number" min={1} required value={returnForm.quantity} onChange={(e) => setReturnForm({ ...returnForm, quantity: e.target.value })} className={inputClass} />
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="ret_ref" className={labelClass}>Reference</label>
+              <input id="ret_ref" value={returnForm.reference} onChange={(e) => setReturnForm({ ...returnForm, reference: e.target.value })} placeholder="Project code, job number…" className={inputClass} />
+            </div>
+            {returnForm.kind === "unique" && (
+              <div className="space-y-1.5 sm:col-span-2">
+                <label htmlFor="ret_serials" className={labelClass}>Serial numbers (one per line) *</label>
+                <textarea id="ret_serials" rows={3} value={returnForm.serials} onChange={(e) => setReturnForm({ ...returnForm, serials: e.target.value })} className={`${inputClass} h-auto py-2 font-mono`} />
+              </div>
+            )}
+            <div className="space-y-1.5 sm:col-span-2">
+              <label htmlFor="ret_notes" className={labelClass}>Notes</label>
+              <textarea id="ret_notes" rows={2} value={returnForm.notes} onChange={(e) => setReturnForm({ ...returnForm, notes: e.target.value })} className={`${inputClass} h-auto py-2`} />
+            </div>
+          </div>
+          <div className="flex justify-end gap-3">
+            <button type="button" onClick={() => setReturnOpen(false)} className="inline-flex h-10 items-center rounded-lg border border-border px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">Cancel</button>
+            <button type="submit" disabled={returnSaving} className="inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-medium text-white transition-all disabled:opacity-50">
+              {returnSaving ? "Recording…" : "Record return"}
+            </button>
+          </div>
+        </form>
       </Modal>
     </div>
   );
