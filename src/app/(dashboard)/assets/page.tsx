@@ -17,6 +17,7 @@ import { DeviceImage } from "@/components/ui/device-image";
 import { StatusBadge } from "@/components/ui/badge";
 import { Tabs } from "@/components/ui/tabs";
 import { Modal } from "@/components/ui/modal";
+import { Qty } from "@/components/ui/qty";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { formatDate, formatDateTime } from "@/lib/utils";
@@ -1569,7 +1570,6 @@ export default function AssetsPage() {
                                 <th className="px-3 py-2 font-medium">In Stock</th>
                                 <th className="px-3 py-2 font-medium">From Inventory</th>
                                 <th className="px-3 py-2 font-medium">Fulfilment</th>
-                                <th className="px-3 py-2 font-medium">Unit</th>
                                 {canEdit && <th className="px-3 py-2" />}
                               </tr>
                             </thead>
@@ -1590,7 +1590,7 @@ export default function AssetsPage() {
                                         className="h-7 w-16 rounded-lg border border-border bg-background px-2 text-xs text-foreground"
                                       />
                                     ) : (
-                                      <>×{cmp.quantity}</>
+                                      <Qty value={cmp.quantity} unit={cmp.unit} prefix="×" />
                                     )}
                                     {cmp.issued_quantity > 0 && (
                                       <span className="block text-2xs text-muted-foreground">
@@ -1612,7 +1612,6 @@ export default function AssetsPage() {
                                       <span className="block font-mono text-2xs text-muted-foreground">{cmp.po_number}</span>
                                     )}
                                   </td>
-                                  <td className="px-3 py-2 text-muted-foreground">{cmp.unit || "piece"}</td>
                                   {canEdit && (
                                     <td className="px-3 py-2 text-right">
                                       {compEdit?.id === cmp.id ? (

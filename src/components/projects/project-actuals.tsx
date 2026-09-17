@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Modal } from "@/components/ui/modal";
+import { Qty } from "@/components/ui/qty";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
@@ -315,8 +316,8 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
                     asset.lines.map((l) => (
                       <tr key={l.component} className="border-t border-border/50">
                         <td className={`${tdClass} pl-6 font-medium text-foreground`}>{l.name}</td>
-                        <td className={`${tdClass} text-right text-muted-foreground`}>{l.required} <span className="text-2xs">{l.unit || "piece"}</span></td>
-                        <td className={`${tdClass} text-right text-foreground`}>{l.issued} <span className="text-2xs text-muted-foreground">{l.unit || "piece"}</span></td>
+                        <td className={`${tdClass} text-right text-muted-foreground`}><Qty value={l.required} unit={l.unit} /></td>
+                        <td className={`${tdClass} text-right text-foreground`}><Qty value={l.issued} unit={l.unit} /></td>
                         <td className={`${tdClass} text-right text-foreground`}>{l.unit_price != null ? money(l.unit_price) : "—"}</td>
                         <td className={`${tdClass} text-muted-foreground`}>{l.price_source}</td>
                         <td className={`${tdClass} text-right font-medium text-foreground`}>

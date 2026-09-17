@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { Qty } from "@/components/ui/qty";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
@@ -428,7 +429,6 @@ export function ProjectPlanning({
                 <thead>
                   <tr className="border-b border-border bg-secondary/50">
                     <th className={thClass}>Component</th>
-                    <th className={thClass}>Unit</th>
                     <th className={`${thClass} text-right`}>Qty</th>
                     <th className={`${thClass} text-right`}>Unit price</th>
                     <th className={thClass}>Priced from</th>
@@ -440,8 +440,7 @@ export function ProjectPlanning({
                   {boq.lines.map((l, i) => (
                     <tr key={`${l.name}-${i}`} className="border-b border-border/60 last:border-0">
                       <td className={`${tdClass} font-medium text-foreground`}>{l.name}</td>
-                      <td className={`${tdClass} text-muted-foreground`}>{l.unit}</td>
-                      <td className={`${tdClass} text-right text-foreground`}>{l.quantity}</td>
+                      <td className={`${tdClass} text-right text-foreground`}><Qty value={l.quantity} unit={l.unit} /></td>
                       <td className={`${tdClass} text-right text-foreground`}>{l.unit_price != null ? money(l.unit_price) : "—"}</td>
                       <td className={`${tdClass} text-muted-foreground`}>{l.price_source}</td>
                       <td className={`${tdClass} font-mono text-2xs text-muted-foreground`}>
@@ -453,7 +452,7 @@ export function ProjectPlanning({
                 </tbody>
                 <tfoot>
                   <tr className="border-t border-border bg-secondary/30">
-                    <td colSpan={6} className={`${tdClass} text-right font-medium text-muted-foreground`}>
+                    <td colSpan={5} className={`${tdClass} text-right font-medium text-muted-foreground`}>
                       Total{boq.unpriced_lines > 0 ? ` · ${boq.unpriced_lines} unpriced line${boq.unpriced_lines === 1 ? "" : "s"}` : ""}
                     </td>
                     <td className={`${tdClass} text-right font-semibold text-foreground`}>{money(boq.total)}</td>
@@ -577,7 +576,7 @@ export function ProjectPlanning({
                       lines.map((m) => (
                         <tr key={m.component} className="border-t border-border/50">
                           <td className={`${tdClass} pl-10 font-medium text-foreground`}>{m.name}</td>
-                          <td className={`${tdClass} text-right text-foreground`}>{m.quantity} <span className="text-2xs text-muted-foreground">{m.unit || "piece"}</span></td>
+                          <td className={`${tdClass} text-right text-foreground`}><Qty value={m.quantity} unit={m.unit} /></td>
                           <td className={`${tdClass} text-right`}>
                             {editable ? (
                               <input

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { Modal } from "@/components/ui/modal";
+import { Qty } from "@/components/ui/qty";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
@@ -251,7 +252,7 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                         </span>
                       </td>
                       <td className={`${tdClass} text-foreground`}>{row.what}</td>
-                      <td className={`${tdClass} text-foreground`}>{row.quantity_requested} <span className="text-2xs text-muted-foreground">{row.unit ?? ""}</span></td>
+                      <td className={`${tdClass} text-foreground`}><Qty value={row.quantity_requested} unit={row.unit} /></td>
                       <td className={`${tdClass} text-muted-foreground`}>
                         {row.quantity_issued}
                         {row.outstanding_quantity > 0 && (

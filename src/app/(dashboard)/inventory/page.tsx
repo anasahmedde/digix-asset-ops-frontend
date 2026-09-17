@@ -11,6 +11,7 @@ import { UniqueItems } from "@/components/inventory/unique-items";
 import { CopyButton } from "@/components/ui/copy-button";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { Modal } from "@/components/ui/modal";
+import { Qty } from "@/components/ui/qty";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
@@ -369,7 +370,7 @@ export default function InventoryPage() {
                         {LOCATION_LABELS[item.location] ?? item.location}
                       </span>
                     </td>
-                    <td className={`${tdClass} font-medium ${item.is_low_stock ? "text-red-600" : "text-foreground"}`}>{item.quantity} <span className="text-2xs font-normal text-muted-foreground">{item.unit || "piece"}</span></td>
+                    <td className={`${tdClass} font-medium ${item.is_low_stock ? "text-red-600" : "text-foreground"}`}><Qty value={item.quantity} unit={item.unit} /></td>
                     <td className={`${tdClass} text-muted-foreground`}>{item.min_stock_level}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{item.unit_cost ? item.unit_cost : "-"}</td>
                     <td className={tdClass} onClick={(e) => e.stopPropagation()}>

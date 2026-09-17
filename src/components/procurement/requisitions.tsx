@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { Modal } from "@/components/ui/modal";
+import { Qty } from "@/components/ui/qty";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
@@ -24,6 +25,8 @@ interface Requisition {
   project_name: string | null;
   required_quantity: number;
   outstanding_quantity: number;
+  /** Unit of measure of the line (piece, meter, asset…). */
+  unit?: string;
   available_quantity: number | null;
   purchase_order_item: string | null;
   po_number: string | null;
@@ -243,7 +246,7 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
                       </td>
                       <td className={`${tdClass} font-mono text-muted-foreground`}>{r.asset_code}</td>
                       <td className={`${tdClass} text-muted-foreground`}>{r.project_name ?? "—"}</td>
-                      <td className={`${tdClass} font-medium text-foreground`}>{r.outstanding_quantity}</td>
+                      <td className={`${tdClass} font-medium text-foreground`}><Qty value={r.outstanding_quantity} unit={r.unit} /></td>
                       <td className={tdClass}>
                         {isAsset ? (
                           <span className="text-muted-foreground">—</span>
@@ -308,7 +311,7 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
                     <tr key={key} className="border-b border-border/60 last:border-0">
                       <td className="px-3 py-2 font-medium text-foreground">{r.name}</td>
                       <td className="px-3 py-2 font-mono text-muted-foreground">{r.asset_code}</td>
-                      <td className="px-3 py-2 text-right text-foreground">{r.outstanding_quantity}</td>
+                      <td className="px-3 py-2 text-right text-foreground"><Qty value={r.outstanding_quantity} unit={r.unit} /></td>
                       <td className="px-3 py-2 text-right">
                         <input
                           type="number"

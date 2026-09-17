@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { CopyButton } from "@/components/ui/copy-button";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { Modal } from "@/components/ui/modal";
+import { Qty } from "@/components/ui/qty";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
@@ -85,6 +86,8 @@ export function UniqueItems() {
 
   const [expanded, setExpanded] = useState<string | null>(null);
   const [units, setUnits] = useState<Record<string, UnitRow[]>>({});
+  // A serial is text until its pencil is clicked; nothing changes by accident.
+  const [editingSerial, setEditingSerial] = useState<string | null>(null);
   const [filterValues, setFilterValues] = useState<Record<string, string>>({ stock: "", category: "" });
   const [search, setSearch] = useState("");
 
@@ -285,7 +288,6 @@ export function UniqueItems() {
                   <th className={thClass}>Component</th>
                   <th className={thClass}>Make / Model</th>
                   <th className={thClass}>In Stock</th>
-                  <th className={thClass}>Unit</th>
                   <th className={thClass}>Unit Cost</th>
                   {canEdit && <th className={thClass}>Actions</th>}
                 </tr>
@@ -312,10 +314,9 @@ export function UniqueItems() {
                       </td>
                       <td className={tdClass}>
                         <span className={`font-semibold ${p.in_stock_count === 0 ? "text-muted-foreground" : "text-foreground"}`}>
-                          {p.in_stock_count}
+                          <Qty value={p.in_stock_count} unit={p.unit} />
                         </span>
                       </td>
-                      <td className={`${tdClass} text-muted-foreground`}>{p.unit || "piece"}</td>
                       <td className={`${tdClass} text-muted-foreground`}>{p.unit_cost ?? "—"}</td>
                       {canEdit && (
                         <td className={tdClass} onClick={(e) => e.stopPropagation()}>
@@ -370,16 +371,32 @@ export function UniqueItems() {
                                 {(units[p.id] ?? []).map((u) => (
                                   <tr key={u.id} className="border-t border-border/60">
                                     <td className="py-1.5">
-                                      {canEdit ? (
+                                      {editingSerial === u.id ? (
                                         <input
+                                          autoFocus
                                           defaultValue={u.serial_number}
-                                          onBlur={(e) => saveSerial(p.id, u, e.target.value)}
-                                          onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                                          title="Type the real serial number — it saves when you leave the box"
+                                          onBlur={(e) => { saveSerial(p.id, u, e.target.value); setEditingSerial(null); }}
+                                          onKeyDown={(e) => {
+                                            if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                                            if (e.key === "Escape") setEditingSerial(null);
+                                          }}
+                                          title="Type the real serial number — Enter or leaving the box saves it"
                                           className="h-7 w-44 rounded-md border border-border bg-background px-2 font-mono text-xs text-foreground focus:border-primary/50 focus:outline-none"
                                         />
                                       ) : (
-                                        <span className="font-mono text-foreground">{u.serial_number}</span>
+                                        <span className="inline-flex items-center gap-2">
+                                          <span className="font-mono text-foreground">{u.serial_number}</span>
+                                          {canEdit && (
+                                            <button
+                                              type="button"
+                                              onClick={() => setEditingSerial(u.id)}
+                                              title="Edit this serial number"
+                                              className="text-muted-foreground transition-colors hover:text-foreground"
+                                            >
+                                              <Pencil className="h-3 w-3" />
+                                            </button>
+                                          )}
+                                        </span>
                                       )}
                                     </td>
                                     <td className="py-1.5 text-muted-foreground">{STATUS_LABELS[u.status] ?? u.status}</td>

@@ -6,6 +6,7 @@ import { toast } from "sonner";
 
 import { Requisitions } from "@/components/procurement/requisitions";
 import { FilterBar } from "@/components/ui/filter-bar";
+import { Qty } from "@/components/ui/qty";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { CURRENCIES } from "@/lib/currency";
@@ -843,7 +844,7 @@ export default function ProcurementPage() {
                                         {item.line_detail && <span className="block text-2xs text-muted-foreground">{item.line_detail}</span>}
                                       </td>
                                       <td className="px-4 py-2 text-muted-foreground">{itemTypeLabel(item)}</td>
-                                      <td className="px-4 py-2 text-right text-muted-foreground">{item.quantity} <span className="text-2xs">{item.unit ?? ""}</span></td>
+                                      <td className="px-4 py-2 text-right text-muted-foreground"><Qty value={item.quantity} unit={item.unit} /></td>
                                       <td className="px-4 py-2 text-right text-muted-foreground">{po.prices_hidden ? "—" : Number(item.unit_price).toLocaleString()}</td>
                                       <td className="px-4 py-2 text-right text-muted-foreground">{item.received_quantity ?? 0} / {item.quantity}</td>
                                       <td className="px-4 py-2 text-right font-medium text-foreground">

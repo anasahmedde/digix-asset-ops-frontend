@@ -11,6 +11,7 @@ import {
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
+import { Qty } from "@/components/ui/qty";
 import api from "@/lib/api";
 import { AssignedTicketsBanner } from "@/components/ui/assigned-tickets-banner";
 import { StatCard } from "@/components/ui/stat-card";
@@ -382,7 +383,7 @@ export default function DashboardPage() {
                         {p.name}
                         <span className="block font-mono text-2xs text-muted-foreground">{p.type_code} · unique</span>
                       </td>
-                      <td className="py-2 text-right font-medium text-foreground">{p.in_stock_count}</td>
+                      <td className="py-2 text-right font-medium text-foreground"><Qty value={p.in_stock_count} unit="piece" /></td>
                       <td className="py-2 text-right text-muted-foreground">
                         {p.unit_cost ? Number(p.unit_cost).toLocaleString() : "—"}
                       </td>
@@ -401,9 +402,9 @@ export default function DashboardPage() {
                   <tr key={`i-${it.id}`} className="border-b border-border/60 last:border-0">
                     <td className="py-2 text-foreground">
                       {it.material_name ?? it.sku}
-                      <span className="block font-mono text-2xs text-muted-foreground">{it.sku} · generic{it.unit ? ` · ${it.unit}` : ""}</span>
+                      <span className="block font-mono text-2xs text-muted-foreground">{it.sku} · generic</span>
                     </td>
-                    <td className="py-2 text-right font-medium text-foreground">{it.quantity}</td>
+                    <td className="py-2 text-right font-medium text-foreground"><Qty value={it.quantity} unit={it.unit} /></td>
                     <td className="py-2 text-right text-muted-foreground">
                       {it.unit_cost ? Number(it.unit_cost).toLocaleString() : "—"}
                     </td>

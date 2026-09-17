@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { Qty } from "@/components/ui/qty";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { Modal } from "@/components/ui/modal";
@@ -480,10 +481,10 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                                 </span>
                               )}
                             </td>
-                            <td className={`${tdClass} text-foreground`}>{row.quantity} <span className="text-2xs text-muted-foreground">{row.unit || "piece"}</span></td>
-                            <td className={`${tdClass} text-muted-foreground`}>{row.issued_quantity} <span className="text-2xs">{row.unit || "piece"}</span></td>
+                            <td className={`${tdClass} text-foreground`}><Qty value={row.quantity} unit={row.unit} /></td>
+                            <td className={`${tdClass} text-muted-foreground`}><Qty value={row.issued_quantity} unit={row.unit} /></td>
                             <td className={`${tdClass} ${short ? "text-amber-600" : "text-muted-foreground"}`}>
-                              {row.available_quantity ?? "—"}
+                              <Qty value={row.available_quantity} unit={row.unit} />
                               {short && row.outstanding_quantity > 0 && (
                                 <span className="block text-2xs">
                                   short {row.outstanding_quantity - (row.available_quantity ?? 0)}
