@@ -1335,7 +1335,7 @@ export default function AssetsPage() {
                                         ))}
                                       </select>
                                       <p className="text-2xs text-muted-foreground">
-                                        This opens the asset's job on the Installation Tracker.
+                                        This opens the asset&apos;s job on the Installation Tracker.
                                       </p>
                                     </div>
                                   )}
