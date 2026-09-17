@@ -61,6 +61,23 @@
   }
   body {
     @apply bg-background text-foreground antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  /* Figures line up in every table without each cell asking for it. */
+  table {
+    font-variant-numeric: tabular-nums;
+  }
+  /* Headings: no orphaned last word, slightly tighter tracking. */
+  h1, h2, h3 {
+    text-wrap: balance;
+    letter-spacing: -0.01em;
+  }
+  /* Codes read better with a slashed zero, and a code never breaks across lines in a table. */
+  .font-mono, code, kbd {
+    font-feature-settings: "zero" 1;
+  }
+  td .font-mono, th .font-mono {
+    white-space: nowrap;
   }
 
   .dark h1, .dark h2, .dark h3, .dark h4, .dark h5, .dark h6 {

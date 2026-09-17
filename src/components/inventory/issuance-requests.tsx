@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { Modal } from "@/components/ui/modal";
+import { Qty } from "@/components/ui/qty";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
@@ -17,6 +18,8 @@ interface RequestRow {
   item_sku: string | null;
   unit_type_name: string | null;
   quantity_requested: number;
+  /** Unit of measure of what is asked for (piece, meter, box…). */
+  unit?: string;
   quantity_issued: number;
   outstanding_quantity: number;
   available_quantity: number | null;
@@ -244,16 +247,16 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                     <tr key={row.id} className="border-b border-border transition-colors hover:bg-secondary/30">
                       <td className={`${tdClass} font-mono text-foreground`}>
                         {row.request_number}
-                        <span className="block text-[11px] font-sans text-muted-foreground">
+                        <span className="block text-2xs font-sans text-muted-foreground">
                           {row.source_display}
                         </span>
                       </td>
                       <td className={`${tdClass} text-foreground`}>{row.what}</td>
-                      <td className={`${tdClass} text-foreground`}>{row.quantity_requested}</td>
+                      <td className={`${tdClass} text-foreground`}><Qty value={row.quantity_requested} unit={row.unit} /></td>
                       <td className={`${tdClass} text-muted-foreground`}>
                         {row.quantity_issued}
                         {row.outstanding_quantity > 0 && (
-                          <span className="block text-[11px] text-amber-600">
+                          <span className="block text-2xs text-amber-600">
                             {row.outstanding_quantity} owed
                           </span>
                         )}
@@ -264,7 +267,7 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                       <td className={`${tdClass} text-muted-foreground`}>
                         {against(row)}
                         {row.purpose && against(row) !== row.purpose && (
-                          <span className="block text-[11px]">{row.purpose}</span>
+                          <span className="block text-2xs">{row.purpose}</span>
                         )}
                       </td>
                       <td className={`${tdClass} text-muted-foreground`}>{row.requested_by_name ?? "—"}</td>
@@ -277,7 +280,7 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                           {row.status_display}
                         </span>
                         {row.awaiting_procurement && (
-                          <span className="mt-1 block text-[10px] font-medium text-indigo-600">
+                          <span className="mt-1 block text-2xs font-medium text-indigo-600">
                             Procurement in progress{row.po_number ? ` · ${row.po_number}` : ""}
                           </span>
                         )}

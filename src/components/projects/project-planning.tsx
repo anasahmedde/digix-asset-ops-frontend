@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { Qty } from "@/components/ui/qty";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
@@ -16,6 +17,7 @@ interface MaterialLine {
   asset_name: string;
   name: string;
   quantity: number;
+  unit?: string;
   unit_price: string | null;
   price_source: string;
   line_total: string | null;
@@ -49,6 +51,11 @@ interface Plan {
     id: string;
     asset_code: string;
     asset_name: string;
+    /** Bought complete from a vendor — priced as one line. */
+    vendor_asset?: boolean;
+    source?: string;
+    asset_price?: string | null;
+    supply_vendor_name?: string | null;
     lines: number;
     materials_total: string;
     unpriced_lines: number;
@@ -102,7 +109,7 @@ const STATUS_STYLES: Record<Plan["status"], string> = {
 const money = (v: string | number | null | undefined) =>
   `PKR ${new Intl.NumberFormat("en-PK", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(v ?? 0))}`;
 
-const thClass = "px-3 py-2 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground";
+const thClass = "px-3 py-2 text-left text-2xs font-medium uppercase tracking-wider text-muted-foreground";
 const tdClass = "px-3 py-2";
 const inputClass =
   "h-8 rounded-lg border border-border bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none";
@@ -240,6 +247,19 @@ export function ProjectPlanning({
     }
   }
 
+  /** The vendor's price for a complete asset — the plan's one line for it. */
+  async function saveAssetPrice(deviceId: string, raw: string, current: string | null | undefined) {
+    const value = raw.trim();
+    if (value === (current == null ? "" : String(Number(current)))) return;
+    try {
+      await api.patch(`/assets/devices/${deviceId}/`, { purchase_price: value || null });
+      await load();
+      toast.success(value ? "Vendor price set" : "Vendor price cleared");
+    } catch (err) {
+      toast.error(getApiError(err, "Could not set that price"));
+    }
+  }
+
   async function saveStepCost(stepId: string, raw: string, current: string | null) {
     const value = raw.trim();
     if (value === (current ?? "")) return;
@@ -269,7 +289,7 @@ export function ProjectPlanning({
       <div className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-border bg-secondary/30 p-4">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold ring-1 ${STATUS_STYLES[plan.status]}`}>
+            <span className={`inline-flex rounded-full px-2.5 py-0.5 text-2xs font-semibold ring-1 ${STATUS_STYLES[plan.status]}`}>
               {plan.has_plan ? plan.status_display : "Not started"}
             </span>
             {plan.status === "approved" && (
@@ -278,7 +298,7 @@ export function ProjectPlanning({
               </span>
             )}
           </div>
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-2xs text-muted-foreground">
             {plan.status === "approved" && plan.decided_by
               ? `Signed off by ${plan.decided_by}${plan.decided_at ? ` on ${formatDate(plan.decided_at)}` : ""} — execution is open.`
               : plan.status === "submitted" && plan.submitted_by
@@ -384,7 +404,7 @@ export function ProjectPlanning({
           <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
             <div>
               <h4 className="text-sm font-semibold text-foreground">Bill of quantities</h4>
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-2xs text-muted-foreground">
                 Every component the project needs, summed across its assets. Each asset&apos;s own list is its BOM below.
               </p>
             </div>
@@ -409,7 +429,6 @@ export function ProjectPlanning({
                 <thead>
                   <tr className="border-b border-border bg-secondary/50">
                     <th className={thClass}>Component</th>
-                    <th className={thClass}>Unit</th>
                     <th className={`${thClass} text-right`}>Qty</th>
                     <th className={`${thClass} text-right`}>Unit price</th>
                     <th className={thClass}>Priced from</th>
@@ -421,11 +440,10 @@ export function ProjectPlanning({
                   {boq.lines.map((l, i) => (
                     <tr key={`${l.name}-${i}`} className="border-b border-border/60 last:border-0">
                       <td className={`${tdClass} font-medium text-foreground`}>{l.name}</td>
-                      <td className={`${tdClass} text-muted-foreground`}>{l.unit}</td>
-                      <td className={`${tdClass} text-right text-foreground`}>{l.quantity}</td>
+                      <td className={`${tdClass} text-right text-foreground`}><Qty value={l.quantity} unit={l.unit} /></td>
                       <td className={`${tdClass} text-right text-foreground`}>{l.unit_price != null ? money(l.unit_price) : "—"}</td>
                       <td className={`${tdClass} text-muted-foreground`}>{l.price_source}</td>
-                      <td className={`${tdClass} font-mono text-[11px] text-muted-foreground`}>
+                      <td className={`${tdClass} font-mono text-2xs text-muted-foreground`}>
                         {l.assets.map((a) => (typeof a === "string" ? a : a.asset_code ?? "")).filter(Boolean).join(", ")}
                       </td>
                       <td className={`${tdClass} text-right font-medium text-foreground`}>{l.amount != null ? money(l.amount) : "—"}</td>
@@ -434,7 +452,7 @@ export function ProjectPlanning({
                 </tbody>
                 <tfoot>
                   <tr className="border-t border-border bg-secondary/30">
-                    <td colSpan={6} className={`${tdClass} text-right font-medium text-muted-foreground`}>
+                    <td colSpan={5} className={`${tdClass} text-right font-medium text-muted-foreground`}>
                       Total{boq.unpriced_lines > 0 ? ` · ${boq.unpriced_lines} unpriced line${boq.unpriced_lines === 1 ? "" : "s"}` : ""}
                     </td>
                     <td className={`${tdClass} text-right font-semibold text-foreground`}>{money(boq.total)}</td>
@@ -451,7 +469,7 @@ export function ProjectPlanning({
         <div className="mb-2 flex items-end justify-between">
           <div>
             <h4 className="text-sm font-semibold text-foreground">Asset Development Cost</h4>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-2xs text-muted-foreground">
               What it takes to build each asset: its components, priced at the last procured price (or the
               cost it was opened with), and every operation on its production route. Any price can be set
               by hand.
@@ -496,23 +514,61 @@ export function ProjectPlanning({
                           </Link>
                         )}
                         {asset.unpriced_lines > 0 && (
-                          <span className="ml-2 text-[11px] font-medium text-amber-600">· {asset.unpriced_lines} unpriced</span>
+                          <span className="ml-2 text-2xs font-medium text-amber-600">· {asset.unpriced_lines} unpriced</span>
                         )}
                       </td>
                       <td className={`${tdClass} text-right font-semibold text-foreground`}>{money(asset.asset_total)}</td>
                     </tr>
 
+                    {asset.vendor_asset ? (
+                      <tr className="border-t border-border/50">
+                        <td className={`${tdClass} pl-6 font-medium text-foreground`}>
+                          Complete asset from the vendor
+                          <span className="block text-2xs font-normal text-muted-foreground">
+                            Bought whole on a purchase order — no components or production route.
+                            {asset.supply_vendor_name ? ` Vendor: ${asset.supply_vendor_name}.` : ""}
+                          </span>
+                        </td>
+                        <td className={`${tdClass} text-right text-foreground`}>1</td>
+                        <td className={`${tdClass} text-right`}>
+                          {editable ? (
+                            <input
+                              key={`${asset.id}-${asset.asset_price ?? ""}`}
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              defaultValue={asset.asset_price ?? ""}
+                              onBlur={(e) => saveAssetPrice(asset.id, e.target.value, asset.asset_price)}
+                              placeholder="Vendor price"
+                              title="The vendor's price for the complete asset; the purchase order suggests it"
+                              className={`${inputClass} w-28 text-right`}
+                            />
+                          ) : (
+                            <span className="text-foreground">{asset.asset_price != null ? money(asset.asset_price) : "—"}</span>
+                          )}
+                        </td>
+                        <td className={tdClass}>
+                          <span className={asset.asset_price == null ? "font-medium text-amber-600" : "text-muted-foreground"}>
+                            {asset.asset_price == null ? "No price on record" : "Vendor price"}
+                          </span>
+                        </td>
+                        <td className={`${tdClass} text-right font-medium text-foreground`}>
+                          {asset.asset_price != null ? money(asset.asset_price) : "—"}
+                        </td>
+                      </tr>
+                    ) : (
+                    <>
                     <tr>
-                      <td colSpan={4} className={`${tdClass} pl-6 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground`}>
+                      <td colSpan={4} className={`${tdClass} pl-6 text-2xs font-semibold uppercase tracking-wider text-muted-foreground`}>
                         Components
                       </td>
-                      <td className={`${tdClass} text-right text-[11px] font-medium text-muted-foreground`}>
+                      <td className={`${tdClass} text-right text-2xs font-medium text-muted-foreground`}>
                         {money(asset.materials_total)}
                       </td>
                     </tr>
                     {lines.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className={`${tdClass} pl-10 text-[11px] text-muted-foreground`}>
+                        <td colSpan={5} className={`${tdClass} pl-10 text-2xs text-muted-foreground`}>
                           No components listed on this asset yet.
                         </td>
                       </tr>
@@ -520,7 +576,7 @@ export function ProjectPlanning({
                       lines.map((m) => (
                         <tr key={m.component} className="border-t border-border/50">
                           <td className={`${tdClass} pl-10 font-medium text-foreground`}>{m.name}</td>
-                          <td className={`${tdClass} text-right text-foreground`}>{m.quantity}</td>
+                          <td className={`${tdClass} text-right text-foreground`}><Qty value={m.quantity} unit={m.unit} /></td>
                           <td className={`${tdClass} text-right`}>
                             {editable ? (
                               <input
@@ -550,16 +606,16 @@ export function ProjectPlanning({
                     )}
 
                     <tr>
-                      <td colSpan={4} className={`${tdClass} pl-6 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground`}>
+                      <td colSpan={4} className={`${tdClass} pl-6 text-2xs font-semibold uppercase tracking-wider text-muted-foreground`}>
                         Production
                       </td>
-                      <td className={`${tdClass} text-right text-[11px] font-medium text-muted-foreground`}>
+                      <td className={`${tdClass} text-right text-2xs font-medium text-muted-foreground`}>
                         {money(asset.production_total)}
                       </td>
                     </tr>
                     {asset.steps.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className={`${tdClass} pl-10 text-[11px] text-muted-foreground`}>
+                        <td colSpan={5} className={`${tdClass} pl-10 text-2xs text-muted-foreground`}>
                           No production route on this asset — in-house builds lay one out in the Asset section.
                         </td>
                       </tr>
@@ -598,6 +654,8 @@ export function ProjectPlanning({
                         </tr>
                       ))
                     )}
+                    </>
+                    )}
                   </tbody>
                 );
               })}
@@ -605,7 +663,7 @@ export function ProjectPlanning({
           </div>
         )}
         {plan.unpriced_lines > 0 && (
-          <p className="mt-2 text-[11px] text-amber-600">
+          <p className="mt-2 text-2xs text-amber-600">
             {plan.unpriced_lines} line(s) have no price on record — type one above, or set a unit cost on the inventory item.
           </p>
         )}
@@ -616,7 +674,7 @@ export function ProjectPlanning({
         <div className="mb-2 flex items-end justify-between">
           <div>
             <h4 className="text-sm font-semibold text-foreground">Overheads</h4>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-2xs text-muted-foreground">
               Travelling, labour, transport — name the cost type however your team slices it.
             </p>
           </div>
@@ -639,7 +697,7 @@ export function ProjectPlanning({
                 {plan.overheads.map((o) => (
                   <tr key={o.id} className="border-b border-border/60 last:border-0">
                     <td className={tdClass}>
-                      <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] font-medium text-foreground">{o.cost_type}</span>
+                      <span className="rounded-full bg-secondary px-2 py-0.5 text-2xs font-medium text-foreground">{o.cost_type}</span>
                     </td>
                     <td className={`${tdClass} text-muted-foreground`}>{o.description || "—"}</td>
                     <td className={`${tdClass} text-right text-foreground`}>{Number(o.quantity)}</td>
@@ -717,7 +775,7 @@ export function ProjectPlanning({
           <div className="flex items-center justify-between gap-3 px-4 py-2.5">
             <dt className="flex items-center gap-2 text-muted-foreground">
               Contingency
-              <span className="text-[10px] text-muted-foreground/70">on materials</span>
+              <span className="text-2xs text-muted-foreground/70">on materials</span>
               {editable ? (
                 <span className="inline-flex items-center gap-1">
                   <input
@@ -745,7 +803,7 @@ export function ProjectPlanning({
           </div>
         </dl>
         {plan.status === "approved" && Math.abs(variance) >= 0.01 && (
-          <p className={`border-t border-border px-4 py-2 text-[11px] ${variance > 0 ? "text-amber-600" : "text-emerald-600"}`}>
+          <p className={`border-t border-border px-4 py-2 text-2xs ${variance > 0 ? "text-amber-600" : "text-emerald-600"}`}>
             The estimate has moved {variance > 0 ? "above" : "below"} the approved budget by {money(Math.abs(variance))} since sign-off.
           </p>
         )}

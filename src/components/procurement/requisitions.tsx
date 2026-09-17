@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { Modal } from "@/components/ui/modal";
+import { Qty } from "@/components/ui/qty";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
@@ -24,6 +25,8 @@ interface Requisition {
   project_name: string | null;
   required_quantity: number;
   outstanding_quantity: number;
+  /** Unit of measure of the line (piece, meter, asset…). */
+  unit?: string;
   available_quantity: number | null;
   purchase_order_item: string | null;
   po_number: string | null;
@@ -235,7 +238,7 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
                       )}
                       <td className={`${tdClass} font-medium text-foreground`}>
                         {r.name}
-                        <span className={`ml-2 inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ${
+                        <span className={`ml-2 inline-flex rounded-full px-2 py-0.5 text-2xs font-medium ring-1 ${
                           isAsset ? "bg-indigo-500/10 text-indigo-600 ring-indigo-500/20" : "bg-secondary text-muted-foreground ring-border"
                         }`}>
                           {isAsset ? "Whole asset" : "Component"}
@@ -243,7 +246,7 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
                       </td>
                       <td className={`${tdClass} font-mono text-muted-foreground`}>{r.asset_code}</td>
                       <td className={`${tdClass} text-muted-foreground`}>{r.project_name ?? "—"}</td>
-                      <td className={`${tdClass} font-medium text-foreground`}>{r.outstanding_quantity}</td>
+                      <td className={`${tdClass} font-medium text-foreground`}><Qty value={r.outstanding_quantity} unit={r.unit} /></td>
                       <td className={tdClass}>
                         {isAsset ? (
                           <span className="text-muted-foreground">—</span>
@@ -253,7 +256,7 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
                               {r.available_quantity ?? 0}
                             </span>
                             {(r.available_quantity ?? 0) >= r.outstanding_quantity && (
-                              <span className="block text-[10px] text-muted-foreground">stock would cover it</span>
+                              <span className="block text-2xs text-muted-foreground">stock would cover it</span>
                             )}
                           </>
                         )}
@@ -284,7 +287,7 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
               </select>
             </div>
             <div className="space-y-1.5">
-              <label htmlFor="req_delivery" className={labelClass}>Expected delivery</label>
+              <label htmlFor="req_delivery" className={labelClass}>Required delivery</label>
               <input id="req_delivery" type="date" value={expectedDelivery} onChange={(e) => setExpectedDelivery(e.target.value)} className={inputClass} />
             </div>
           </div>
@@ -308,7 +311,7 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
                     <tr key={key} className="border-b border-border/60 last:border-0">
                       <td className="px-3 py-2 font-medium text-foreground">{r.name}</td>
                       <td className="px-3 py-2 font-mono text-muted-foreground">{r.asset_code}</td>
-                      <td className="px-3 py-2 text-right text-foreground">{r.outstanding_quantity}</td>
+                      <td className="px-3 py-2 text-right text-foreground"><Qty value={r.outstanding_quantity} unit={r.unit} /></td>
                       <td className="px-3 py-2 text-right">
                         <input
                           type="number"
@@ -336,7 +339,7 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
               </tfoot>
             </table>
           </div>
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-2xs text-muted-foreground">
             A blank price falls back to what we last paid for that line, or zero if we never have.
           </p>
 

@@ -132,7 +132,7 @@ export default function AlertsPage() {
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-foreground">{alert.title}</p>
                 {alert.message && <p className="mt-0.5 text-xs text-muted-foreground">{alert.message}</p>}
-                <div className="mt-1 flex items-center gap-3 text-[10px] text-muted-foreground">
+                <div className="mt-1 flex items-center gap-3 text-2xs text-muted-foreground">
                   {alert.device_code && <span>Device: {alert.device_code}</span>}
                   {alert.site_name && <span>{alert.site_name}{alert.site_city ? `, ${alert.site_city}` : ""}</span>}
                   <span>{formatDateTime(alert.created_at)}</span>

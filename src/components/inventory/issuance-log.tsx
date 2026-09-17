@@ -130,7 +130,7 @@ export function IssuanceLog() {
                         {to ? (
                           <span className="inline-flex items-center gap-2">
                             <span className="text-foreground">{to.name}</span>
-                            <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                            <span className="rounded-full bg-secondary px-2 py-0.5 text-2xs font-medium uppercase tracking-wider text-muted-foreground">
                               {to.kind}
                             </span>
                           </span>

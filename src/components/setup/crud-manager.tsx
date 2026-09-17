@@ -372,7 +372,7 @@ export function CrudManager<T extends { id: string; [key: string]: unknown }>({
                       className={inputClass}
                     />
                   )}
-                  {f.help && <p className="text-[11px] text-muted-foreground">{f.help}</p>}
+                  {f.help && <p className="text-2xs text-muted-foreground">{f.help}</p>}
                 </div>
               );
             })}

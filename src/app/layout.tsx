@@ -1,12 +1,16 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Inter, JetBrains_Mono } from "next/font/google";
 import { Toaster } from "sonner";
 
 import { QueryProvider } from "@/lib/query-provider";
 import { ThemeProvider } from "@/lib/theme-context";
 import "./globals.css";
 
-const inter = Inter({ subsets: ["latin"] });
+// Inter for the interface; JetBrains Mono for the codes that run through it
+// (asset, PO, GRN and component numbers) — one face on every machine instead
+// of whatever monospace the OS has.
+const inter = Inter({ subsets: ["latin"], variable: "--font-sans", display: "swap" });
+const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono", display: "swap", weight: ["400", "500", "600"] });
 
 export const metadata: Metadata = {
   title: "DIGIX Asset Management",
@@ -26,7 +30,7 @@ export default function RootLayout({
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
-      <body className={inter.className}>
+      <body className={`${inter.variable} ${mono.variable} font-sans`}>
         <ThemeProvider>
           <QueryProvider>
             {children}

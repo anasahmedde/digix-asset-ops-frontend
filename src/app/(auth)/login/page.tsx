@@ -121,7 +121,7 @@ export default function LoginPage() {
             </div>
             <div>
               <h1 className="text-xl font-bold text-white tracking-tight">DIGIX</h1>
-              <p className="text-[11px] text-teal-200/80">Asset Management Platform</p>
+              <p className="text-2xs text-teal-200/80">Asset Management Platform</p>
             </div>
           </div>
 
@@ -283,7 +283,7 @@ export default function LoginPage() {
             </div>
 
             {/* Footer */}
-            <p className="mt-8 text-center text-[11px] text-muted-foreground">
+            <p className="mt-8 text-center text-2xs text-muted-foreground">
               &copy; {new Date().getFullYear()} DIGIX Asset Operations. All rights reserved.
             </p>
           </div>
