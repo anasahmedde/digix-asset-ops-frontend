@@ -10,6 +10,7 @@ import {
   Eye,
   Pencil,
   Plus,
+  Search,
   ShoppingCart,
   Trash2,
   Truck,
@@ -17,7 +18,7 @@ import {
   XCircle,
 } from "lucide-react";
 import Link from "next/link";
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { ProjectRequirements } from "@/components/projects/project-requirements";
@@ -256,6 +257,11 @@ export default function ProjectsPage() {
   const canEdit = canWrite("devices");
   const [stats, setStats] = useState<ProjectStats | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
+  // Search by name, client or site. The server does the matching, so it finds
+  // projects beyond the first page and in any status.
+  const [query, setQuery] = useState("");
+  const queryRef = useRef("");
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [loading, setLoading] = useState(true);
   const [clients, setClients] = useState<ClientOpt[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
@@ -550,6 +556,22 @@ export default function ProjectsPage() {
     }
   }
 
+  async function deleteProject(p: ProjectDetail) {
+    const sure = window.confirm(
+      `Delete project "${p.name}"?\n\nIts scope, milestones, requirements and budget go with it. ` +
+      "Assets and stock stay where they are. A project with stock issued, orders or work orders cannot be deleted.",
+    );
+    if (!sure) return;
+    try {
+      await api.delete(`/teams/projects/${p.id}/`);
+      toast.success(`Project "${p.name}" deleted`);
+      setDetail(null);
+      fetchAll();
+    } catch (err) {
+      toast.error(getApiError(err, "Could not delete the project"));
+    }
+  }
+
   function openEdit(p: ProjectDetail) {
     setForm({
       name: p.name,
@@ -573,7 +595,9 @@ export default function ProjectsPage() {
     try {
       const [statsRes, projectsRes] = await Promise.allSettled([
         api.get("/teams/projects/dashboard_stats/"),
-        api.get("/teams/projects/", { params: { page_size: 50, ordering: "-created_at" } }),
+        api.get("/teams/projects/", {
+          params: { page_size: 100, ordering: "-created_at", ...(queryRef.current ? { search: queryRef.current } : {}) },
+        }),
       ]);
       if (statsRes.status === "fulfilled") setStats(statsRes.value.data);
       if (projectsRes.status === "fulfilled") setProjects(projectsRes.value.data.results ?? []);
@@ -772,6 +796,15 @@ export default function ProjectsPage() {
             {canEdit && (
               <button onClick={() => openEdit(d)} className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
                 <Pencil className="h-4 w-4" /> Edit
+              </button>
+            )}
+            {canEdit && (
+              <button
+                onClick={() => deleteProject(d)}
+                title="Delete this project — only while nothing has been issued, ordered or placed on it"
+                className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
+              >
+                <Trash2 className="h-4 w-4" /> Delete
               </button>
             )}
           </div>
@@ -1345,8 +1378,9 @@ export default function ProjectsPage() {
     { name: "Delayed", value: delayed },
   ];
 
+  const searching = query.trim().length > 0;
   const ongoing = projects.filter(
-    (p) => !["completed", "on_hold"].includes(p.status) && (!contractFilter || p.contract_type === contractFilter),
+    (p) => (searching || !["completed", "on_hold"].includes(p.status)) && (!contractFilter || p.contract_type === contractFilter),
   );
 
   function daysLeft(targetDate: string | null): string {
@@ -1364,6 +1398,23 @@ export default function ProjectsPage() {
           <p className="text-sm text-muted-foreground">Overview of all ongoing projects and their progress</p>
         </div>
         <div className="flex items-center gap-3">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              id="project_search"
+              type="search"
+              value={query}
+              onChange={(e) => {
+                const v = e.target.value;
+                setQuery(v);
+                queryRef.current = v.trim();
+                if (searchTimer.current) clearTimeout(searchTimer.current);
+                searchTimer.current = setTimeout(() => { fetchAll(); }, 300);
+              }}
+              placeholder="Search projects by name, client or site…"
+              className="h-10 w-80 rounded-lg border border-border bg-card pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none"
+            />
+          </div>
           <button
             onClick={() => { setEditingId(null); setForm(emptyForm); setModalOpen(true); }}
             className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-all hover:opacity-90"
@@ -1385,7 +1436,10 @@ export default function ProjectsPage() {
       {/* Ongoing Projects Table */}
       <div className="rounded-xl border border-border bg-card overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-5">
-          <h2 className="text-base font-semibold text-foreground">Ongoing Projects</h2>
+          <h2 className="text-base font-semibold text-foreground">
+            {searching ? `Projects matching "${query.trim()}"` : "Ongoing Projects"}
+            {searching && <span className="ml-2 text-xs font-normal text-muted-foreground">{ongoing.length} found · all statuses</span>}
+          </h2>
           <div className="flex items-center gap-3">
             <FilterBar
               filters={[{ key: "contract", label: "Contract", options: CONTRACT_TYPES }]}
