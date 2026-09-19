@@ -1,11 +1,12 @@
 "use client";
 
-import { FileDown, Pencil, Plus, ScrollText, Trash2, X } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { ChevronDown, ChevronRight, ClipboardCheck, FileDown, Pencil, Plus, ScrollText, Trash2, X } from "lucide-react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { CopyButton } from "@/components/ui/copy-button";
 import { WorkOrderRequests } from "@/components/work-orders/work-order-requests";
+import { WorkReceiving } from "@/components/work-orders/work-receiving";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
@@ -32,17 +33,43 @@ const STATUS_STYLES: Record<string, string> = {
   cancelled: "bg-red-500/10 text-red-600 ring-red-500/20",
 };
 
-const NEXT_STATUS: Record<WorkOrderStatus, WorkOrderStatus[]> = {
-  draft: ["pending_approval", "cancelled"],
-  pending_approval: ["approved", "draft", "cancelled"],
-  approved: ["issued", "cancelled"],
-  issued: ["in_progress", "cancelled"],
-  in_progress: ["partially_delivered", "delivered", "cancelled"],
-  partially_delivered: ["delivered", "cancelled"],
-  delivered: ["completed"],
+// Guarded transitions per current status (mirrors backend VALID_TRANSITIONS),
+// worded like the purchase order bar. Completion happens through Work
+// Receiving — the delivered work is inspected — so there is no manual button.
+const TRANSITIONS: Record<WorkOrderStatus, Array<{ status: WorkOrderStatus; label: string }>> = {
+  draft: [
+    { status: "pending_approval", label: "Submit for Approval" },
+    { status: "cancelled", label: "Cancel WO" },
+  ],
+  pending_approval: [
+    { status: "approved", label: "Approve" },
+    { status: "draft", label: "Back to Draft" },
+    { status: "cancelled", label: "Cancel WO" },
+  ],
+  approved: [
+    { status: "issued", label: "Issue to Vendor" },
+    { status: "cancelled", label: "Cancel WO" },
+  ],
+  issued: [
+    { status: "in_progress", label: "Work Started" },
+    { status: "cancelled", label: "Cancel WO" },
+  ],
+  in_progress: [
+    { status: "delivered", label: "Vendor Delivered" },
+    { status: "partially_delivered", label: "Partly Delivered" },
+    { status: "cancelled", label: "Cancel WO" },
+  ],
+  partially_delivered: [
+    { status: "delivered", label: "Vendor Delivered" },
+    { status: "cancelled", label: "Cancel WO" },
+  ],
+  delivered: [],
   completed: [],
   cancelled: [],
 };
+const NEXT_STATUS: Record<WorkOrderStatus, WorkOrderStatus[]> = Object.fromEntries(
+  Object.entries(TRANSITIONS).map(([k, v]) => [k, v.map((a) => a.status)]),
+) as Record<WorkOrderStatus, WorkOrderStatus[]>;
 
 // A work order is for services a vendor performs for us; goods are bought on
 // purchase orders. Older orders keep their type but new ones are services.
@@ -59,6 +86,9 @@ function movesFor(status: WorkOrderStatus, role: string | undefined): WorkOrderS
   if (role === "group_head") return all.filter((s) => s === "approved" || s === "draft");
   if (role === "super_admin") return all;
   return all.filter((s) => s !== "approved");
+}
+function labelFor(status: WorkOrderStatus, next: WorkOrderStatus): string {
+  return TRANSITIONS[status].find((a) => a.status === next)?.label ?? next;
 }
 const CURRENCIES = ["PKR", "AED", "SAR", "QAR", "USD", "EUR", "GBP"];
 
@@ -94,9 +124,24 @@ const label = (s: string) => s.split("_").map((w) => w[0].toUpperCase() + w.slic
 export default function WorkOrdersPage() {
   const { canWrite, user } = useUser();
   const canEdit = canWrite("setup") || canWrite("procurement");
-  const [tab, setTab] = useState<"orders" | "requests">("orders");
+  const [tab, setTab] = useState<"orders" | "requests" | "receiving">("orders");
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [detail, setDetail] = useState<Record<string, WorkOrder>>({});
+
+  /** The full order for the open row — lines and inspection. */
+  async function expandRow(id: string) {
+    if (expanded === id) { setExpanded(null); return; }
+    setExpanded(id);
+    if (!detail[id]) {
+      try {
+        const { data } = await api.get<WorkOrder>(`/work-orders/${id}/`);
+        setDetail((d) => ({ ...d, [id]: data }));
+      } catch { /* the row still shows its summary */ }
+    }
+  }
 
   const [orders, setOrders] = useState<WorkOrder[]>([]);
+  const receivingCount = orders.filter((o) => o.status === "delivered" || o.status === "partially_delivered").length;
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [terms, setTerms] = useState<PaymentTerms[]>([]);
   const [loading, setLoading] = useState(true);
@@ -224,9 +269,14 @@ export default function WorkOrdersPage() {
 
   async function handleTransition(id: string, status: WorkOrderStatus) {
     try {
-      await api.post(`/work-orders/${id}/transition/`, { status });
-      toast.success(`Moved to ${label(status)}`);
+      const { data } = await api.post(`/work-orders/${id}/transition/`, { status });
+      toast.success(
+        status === "delivered" ? `${data.wo_number} delivered — inspect it under Work Receiving`
+        : status === "approved" ? `${data.wo_number} approved`
+        : `Moved to ${data.status_display ?? label(status)}`,
+      );
       closeModal();
+      setDetail((d) => ({ ...d, [id]: data }));
       fetchOrders();
     } catch (err) {
       toast.error(getApiError(err, "Status change failed"));
@@ -277,6 +327,7 @@ export default function WorkOrdersPage() {
         {([
           { key: "orders", label: "Work Orders" },
           { key: "requests", label: "Requests" },
+          { key: "receiving", label: "Work Receiving" },
         ] as const).map((t) => (
           <button
             key={t.key}
@@ -286,11 +337,15 @@ export default function WorkOrdersPage() {
             }`}
           >
             {t.label}
+            {t.key === "receiving" && receivingCount > 0 && (
+              <span className="ml-1.5 rounded-full bg-amber-500/10 px-1.5 py-0.5 text-2xs font-semibold text-amber-600">{receivingCount}</span>
+            )}
           </button>
         ))}
       </div>
 
       {tab === "requests" && <WorkOrderRequests onRaised={() => { fetchOrders(); setTab("orders"); }} />}
+      {tab === "receiving" && <WorkReceiving onInspected={() => { setDetail({}); fetchOrders(); }} />}
 
       {tab === "orders" && (loading ? (
         <div className="flex items-center justify-center py-20">
@@ -308,6 +363,7 @@ export default function WorkOrdersPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
+                  <th className={`${thClass} w-8`}></th>
                   <th className={thClass}>WO #</th>
                   <th className={thClass}>Title</th>
                   <th className={thClass}>Type</th>
@@ -320,8 +376,12 @@ export default function WorkOrdersPage() {
               </thead>
               <tbody>
                 {orders.map((wo) => (
-                  <tr key={wo.id} onClick={() => openEdit(wo.id)} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
-                    <td className={`${tdClass} font-mono text-foreground`}>
+                  <Fragment key={wo.id}>
+                  <tr onClick={() => expandRow(wo.id)} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30" aria-expanded={expanded === wo.id}>
+                    <td className={`${tdClass} text-muted-foreground`}>
+                      {expanded === wo.id ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                    </td>
+                    <td className={`${tdClass} whitespace-nowrap font-mono text-foreground`}>
                       <span className="inline-flex items-center gap-1">
                         {wo.wo_number}
                         <CopyButton text={wo.wo_number} label="WO #" />
@@ -355,6 +415,78 @@ export default function WorkOrdersPage() {
                       </div>
                     </td>
                   </tr>
+                  {expanded === wo.id && (
+                    <tr className="border-b border-border bg-secondary/20">
+                      <td colSpan={9} className="px-6 py-4">
+                        {(() => {
+                          const d = detail[wo.id];
+                          const moves = movesFor(wo.status, user?.role);
+                          return (
+                            <div className="space-y-4">
+                              <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-4 text-sm">
+                                <div><p className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">Vendor</p><p className="mt-0.5 text-foreground">{wo.supplier_name ?? "—"}</p></div>
+                                <div><p className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">Project</p><p className="mt-0.5 text-foreground">{wo.project_name ?? "—"}</p></div>
+                                <div><p className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">Order date</p><p className="mt-0.5 text-foreground">{d?.order_date ?? "Set when the Group Head approves"}</p></div>
+                                <div><p className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">Approved by</p><p className="mt-0.5 text-foreground">{d?.approved_by_name ?? "—"}</p></div>
+                                <div><p className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">Delivered</p><p className="mt-0.5 text-foreground">{wo.delivered_at ? new Date(wo.delivered_at).toLocaleString() : "—"}</p></div>
+                                <div className="sm:col-span-2 lg:col-span-3">
+                                  <p className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">Inspection</p>
+                                  <p className="mt-0.5 text-foreground">
+                                    {wo.inspection_result
+                                      ? <>{wo.inspection_result_display}{wo.inspected_by_name ? ` by ${wo.inspected_by_name}` : ""}{wo.inspected_at ? ` on ${new Date(wo.inspected_at).toLocaleString()}` : ""}</>
+                                      : wo.status === "delivered" ? "Awaiting inspection — Work Receiving" : "—"}
+                                  </p>
+                                  {wo.inspection_notes && <p className="mt-1 whitespace-pre-line text-2xs text-muted-foreground">{wo.inspection_notes}</p>}
+                                </div>
+                              </div>
+                              {d && d.items.length > 0 && (
+                                <div className="overflow-hidden rounded-lg border border-border bg-card">
+                                  <table className="w-full text-xs">
+                                    <thead>
+                                      <tr className="border-b border-border bg-secondary/40 text-left text-muted-foreground">
+                                        <th className="px-3 py-2 font-medium">Line</th>
+                                        <th className="px-3 py-2 text-right font-medium">Qty</th>
+                                        <th className="px-3 py-2 text-right font-medium">Amount</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {d.items.map((i, n) => (
+                                        <tr key={i.id ?? n} className="border-b border-border/60 last:border-0">
+                                          <td className="px-3 py-1.5 text-foreground">{i.description}</td>
+                                          <td className="px-3 py-1.5 text-right text-muted-foreground">{i.quantity}</td>
+                                          <td className="px-3 py-1.5 text-right text-foreground">{Number(i.unit_price).toLocaleString()}</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )}
+                              {canEdit && (moves.length > 0 || wo.status === "delivered" || wo.status === "partially_delivered" || wo.status === "pending_approval") && (
+                                <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-secondary/30 p-3">
+                                  {(wo.status === "delivered" || wo.status === "partially_delivered") && (
+                                    <button type="button" onClick={() => setTab("receiving")} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white transition-all">
+                                      <ClipboardCheck className="h-3.5 w-3.5" /> Inspect work
+                                    </button>
+                                  )}
+                                  {moves.length > 0 && <span className="text-xs font-medium text-muted-foreground">Advance status:</span>}
+                                  {wo.status === "pending_approval" && user?.role !== "group_head" && user?.role !== "super_admin" && (
+                                    <span className="text-2xs text-muted-foreground">Waiting for the Group Head to approve.</span>
+                                  )}
+                                  {moves.map((m) => (
+                                    <button key={m} type="button" onClick={() => handleTransition(wo.id, m)}
+                                      className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${m === "cancelled" ? "border-border text-muted-foreground hover:bg-destructive/10 hover:text-destructive" : m === "approved" ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/20" : "border-border bg-card text-foreground hover:bg-secondary"}`}>
+                                      {labelFor(wo.status, m)}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
@@ -383,7 +515,7 @@ export default function WorkOrdersPage() {
                 {movesFor(selected.status, user?.role).map((s) => (
                   <button key={s} type="button" onClick={() => handleTransition(selected.id, s)}
                     className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary">
-                    {label(s)}
+                    {labelFor(selected.status, s)}
                   </button>
                 ))}
               </div>

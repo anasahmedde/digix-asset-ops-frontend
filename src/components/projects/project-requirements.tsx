@@ -48,7 +48,12 @@ interface StepRow {
   planned_cost: string | null;
   /** True while the project still has to say where this operation happens. */
   decision_pending?: boolean;
-  work_order: { id: string; wo_number: string; status: string; status_display: string; amount: string } | null;
+  work_order: {
+    id: string; wo_number: string; status: string; status_display: string; amount: string;
+    supplier_name?: string | null; delivered_at?: string | null;
+    inspected_by_name?: string | null; inspected_at?: string | null;
+    inspection_result?: "accepted" | "rework" | null; inspection_notes?: string;
+  } | null;
   /** Execution asked for a work order that Work Orders has not raised yet. */
   work_order_requested?: boolean;
 }
@@ -629,6 +634,13 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                                   <Link href="/work-orders" className="block font-mono text-2xs text-indigo-600 hover:underline">
                                     {st.work_order.wo_number} · {st.work_order.status_display}
                                   </Link>
+                                )}
+                                {st.work_order?.inspection_result && (
+                                  <span className={`block text-2xs ${st.work_order.inspection_result === "accepted" ? "text-emerald-600" : "text-amber-600"}`}>
+                                    {st.work_order.inspection_result === "accepted" ? "Accepted" : "Sent back for rework"}
+                                    {st.work_order.inspected_by_name ? ` · inspected by ${st.work_order.inspected_by_name}` : ""}
+                                    {st.work_order.inspected_at ? ` on ${new Date(st.work_order.inspected_at).toLocaleDateString()}` : ""}
+                                  </span>
                                 )}
                               </td>
                               <td className={tdClass}>

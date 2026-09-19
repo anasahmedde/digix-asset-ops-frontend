@@ -460,6 +460,16 @@ export interface WorkOrder {
   total_amount: string;
   notes: string;
   items: WorkOrderItem[];
+  project_name?: string | null;
+  created_by_name?: string | null;
+  approved_by_name?: string | null;
+  /** Work receiving: when the vendor delivered and how the work was inspected. */
+  delivered_at?: string | null;
+  inspected_by_name?: string | null;
+  inspected_at?: string | null;
+  inspection_result?: "accepted" | "rework" | "" | null;
+  inspection_result_display?: string | null;
+  inspection_notes?: string;
   created_at: string;
   updated_at: string;
 }

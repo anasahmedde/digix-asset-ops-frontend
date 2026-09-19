@@ -38,6 +38,10 @@ export function ProjectBudgetSummary({ projectId }: { projectId: string }) {
   if (!actuals) return null;
 
   const approved = actuals.approved_total != null ? Number(actuals.approved_total) : null;
+  // Once the budget is reopened, the approved figure is the previous one until
+  // the revision is approved; the card says so instead of passing it off as current.
+  const underRevision = approved != null && actuals.budget_status !== "approved";
+  const estimate = Number(actuals.estimate_total);
   const incurred = Number(actuals.actual_total);
   // Utilisation only means something once there is a budget to measure against.
   const used = approved && approved > 0 ? (incurred / approved) * 100 : null;
@@ -49,14 +53,19 @@ export function ProjectBudgetSummary({ projectId }: { projectId: string }) {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div>
           <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Approved Budget
+            {underRevision ? "Budget Under Revision" : "Approved Budget"}
           </p>
           <p className="text-lg font-semibold text-foreground">
-            {approved != null ? money(approved) : "Not approved yet"}
+            {underRevision ? money(estimate) : approved != null ? money(approved) : "Not approved yet"}
           </p>
           {approved == null && (
             <p className="text-2xs text-muted-foreground">
               The estimate stands at {money(actuals.estimate_total)}.
+            </p>
+          )}
+          {underRevision && (
+            <p className="text-2xs text-amber-600">
+              {actuals.budget_status === "submitted" ? "Revised estimate awaiting approval" : "Revised estimate, not yet submitted"} · previously approved {money(approved)}
             </p>
           )}
         </div>
