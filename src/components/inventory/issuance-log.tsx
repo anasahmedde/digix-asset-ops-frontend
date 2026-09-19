@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, ChevronRight, PackageOpen, Printer, Search } from "lucide-react";
+import { ChevronDown, ChevronRight, Download, PackageOpen, Printer, Search } from "lucide-react";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -30,6 +30,8 @@ interface RequestRow {
   received_by: string;
   issued_serials: string[];
   issued_units: { serial_number: string; unit_code: string | null; status: string | null; status_display: string | null }[];
+  /** Every hand-over, one by one. */
+  handovers: { at: string; quantity: number; received_by: string; issued_by: string; serials: string[]; note?: string }[];
   last_issued_at: string | null;
   status: string;
   status_display: string;
@@ -62,10 +64,22 @@ const inputClass =
 const thClass = "px-5 py-3.5 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground";
 const tdClass = "px-5 py-3.5";
 
-/** Where the stock went: the person who took it, else the project or asset it was for. */
+/** Everyone who took material against a request, in order, once each. */
+function receivers(r: RequestRow): string[] {
+  const names: string[] = [];
+  for (const h of r.handovers ?? []) {
+    const n = (h.received_by || "").trim();
+    if (n && !names.includes(n)) names.push(n);
+  }
+  if (names.length === 0 && r.received_by) names.push(r.received_by);
+  return names;
+}
+
+/** Where the stock went: the people who took it, else the project or asset it was for. */
 function destination(row: LogRow): { name: string; kind: string } | null {
   if (row.kind === "request") {
-    if (row.row.received_by) return { name: row.row.received_by, kind: "Person" };
+    const people = receivers(row.row);
+    if (people.length) return { name: people.join(", "), kind: people.length > 1 ? "People" : "Person" };
     if (row.row.project_name) return { name: row.row.project_name, kind: "Project" };
     if (row.row.asset_code) return { name: row.row.asset_code, kind: "Asset" };
     return null;
@@ -140,6 +154,25 @@ export function IssuanceLog() {
     });
   }, [rows, search]);
 
+  const [exporting, setExporting] = useState(false);
+  /** The whole log as Excel — one row per hand-over. */
+  async function exportExcel() {
+    setExporting(true);
+    try {
+      const res = await api.get("/inventory/issuance-requests/export/", { responseType: "blob" });
+      const url = URL.createObjectURL(res.data as Blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `issuance-log-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast.error(getApiError(err, "Export failed"));
+    } finally {
+      setExporting(false);
+    }
+  }
+
   /** The issue slip for one request, fetched with the token and opened to print. */
   async function printSlip(r: RequestRow) {
     try {
@@ -158,14 +191,23 @@ export function IssuanceLog() {
         serial number issued on a unique item.
       </p>
 
-      <div className="relative max-w-md">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search by request number, item, serial, project, person or purpose..."
-          className={inputClass}
-        />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="relative w-full max-w-md">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by request number, item, serial, project, person or purpose..."
+            className={inputClass}
+          />
+        </div>
+        <button
+          onClick={exportExcel}
+          disabled={exporting || requests.length === 0}
+          className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
+        >
+          <Download className="h-4 w-4" /> {exporting ? "Exporting…" : "Export Excel"}
+        </button>
       </div>
 
       {loading ? (
@@ -273,9 +315,40 @@ export function IssuanceLog() {
                                   <Detail label="Source" value={r.row.source_display} />
                                   <Detail label="Requested by" value={<>{r.row.requested_by_name ?? "—"}<span className="block text-2xs text-muted-foreground">{new Date(r.row.created_at).toLocaleString()}</span></>} />
                                   <Detail label="Issued by" value={<>{r.row.issued_by_name ?? "—"}<span className="block text-2xs text-muted-foreground">{r.row.last_issued_at ? new Date(r.row.last_issued_at).toLocaleString() : "—"}</span></>} />
-                                  <Detail label="Received by" value={r.row.received_by || null} />
+                                  <Detail label="Received by" value={receivers(r.row).join(", ") || null} />
                                   <Detail label="Issued" value={<><Qty value={r.row.quantity_issued} unit={r.row.unit} /> of <Qty value={r.row.quantity_requested} unit={r.row.unit} /> · {r.row.status_display}</>} />
                                 </div>
+                                {(r.row.handovers ?? []).length > 0 && (
+                                  <div>
+                                    <p className="mb-1.5 text-2xs font-medium uppercase tracking-wider text-muted-foreground">
+                                      Hand-overs ({r.row.handovers.length})
+                                    </p>
+                                    <div className="overflow-hidden rounded-lg border border-border bg-card">
+                                      <table className="w-full text-xs">
+                                        <thead>
+                                          <tr className="border-b border-border bg-secondary/40 text-left text-muted-foreground">
+                                            <th className="px-3 py-2 font-medium">Date</th>
+                                            <th className="px-3 py-2 text-right font-medium">Qty</th>
+                                            <th className="px-3 py-2 font-medium">Issued by</th>
+                                            <th className="px-3 py-2 font-medium">Received by</th>
+                                            <th className="px-3 py-2 font-medium">Serials / note</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {r.row.handovers.map((h, i) => (
+                                            <tr key={i} className="border-b border-border/60 last:border-0">
+                                              <td className="px-3 py-1.5 text-muted-foreground">{h.at ? new Date(h.at).toLocaleString() : "—"}</td>
+                                              <td className="px-3 py-1.5 text-right text-foreground"><Qty value={h.quantity} unit={r.row.unit} /></td>
+                                              <td className="px-3 py-1.5 text-muted-foreground">{h.issued_by || "—"}</td>
+                                              <td className="px-3 py-1.5 text-foreground">{h.received_by || "—"}</td>
+                                              <td className="px-3 py-1.5 font-mono text-muted-foreground">{(h.serials ?? []).join(", ") || <span className="font-sans">{h.note || "—"}</span>}</td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  </div>
+                                )}
                                 {r.row.issued_units.length > 0 && (
                                   <div>
                                     <p className="mb-1.5 text-2xs font-medium uppercase tracking-wider text-muted-foreground">
