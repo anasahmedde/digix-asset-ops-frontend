@@ -438,7 +438,7 @@ export interface WorkOrder {
   wo_number: string;
   title: string;
   description: string;
-  order_type: "supply" | "installation" | "supply_install";
+  order_type: "services" | "supply" | "installation" | "supply_install" | "production";
   order_type_display?: string;
   status: WorkOrderStatus;
   status_display?: string;

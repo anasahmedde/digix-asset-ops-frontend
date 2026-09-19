@@ -225,8 +225,10 @@ export function IssuanceLog() {
                         <td className={`${tdClass} text-muted-foreground`}>{new Date(r.date).toLocaleDateString()}</td>
                         <td className={`${tdClass} text-foreground`}>
                           {r.kind === "request" ? (r.row.unit_type_name ?? r.row.item_name ?? r.row.what) : (r.row.item_name ?? "—")}
-                          {r.kind === "request" && r.row.unit_type_name && (
-                            <span className="ml-2 rounded-full bg-indigo-500/10 px-2 py-0.5 text-2xs font-medium text-indigo-600">unique</span>
+                          {r.kind === "request" && (
+                            <span className={`ml-2 rounded-full px-2 py-0.5 text-2xs font-medium ${r.row.unit_type_name ? "bg-indigo-500/10 text-indigo-600" : "bg-secondary text-muted-foreground"}`}>
+                              {r.row.unit_type_name ? "unique" : "generic"}
+                            </span>
                           )}
                         </td>
                         <td className={`${tdClass} font-medium text-foreground`}>
@@ -265,7 +267,7 @@ export function IssuanceLog() {
                             {r.kind === "request" ? (
                               <div className="space-y-4">
                                 <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-4">
-                                  <Detail label="Component" value={<>{r.row.what}{r.row.item_sku ? <span className="ml-1 font-mono text-xs text-muted-foreground">{r.row.item_sku}</span> : null}</>} />
+                                  <Detail label="Component" value={<>{r.row.unit_type_name ?? r.row.item_name ?? r.row.what}{r.row.item_sku ? <span className="ml-1 font-mono text-xs text-muted-foreground">{r.row.item_sku}</span> : null}<span className={`ml-2 rounded-full px-2 py-0.5 text-2xs font-medium ${r.row.unit_type_name ? "bg-indigo-500/10 text-indigo-600" : "bg-secondary text-muted-foreground"}`}>{r.row.unit_type_name ? "Unique item" : "Generic stock"}</span></>} />
                                   <Detail label="For asset" value={r.row.asset_code ? <>{r.row.asset_code}{r.row.component_name ? <span className="text-muted-foreground"> · {r.row.component_name}</span> : null}</> : null} />
                                   <Detail label="Project" value={r.row.project_name} />
                                   <Detail label="Source" value={r.row.source_display} />

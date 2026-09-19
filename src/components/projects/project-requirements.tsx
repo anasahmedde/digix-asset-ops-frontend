@@ -49,6 +49,8 @@ interface StepRow {
   /** True while the project still has to say where this operation happens. */
   decision_pending?: boolean;
   work_order: { id: string; wo_number: string; status: string; status_display: string; amount: string } | null;
+  /** Execution asked for a work order that Work Orders has not raised yet. */
+  work_order_requested?: boolean;
 }
 interface AssetGroup {
   id: string;
@@ -114,10 +116,6 @@ const fieldClass =
 export function ProjectRequirements({ projectId }: { projectId: string }) {
   const { canWrite, user } = useUser();
   const router = useRouter();
-  // Work order for one operation of a route (vendor, amount, delivery).
-  const [woFor, setWoFor] = useState<{ asset: AssetGroup; step: StepRow } | null>(null);
-  const [woSuppliers, setWoSuppliers] = useState<{ id: string; name: string }[]>([]);
-  const [wo, setWo] = useState({ supplier: "", amount: "", expected_delivery: "", notes: "" });
   // Fulfilment writes to asset components, so it follows the devices rule.
   const canDecide = canWrite("devices") || canWrite("inventory");
   // Granting more than was planned is a manager's call (the backend agrees).
@@ -219,34 +217,15 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
     }
   }
 
-  function openStepWorkOrder(asset: AssetGroup, step: StepRow) {
-    setWo({ supplier: "", amount: step.planned_cost ? String(Number(step.planned_cost)) : "", expected_delivery: "", notes: "" });
-    setWoFor({ asset, step });
-    if (woSuppliers.length === 0) {
-      api.get("/suppliers/", { params: { page_size: 500 } })
-        .then((r) => setWoSuppliers(r.data.results ?? r.data))
-        .catch(() => {});
-    }
-  }
-
-  async function submitStepWorkOrder(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    if (!woFor || !wo.supplier) return;
-    setBusy(woFor.step.id);
+  /** Execution decides the operation goes to a vendor; Work Orders › Requests picks the vendor and raises the order. */
+  async function requestStepWorkOrder(step: StepRow) {
+    setBusy(step.id);
     try {
-      const { data } = await api.post(`/teams/projects/${projectId}/raise-work-order/`, {
-        device: woFor.asset.id,
-        production_step: woFor.step.id,
-        supplier: wo.supplier,
-        amount: wo.amount || null,
-        expected_delivery: wo.expected_delivery || null,
-        notes: wo.notes,
-      });
-      toast.success(`${data.wo_number ?? "Work order"} raised for ${woFor.step.name}`);
-      setWoFor(null);
+      await api.post(`/assets/production-steps/${step.id}/decide/`, { location: "external" });
+      toast.success(`${step.name} — work order requested. Raise it under Work Orders › Requests.`);
       await fetchRequirements();
     } catch (err) {
-      toast.error(getApiError(err, "Could not raise the work order"));
+      toast.error(getApiError(err, "Could not request the work order"));
     } finally {
       setBusy(null);
     }
@@ -644,7 +623,7 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                               <td className={`${tdClass} text-muted-foreground`}>
                                 <span className={`inline-flex items-center gap-1 ${st.location === "undecided" ? "italic" : ""}`}>
                                   {st.location === "external" ? <Truck className="h-3 w-3 text-amber-500" /> : st.location === "in_house" ? <Factory className="h-3 w-3" /> : null}
-                                  {st.location === "external" ? (st.workshop_display ?? "Outside workshop") : st.location === "in_house" ? "In-house" : "Not decided"}
+                                  {st.location === "external" ? (st.workshop_display ?? (st.work_order_requested ? "Work order requested" : "Outside workshop")) : st.location === "in_house" ? "In-house" : "Not decided"}
                                 </span>
                                 {st.work_order && (
                                   <Link href="/work-orders" className="block font-mono text-2xs text-indigo-600 hover:underline">
@@ -665,7 +644,22 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                               {canDecide && (
                                 <td className={tdClass}>
                                   <div className="flex items-center gap-1.5">
-                                    {st.location === "in_house" && !st.work_order ? (
+                                    {st.work_order_requested ? (
+                                      // Asked for: Work Orders raises it. In-house stays live to take it back.
+                                      <>
+                                        <button
+                                          onClick={() => stepInhouse(st)}
+                                          disabled={locked || done || busy === st.id}
+                                          title="Take it back: do this operation on our own floor"
+                                          className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-40"
+                                        >
+                                          <Factory className="h-3.5 w-3.5" /> In-house
+                                        </button>
+                                        <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-amber-500/40 bg-amber-500/10 px-2.5 py-1.5 text-xs font-medium text-amber-700" title="Raise the order under Work Orders › Requests">
+                                          <Truck className="h-3.5 w-3.5" /> Work order requested
+                                        </span>
+                                      </>
+                                    ) : st.location === "in_house" && !st.work_order ? (
                                       // The decision has been made: it reads as chosen, and the
                                       // other option stays live in case it changes.
                                       <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-primary/40 bg-primary/10 px-2.5 py-1.5 text-xs font-medium text-primary">
@@ -681,14 +675,16 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                                         <Factory className="h-3.5 w-3.5" /> In-house
                                       </button>
                                     )}
-                                    <button
-                                      onClick={() => openStepWorkOrder(asset, st)}
-                                      disabled={locked || done || busy === st.id || !!st.work_order}
-                                      title={locked ? "Locked until the budget is approved" : st.work_order ? "Already on a work order" : "Give this operation to an outside workshop on a work order"}
-                                      className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-40"
-                                    >
-                                      <Truck className="h-3.5 w-3.5" /> Work order
-                                    </button>
+                                    {!st.work_order_requested && (
+                                      <button
+                                        onClick={() => requestStepWorkOrder(st)}
+                                        disabled={locked || done || busy === st.id || !!st.work_order}
+                                        title={locked ? "Locked until the budget is approved" : st.work_order ? "Already on a work order" : "Give this operation to a vendor — Work Orders raises the order"}
+                                        className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-40"
+                                      >
+                                        <Truck className="h-3.5 w-3.5" /> Work order
+                                      </button>
+                                    )}
                                   </div>
                                 </td>
                               )}
@@ -704,45 +700,6 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
           ))}
         </div>
       )}
-
-      {/* One operation of a route, given to a workshop. */}
-      <Modal open={!!woFor} onClose={() => setWoFor(null)} title={woFor ? `Work order — ${woFor.step.name}` : "Work order"} size="md">
-        {woFor && (
-          <form onSubmit={submitStepWorkOrder} className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Gives <b>{woFor.step.name}</b> on {woFor.asset.asset_code} to an outside workshop. The route marks the
-              operation as done there, and the amount counts as this asset&apos;s production cost.
-            </p>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <label htmlFor="swo_supplier" className="text-xs font-medium text-muted-foreground">Workshop / vendor *</label>
-                <select id="swo_supplier" required value={wo.supplier} onChange={(e) => setWo({ ...wo, supplier: e.target.value })} className="flex h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground focus:border-primary/50 focus:outline-none">
-                  <option value="">Select…</option>
-                  {woSuppliers.map((sup) => <option key={sup.id} value={sup.id}>{sup.name}</option>)}
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <label htmlFor="swo_amount" className="text-xs font-medium text-muted-foreground">Amount (PKR)</label>
-                <input id="swo_amount" type="number" min={0} step="0.01" value={wo.amount} onChange={(e) => setWo({ ...wo, amount: e.target.value })} placeholder="Blank uses the planned step cost" className="flex h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground focus:border-primary/50 focus:outline-none" />
-              </div>
-              <div className="space-y-1.5">
-                <label htmlFor="swo_delivery" className="text-xs font-medium text-muted-foreground">Required back</label>
-                <input id="swo_delivery" type="date" value={wo.expected_delivery} onChange={(e) => setWo({ ...wo, expected_delivery: e.target.value })} className="flex h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground focus:border-primary/50 focus:outline-none" />
-              </div>
-              <div className="space-y-1.5 sm:col-span-2">
-                <label htmlFor="swo_notes" className="text-xs font-medium text-muted-foreground">Notes</label>
-                <textarea id="swo_notes" rows={2} value={wo.notes} onChange={(e) => setWo({ ...wo, notes: e.target.value })} className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none" />
-              </div>
-            </div>
-            <div className="flex justify-end gap-3">
-              <button type="button" onClick={() => setWoFor(null)} className="inline-flex h-10 items-center rounded-lg border border-border px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">Cancel</button>
-              <button type="submit" disabled={!wo.supplier || busy === woFor.step.id} className="inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-medium text-white transition-all disabled:opacity-50">
-                Raise work order
-              </button>
-            </div>
-          </form>
-        )}
-      </Modal>
 
       {/* Asking for more mid-project, with the reason on record. */}
       <Modal

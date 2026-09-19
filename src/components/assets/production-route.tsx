@@ -18,6 +18,8 @@ export interface ProductionStep {
   hold_reason?: string;
   /** True while the project still has to say where this operation happens. */
   decision_pending?: boolean;
+  /** The live work order covering this operation, once raised. */
+  work_order?: { id: string; wo_number: string; status: string; status_display: string } | null;
   workshop: string | null;
   workshop_name: string;
   workshop_display: string | null;
@@ -289,7 +291,7 @@ export function ProductionRoute({
                         >
                           <option value="">
                             {step.allowed_transitions.length === 0
-                              ? (["completed", "skipped"].includes(step.status) ? "Finished" : step.location === "external" ? "Follows the work order" : "Decide in Execution")
+                              ? (["completed", "skipped"].includes(step.status) ? "Finished" : step.location === "external" ? (step.work_order ? "Follows the work order" : "Awaiting the work order") : "Decide in Execution")
                               : "Move to…"}
                           </option>
                           {step.allowed_transitions.map((t) => (

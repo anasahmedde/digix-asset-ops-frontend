@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { CopyButton } from "@/components/ui/copy-button";
+import { WorkOrderRequests } from "@/components/work-orders/work-order-requests";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
@@ -43,11 +44,22 @@ const NEXT_STATUS: Record<WorkOrderStatus, WorkOrderStatus[]> = {
   cancelled: [],
 };
 
+// A work order is for services a vendor performs for us; goods are bought on
+// purchase orders. Older orders keep their type but new ones are services.
 const ORDER_TYPES = [
-  { value: "supply", label: "Supply / Purchase" },
-  { value: "installation", label: "Installation" },
-  { value: "supply_install", label: "Supply & Installation" },
+  { value: "services", label: "Services" },
 ];
+const LEGACY_TYPES: Record<string, string> = {
+  supply: "Supply / Purchase", installation: "Installation", supply_install: "Supply & Installation", production: "Production Step",
+};
+// The same sign-off as a purchase order: the Group Head approves, Operations
+// move the order everywhere else.
+function movesFor(status: WorkOrderStatus, role: string | undefined): WorkOrderStatus[] {
+  const all = NEXT_STATUS[status];
+  if (role === "group_head") return all.filter((s) => s === "approved" || s === "draft");
+  if (role === "super_admin") return all;
+  return all.filter((s) => s !== "approved");
+}
 const CURRENCIES = ["PKR", "AED", "SAR", "QAR", "USD", "EUR", "GBP"];
 
 interface ItemRow {
@@ -71,7 +83,7 @@ interface FormState {
 }
 
 const emptyForm: FormState = {
-  title: "", order_type: "supply_install", supplier: "", payment_terms: "",
+  title: "", order_type: "services", supplier: "", payment_terms: "",
   currency: "PKR", warranty_months: "", order_date: "", expected_delivery: "",
   description: "", terms_conditions: "", safety_instructions: "",
   items: [{ description: "", quantity: "1", unit_price: "0" }],
@@ -80,8 +92,9 @@ const emptyForm: FormState = {
 const label = (s: string) => s.split("_").map((w) => w[0].toUpperCase() + w.slice(1)).join(" ");
 
 export default function WorkOrdersPage() {
-  const { canWrite } = useUser();
+  const { canWrite, user } = useUser();
   const canEdit = canWrite("setup") || canWrite("procurement");
+  const [tab, setTab] = useState<"orders" | "requests">("orders");
 
   const [orders, setOrders] = useState<WorkOrder[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -250,17 +263,36 @@ export default function WorkOrdersPage() {
           </div>
           <div>
             <h1 className="text-2xl font-bold text-foreground">Work Orders</h1>
-            <p className="text-muted-foreground">Supply &amp; installation orders issued to suppliers</p>
+            <p className="text-muted-foreground">Services we take from vendors — workshop operations, installation and repair</p>
           </div>
         </div>
-        {canEdit && (
+        {canEdit && tab === "orders" && (
           <button onClick={openCreate} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-all">
             <Plus className="h-4 w-4" /> New Work Order
           </button>
         )}
       </div>
 
-      {loading ? (
+      <div className="flex gap-1 border-b border-border">
+        {([
+          { key: "orders", label: "Work Orders" },
+          { key: "requests", label: "Requests" },
+        ] as const).map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={`-mb-px border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
+              tab === t.key ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "requests" && <WorkOrderRequests onRaised={() => { fetchOrders(); setTab("orders"); }} />}
+
+      {tab === "orders" && (loading ? (
         <div className="flex items-center justify-center py-20">
           <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
         </div>
@@ -268,7 +300,7 @@ export default function WorkOrdersPage() {
         <div className="rounded-xl border border-border bg-card p-12 text-center">
           <ScrollText className="mx-auto h-12 w-12 text-muted-foreground/30" />
           <h3 className="mt-4 text-lg font-semibold text-foreground">No work orders yet</h3>
-          <p className="mt-2 text-sm text-muted-foreground">Create a work order to supply or install new assets.</p>
+          <p className="mt-2 text-sm text-muted-foreground">Raise one from Requests, or create one for a service a vendor performs.</p>
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-border bg-card">
@@ -279,7 +311,7 @@ export default function WorkOrdersPage() {
                   <th className={thClass}>WO #</th>
                   <th className={thClass}>Title</th>
                   <th className={thClass}>Type</th>
-                  <th className={thClass}>Supplier</th>
+                  <th className={thClass}>Vendor</th>
                   <th className={thClass}>Total</th>
                   <th className={thClass}>Status</th>
                   <th className={thClass}>Delivery</th>
@@ -296,7 +328,7 @@ export default function WorkOrdersPage() {
                       </span>
                     </td>
                     <td className={`${tdClass} font-medium text-foreground`}>{wo.title}</td>
-                    <td className={`${tdClass} text-muted-foreground`}>{wo.order_type_display ?? label(wo.order_type)}</td>
+                    <td className={`${tdClass} text-muted-foreground`}>{wo.order_type_display ?? LEGACY_TYPES[wo.order_type] ?? label(wo.order_type)}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{wo.supplier_name ?? "-"}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{wo.currency} {Number(wo.total_amount).toLocaleString()}</td>
                     <td className={tdClass}>
@@ -328,7 +360,7 @@ export default function WorkOrdersPage() {
             </table>
           </div>
         </div>
-      )}
+      ))}
 
       {modalMode && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 py-8 backdrop-blur-sm">
@@ -342,10 +374,13 @@ export default function WorkOrdersPage() {
               </button>
             </div>
 
-            {modalMode === "edit" && selected && NEXT_STATUS[selected.status].length > 0 && (
+            {modalMode === "edit" && selected && movesFor(selected.status, user?.role).length > 0 && (
               <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-secondary/30 p-3">
                 <span className="text-xs font-medium text-muted-foreground">Advance status:</span>
-                {NEXT_STATUS[selected.status].map((s) => (
+                {selected.status === "pending_approval" && user?.role !== "group_head" && user?.role !== "super_admin" && (
+                  <span className="text-2xs text-muted-foreground">Waiting for the Group Head to approve.</span>
+                )}
+                {movesFor(selected.status, user?.role).map((s) => (
                   <button key={s} type="button" onClick={() => handleTransition(selected.id, s)}
                     className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary">
                     {label(s)}
@@ -358,18 +393,21 @@ export default function WorkOrdersPage() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5 sm:col-span-2">
                   <label className={labelClass}>Title</label>
-                  <input required value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} className={inputClass} placeholder="e.g. Supply & install 3 SMD screens" />
+                  <input required value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} className={inputClass} placeholder="e.g. Painting and powder coating — 4 kiosk frames" />
                 </div>
                 <div className="space-y-1.5">
                   <label className={labelClass}>Order Type</label>
                   <select value={form.order_type} onChange={(e) => setForm({ ...form, order_type: e.target.value })} className={inputClass}>
                     {ORDER_TYPES.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    {form.order_type !== "services" && LEGACY_TYPES[form.order_type] && (
+                      <option value={form.order_type}>{LEGACY_TYPES[form.order_type]} (older order)</option>
+                    )}
                   </select>
                 </div>
                 <div className="space-y-1.5">
-                  <label className={labelClass}>Supplier</label>
+                  <label className={labelClass}>Vendor</label>
                   <select required value={form.supplier} onChange={(e) => setForm({ ...form, supplier: e.target.value })} className={inputClass}>
-                    <option value="">Select supplier…</option>
+                    <option value="">Select vendor…</option>
                     {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                   </select>
                 </div>
