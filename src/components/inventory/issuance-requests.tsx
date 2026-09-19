@@ -77,6 +77,20 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
   const [showDone, setShowDone] = useState(false);
   const [issueFor, setIssueFor] = useState<RequestRow | null>(null);
   const [issue, setIssue] = useState({ quantity: "", received_by: "", notes: "" });
+  // Who takes the material away: one of the team, or someone named by hand.
+  const [people, setPeople] = useState<{ id: string; label: string }[]>([]);
+  const [receiverPick, setReceiverPick] = useState("");
+  useEffect(() => {
+    api.get("/accounts/users/", { params: { is_active: true, page_size: 200 } })
+      .then((r) => {
+        const rows_: { id: string; full_name?: string; username: string; role?: string }[] = r.data.results ?? r.data;
+        setPeople(rows_.map((u) => ({
+          id: u.id,
+          label: `${(u.full_name || "").trim() || u.username}${u.role ? ` · ${u.role.replace(/_/g, " ")}` : ""}`,
+        })));
+      })
+      .catch(() => {});
+  }, []);
 
   const fetchRows = useCallback(async () => {
     setLoading(true);
@@ -117,6 +131,7 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
     // Default to what can actually be covered right now.
     const possible = Math.min(row.outstanding_quantity, row.available_quantity ?? row.outstanding_quantity);
     setIssue({ quantity: String(Math.max(possible, 0)), received_by: "", notes: "" });
+    setReceiverPick("");
     setIssueFor(row);
   }
 
@@ -131,9 +146,14 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
         notes: issue.notes.trim(),
       });
       const left = data.request.outstanding_quantity;
-      toast.success(
-        left > 0 ? `Issued ${data.issued} — ${left} still owed` : `Issued ${data.issued}, request complete`,
-      );
+      if (data.closed) {
+        // Nothing moved: the requirement was already covered another way.
+        toast.message(data.reason || "Already covered from stock — request closed");
+      } else {
+        toast.success(
+          left > 0 ? `Issued ${data.issued} — ${left} still owed` : `Issued ${data.issued}, request complete`,
+        );
+      }
       setIssueFor(null);
       fetchRows();
       onIssued?.();
@@ -355,13 +375,31 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
             </div>
             <div className="space-y-1.5">
               <label htmlFor="issue-to" className={labelClass}>Received by</label>
-              <input
+              <select
                 id="issue-to"
-                value={issue.received_by}
-                onChange={(e) => setIssue({ ...issue, received_by: e.target.value })}
-                placeholder="Who is taking it away"
+                value={receiverPick}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setReceiverPick(v);
+                  setIssue({ ...issue, received_by: v === "__other__" ? "" : v });
+                }}
                 className={inputClass}
-              />
+              >
+                <option value="">Who is taking it away…</option>
+                {people.map((p) => <option key={p.id} value={p.label}>{p.label}</option>)}
+                <option value="__other__">Someone else…</option>
+              </select>
+              {receiverPick === "__other__" && (
+                <input
+                  id="issue-to-other"
+                  value={issue.received_by}
+                  onChange={(e) => setIssue({ ...issue, received_by: e.target.value })}
+                  placeholder="Name of the person taking it"
+                  className={inputClass}
+                  autoFocus
+                />
+              )}
+              <p className="text-xs text-muted-foreground">The team as set up under Teams; pick “Someone else” for an outside collector.</p>
             </div>
             <div className="space-y-1.5">
               <label htmlFor="issue-notes" className={labelClass}>Notes</label>

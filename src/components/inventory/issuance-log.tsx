@@ -1,13 +1,45 @@
 "use client";
 
-import { PackageOpen, Search } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { ChevronDown, ChevronRight, PackageOpen, Printer, Search } from "lucide-react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
+import { Qty } from "@/components/ui/qty";
 
-interface IssuanceRow {
+/** A store request with at least one hand-over: the log's main record. */
+interface RequestRow {
+  id: string;
+  request_number: string;
+  what: string;
+  item_sku: string | null;
+  item_name: string | null;
+  unit_type_name: string | null;
+  unit: string;
+  quantity_requested: number;
+  quantity_issued: number;
+  outstanding_quantity: number;
+  source_display: string;
+  purpose: string;
+  project_name: string | null;
+  asset_code: string | null;
+  component_name: string | null;
+  requested_by_name: string | null;
+  issued_by_name: string | null;
+  received_by: string;
+  issued_serials: string[];
+  issued_units: { serial_number: string; unit_code: string | null; status: string | null; status_display: string | null }[];
+  last_issued_at: string | null;
+  status: string;
+  status_display: string;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Issues recorded by the older project-BOM flow, kept for history. */
+interface LegacyRow {
   id: string;
   issue_number: string;
   item_name: string | null;
@@ -21,33 +53,60 @@ interface IssuanceRow {
   created_at: string;
 }
 
+type LogRow =
+  | { kind: "request"; id: string; number: string; date: string; row: RequestRow }
+  | { kind: "legacy"; id: string; number: string; date: string; row: LegacyRow };
+
 const inputClass =
   "flex h-10 w-full rounded-lg border border-border bg-card pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors";
 const thClass = "px-5 py-3.5 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground";
 const tdClass = "px-5 py-3.5";
 
-/** Stock leaves for a project, a named person, or a site — the log says which. */
-function destination(row: IssuanceRow): { name: string; kind: string } | null {
-  if (row.project_name) return { name: row.project_name, kind: "Project" };
-  if (row.issued_to_user_name) return { name: row.issued_to_user_name, kind: "Person" };
-  if (row.site_name) return { name: row.site_name, kind: "Site" };
+/** Where the stock went: the person who took it, else the project or asset it was for. */
+function destination(row: LogRow): { name: string; kind: string } | null {
+  if (row.kind === "request") {
+    if (row.row.received_by) return { name: row.row.received_by, kind: "Person" };
+    if (row.row.project_name) return { name: row.row.project_name, kind: "Project" };
+    if (row.row.asset_code) return { name: row.row.asset_code, kind: "Asset" };
+    return null;
+  }
+  if (row.row.project_name) return { name: row.row.project_name, kind: "Project" };
+  if (row.row.issued_to_user_name) return { name: row.row.issued_to_user_name, kind: "Person" };
+  if (row.row.site_name) return { name: row.row.site_name, kind: "Site" };
   return null;
 }
 
+function Detail({ label, value, mono = false }: { label: string; value: React.ReactNode; mono?: boolean }) {
+  return (
+    <div>
+      <p className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p className={`mt-0.5 text-sm text-foreground ${mono ? "font-mono" : ""}`}>{value ?? "—"}</p>
+    </div>
+  );
+}
+
 export function IssuanceLog() {
-  const [rows, setRows] = useState<IssuanceRow[]>([]);
+  const [requests, setRequests] = useState<RequestRow[]>([]);
+  const [legacy, setLegacy] = useState<LegacyRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [open, setOpen] = useState<string | null>(null);
 
   const fetchRows = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await api.get("/inventory/issuances/", { params: { page_size: 500 } });
-      const list: IssuanceRow[] = data.results ?? data;
-      // Newest first, regardless of how the server ordered them.
-      setRows([...list].sort((a, b) => b.created_at.localeCompare(a.created_at)));
-    } catch (err) {
-      toast.error(getApiError(err, "Could not load the issuance log"));
+      const [reqRes, oldRes] = await Promise.allSettled([
+        api.get("/inventory/issuance-requests/", { params: { page_size: 500 } }),
+        api.get("/inventory/issuances/", { params: { page_size: 500 } }),
+      ]);
+      if (reqRes.status === "fulfilled") {
+        const list: RequestRow[] = reqRes.value.data.results ?? reqRes.value.data;
+        // Only requests something has actually been handed over against.
+        setRequests(list.filter((r) => r.quantity_issued > 0));
+      } else {
+        toast.error(getApiError(reqRes.reason, "Could not load the issuance log"));
+      }
+      if (oldRes.status === "fulfilled") setLegacy(oldRes.value.data.results ?? oldRes.value.data);
     } finally {
       setLoading(false);
     }
@@ -57,21 +116,46 @@ export function IssuanceLog() {
     fetchRows();
   }, [fetchRows]);
 
+  const rows = useMemo<LogRow[]>(() => {
+    const all: LogRow[] = [
+      ...requests.map((r): LogRow => ({
+        kind: "request", id: r.id, number: r.request_number, date: r.last_issued_at ?? r.updated_at, row: r,
+      })),
+      ...legacy.map((r): LogRow => ({ kind: "legacy", id: r.id, number: r.issue_number, date: r.created_at, row: r })),
+    ];
+    // Newest hand-over first.
+    return all.sort((a, b) => b.date.localeCompare(a.date));
+  }, [requests, legacy]);
+
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
     if (!query) return rows;
-    return rows.filter((row) =>
-      [row.issue_number, row.item_name, row.project_name, row.issued_to_user_name,
-       row.site_name, row.reason, row.issued_by_name]
-        .some((value) => (value ?? "").toLowerCase().includes(query)),
-    );
+    return rows.filter((r) => {
+      const to = destination(r);
+      const fields = r.kind === "request"
+        ? [r.number, r.row.what, r.row.item_sku, r.row.project_name, r.row.asset_code, r.row.component_name,
+           r.row.received_by, r.row.purpose, r.row.issued_by_name, r.row.requested_by_name, ...(r.row.issued_serials ?? [])]
+        : [r.number, r.row.item_name, r.row.project_name, r.row.issued_to_user_name, r.row.site_name, r.row.reason, r.row.issued_by_name];
+      return [...fields, to?.name].some((v) => (v ?? "").toLowerCase().includes(query));
+    });
   }, [rows, search]);
+
+  /** The issue slip for one request, fetched with the token and opened to print. */
+  async function printSlip(r: RequestRow) {
+    try {
+      const { data } = await api.get(`/inventory/issuance-requests/${r.id}/slip/`, { responseType: "blob" });
+      window.open(URL.createObjectURL(data), "_blank", "noopener");
+    } catch (err) {
+      toast.error(getApiError(err, "Could not build the issue slip"));
+    }
+  }
 
   return (
     <div className="space-y-6">
       <p className="text-sm text-muted-foreground">
-        Every issue of generic stock, newest first — what left the store, where it went, why it was
-        needed, and who authorised it.
+        Every hand-over from the store, newest first, under the request&apos;s own number — what left, where
+        it went, why it was needed, and who authorised it. Open a line for the full record, including every
+        serial number issued on a unique item.
       </p>
 
       <div className="relative max-w-md">
@@ -79,7 +163,7 @@ export function IssuanceLog() {
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search by issue number, item, project, person or purpose..."
+          placeholder="Search by request number, item, serial, project, person or purpose..."
           className={inputClass}
         />
       </div>
@@ -96,8 +180,8 @@ export function IssuanceLog() {
           </h3>
           <p className="mt-2 text-sm text-muted-foreground">
             {rows.length > 0
-              ? "Try a different item, project or person."
-              : "Stock issued from the generic items list is recorded here."}
+              ? "Try a different item, serial, project or person."
+              : "Material handed over against an issue request is recorded here."}
           </p>
         </div>
       ) : (
@@ -106,6 +190,7 @@ export function IssuanceLog() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
+                  <th className={`${thClass} w-8`}></th>
                   <th className={thClass}>Issue No.</th>
                   <th className={thClass}>Date</th>
                   <th className={thClass}>Item</th>
@@ -116,31 +201,133 @@ export function IssuanceLog() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((row) => {
-                  const to = destination(row);
+                {filtered.map((r) => {
+                  const to = destination(r);
+                  const isOpen = open === r.id;
                   return (
-                    <tr key={row.id} className="border-b border-border transition-colors hover:bg-secondary/30">
-                      <td className={`${tdClass} font-mono text-foreground`}>{row.issue_number}</td>
-                      <td className={`${tdClass} text-muted-foreground`}>
-                        {new Date(row.created_at).toLocaleDateString()}
-                      </td>
-                      <td className={`${tdClass} text-foreground`}>{row.item_name ?? "—"}</td>
-                      <td className={`${tdClass} font-medium text-foreground`}>{row.quantity}</td>
-                      <td className={tdClass}>
-                        {to ? (
-                          <span className="inline-flex items-center gap-2">
-                            <span className="text-foreground">{to.name}</span>
-                            <span className="rounded-full bg-secondary px-2 py-0.5 text-2xs font-medium uppercase tracking-wider text-muted-foreground">
-                              {to.kind}
+                    <Fragment key={r.id}>
+                      <tr
+                        onClick={() => setOpen(isOpen ? null : r.id)}
+                        className="cursor-pointer border-b border-border transition-colors hover:bg-secondary/30"
+                        aria-expanded={isOpen}
+                      >
+                        <td className={`${tdClass} text-muted-foreground`}>
+                          {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                        </td>
+                        <td className={`${tdClass} font-mono text-foreground`}>
+                          {r.number}
+                          {r.kind === "legacy" && (
+                            <span className="ml-2 rounded-full bg-secondary px-2 py-0.5 font-sans text-2xs font-medium uppercase tracking-wider text-muted-foreground">
+                              old flow
                             </span>
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </td>
-                      <td className={`${tdClass} text-muted-foreground`}>{row.reason || row.notes || "—"}</td>
-                      <td className={`${tdClass} text-muted-foreground`}>{row.issued_by_name ?? "—"}</td>
-                    </tr>
+                          )}
+                        </td>
+                        <td className={`${tdClass} text-muted-foreground`}>{new Date(r.date).toLocaleDateString()}</td>
+                        <td className={`${tdClass} text-foreground`}>
+                          {r.kind === "request" ? (r.row.unit_type_name ?? r.row.item_name ?? r.row.what) : (r.row.item_name ?? "—")}
+                          {r.kind === "request" && r.row.unit_type_name && (
+                            <span className="ml-2 rounded-full bg-indigo-500/10 px-2 py-0.5 text-2xs font-medium text-indigo-600">unique</span>
+                          )}
+                        </td>
+                        <td className={`${tdClass} font-medium text-foreground`}>
+                          {r.kind === "request" ? (
+                            <>
+                              <Qty value={r.row.quantity_issued} unit={r.row.unit} />
+                              {r.row.outstanding_quantity > 0 && (
+                                <span className="ml-1 text-2xs font-normal text-amber-600">of {r.row.quantity_requested} · {r.row.outstanding_quantity} owed</span>
+                              )}
+                            </>
+                          ) : (
+                            r.row.quantity
+                          )}
+                        </td>
+                        <td className={tdClass}>
+                          {to ? (
+                            <span className="inline-flex items-center gap-2">
+                              <span className="text-foreground">{to.name}</span>
+                              <span className="rounded-full bg-secondary px-2 py-0.5 text-2xs font-medium uppercase tracking-wider text-muted-foreground">
+                                {to.kind}
+                              </span>
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
+                        <td className={`${tdClass} text-muted-foreground`}>
+                          {r.kind === "request" ? (r.row.purpose || r.row.source_display) : (r.row.reason || r.row.notes || "—")}
+                        </td>
+                        <td className={`${tdClass} text-muted-foreground`}>{r.row.issued_by_name ?? "—"}</td>
+                      </tr>
+
+                      {isOpen && (
+                        <tr className="border-b border-border bg-secondary/20">
+                          <td colSpan={8} className="px-6 py-4">
+                            {r.kind === "request" ? (
+                              <div className="space-y-4">
+                                <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-4">
+                                  <Detail label="Component" value={<>{r.row.what}{r.row.item_sku ? <span className="ml-1 font-mono text-xs text-muted-foreground">{r.row.item_sku}</span> : null}</>} />
+                                  <Detail label="For asset" value={r.row.asset_code ? <>{r.row.asset_code}{r.row.component_name ? <span className="text-muted-foreground"> · {r.row.component_name}</span> : null}</> : null} />
+                                  <Detail label="Project" value={r.row.project_name} />
+                                  <Detail label="Source" value={r.row.source_display} />
+                                  <Detail label="Requested by" value={<>{r.row.requested_by_name ?? "—"}<span className="block text-2xs text-muted-foreground">{new Date(r.row.created_at).toLocaleString()}</span></>} />
+                                  <Detail label="Issued by" value={<>{r.row.issued_by_name ?? "—"}<span className="block text-2xs text-muted-foreground">{r.row.last_issued_at ? new Date(r.row.last_issued_at).toLocaleString() : "—"}</span></>} />
+                                  <Detail label="Received by" value={r.row.received_by || null} />
+                                  <Detail label="Issued" value={<><Qty value={r.row.quantity_issued} unit={r.row.unit} /> of <Qty value={r.row.quantity_requested} unit={r.row.unit} /> · {r.row.status_display}</>} />
+                                </div>
+                                {r.row.issued_units.length > 0 && (
+                                  <div>
+                                    <p className="mb-1.5 text-2xs font-medium uppercase tracking-wider text-muted-foreground">
+                                      Serial numbers issued ({r.row.issued_units.length})
+                                    </p>
+                                    <div className="overflow-hidden rounded-lg border border-border bg-card">
+                                      <table className="w-full text-xs">
+                                        <thead>
+                                          <tr className="border-b border-border bg-secondary/40 text-left text-muted-foreground">
+                                            <th className="px-3 py-2 font-medium">#</th>
+                                            <th className="px-3 py-2 font-medium">Serial No</th>
+                                            <th className="px-3 py-2 font-medium">Unit Code</th>
+                                            <th className="px-3 py-2 font-medium">Now</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {r.row.issued_units.map((u, i) => (
+                                            <tr key={u.serial_number} className="border-b border-border/60 last:border-0">
+                                              <td className="px-3 py-1.5 text-muted-foreground">{i + 1}</td>
+                                              <td className="px-3 py-1.5 font-mono text-foreground">{u.serial_number}</td>
+                                              <td className="px-3 py-1.5 font-mono text-muted-foreground">{u.unit_code ?? "—"}</td>
+                                              <td className="px-3 py-1.5 text-muted-foreground">{u.status_display ?? "—"}</td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  </div>
+                                )}
+                                {r.row.notes && <Detail label="Notes" value={<span className="whitespace-pre-line">{r.row.notes}</span>} />}
+                                <div>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); printSlip(r.row); }}
+                                    className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                                  >
+                                    <Printer className="h-3.5 w-3.5" /> Print issue slip
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-4">
+                                <Detail label="Item" value={r.row.item_name} />
+                                <Detail label="Project" value={r.row.project_name} />
+                                <Detail label="Site" value={r.row.site_name} />
+                                <Detail label="Reason" value={r.row.reason || null} />
+                                <Detail label="Notes" value={r.row.notes || null} />
+                                <Detail label="Recorded" value={new Date(r.row.created_at).toLocaleString()} />
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
                   );
                 })}
               </tbody>

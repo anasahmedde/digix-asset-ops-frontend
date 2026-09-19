@@ -23,6 +23,12 @@ export function getApiError(err: unknown, fallback: string): string {
       if (fieldEntry) {
         return `${fieldEntry[0]}: ${(fieldEntry[1] as string[]).join(" ")}`;
       }
+      // Service-level checks raise {"field": "message"} with a plain string;
+      // without this branch the message was lost behind the fallback text.
+      const plain = Object.entries(data).find(([, v]) => typeof v === "string" && v);
+      if (plain) {
+        return plain[0] === "quantity" ? (plain[1] as string) : `${plain[0]}: ${plain[1]}`;
+      }
     }
   }
   return fallback;

@@ -20,6 +20,11 @@ interface ReceiptLine {
   material_type: string | null;
   material_name: string | null;
   device_model_name: string | null;
+  /** What the purchase order line was bought for: a counted stock item, a
+   *  serialised product, a whole asset — or null on a line typed by hand. */
+  kind?: "generic" | "unique" | "asset" | null;
+  /** The inventory item or unique product the goods will be filed under. */
+  known_component?: string | null;
   quantity: number;
   /** Unit of measure of the delivered line. */
   unit?: string;
@@ -148,9 +153,9 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
     setMaterialType(line.material_type ?? "");
     setCategory("");
     setStorageLocation("");
-    // Serials captured at the door pre-fill the unique rows.
+    // The order already says what this is; only a hand-typed line is asked.
     const preset = line.serial_numbers.length > 0;
-    setRoute(preset ? "unique" : "generic");
+    setRoute(line.kind === "unique" || line.kind === "generic" ? line.kind : preset ? "unique" : "generic");
     setUnits(
       preset
         ? line.serial_numbers.map((s) => emptyUnit(s))
@@ -342,24 +347,60 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
               </div>
               <div className="space-y-1.5">
                 <label htmlFor="route" className={labelClass}>File into</label>
-                <select
-                  id="route"
-                  value={route}
-                  disabled={accepted === 0}
-                  onChange={(e) => {
-                    const r = e.target.value as "generic" | "unique";
-                    setRoute(r);
-                    if (r === "unique") setUnitCount(accepted);
-                  }}
-                  className={`${inputClass} disabled:opacity-50`}
-                >
-                  <option value="generic">Generic stock</option>
-                  <option value="unique">Unique items</option>
-                </select>
+                {active.kind === "generic" || active.kind === "unique" ? (
+                  // Known from the purchase order: the component was opened in
+                  // inventory before it was ever ordered, so nothing to decide.
+                  <div>
+                    <p id="route" className="flex h-10 items-center rounded-lg border border-border bg-secondary/40 px-3 text-sm text-foreground">
+                      {active.kind === "unique" ? "Unique items" : "Generic stock"}
+                      {active.known_component && (
+                        <span className="ml-1.5 truncate text-muted-foreground">· {active.known_component}</span>
+                      )}
+                    </p>
+                    <p className="mt-1 text-2xs text-muted-foreground">Set by the purchase order line.</p>
+                  </div>
+                ) : (
+                  <select
+                    id="route"
+                    value={route}
+                    disabled={accepted === 0}
+                    onChange={(e) => {
+                      const r = e.target.value as "generic" | "unique";
+                      setRoute(r);
+                      if (r === "unique") setUnitCount(accepted);
+                    }}
+                    className={`${inputClass} disabled:opacity-50`}
+                  >
+                    <option value="generic">Generic stock</option>
+                    <option value="unique">Unique items</option>
+                  </select>
+                )}
               </div>
             </div>
 
-            {accepted > 0 && route === "generic" && (
+            {accepted > 0 && route === "generic" && active.kind === "generic" && (
+              <div className="grid gap-4 rounded-xl border border-border bg-secondary/20 p-4 sm:grid-cols-3">
+                <div className="space-y-1.5 sm:col-span-2">
+                  <label className={labelClass}>Tops up</label>
+                  <p className="flex h-10 items-center rounded-lg border border-border bg-secondary/40 px-3 text-sm text-foreground">
+                    {active.known_component ?? active.material_name ?? "the stock item on the order"}
+                  </p>
+                  <p className="text-2xs text-muted-foreground">The accepted quantity is added to this stock item and journalled against GRN {active.grn_number}.</p>
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="ins_placed" className={labelClass}>Placed At</label>
+                  <input
+                    id="ins_placed"
+                    value={storageLocation}
+                    onChange={(e) => setStorageLocation(e.target.value)}
+                    placeholder="e.g. Rack A3"
+                    className={inputClass}
+                  />
+                </div>
+              </div>
+            )}
+
+            {accepted > 0 && route === "generic" && active.kind !== "generic" && (
               <div className="grid gap-4 rounded-xl border border-border bg-secondary/20 p-4 sm:grid-cols-3">
                 <div className="space-y-1.5">
                   <label htmlFor="ins_material" className={labelClass}>Material Type</label>
@@ -391,8 +432,9 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
             {accepted > 0 && route === "unique" && (
               <div className="space-y-2 rounded-xl border border-border bg-secondary/20 p-4">
                 <p className="text-xs text-muted-foreground">
-                  One row per physical unit. Make, supplier, price and batch are taken from the purchase order.
-                  A warranty term runs from today, the day the unit was received.
+                  {active.kind === "unique" && active.known_component
+                    ? <>One row per physical unit, filed under <span className="font-medium text-foreground">{active.known_component}</span>. Make, model, technical details, supplier, price and batch come from the product and the purchase order. A warranty term runs from today, the day the unit was received.</>
+                    : <>One row per physical unit. Make, supplier, price and batch are taken from the purchase order. A warranty term runs from today, the day the unit was received.</>}
                 </p>
                 <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
                   {units.slice(0, accepted).map((u, i) => (
@@ -403,12 +445,18 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
                         placeholder={`Serial no ${i + 1} *`}
                         className={`${smallInput} sm:col-span-4`}
                       />
-                      <input
-                        value={u.model_name}
-                        onChange={(e) => patchUnit(i, { model_name: e.target.value })}
-                        placeholder="Model"
-                        className={`${smallInput} sm:col-span-3`}
-                      />
+                      {active.kind === "unique" ? (
+                        <p className={`${smallInput} flex items-center bg-secondary/40 text-muted-foreground sm:col-span-3`} title="From the opened product">
+                          {active.known_component}
+                        </p>
+                      ) : (
+                        <input
+                          value={u.model_name}
+                          onChange={(e) => patchUnit(i, { model_name: e.target.value })}
+                          placeholder="Model"
+                          className={`${smallInput} sm:col-span-3`}
+                        />
+                      )}
                       <div className="flex items-center gap-2 sm:col-span-5">
                         <input
                           type="number"
