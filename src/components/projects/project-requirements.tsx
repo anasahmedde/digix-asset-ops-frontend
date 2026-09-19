@@ -270,11 +270,15 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
     return row.undecided_quantity ?? row.outstanding_quantity;
   }
 
+  /** How much a decision may cover: what is undecided — and, from inventory, no more than the shelf holds. */
+  function decisionCap(row: RequirementRow, mode: "inventory" | "procure") {
+    const open = openQty(row);
+    return mode === "inventory" ? Math.min(open, Math.max(row.available_quantity ?? 0, 0)) : open;
+  }
+
   function openDecision(row: RequirementRow, mode: "inventory" | "procure") {
-    const cap = openQty(row);
-    // Default to everything still undecided; for inventory, no more than the shelf holds.
-    const start = mode === "inventory" ? Math.min(cap, Math.max(1, row.available_quantity ?? cap)) : cap;
-    setDecideQty(String(Math.max(1, start)));
+    const cap = decisionCap(row, mode);
+    setDecideQty(String(Math.max(1, cap)));
     setDecideFor({ row, mode });
   }
 
@@ -282,7 +286,7 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
     e.preventDefault();
     if (!decideFor) return;
     const { row, mode } = decideFor;
-    const cap = openQty(row);
+    const cap = decisionCap(row, mode);
     const qty = Number(decideQty) || 0;
     if (qty < 1 || qty > cap) {
       toast.error(`Enter between 1 and ${cap}.`);
@@ -527,10 +531,16 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                                 <div className="flex flex-wrap items-center gap-1.5">
                                   {openQty(row) > 0 && (
                                     <>
+                                      {/* Nothing on the shelf: the store cannot issue, so the
+                                          choice is procurement. Inventory stays visible but dead. */}
                                       <button
                                         onClick={() => openDecision(row, "inventory")}
-                                        disabled={locked || busy === row.id}
-                                        title={locked ? "Locked until the budget is approved" : `Take up to ${openQty(row)} from inventory — the store issues it`}
+                                        disabled={locked || busy === row.id || (row.available_quantity ?? 0) <= 0}
+                                        title={
+                                          locked ? "Locked until the budget is approved"
+                                          : (row.available_quantity ?? 0) <= 0 ? "Nothing in stock — procure this line"
+                                          : `Take up to ${Math.min(openQty(row), row.available_quantity ?? 0)} from inventory — the store issues it`
+                                        }
                                         className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-2xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-40"
                                       >
                                         <Warehouse className="h-3 w-3" /> Inventory
@@ -538,8 +548,16 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                                       <button
                                         onClick={() => openDecision(row, "procure")}
                                         disabled={locked || busy === row.id}
-                                        title={locked ? "Locked until the budget is approved" : `Buy up to ${openQty(row)}, even if stock is available`}
-                                        className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-2xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-40"
+                                        title={
+                                          locked ? "Locked until the budget is approved"
+                                          : (row.available_quantity ?? 0) <= 0 ? "Nothing in stock — buy this line"
+                                          : `Buy up to ${openQty(row)}, even if stock is available`
+                                        }
+                                        className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-2xs font-medium transition-colors disabled:opacity-40 ${
+                                          (row.available_quantity ?? 0) <= 0 && !locked
+                                            ? "border-primary/40 bg-primary/5 text-primary hover:bg-primary/10"
+                                            : "border-border text-foreground hover:bg-secondary"
+                                        }`}
                                       >
                                         <ShoppingCart className="h-3 w-3" /> Procure
                                       </button>
@@ -807,7 +825,7 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
         size="sm"
       >
         {decideFor && (() => {
-          const cap = openQty(decideFor.row);
+          const cap = decisionCap(decideFor.row, decideFor.mode);
           const qty = Number(decideQty) || 0;
           const shelf = decideFor.row.available_quantity ?? 0;
           const overShelf = decideFor.mode === "inventory" && qty > shelf;
