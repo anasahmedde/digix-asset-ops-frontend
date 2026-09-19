@@ -137,7 +137,7 @@ export function LowStock({ onChanged }: { onChanged?: () => void }) {
                     <td className={`${tdClass} font-mono text-muted-foreground`}>{r.code}</td>
                     <td className={`${tdClass} font-medium text-foreground`}>{r.name}</td>
                     <td className={tdClass}>
-                      <span className={`inline-flex rounded-full px-2 py-0.5 text-2xs font-medium ${r.kind === "unique" ? "bg-indigo-500/10 text-indigo-600" : "bg-secondary text-muted-foreground"}`}>
+                      <span className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-2xs font-medium ${r.kind === "unique" ? "bg-indigo-500/10 text-indigo-600" : "bg-secondary text-muted-foreground"}`}>
                         {r.kind === "unique" ? "Unique item" : "Generic stock"}
                       </span>
                     </td>

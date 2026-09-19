@@ -37,6 +37,9 @@ interface ReceivedLine {
   received_at: string;
   received_by_name: string | null;
   stocked_item_sku: string | null;
+  /** What the line became: the stock row's SKU or the product's code, and its name. */
+  stocked_code: string | null;
+  stocked_name: string | null;
   storage_location: string | null;
   stocked_units: { serial_number: string; unit_code: string; status: string; status_display: string }[];
   created_at: string;
@@ -191,9 +194,9 @@ export function ReceivingLog() {
                         </td>
                         <td className={`${tdClass} font-mono text-foreground`}>{r.grn_number}</td>
                         <td className={`${tdClass} text-muted-foreground`}>{r.inspected_at ? new Date(r.inspected_at).toLocaleDateString() : "—"}</td>
-                        <td className={`${tdClass} text-foreground`}>{r.known_component ?? r.po_item_description ?? r.material_name ?? "—"}</td>
+                        <td className={`${tdClass} text-foreground`}>{r.known_component ?? r.stocked_name ?? r.po_item_description ?? r.material_name ?? "—"}</td>
                         <td className={tdClass}>
-                          <span className={`inline-flex rounded-full px-2 py-0.5 text-2xs font-medium ${r.kind === "unique" ? "bg-indigo-500/10 text-indigo-600" : "bg-secondary text-muted-foreground"}`}>{r.kind === "unique" ? "Unique item" : "Generic stock"}</span>
+                          <span className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-2xs font-medium ${r.kind === "unique" ? "bg-indigo-500/10 text-indigo-600" : r.kind === "asset" ? "bg-emerald-500/10 text-emerald-600" : "bg-secondary text-muted-foreground"}`}>{kindLabel(r.kind)}</span>
                         </td>
                         <td className={tdClass}>
                           {r.po_number ? (
@@ -211,8 +214,12 @@ export function ReceivingLog() {
                           {r.rejected_quantity > 0 ? <Qty value={r.rejected_quantity} unit={r.unit} /> : "—"}
                         </td>
                         <td className={`${tdClass} text-muted-foreground`}>
-                          {rejected ? <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-2xs font-medium text-red-600">Rejected</span> : (r.routed_to_display ?? "—")}
-                          {!rejected && r.stocked_item_sku && <span className="block font-mono text-2xs">{r.stocked_item_sku}</span>}
+                          {rejected ? (
+                            <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-2xs font-medium text-red-600">Rejected</span>
+                          ) : (
+                            r.kind === "asset" ? "Asset registry" : r.routed_to === "unique" ? "Unique item" : r.routed_to === "generic" ? "Generic stock" : "—"
+                          )}
+                          {!rejected && (r.stocked_code ?? r.stocked_item_sku) && <span className="block font-mono text-2xs">{r.stocked_code ?? r.stocked_item_sku}</span>}
                         </td>
                         <td className={`${tdClass} text-muted-foreground`}>{r.inspected_by_name ?? "—"}</td>
                       </tr>

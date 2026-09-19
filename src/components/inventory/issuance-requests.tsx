@@ -274,7 +274,7 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                       </td>
                       <td className={`${tdClass} text-foreground`}>{row.what}</td>
                       <td className={tdClass}>
-                        <span className={`inline-flex rounded-full px-2 py-0.5 text-2xs font-medium ${row.unit_type_name ? "bg-indigo-500/10 text-indigo-600" : "bg-secondary text-muted-foreground"}`}>{row.unit_type_name ? "Unique item" : "Generic stock"}</span>
+                        <span className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-2xs font-medium ${row.unit_type_name ? "bg-indigo-500/10 text-indigo-600" : "bg-secondary text-muted-foreground"}`}>{row.unit_type_name ? "Unique item" : "Generic stock"}</span>
                       </td>
                       <td className={`${tdClass} text-foreground`}><Qty value={row.quantity_requested} unit={row.unit} /></td>
                       <td className={`${tdClass} text-muted-foreground`}>

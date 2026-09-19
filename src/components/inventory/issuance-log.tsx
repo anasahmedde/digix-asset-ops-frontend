@@ -271,9 +271,9 @@ export function IssuanceLog() {
                         </td>
                         <td className={tdClass}>
                           {r.kind === "request" ? (
-                            <span className={`inline-flex rounded-full px-2 py-0.5 text-2xs font-medium ${r.row.unit_type_name ? "bg-indigo-500/10 text-indigo-600" : "bg-secondary text-muted-foreground"}`}>{r.row.unit_type_name ? "Unique item" : "Generic stock"}</span>
+                            <span className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-2xs font-medium ${r.row.unit_type_name ? "bg-indigo-500/10 text-indigo-600" : "bg-secondary text-muted-foreground"}`}>{r.row.unit_type_name ? "Unique item" : "Generic stock"}</span>
                           ) : (
-                            <span className="inline-flex rounded-full bg-secondary px-2 py-0.5 text-2xs font-medium text-muted-foreground">Generic stock</span>
+                            <span className="inline-flex whitespace-nowrap rounded-full bg-secondary px-2 py-0.5 text-2xs font-medium text-muted-foreground">Generic stock</span>
                           )}
                         </td>
                         <td className={`${tdClass} font-medium text-foreground`}>

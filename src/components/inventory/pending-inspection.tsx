@@ -295,7 +295,7 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
                     </td>
                     <td className={tdClass}>
                       {line.kind === "unique" || line.kind === "generic" ? (
-                        <span className={`inline-flex rounded-full px-2 py-0.5 text-2xs font-medium ${line.kind === "unique" ? "bg-indigo-500/10 text-indigo-600" : "bg-secondary text-muted-foreground"}`}>{line.kind === "unique" ? "Unique item" : "Generic stock"}</span>
+                        <span className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-2xs font-medium ${line.kind === "unique" ? "bg-indigo-500/10 text-indigo-600" : "bg-secondary text-muted-foreground"}`}>{line.kind === "unique" ? "Unique item" : "Generic stock"}</span>
                       ) : (
                         <span className="text-2xs text-muted-foreground">decided at inspection</span>
                       )}
