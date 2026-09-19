@@ -19,8 +19,9 @@ interface Requisition {
   kind?: "component" | "asset" | "reorder";
   component: string | null;
   device?: string | null;
-  /** A stock reorder raised from Inventory › Low Stock. */
+  /** A stock reorder raised from Inventory › Low Stock, with its PR number. */
   reorder?: string | null;
+  request_number?: string;
   reorder_level?: number | null;
   reason?: string;
   name: string;
@@ -281,7 +282,12 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
                         }`}>
                           {isAsset ? "Whole asset" : isReorder ? "Stock reorder" : "Component"}
                         </span>
-                        {isReorder && r.reason && <span className="block text-2xs text-muted-foreground">{r.reason}</span>}
+                        {isReorder && (
+                          <span className="block text-2xs text-muted-foreground">
+                            {r.request_number && <span className="mr-1.5 font-mono text-foreground">{r.request_number}</span>}
+                            {r.reason}
+                          </span>
+                        )}
                       </td>
                       <td className={`${tdClass} ${isReorder ? "text-muted-foreground" : "font-mono text-muted-foreground"}`}>
                         {isReorder ? <>Stock<span className="block text-2xs">reorder level {r.reorder_level ?? "—"}</span></> : r.asset_code}

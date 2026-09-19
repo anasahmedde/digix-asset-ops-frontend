@@ -1544,6 +1544,7 @@ export default function InstallationTrackerPage() {
                 placeholder="e.g. 12"
                 className={createInputClass}
               />
+              <p className="mt-1 text-2xs text-muted-foreground">Runs from the asset&apos;s installation date, whenever the term is entered.</p>
               <p className="mt-1 text-2xs text-muted-foreground">
                 Our cover to the client starts today and is filed under Warranties. Leave blank if none.
               </p>

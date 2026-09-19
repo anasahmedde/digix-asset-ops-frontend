@@ -25,6 +25,8 @@ const ENTITY_OPTIONS = [
   { value: "ticket", label: "Ticket" },
   { value: "goods_receipt", label: "Goods Receipt" },
   { value: "issuance", label: "Inventory Issuance" },
+  { value: "material_request", label: "Material Request (MR)" },
+  { value: "purchase_requisition", label: "Purchase Requisition (PR)" },
   { value: "inventory_item", label: "Inventory Item (SKU)" },
 ];
 

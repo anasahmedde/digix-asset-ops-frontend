@@ -21,7 +21,7 @@ interface LowStockRow {
   reorder_level: number;
   shortfall: number;
   unit_cost: string | null;
-  open_request: { id: string; status: string; status_display: string; quantity: number; po_number: string | null } | null;
+  open_request: { id: string; request_number: string; status: string; status_display: string; quantity: number; po_number: string | null } | null;
 }
 
 const thClass = "px-5 py-3.5 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground";
@@ -73,7 +73,7 @@ export function LowStock({ onChanged }: { onChanged?: () => void }) {
         quantity: qty,
         reason: reason.trim(),
       });
-      toast.success(`Reorder request raised — ${qty} ${target.unit} of ${target.name} is now under Procurement › To Procure`);
+      toast.success(`Purchase requisition raised — ${qty} ${target.unit} of ${target.name} is now under Procurement › To Procure`);
       setTarget(null);
       fetchRows();
       onChanged?.();
@@ -151,7 +151,8 @@ export function LowStock({ onChanged }: { onChanged?: () => void }) {
                     </td>
                     <td className={tdClass}>
                       {r.open_request ? (
-                        <span className="inline-flex items-center gap-2">
+                        <span className="inline-flex flex-wrap items-center gap-2">
+                          <span className="font-mono text-xs text-foreground">{r.open_request.request_number}</span>
                           <span className={`inline-flex rounded-full px-2 py-0.5 text-2xs font-medium ring-1 ${
                             r.open_request.status === "ordered" ? "bg-blue-500/10 text-blue-600 ring-blue-500/20" : "bg-amber-500/10 text-amber-600 ring-amber-500/20"
                           }`}>
