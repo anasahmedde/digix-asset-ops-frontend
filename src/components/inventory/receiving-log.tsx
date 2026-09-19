@@ -164,9 +164,10 @@ export function ReceivingLog() {
                 <tr className="border-b border-border bg-secondary/50">
                   <th className={`${thClass} w-8`}></th>
                   <th className={thClass}>GRN</th>
-                  <th className={thClass}>Inspected</th>
+                  <th className={thClass}>Date</th>
                   <th className={thClass}>Component</th>
-                  <th className={thClass}>From</th>
+                  <th className={thClass}>Kind</th>
+                  <th className={thClass}>Source</th>
                   <th className={`${thClass} text-right`}>Received</th>
                   <th className={`${thClass} text-right`}>Accepted</th>
                   <th className={`${thClass} text-right`}>Rejected</th>
@@ -190,11 +191,9 @@ export function ReceivingLog() {
                         </td>
                         <td className={`${tdClass} font-mono text-foreground`}>{r.grn_number}</td>
                         <td className={`${tdClass} text-muted-foreground`}>{r.inspected_at ? new Date(r.inspected_at).toLocaleDateString() : "—"}</td>
-                        <td className={`${tdClass} text-foreground`}>
-                          {r.known_component ?? r.po_item_description ?? r.material_name ?? "—"}
-                          <span className={`ml-2 rounded-full px-2 py-0.5 text-2xs font-medium ${r.kind === "unique" ? "bg-indigo-500/10 text-indigo-600" : "bg-secondary text-muted-foreground"}`}>
-                            {kindLabel(r.kind).toLowerCase()}
-                          </span>
+                        <td className={`${tdClass} text-foreground`}>{r.known_component ?? r.po_item_description ?? r.material_name ?? "—"}</td>
+                        <td className={tdClass}>
+                          <span className={`inline-flex rounded-full px-2 py-0.5 text-2xs font-medium ${r.kind === "unique" ? "bg-indigo-500/10 text-indigo-600" : "bg-secondary text-muted-foreground"}`}>{r.kind === "unique" ? "Unique item" : "Generic stock"}</span>
                         </td>
                         <td className={tdClass}>
                           {r.po_number ? (
@@ -220,7 +219,7 @@ export function ReceivingLog() {
 
                       {isOpen && (
                         <tr className="border-b border-border bg-secondary/20">
-                          <td colSpan={10} className="px-6 py-4">
+                          <td colSpan={11} className="px-6 py-4">
                             <div className="space-y-4">
                               <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-4">
                                 <Detail label="Source" value={<>{r.source_display}{r.reference ? <span className="text-muted-foreground"> · {r.reference}</span> : null}</>} />
@@ -244,7 +243,7 @@ export function ReceivingLog() {
                                           <th className="px-3 py-2 font-medium">#</th>
                                           <th className="px-3 py-2 font-medium">Serial No</th>
                                           <th className="px-3 py-2 font-medium">Unit Code</th>
-                                          <th className="px-3 py-2 font-medium">Now</th>
+                                          <th className="px-3 py-2 font-medium">Status</th>
                                         </tr>
                                       </thead>
                                       <tbody>

@@ -233,13 +233,14 @@ export function IssuanceLog() {
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
                   <th className={`${thClass} w-8`}></th>
-                  <th className={thClass}>Issue No.</th>
+                  <th className={thClass}>Request</th>
                   <th className={thClass}>Date</th>
-                  <th className={thClass}>Item</th>
-                  <th className={thClass}>Qty</th>
+                  <th className={thClass}>Component</th>
+                  <th className={thClass}>Kind</th>
+                  <th className={thClass}>Issued</th>
                   <th className={thClass}>Issued To</th>
                   <th className={thClass}>Purpose</th>
-                  <th className={thClass}>Authorised By</th>
+                  <th className={thClass}>Issued By</th>
                 </tr>
               </thead>
               <tbody>
@@ -267,10 +268,12 @@ export function IssuanceLog() {
                         <td className={`${tdClass} text-muted-foreground`}>{new Date(r.date).toLocaleDateString()}</td>
                         <td className={`${tdClass} text-foreground`}>
                           {r.kind === "request" ? (r.row.unit_type_name ?? r.row.item_name ?? r.row.what) : (r.row.item_name ?? "—")}
-                          {r.kind === "request" && (
-                            <span className={`ml-2 rounded-full px-2 py-0.5 text-2xs font-medium ${r.row.unit_type_name ? "bg-indigo-500/10 text-indigo-600" : "bg-secondary text-muted-foreground"}`}>
-                              {r.row.unit_type_name ? "unique" : "generic"}
-                            </span>
+                        </td>
+                        <td className={tdClass}>
+                          {r.kind === "request" ? (
+                            <span className={`inline-flex rounded-full px-2 py-0.5 text-2xs font-medium ${r.row.unit_type_name ? "bg-indigo-500/10 text-indigo-600" : "bg-secondary text-muted-foreground"}`}>{r.row.unit_type_name ? "Unique item" : "Generic stock"}</span>
+                          ) : (
+                            <span className="inline-flex rounded-full bg-secondary px-2 py-0.5 text-2xs font-medium text-muted-foreground">Generic stock</span>
                           )}
                         </td>
                         <td className={`${tdClass} font-medium text-foreground`}>
@@ -278,7 +281,7 @@ export function IssuanceLog() {
                             <>
                               <Qty value={r.row.quantity_issued} unit={r.row.unit} />
                               {r.row.outstanding_quantity > 0 && (
-                                <span className="ml-1 text-2xs font-normal text-amber-600">of {r.row.quantity_requested} · {r.row.outstanding_quantity} owed</span>
+                                <span className="ml-1 text-2xs font-normal text-amber-600">of {r.row.quantity_requested} · balance {r.row.outstanding_quantity}</span>
                               )}
                             </>
                           ) : (
@@ -305,7 +308,7 @@ export function IssuanceLog() {
 
                       {isOpen && (
                         <tr className="border-b border-border bg-secondary/20">
-                          <td colSpan={8} className="px-6 py-4">
+                          <td colSpan={9} className="px-6 py-4">
                             {r.kind === "request" ? (
                               <div className="space-y-4">
                                 <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-4">
@@ -331,7 +334,7 @@ export function IssuanceLog() {
                                             <th className="px-3 py-2 text-right font-medium">Qty</th>
                                             <th className="px-3 py-2 font-medium">Issued by</th>
                                             <th className="px-3 py-2 font-medium">Received by</th>
-                                            <th className="px-3 py-2 font-medium">Serials / note</th>
+                                            <th className="px-3 py-2 font-medium">{r.row.unit_type_name ? "Serial Nos" : "Note"}</th>
                                           </tr>
                                         </thead>
                                         <tbody>
@@ -341,7 +344,7 @@ export function IssuanceLog() {
                                               <td className="px-3 py-1.5 text-right text-foreground"><Qty value={h.quantity} unit={r.row.unit} /></td>
                                               <td className="px-3 py-1.5 text-muted-foreground">{h.issued_by || "—"}</td>
                                               <td className="px-3 py-1.5 text-foreground">{h.received_by || "—"}</td>
-                                              <td className="px-3 py-1.5 font-mono text-muted-foreground">{(h.serials ?? []).join(", ") || <span className="font-sans">{h.note || "—"}</span>}</td>
+                                              <td className={`px-3 py-1.5 text-muted-foreground ${r.row.unit_type_name ? "font-mono" : ""}`}>{r.row.unit_type_name ? ((h.serials ?? []).join(", ") || "—") : (h.note || "—")}</td>
                                             </tr>
                                           ))}
                                         </tbody>
@@ -361,7 +364,7 @@ export function IssuanceLog() {
                                             <th className="px-3 py-2 font-medium">#</th>
                                             <th className="px-3 py-2 font-medium">Serial No</th>
                                             <th className="px-3 py-2 font-medium">Unit Code</th>
-                                            <th className="px-3 py-2 font-medium">Now</th>
+                                            <th className="px-3 py-2 font-medium">Status</th>
                                           </tr>
                                         </thead>
                                         <tbody>

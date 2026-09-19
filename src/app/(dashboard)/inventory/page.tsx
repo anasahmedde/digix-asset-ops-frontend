@@ -373,12 +373,12 @@ export default function InventoryPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
-                  <th className={thClass}>Component Code</th>
+                  <th className={thClass}>Code</th>
                   <th className={thClass}>Component</th>
                   <th className={thClass}>Category</th>
                   <th className={thClass}>Location</th>
-                  <th className={thClass}>Quantity</th>
-                  <th className={thClass}>Min</th>
+                  <th className={thClass}>On Hand</th>
+                  <th className={thClass}>Reorder Level</th>
                   <th className={thClass}>Unit Cost</th>
                   <th className={thClass}>Actions</th>
                 </tr>

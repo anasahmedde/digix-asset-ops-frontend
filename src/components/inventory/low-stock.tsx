@@ -121,22 +121,21 @@ export function LowStock({ onChanged }: { onChanged?: () => void }) {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
+                  <th className={thClass}>Code</th>
                   <th className={thClass}>Component</th>
                   <th className={thClass}>Kind</th>
                   <th className={`${thClass} text-right`}>On Hand</th>
                   <th className={`${thClass} text-right`}>Reorder Level</th>
                   <th className={`${thClass} text-right`}>Shortfall</th>
                   <th className={thClass}>Reorder Request</th>
-                  {canRequest && <th className={thClass}>Action</th>}
+                  {canRequest && <th className={thClass}>Actions</th>}
                 </tr>
               </thead>
               <tbody>
                 {rows.map((r) => (
                   <tr key={`${r.kind}:${r.id}`} className="border-b border-border transition-colors hover:bg-secondary/30">
-                    <td className={`${tdClass} font-medium text-foreground`}>
-                      {r.name}
-                      <span className="block font-mono text-2xs text-muted-foreground">{r.code}</span>
-                    </td>
+                    <td className={`${tdClass} font-mono text-muted-foreground`}>{r.code}</td>
+                    <td className={`${tdClass} font-medium text-foreground`}>{r.name}</td>
                     <td className={tdClass}>
                       <span className={`inline-flex rounded-full px-2 py-0.5 text-2xs font-medium ${r.kind === "unique" ? "bg-indigo-500/10 text-indigo-600" : "bg-secondary text-muted-foreground"}`}>
                         {r.kind === "unique" ? "Unique item" : "Generic stock"}

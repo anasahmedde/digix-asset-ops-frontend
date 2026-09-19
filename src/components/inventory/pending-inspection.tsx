@@ -267,28 +267,43 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
                   <th className={thClass}>GRN</th>
-                  <th className={thClass}>PO</th>
-                  <th className={thClass}>Supplier</th>
-                  <th className={thClass}>Item</th>
-                  <th className={thClass}>Qty</th>
+                  <th className={thClass}>Source</th>
+                  <th className={thClass}>Component</th>
+                  <th className={thClass}>Kind</th>
+                  <th className={thClass}>Received</th>
                   <th className={thClass}>Batch</th>
-                  <th className={thClass}>Serials</th>
-                  {canInspect && <th className={thClass}>Action</th>}
+                  <th className={thClass}>Serial Nos</th>
+                  {canInspect && <th className={thClass}>Actions</th>}
                 </tr>
               </thead>
               <tbody>
                 {lines.map((line) => (
                   <tr key={line.id} className="border-b border-border transition-colors hover:bg-secondary/30">
                     <td className={`${tdClass} font-mono text-foreground`}>{line.grn_number ?? "—"}</td>
-                    <td className={`${tdClass} font-mono text-muted-foreground`}>{line.po_number ?? "—"}</td>
-                    <td className={`${tdClass} text-muted-foreground`}>{line.supplier_name ?? "—"}</td>
+                    <td className={tdClass}>
+                      {line.po_number ? (
+                        <span>
+                          <span className="font-mono text-foreground">{line.po_number}</span>
+                          {line.supplier_name && <span className="block text-2xs text-muted-foreground">{line.supplier_name}</span>}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">Return</span>
+                      )}
+                    </td>
                     <td className={`${tdClass} text-foreground`}>
-                      {line.po_item_description ?? line.material_name ?? line.device_model_name ?? "—"}
+                      {line.known_component ?? line.po_item_description ?? line.material_name ?? line.device_model_name ?? "—"}
+                    </td>
+                    <td className={tdClass}>
+                      {line.kind === "unique" || line.kind === "generic" ? (
+                        <span className={`inline-flex rounded-full px-2 py-0.5 text-2xs font-medium ${line.kind === "unique" ? "bg-indigo-500/10 text-indigo-600" : "bg-secondary text-muted-foreground"}`}>{line.kind === "unique" ? "Unique item" : "Generic stock"}</span>
+                      ) : (
+                        <span className="text-2xs text-muted-foreground">decided at inspection</span>
+                      )}
                     </td>
                     <td className={`${tdClass} font-medium text-foreground`}><Qty value={line.quantity} unit={line.unit} /></td>
                     <td className={`${tdClass} font-mono text-muted-foreground`}>{line.batch_number || "—"}</td>
                     <td className={`${tdClass} text-muted-foreground`}>
-                      {line.serial_numbers.length > 0 ? `${line.serial_numbers.length} captured` : "—"}
+                      {line.kind === "generic" ? "—" : line.serial_numbers.length > 0 ? `${line.serial_numbers.length} captured` : "—"}
                     </td>
                     {canInspect && (
                       <td className={tdClass}>

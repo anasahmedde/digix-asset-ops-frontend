@@ -249,14 +249,15 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
                   <th className={thClass}>Request</th>
-                  <th className={thClass}>Item</th>
-                  <th className={thClass}>Asked</th>
+                  <th className={thClass}>Component</th>
+                  <th className={thClass}>Kind</th>
+                  <th className={thClass}>Requested</th>
                   <th className={thClass}>Issued</th>
-                  <th className={thClass}>In Stock</th>
-                  <th className={thClass}>For</th>
-                  <th className={thClass}>Asked By</th>
+                  <th className={thClass}>On Hand</th>
+                  <th className={thClass}>Project / Asset</th>
+                  <th className={thClass}>Requested By</th>
                   <th className={thClass}>Status</th>
-                  <th className={thClass}>Action</th>
+                  <th className={thClass}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -272,17 +273,20 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                         </span>
                       </td>
                       <td className={`${tdClass} text-foreground`}>{row.what}</td>
+                      <td className={tdClass}>
+                        <span className={`inline-flex rounded-full px-2 py-0.5 text-2xs font-medium ${row.unit_type_name ? "bg-indigo-500/10 text-indigo-600" : "bg-secondary text-muted-foreground"}`}>{row.unit_type_name ? "Unique item" : "Generic stock"}</span>
+                      </td>
                       <td className={`${tdClass} text-foreground`}><Qty value={row.quantity_requested} unit={row.unit} /></td>
                       <td className={`${tdClass} text-muted-foreground`}>
-                        {row.quantity_issued}
+                        <Qty value={row.quantity_issued} unit={row.unit} />
                         {row.outstanding_quantity > 0 && (
                           <span className="block text-2xs text-amber-600">
-                            {row.outstanding_quantity} owed
+                            balance <Qty value={row.outstanding_quantity} unit={row.unit} />
                           </span>
                         )}
                       </td>
                       <td className={`${tdClass} ${short ? "text-amber-600" : "text-muted-foreground"}`}>
-                        {row.available_quantity ?? "—"}
+                        {row.available_quantity != null ? <Qty value={row.available_quantity} unit={row.unit} /> : "—"}
                       </td>
                       <td className={`${tdClass} text-muted-foreground`}>
                         {against(row)}

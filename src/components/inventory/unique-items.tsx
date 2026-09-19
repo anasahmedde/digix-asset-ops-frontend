@@ -304,7 +304,7 @@ export function UniqueItems() {
                   <th className={thClass}>Code</th>
                   <th className={thClass}>Component</th>
                   <th className={thClass}>Make / Model</th>
-                  <th className={thClass}>In Stock</th>
+                  <th className={thClass}>On Hand</th>
                   <th className={thClass}>Unit Cost</th>
                   {canEdit && <th className={thClass}>Actions</th>}
                 </tr>
@@ -380,7 +380,7 @@ export function UniqueItems() {
                                   <th className="py-1.5 font-medium">Serial No</th>
                                   <th className="py-1.5 font-medium">Status</th>
                                   <th className="py-1.5 font-medium">Batch</th>
-                                  <th className="py-1.5 font-medium">GRN / PO</th>
+                                  <th className="py-1.5 font-medium">Source</th>
                                   <th className="py-1.5 font-medium">Warranty</th>
                                 </tr>
                               </thead>
