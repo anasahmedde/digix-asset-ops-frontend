@@ -192,7 +192,7 @@ export function ReceivingLog() {
                         <td className={`${tdClass} text-muted-foreground`}>
                           {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                         </td>
-                        <td className={`${tdClass} font-mono text-foreground`}>{r.grn_number}</td>
+                        <td className={`${tdClass} whitespace-nowrap font-mono text-foreground`}>{r.grn_number}</td>
                         <td className={`${tdClass} text-muted-foreground`}>{r.inspected_at ? new Date(r.inspected_at).toLocaleDateString() : "—"}</td>
                         <td className={`${tdClass} text-foreground`}>{r.known_component ?? r.stocked_name ?? r.po_item_description ?? r.material_name ?? "—"}</td>
                         <td className={tdClass}>

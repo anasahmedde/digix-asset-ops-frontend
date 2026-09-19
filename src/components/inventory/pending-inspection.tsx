@@ -279,7 +279,7 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
               <tbody>
                 {lines.map((line) => (
                   <tr key={line.id} className="border-b border-border transition-colors hover:bg-secondary/30">
-                    <td className={`${tdClass} font-mono text-foreground`}>{line.grn_number ?? "—"}</td>
+                    <td className={`${tdClass} whitespace-nowrap font-mono text-foreground`}>{line.grn_number ?? "—"}</td>
                     <td className={tdClass}>
                       {line.po_number ? (
                         <span>

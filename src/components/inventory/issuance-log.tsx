@@ -257,7 +257,7 @@ export function IssuanceLog() {
                         <td className={`${tdClass} text-muted-foreground`}>
                           {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                         </td>
-                        <td className={`${tdClass} font-mono text-foreground`}>
+                        <td className={`${tdClass} whitespace-nowrap font-mono text-foreground`}>
                           {r.number}
                           {r.kind === "legacy" && (
                             <span className="ml-2 rounded-full bg-secondary px-2 py-0.5 font-sans text-2xs font-medium uppercase tracking-wider text-muted-foreground">

@@ -266,7 +266,7 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                   const settled = row.status === "fulfilled" || row.status === "cancelled";
                   return (
                     <tr key={row.id} className="border-b border-border transition-colors hover:bg-secondary/30">
-                      <td className={`${tdClass} font-mono text-foreground`}>
+                      <td className={`${tdClass} whitespace-nowrap font-mono text-foreground`}>
                         {row.request_number}
                         <span className="block text-2xs font-sans text-muted-foreground">
                           {row.source_display}

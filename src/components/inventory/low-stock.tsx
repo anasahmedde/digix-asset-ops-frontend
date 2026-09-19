@@ -134,7 +134,7 @@ export function LowStock({ onChanged }: { onChanged?: () => void }) {
               <tbody>
                 {rows.map((r) => (
                   <tr key={`${r.kind}:${r.id}`} className="border-b border-border transition-colors hover:bg-secondary/30">
-                    <td className={`${tdClass} font-mono text-muted-foreground`}>{r.code}</td>
+                    <td className={`${tdClass} whitespace-nowrap font-mono text-muted-foreground`}>{r.code}</td>
                     <td className={`${tdClass} font-medium text-foreground`}>{r.name}</td>
                     <td className={tdClass}>
                       <span className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-2xs font-medium ${r.kind === "unique" ? "bg-indigo-500/10 text-indigo-600" : "bg-secondary text-muted-foreground"}`}>
