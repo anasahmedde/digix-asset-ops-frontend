@@ -34,6 +34,8 @@ interface InventoryItem {
   created_at: string;
 }
 interface Ref { id: string; name: string }
+/** A unit of measure as maintained under Setup. */
+interface UnitRef { id: string; name: string; symbol: string; is_active: boolean }
 /** One in/out against a stock line, with the delivery it arrived on. */
 interface StockMovement {
   id: string;
@@ -68,10 +70,13 @@ export default function InventoryPage() {
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [categories, setCategories] = useState<Ref[]>([]);
   const [materialTypes, setMaterialTypes] = useState<Ref[]>([]);
+  const [units, setUnits] = useState<UnitRef[]>([]);
   const [sites, setSites] = useState<Ref[]>([]);
   const [loading, setLoading] = useState(true);
   const [itemModal, setItemModal] = useState<"create" | "edit" | null>(null);
   const [selected, setSelected] = useState<InventoryItem | null>(null);
+  // The unit picked in the form, so Opening Stock and Unit Cost can say what they count.
+  const [unitChoice, setUnitChoice] = useState("piece");
   // Where a line's stock came from — asked for on demand, not shown in the list.
   const [detailsFor, setDetailsFor] = useState<InventoryItem | null>(null);
   const [movements, setMovements] = useState<StockMovement[]>([]);
@@ -139,6 +144,7 @@ export default function InventoryPage() {
     fetchItems();
     api.get("/inventory/categories/").then((r) => setCategories(r.data.results ?? r.data)).catch(() => {});
     api.get("/assets/material-types/").then((r) => setMaterialTypes(r.data.results ?? r.data)).catch(() => {});
+    api.get("/setup/units/", { params: { is_active: true, page_size: 200 } }).then((r) => setUnits(r.data.results ?? r.data)).catch(() => {});
     // The collection is /sites/sites/ — /sites/ is the router root, and the
     // object it returns has no rows to map over.
     api.get("/sites/sites/", { params: { page_size: 1000 } }).then((r) => setSites(r.data.results ?? r.data)).catch(() => {});
@@ -148,6 +154,7 @@ export default function InventoryPage() {
 
   function openItemModal(mode: "create" | "edit", item: InventoryItem | null) {
     setSelected(item);
+    setUnitChoice(item?.unit ?? "piece");
     setItemModal(mode);
   }
 
@@ -434,9 +441,12 @@ export default function InventoryPage() {
                 </div>
                 <div className="space-y-1.5">
                   <label htmlFor="unit" className={labelClass}>Unit of Measure</label>
-                  <select id="unit" name="unit" defaultValue={selected?.unit ?? "piece"} className={inputClass}>
-                    {["piece", "meter", "box", "roll", "kg", "litre", "set", "pair"].map((u) => <option key={u} value={u}>{u}</option>)}
+                  <select id="unit" name="unit" value={unitChoice} onChange={(e) => setUnitChoice(e.target.value)} className={inputClass}>
+                    {/* The units opened under Setup; a legacy unit on an existing component stays selectable. */}
+                    {units.map((u) => <option key={u.id} value={u.name}>{u.name}{u.symbol ? ` (${u.symbol})` : ""}</option>)}
+                    {unitChoice && !units.some((u) => u.name === unitChoice) && <option value={unitChoice}>{unitChoice}</option>}
                   </select>
+                  <p className="text-2xs text-muted-foreground">Units are maintained under Setup › Units of Measure.</p>
                 </div>
               </div>
               <div className="space-y-1.5">
@@ -449,8 +459,13 @@ export default function InventoryPage() {
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
-                  <label htmlFor="quantity" className={labelClass}>Quantity</label>
-                  <input id="quantity" name="quantity" type="number" min={0} defaultValue={selected?.quantity ?? 0} className={inputClass} />
+                  <label htmlFor="quantity" className={labelClass}>{itemModal === "create" ? "Opening Stock" : "Quantity on Hand"}</label>
+                  <input id="quantity" name="quantity" type="number" min={0} defaultValue={selected?.quantity ?? 0} className={inputClass} placeholder="0" />
+                  <p className="text-2xs text-muted-foreground">
+                    {itemModal === "create"
+                      ? `What is on hand today, in ${unitChoice}. From here stock moves only through receipts, issues and returns.`
+                      : `Counted in ${unitChoice}.`}
+                  </p>
                 </div>
                 <div className="space-y-1.5">
                   <label htmlFor="min_stock_level" className={labelClass}>Min Stock Level</label>
@@ -459,8 +474,9 @@ export default function InventoryPage() {
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
-                  <label htmlFor="unit_cost" className={labelClass}>Unit Cost</label>
+                  <label htmlFor="unit_cost" className={labelClass}>Unit Cost (rate per {unitChoice})</label>
                   <input id="unit_cost" name="unit_cost" type="number" step="0.01" min={0} defaultValue={selected?.unit_cost ?? ""} className={inputClass} placeholder="0.00" />
+                  <p className="text-2xs text-muted-foreground">The component&apos;s rate for BOQs and budgets until a purchase sets a newer price.</p>
                 </div>
               </div>
               <div className="space-y-1.5">
@@ -526,7 +542,7 @@ export default function InventoryPage() {
                           {new Date(m.created_at).toLocaleDateString()}
                         </td>
                         <td className="px-3 py-2 text-foreground">
-                          {m.movement_type === "in" ? "Received" : m.movement_type === "out" ? "Issued" : m.movement_type}
+                          {m.movement_type === "in" ? "Received" : m.movement_type === "out" ? "Issued" : m.movement_type === "opening" ? "Opening stock" : m.movement_type}
                         </td>
                         <td className="px-3 py-2 text-right font-medium text-foreground">{m.quantity}</td>
                         <td className="px-3 py-2">
@@ -542,7 +558,7 @@ export default function InventoryPage() {
                             </span>
                           ) : (
                             <span className="text-muted-foreground">
-                              {m.reference || "Entered by hand"}
+                              {m.movement_type === "opening" ? (m.notes || "Opening balance") : (m.reference || "Entered by hand")}
                             </span>
                           )}
                           {m.batch_number && (

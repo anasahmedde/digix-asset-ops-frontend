@@ -301,25 +301,26 @@ const SECTIONS: SectionConfig[] = [
     ],
   },
   {
-    key: "components",
-    label: "Components",
-    endpoint: "/assets/material-types/",
-    singular: "Component",
+    // Components themselves are opened from Inventory (Add Component); what
+    // Setup owns is the list of units they can be counted in.
+    key: "units",
+    label: "Units of Measure",
+    endpoint: "/setup/units/",
+    singular: "Unit of Measure",
     labelKey: "name",
     resource: "setup",
-    searchKeys: ["name", "category_name"],
+    searchKeys: ["name", "symbol"],
     columns: [
-      { key: "name", label: "Component", className: "font-medium text-foreground" },
-      { key: "category_name", label: "Category" },
-      { key: "unit", label: "Unit of Measure" },
+      { key: "name", label: "Unit", className: "font-medium text-foreground" },
+      { key: "symbol", label: "Symbol", render: (r) => (r.symbol as string) || "—" },
+      { key: "in_use", label: "Used by", render: (r) => (r.in_use ? `${r.in_use} component${r.in_use === 1 ? "" : "s"}` : "—") },
+      { key: "is_active", label: "Status", render: activeCell },
     ],
     fields: [
-      { name: "name", label: "Component Name", required: true, placeholder: "e.g. HDMI Cable 5m" },
-      { name: "category", label: "Category", type: "select", optionsEndpoint: "/inventory/categories/" },
-      { name: "unit", label: "Unit of Measure", type: "select", default: "piece", options: [
-        "piece", "meter", "box", "roll", "kg", "litre", "set", "pair",
-      ].map((u) => ({ value: u, label: u })) },
+      { name: "name", label: "Unit Name", required: true, placeholder: "e.g. meter, running foot, sheet" },
+      { name: "symbol", label: "Symbol", placeholder: "e.g. m, rft" },
       { name: "description", label: "Description", type: "textarea" },
+      { name: "is_active", label: "Active — offered in the unit dropdowns", type: "checkbox", default: true },
     ],
   },
   {

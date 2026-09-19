@@ -186,6 +186,8 @@ interface StockItemRef {
   sku: string;
   material_name: string | null;
   quantity: number;
+  /** Unit of measure the stock is counted in (piece, meter, kg…). */
+  unit?: string | null;
 }
 interface StockProductRef {
   id: string;
@@ -194,6 +196,8 @@ interface StockProductRef {
   brand_name: string | null;
   model_name: string;
   in_stock_count: number;
+  /** Unique items are counted one by one; the unit is normally "piece". */
+  unit?: string | null;
 }
 
 interface NewComponentRow {
@@ -461,10 +465,13 @@ export default function AssetsPage() {
   // A component is a requirement, so availability never limits it — it is
   // shown purely so the user knows whether it will need procuring later.
   const selectedProduct = stockProducts.find((p) => p.id === compUnitType);
+  const selectedStockItem = stockItems.find((s) => s.id === compItemId);
   const compAvailable =
     compSource === "generic"
-      ? stockItems.find((s) => s.id === compItemId)?.quantity ?? 0
+      ? selectedStockItem?.quantity ?? 0
       : selectedProduct?.in_stock_count ?? 0;
+  // The unit the chosen line is counted in, shown wherever its quantity is.
+  const compUnit = (compSource === "generic" ? selectedStockItem?.unit : selectedProduct?.unit) || "piece";
   const compSelected = compSource === "generic" ? compItemId : compUnitType;
 
   const loadInventorySources = useCallback(async () => {
@@ -1671,7 +1678,7 @@ export default function AssetsPage() {
                                   {/* Every known item, including ones at zero. */}
                                   {stockItems.map((s) => (
                                     <option key={s.id} value={s.id}>
-                                      {s.material_name ?? s.sku} · {s.quantity} in stock
+                                      {s.material_name ?? s.sku} · {s.quantity} {s.unit || "piece"} in stock
                                     </option>
                                   ))}
                                 </select>
@@ -1687,7 +1694,7 @@ export default function AssetsPage() {
                                   </option>
                                   {stockProducts.map((p) => (
                                     <option key={p.id} value={p.id}>
-                                      {[p.name, p.model_name].filter(Boolean).join(" ")} · {p.in_stock_count} in stock
+                                      {[p.name, p.model_name].filter(Boolean).join(" ")} · {p.in_stock_count} {p.unit || "piece"} in stock
                                     </option>
                                   ))}
                                 </select>
@@ -1703,6 +1710,7 @@ export default function AssetsPage() {
                                   onChange={(e) => setCompQty(Math.max(1, Number(e.target.value) || 1))}
                                   className="h-8 w-20 rounded-lg border border-border bg-background px-2 text-xs text-foreground"
                                 />
+                                {compSelected && <span className="text-2xs text-muted-foreground">{compUnit}</span>}
                               </div>
 
                               <button
@@ -1716,7 +1724,7 @@ export default function AssetsPage() {
 
                             {compSelected && compQty > compAvailable && (
                               <p className="text-2xs text-amber-600">
-                                Only {compAvailable} in stock — the shortfall can be procured from the project.
+                                Only {compAvailable} {compUnit} in stock — the shortfall can be procured from the project.
                               </p>
                             )}
                           </fieldset>
@@ -2746,7 +2754,7 @@ export default function AssetsPage() {
                         >
                           <option value="">Select stock item…</option>
                           {stockItems.map((it) => (
-                            <option key={it.id} value={it.id}>{(it.material_name ?? it.sku)} · {it.quantity} in stock</option>
+                            <option key={it.id} value={it.id}>{(it.material_name ?? it.sku)} · {it.quantity} {it.unit || "piece"} in stock</option>
                           ))}
                         </select>
                       ) : (
@@ -2758,7 +2766,7 @@ export default function AssetsPage() {
                           <option value="">Select unique item…</option>
                           {stockProducts.map((p) => (
                             <option key={p.id} value={p.id}>
-                              {[p.name, p.model_name].filter(Boolean).join(" ")} · {p.in_stock_count} in stock
+                              {[p.name, p.model_name].filter(Boolean).join(" ")} · {p.in_stock_count} {p.unit || "piece"} in stock
                             </option>
                           ))}
                         </select>
@@ -2775,6 +2783,13 @@ export default function AssetsPage() {
                           title="Quantity"
                           className="flex h-9 w-20 shrink-0 rounded-lg border border-border bg-card px-3 text-sm text-foreground focus:border-primary/50 focus:outline-none"
                         />
+                        {(row.source === "generic" ? row.inventory_item : row.inventory_unit_type) && (
+                          <span className="text-xs text-muted-foreground">
+                            {(row.source === "generic"
+                              ? stockItems.find((it) => it.id === row.inventory_item)?.unit
+                              : stockProducts.find((p) => p.id === row.inventory_unit_type)?.unit) || "piece"}
+                          </span>
+                        )}
                       </div>
                       <span className="text-2xs text-muted-foreground">
                         Name, serial, supplier and warranty are imported from inventory.
