@@ -3,10 +3,15 @@ export function getApiError(err: unknown, fallback: string): string {
     const resp = (err as {
       response?: { status?: number; data?: Record<string, unknown> };
     }).response;
+    const data = resp?.data;
     if (resp?.status === 403) {
+      // A refusal usually says why — a locked build, a fixed budget, a role
+      // rule. Only fall back to the bare permission text when it does not.
+      if (data && typeof data.detail === "string" && data.detail && !/permission/i.test(data.detail)) {
+        return data.detail;
+      }
       return "You do not have permission to perform this action.";
     }
-    const data = resp?.data;
     if (data) {
       if (typeof data.detail === "string" && data.detail) {
         return data.detail;
