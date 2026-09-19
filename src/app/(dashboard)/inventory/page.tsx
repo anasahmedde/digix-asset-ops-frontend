@@ -8,6 +8,7 @@ import { IssuanceLog } from "@/components/inventory/issuance-log";
 import { IssuanceRequests } from "@/components/inventory/issuance-requests";
 import { LowStock } from "@/components/inventory/low-stock";
 import { PendingInspection } from "@/components/inventory/pending-inspection";
+import { ReceivingLog } from "@/components/inventory/receiving-log";
 import { UniqueItems } from "@/components/inventory/unique-items";
 import { CopyButton } from "@/components/ui/copy-button";
 import { FilterBar } from "@/components/ui/filter-bar";
@@ -89,7 +90,7 @@ export default function InventoryPage() {
   // Two kinds of inventory: generic stock tracked by quantity, and unique
   // (serialized) units tracked one row per physical item.
   const [tab, setTab] = useState<
-    "generic" | "unique" | "low_stock" | "inspection" | "requests" | "issuance"
+    "generic" | "unique" | "low_stock" | "inspection" | "receiving_log" | "requests" | "issuance"
   >("generic");
   const [pendingCount, setPendingCount] = useState(0);
   // Components at or below their reorder level with no request raised yet.
@@ -299,6 +300,7 @@ export default function InventoryPage() {
           { key: "unique", label: "Unique Components" },
           { key: "low_stock", label: "Low Stock" },
           { key: "inspection", label: "Receiving" },
+          { key: "receiving_log", label: "Receiving Log" },
           { key: "requests", label: "Issue Requests" },
           { key: "issuance", label: "Issuance Log" },
         ] as const).map((t) => (
@@ -332,6 +334,7 @@ export default function InventoryPage() {
 
       {tab === "issuance" && <IssuanceLog />}
       {tab === "low_stock" && <LowStock onChanged={refreshLowCount} />}
+      {tab === "receiving_log" && <ReceivingLog />}
 
       {tab === "inspection" && (
         <PendingInspection
