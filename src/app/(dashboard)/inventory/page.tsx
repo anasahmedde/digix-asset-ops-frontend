@@ -6,6 +6,7 @@ import { toast } from "sonner";
 
 import { IssuanceLog } from "@/components/inventory/issuance-log";
 import { IssuanceRequests } from "@/components/inventory/issuance-requests";
+import { LowStock } from "@/components/inventory/low-stock";
 import { PendingInspection } from "@/components/inventory/pending-inspection";
 import { UniqueItems } from "@/components/inventory/unique-items";
 import { CopyButton } from "@/components/ui/copy-button";
@@ -88,9 +89,20 @@ export default function InventoryPage() {
   // Two kinds of inventory: generic stock tracked by quantity, and unique
   // (serialized) units tracked one row per physical item.
   const [tab, setTab] = useState<
-    "generic" | "unique" | "inspection" | "requests" | "issuance"
+    "generic" | "unique" | "low_stock" | "inspection" | "requests" | "issuance"
   >("generic");
   const [pendingCount, setPendingCount] = useState(0);
+  // Components at or below their reorder level with no request raised yet.
+  const [lowCount, setLowCount] = useState(0);
+  const refreshLowCount = useCallback(async () => {
+    try {
+      const { data } = await api.get("/inventory/low-stock/");
+      setLowCount(data.unrequested ?? 0);
+    } catch {
+      /* the badge is a nicety — never block the page on it */
+    }
+  }, []);
+  useEffect(() => { refreshLowCount(); }, [refreshLowCount]);
 
   async function exportExcel() {
     setExporting(true);
@@ -285,6 +297,7 @@ export default function InventoryPage() {
         {([
           { key: "generic", label: "Generic Components" },
           { key: "unique", label: "Unique Components" },
+          { key: "low_stock", label: "Low Stock" },
           { key: "inspection", label: "Receiving" },
           { key: "requests", label: "Issue Requests" },
           { key: "issuance", label: "Issuance Log" },
@@ -299,6 +312,11 @@ export default function InventoryPage() {
             }`}
           >
             {t.label}
+            {t.key === "low_stock" && lowCount > 0 && (
+              <span className="ml-1.5 rounded-full bg-red-500/10 px-1.5 py-0.5 text-2xs font-semibold text-red-600">
+                {lowCount}
+              </span>
+            )}
             {t.key === "inspection" && pendingCount > 0 && (
               <span className="ml-2 inline-flex min-w-5 items-center justify-center rounded-full bg-amber-500/15 px-1.5 py-0.5 text-2xs font-semibold text-amber-600 ring-1 ring-amber-500/20">
                 {pendingCount}
@@ -313,6 +331,7 @@ export default function InventoryPage() {
       {tab === "requests" && <IssuanceRequests onIssued={fetchItems} />}
 
       {tab === "issuance" && <IssuanceLog />}
+      {tab === "low_stock" && <LowStock onChanged={refreshLowCount} />}
 
       {tab === "inspection" && (
         <PendingInspection

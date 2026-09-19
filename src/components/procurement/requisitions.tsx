@@ -1,6 +1,6 @@
 "use client";
 
-import { ClipboardList, ShoppingCart } from "lucide-react";
+import { ClipboardList, ShoppingCart, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -16,9 +16,13 @@ import { useUser } from "@/lib/user-context";
  * the asset id; the two never collide because a row is one or the other.
  */
 interface Requisition {
-  kind?: "component" | "asset";
+  kind?: "component" | "asset" | "reorder";
   component: string | null;
   device?: string | null;
+  /** A stock reorder raised from Inventory › Low Stock. */
+  reorder?: string | null;
+  reorder_level?: number | null;
+  reason?: string;
   name: string;
   asset_code: string;
   project: string | null;
@@ -42,7 +46,12 @@ const inputClass =
 const labelClass = "text-xs font-medium text-muted-foreground";
 
 function keyOf(r: Requisition): string {
-  return r.kind === "asset" ? `asset:${r.device}` : `component:${r.component}`;
+  if (r.kind === "asset") return `asset:${r.device}`;
+  if (r.kind === "reorder") return `reorder:${r.reorder}`;
+  return `component:${r.component}`;
+}
+function idOf(r: Requisition): string | null | undefined {
+  return r.kind === "asset" ? r.device : r.kind === "reorder" ? r.reorder : r.component;
 }
 
 export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
@@ -65,6 +74,9 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
   const [terms, setTerms] = useState("");
   const [notes, setNotes] = useState("");
   const [prices, setPrices] = useState<Record<string, string>>({});
+  // Handing a request back to where it came from, with the reason on record.
+  const [sendBack, setSendBack] = useState<Requisition | null>(null);
+  const [reason, setReason] = useState("");
 
   const fetchRows = useCallback(async () => {
     setLoading(true);
@@ -120,14 +132,15 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
     try {
       const priceById: Record<string, string> = {};
       chosen.forEach((r) => {
-        const id = r.kind === "asset" ? r.device : r.component;
+        const id = idOf(r);
         const p = (prices[keyOf(r)] ?? "").trim();
         if (id && p !== "") priceById[id] = p;
       });
       const { data } = await api.post("/procurement/purchase-orders/raise-po/", {
         supplier,
-        components: chosen.filter((r) => r.kind !== "asset").map((r) => r.component),
+        components: chosen.filter((r) => r.kind !== "asset" && r.kind !== "reorder").map((r) => r.component),
         devices: chosen.filter((r) => r.kind === "asset").map((r) => r.device),
+        reorders: chosen.filter((r) => r.kind === "reorder").map((r) => r.reorder),
         prices: priceById,
         expected_delivery: expectedDelivery || null,
         terms: terms.trim(),
@@ -144,6 +157,26 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
     }
   }
 
+  async function submitSendBack() {
+    if (!sendBack || !reason.trim()) return;
+    setSaving(true);
+    try {
+      const body: Record<string, string> = { reason: reason.trim() };
+      if (sendBack.kind === "asset" && sendBack.device) body.device = sendBack.device;
+      else if (sendBack.kind === "reorder" && sendBack.reorder) body.reorder = sendBack.reorder;
+      else if (sendBack.component) body.component = sendBack.component;
+      const { data } = await api.post("/procurement/purchase-orders/requisitions/send-back/", body);
+      toast.success(data.detail || "Sent back");
+      setSendBack(null);
+      setReason("");
+      fetchRows();
+    } catch (err) {
+      toast.error(getApiError(err, "Could not send it back"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   const draftTotal = chosen.reduce((sum, r) => {
     const p = Number(prices[keyOf(r)] ?? 0);
     return sum + (Number.isFinite(p) ? p * r.outstanding_quantity : 0);
@@ -153,8 +186,9 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
-          What projects flagged to buy: components an asset needs, and whole assets the vendor
-          supplies. Some components may already be in stock — buying was the deliberate choice.
+          What projects flagged to buy — components an asset needs and whole assets the vendor
+          supplies — plus stock reorders raised from Inventory › Low Stock. Send back returns a line
+          to where it came from, with the reason on record.
         </p>
         <div className="flex items-center gap-3">
           <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
@@ -216,12 +250,14 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
                   <th className={thClass}>Qty</th>
                   <th className={thClass}>In Stock</th>
                   <th className={thClass}>Purchase Order</th>
+                  {canBuy && <th className={thClass}></th>}
                 </tr>
               </thead>
               <tbody>
                 {rows.map((r) => {
                   const key = keyOf(r);
                   const isAsset = r.kind === "asset";
+                  const isReorder = r.kind === "reorder";
                   return (
                     <tr key={key} className="border-b border-border transition-colors hover:bg-secondary/30">
                       {canBuy && (
@@ -239,12 +275,17 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
                       <td className={`${tdClass} font-medium text-foreground`}>
                         {r.name}
                         <span className={`ml-2 inline-flex rounded-full px-2 py-0.5 text-2xs font-medium ring-1 ${
-                          isAsset ? "bg-indigo-500/10 text-indigo-600 ring-indigo-500/20" : "bg-secondary text-muted-foreground ring-border"
+                          isAsset ? "bg-indigo-500/10 text-indigo-600 ring-indigo-500/20"
+                          : isReorder ? "bg-amber-500/10 text-amber-600 ring-amber-500/20"
+                          : "bg-secondary text-muted-foreground ring-border"
                         }`}>
-                          {isAsset ? "Whole asset" : "Component"}
+                          {isAsset ? "Whole asset" : isReorder ? "Stock reorder" : "Component"}
                         </span>
+                        {isReorder && r.reason && <span className="block text-2xs text-muted-foreground">{r.reason}</span>}
                       </td>
-                      <td className={`${tdClass} font-mono text-muted-foreground`}>{r.asset_code}</td>
+                      <td className={`${tdClass} ${isReorder ? "text-muted-foreground" : "font-mono text-muted-foreground"}`}>
+                        {isReorder ? <>Stock<span className="block text-2xs">reorder level {r.reorder_level ?? "—"}</span></> : r.asset_code}
+                      </td>
                       <td className={`${tdClass} text-muted-foreground`}>{r.project_name ?? "—"}</td>
                       <td className={`${tdClass} font-medium text-foreground`}><Qty value={r.outstanding_quantity} unit={r.unit} /></td>
                       <td className={tdClass}>
@@ -262,6 +303,19 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
                         )}
                       </td>
                       <td className={`${tdClass} font-mono text-muted-foreground`}>{r.po_number ?? "—"}</td>
+                      {canBuy && (
+                        <td className={tdClass}>
+                          {!r.purchase_order_item && (
+                            <button
+                              onClick={() => { setSendBack(r); setReason(""); }}
+                              title={isReorder ? "Withdraw this reorder, reason on record" : "Send this line back to the project to decide again"}
+                              className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-border px-2.5 py-1 text-2xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                            >
+                              <Undo2 className="h-3 w-3" /> Send back
+                            </button>
+                          )}
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
@@ -386,6 +440,29 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
             </button>
           </div>
         </div>
+      </Modal>
+
+      {/* Back to where it came from, with the reason on record. */}
+      <Modal open={!!sendBack} onClose={() => setSendBack(null)} title={sendBack ? `Send back — ${sendBack.name}` : "Send back"} size="sm">
+        {sendBack && (
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              {sendBack.kind === "reorder"
+                ? <>The reorder of <span className="font-medium text-foreground">{sendBack.name}</span> is withdrawn; Inventory can raise it again.</>
+                : <><span className="font-medium text-foreground">{sendBack.name}</span>{sendBack.asset_code ? <> on {sendBack.asset_code}</> : null} goes back to the project as undecided. The reason is written on the asset for Execution to read.</>}
+            </p>
+            <div className="space-y-1.5">
+              <label htmlFor="req_reason" className={labelClass}>Reason *</label>
+              <textarea id="req_reason" rows={3} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Stock arrived from another order — take it from inventory" className={`${inputClass} h-auto py-2`} autoFocus />
+            </div>
+            <div className="flex justify-end gap-3">
+              <button type="button" onClick={() => setSendBack(null)} className="inline-flex h-10 items-center rounded-lg border border-border px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">Cancel</button>
+              <button type="button" onClick={submitSendBack} disabled={saving || !reason.trim()} className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-primary px-5 text-sm font-medium text-white transition-all disabled:opacity-50">
+                <Undo2 className="h-3.5 w-3.5" /> Send back
+              </button>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );
