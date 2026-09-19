@@ -688,14 +688,24 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                                       </button>
                                     )}
                                     {!st.work_order_requested && (
-                                      <button
-                                        onClick={() => requestStepWorkOrder(st)}
-                                        disabled={locked || done || busy === st.id || !!st.work_order}
-                                        title={locked ? "Locked until the budget is approved" : st.work_order ? "Already on a work order" : "Give this operation to a vendor — Work Orders raises the order"}
-                                        className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-40"
-                                      >
-                                        <Truck className="h-3.5 w-3.5" /> Work order
-                                      </button>
+                                      st.work_order ? (
+                                        // The decision was a work order: it reads as chosen, like In-house does.
+                                        <span
+                                          className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-primary/40 bg-primary/10 px-2.5 py-1.5 text-xs font-medium text-primary"
+                                          title={`On ${st.work_order.wo_number} · ${st.work_order.status_display}`}
+                                        >
+                                          <Check className="h-3.5 w-3.5" /> Work order
+                                        </span>
+                                      ) : (
+                                        <button
+                                          onClick={() => requestStepWorkOrder(st)}
+                                          disabled={locked || done || busy === st.id}
+                                          title={locked ? "Locked until the budget is approved" : "Give this operation to a vendor — Work Orders raises the order"}
+                                          className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-40"
+                                        >
+                                          <Truck className="h-3.5 w-3.5" /> Work order
+                                        </button>
+                                      )
                                     )}
                                   </div>
                                 </td>
