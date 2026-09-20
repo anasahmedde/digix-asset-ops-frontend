@@ -28,6 +28,8 @@ interface Requisition {
   asset_code: string;
   project: string | null;
   project_name: string | null;
+  /** When the project needs it — what the order is dated from. */
+  project_target_date?: string | null;
   required_quantity: number;
   outstanding_quantity: number;
   /** Unit of measure of the line (piece, meter, asset…). */
@@ -115,6 +117,13 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
     const seed: Record<string, string> = {};
     chosen.forEach((r) => { seed[keyOf(r)] = r.last_unit_price ? String(Number(r.last_unit_price)) : ""; });
     setPrices(seed);
+    // The date is not typed from memory: the goods are needed by the day the
+    // project is due, and the earliest of the chosen lines is what binds.
+    const due = chosen
+      .map((r) => r.project_target_date)
+      .filter((d): d is string => !!d)
+      .sort()[0];
+    setExpectedDelivery(due ?? "");
     setPoModal(true);
   }
 
@@ -334,7 +343,7 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
       <Modal open={poModal} onClose={resetModal} title="Raise Purchase Order" size="lg">
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            {chosen.length} line{chosen.length === 1 ? "" : "s"} go on one draft order. Prices can
+            {chosen.length} line{chosen.length === 1 ? " goes" : "s go"} on one draft order. Prices can
             still be changed on the draft; once the Group Head approves it, they are fixed.
           </p>
 
@@ -349,6 +358,11 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
             <div className="space-y-1.5">
               <label htmlFor="req_delivery" className={labelClass}>Required delivery</label>
               <input id="req_delivery" type="date" value={expectedDelivery} onChange={(e) => setExpectedDelivery(e.target.value)} className={inputClass} />
+              <p className="text-2xs text-muted-foreground">
+                {chosen.some((r) => r.project_target_date)
+                  ? "Taken from the date the project is due. Change it if the supplier is held to another."
+                  : "No project date to take it from — set the date the supplier is held to."}
+              </p>
             </div>
           </div>
 

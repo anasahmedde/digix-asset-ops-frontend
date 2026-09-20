@@ -19,6 +19,8 @@ interface WorkOrderRequest {
   asset_name: string;
   project: string | null;
   project_name: string | null;
+  /** When the project needs it — what the order is dated from. */
+  project_target_date?: string | null;
   planned_cost: string | null;
   requested_at: string;
   notes: string;
@@ -83,6 +85,13 @@ export function WorkOrderRequests({ onRaised }: { onRaised?: () => void }) {
     const seed: Record<string, string> = {};
     chosen.forEach((r) => { seed[r.step] = r.planned_cost ? String(Number(r.planned_cost)) : ""; });
     setAmounts(seed);
+    // The date is not typed from memory: the work is wanted by the day the
+    // project is due, and the earliest of the chosen operations is what binds.
+    const due = chosen
+      .map((r) => r.project_target_date)
+      .filter((d): d is string => !!d)
+      .sort()[0];
+    setExpectedDelivery(due ?? "");
     setModal(true);
   }
 
@@ -262,6 +271,11 @@ export function WorkOrderRequests({ onRaised }: { onRaised?: () => void }) {
             <div className="space-y-1.5">
               <label htmlFor="wor_delivery" className={labelClass}>Required delivery</label>
               <input id="wor_delivery" type="date" value={expectedDelivery} onChange={(e) => setExpectedDelivery(e.target.value)} className={inputClass} />
+              <p className="text-2xs text-muted-foreground">
+                {chosen.some((r) => r.project_target_date)
+                  ? "Taken from the date the project is due. Change it if the vendor is held to another."
+                  : "No project date to take it from — set the date the vendor is held to."}
+              </p>
             </div>
           </div>
 
