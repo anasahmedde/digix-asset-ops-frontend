@@ -839,7 +839,6 @@ export default function ProjectsPage() {
   /* ─── PROJECT DETAIL VIEW ─── */
   if (detail) {
     const d = detail;
-    const phaseIdx = PHASES.findIndex((ph) => ph.value === d.phase);
     const offRamp = OFF_RAMP_PHASES.find((ph) => ph.value === d.phase);
     return (
       <div className="space-y-6">
@@ -892,44 +891,48 @@ export default function ProjectsPage() {
           {/* Each phase is a body of work, so each says how much of it is
               done — counted from the work, never typed in. */}
           <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-5">
-            {PHASES.map((ph, i) => {
-              const isCurrent = ph.value === d.phase;
-              const isDone = phaseIdx >= 0 && i < phaseIdx;
+            {PHASES.map((ph) => {
               const bar = d.phase_progress?.[ph.value];
               const pct = bar?.percent ?? 0;
+              // A phase is finished when its own work is, and the project is in
+              // the first one that is not. Both read off the bars, so the card
+              // and the figure beside it can never disagree.
+              const isDone = pct >= 100;
+              const isCurrent = ph.value === d.phase && !isDone;
               return (
-                <button
+                <div
                   key={ph.value}
-                  onClick={() => canEdit && setPhase(ph.value)}
-                  disabled={!canEdit}
-                  title={canEdit ? `${ph.tracks}. Click to move the project here.` : ph.tracks}
-                  className={`rounded-xl border p-3 text-left transition-colors ${
-                    isCurrent
-                      ? "border-primary bg-primary/5"
-                      : isDone
-                        ? "border-primary/40 bg-primary/5"
+                  title={ph.tracks}
+                  className={`rounded-xl border p-3 text-left ${
+                    isDone
+                      ? "border-emerald-500/40 bg-emerald-500/5"
+                      : isCurrent
+                        ? "border-primary bg-primary/5"
                         : "border-border bg-card"
-                  } ${canEdit ? "cursor-pointer hover:border-primary/50" : "cursor-default"}`}
+                  }`}
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className={`inline-flex items-center gap-1 text-xs font-semibold ${
-                      isCurrent ? "text-primary" : isDone ? "text-primary/80" : "text-foreground"
+                      isDone ? "text-emerald-700" : isCurrent ? "text-primary" : "text-foreground"
                     }`}>
                       {isDone && <Check className="h-3 w-3" />}
                       {ph.label}
                     </span>
-                    <span className={`text-2xs font-medium ${pct === 100 ? "text-emerald-600" : "text-muted-foreground"}`}>
-                      {pct}%
+                    <span className={`text-2xs font-medium ${isDone ? "text-emerald-600" : "text-muted-foreground"}`}>
+                      {isDone ? "Completed" : `${pct}%`}
                     </span>
                   </div>
                   <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-secondary">
                     <div
-                      className={`h-full rounded-full transition-all ${pct === 100 ? "bg-emerald-500" : "bg-primary"}`}
+                      className={`h-full rounded-full transition-all ${isDone ? "bg-emerald-500" : "bg-primary"}`}
                       style={{ width: `${pct}%` }}
                     />
                   </div>
                   <p className="mt-1.5 text-2xs text-muted-foreground">{bar?.note ?? ph.tracks}</p>
-                </button>
+                  {isCurrent && (
+                    <p className="mt-1 text-2xs font-medium text-primary">In progress</p>
+                  )}
+                </div>
               );
             })}
           </div>
