@@ -1028,12 +1028,6 @@ export default function AssetsPage() {
       diagonal_inches: fd.get("diagonal_inches") || null,
       notes: fd.get("notes"),
       current_site: fd.get("current_site") || null,
-      assigned_client: fd.get("assigned_client") || null,
-      clients: fd.getAll("clients"),
-      project: fd.get("project") || null,
-      // The route decides who can be assigned: only a turnkey job carries a
-      // vendor, and it carries an overseeing technician alongside it.
-      assigned_technician: assignTechnician || null,
       // Only a turnkey job has an installing vendor; both vendor routes have a
       // supplying one, and an in-house build has neither.
       assigned_vendor: assetSource === "vendor_turnkey" ? (assignVendorId || null) : null,
@@ -1048,12 +1042,12 @@ export default function AssetsPage() {
       supply_vendor_contact: buildsInHouse
         ? ""
         : vendorContact(suppliers.find((v) => v.id === supplyVendorId)),
-      // One field, one control: the vendor chosen under Vendor Supply Details.
-      supplier: buildsInHouse ? (fd.get("supplier") || null) : (supplyVendorId || null),
-      purchase_date: fd.get("purchase_date") || null,
-      purchase_price: fd.get("purchase_price") || null,
-      installation_date: fd.get("installation_date") || null,
-      // Only a vendor route has one; the API ignores it on an in-house build.
+      // The supplying vendor is the asset's supplier. An in-house build has
+      // none and no control for one, so its supplier is left as it stands.
+      ...(buildsInHouse ? {} : { supplier: supplyVendorId || null }),
+      // Client, project, technician, purchase and installation dates are
+      // produced by the work — the project, the tracker, procurement — so this
+      // form neither asks for them nor overwrites them.
     };
     // Status is read-only on update — existing assets change status only via
     // the guarded /transition/ action in the detail view.
@@ -2634,21 +2628,24 @@ export default function AssetsPage() {
             </div>
           </div>
 
-          {/* Where it physically is. The edit form asks again under Assignment,
-              so this is only for a new record. */}
-          {modalMode === "create" && (
-            <div className="space-y-1.5">
-              <label htmlFor="current_site" className={labelClass}>Location</label>
-              <select id="current_site" name="current_site" defaultValue="" className={inputClass}>
-                <option value="">Not decided yet</option>
-                {sites.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
-              </select>
-              <p className="text-2xs text-muted-foreground">
-                Where the asset is to be installed. Leave it blank if that is not settled — assigning it
-                for installation sets the site.
-              </p>
-            </div>
-          )}
+          {/* Where it goes. The same question on both forms. */}
+          <div className="space-y-1.5">
+            <label htmlFor="current_site" className={labelClass}>Location</label>
+            <select
+              id="current_site"
+              name="current_site"
+              key={`site-${selected?.id ?? "new"}`}
+              defaultValue={selected?.current_site ?? ""}
+              className={inputClass}
+            >
+              <option value="">Not decided yet</option>
+              {sites.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+            </select>
+            <p className="text-2xs text-muted-foreground">
+              Where the asset is to be installed. Leave it blank if that is not settled — assigning it
+              for installation sets the site.
+            </p>
+          </div>
 
           <div className="grid gap-4 sm:grid-cols-4">
             <div className="space-y-1.5">
@@ -2702,74 +2699,6 @@ export default function AssetsPage() {
             )}
           </div>
 
-          {modalMode === "edit" && (
-          <div className="border-t border-border pt-4">
-            <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Assignment</p>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <label htmlFor="current_site" className={labelClass}>Site</label>
-                <select id="current_site" name="current_site" defaultValue={selected?.current_site ?? ""} className={inputClass}>
-                  <option value="">None</option>
-                  {sites.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <label htmlFor="assigned_client" className={labelClass}>Client</label>
-                <select id="assigned_client" name="assigned_client" defaultValue={selected?.assigned_client ?? ""} className={inputClass}>
-                  <option value="">None</option>
-                  {clients.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-                </select>
-              </div>
-              <div className="space-y-1.5 sm:col-span-2">
-                <label className={labelClass}>Additional Clients (shared asset)</label>
-                <MultiSelect
-                  options={clients.map((c) => ({ id: c.id, label: c.label }))}
-                  values={additionalClients}
-                  onChange={setAdditionalClients}
-                  name="clients"
-                  placeholder="Select additional clients…"
-                />
-              </div>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2 mt-4">
-              <div className="space-y-1.5">
-                <label htmlFor="assigned_technician" className={labelClass}>
-                  {assetSource === "vendor_turnkey" ? "Technician Overseeing" : "Assigned Technician"}
-                </label>
-                <select
-                  id="assigned_technician"
-                  name="assigned_technician"
-                  value={assignTechnician}
-                  onChange={(e) => setAssignTechnician(e.target.value)}
-                  className={inputClass}
-                >
-                  <option value="">None</option>
-                  {technicians.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
-                </select>
-                <p className="text-2xs text-muted-foreground">
-                  {assetSource === "vendor_turnkey"
-                    ? "The vendor does the work; our technician oversees it. Details come from the manpower records."
-                    : "Details come from the manpower records."}
-                </p>
-              </div>
-              <div className="space-y-1.5">
-                <label htmlFor="project" className={labelClass}>Project (client order)</label>
-                <select id="project" name="project" defaultValue={selected?.project ?? ""} className={inputClass}>
-                  <option value="">None</option>
-                  {projects.map((pr) => <option key={pr.id} value={pr.id}>{pr.label}</option>)}
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <label htmlFor="installation_date" className={labelClass}>Installation Date</label>
-                <input id="installation_date" name="installation_date" type="date" defaultValue={selected?.installation_date ?? ""} className={inputClass} />
-              </div>
-            </div>
-          </div>
-          )}
-
-          {/* Two vendors, two questions, two sections: who sold us the asset,
-              and who puts it up. On a turnkey job they are usually the same
-              firm — but that is a fact to record, not an assumption. */}
           {!buildsInHouse && (
             <div className="border-t border-border pt-4">
               <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -2867,73 +2796,6 @@ export default function AssetsPage() {
                 </button>
               )}
             </div>
-          )}
-
-          {/* Warranty — the asset's own cover, named for who gives it. Parts
-              carry their own warranties from inventory; those are separate. */}
-          {modalMode === "edit" && (
-          <div className="border-t border-border pt-4">
-            <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Warranty</p>
-            <p className="mb-3 text-2xs text-muted-foreground">
-              For information — warranties are entered and renewed in Warranties. Our cover to the
-              client starts when the asset goes Active; a vendor&apos;s cover on a bought asset starts
-              when it is received; part warranties run from the day each part arrived.
-            </p>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="rounded-lg border border-border bg-secondary/20 px-3 py-2">
-                <p className="text-2xs uppercase tracking-wider text-muted-foreground">Client warranty</p>
-                <p className="text-sm text-foreground">
-                  {selected?.client_warranty?.end_date ? `Until ${formatDate(selected.client_warranty.end_date)}` : "None on record"}
-                </p>
-              </div>
-              {!buildsInHouse && (
-                <div className="rounded-lg border border-border bg-secondary/20 px-3 py-2">
-                  <p className="text-2xs uppercase tracking-wider text-muted-foreground">Vendor warranty</p>
-                  <p className="text-sm text-foreground">
-                    {selected?.vendor_warranty?.end_date ? `Until ${formatDate(selected.vendor_warranty.end_date)}` : "None on record"}
-                  </p>
-                </div>
-              )}
-            </div>
-            <Link href="/warranties" className="mt-2 inline-block text-xs font-medium text-primary hover:underline">
-              Open Warranties →
-            </Link>
-          </div>
-          )}
-
-          {modalMode === "edit" && (
-          <div className="border-t border-border pt-4">
-            <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Procurement</p>
-            <div className="grid gap-4 sm:grid-cols-3">
-              {/* A vendor-supplied asset names its vendor under Vendor Supply
-                  Details, which writes this same field — asking twice would
-                  let the two disagree. */}
-              {buildsInHouse ? (
-                <div className="space-y-1.5">
-                  <label htmlFor="supplier" className={labelClass}>Supplier</label>
-                  <select id="supplier" name="supplier" defaultValue={selected?.supplier ?? ""} className={inputClass}>
-                    <option value="">None</option>
-                    {suppliers.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
-                  </select>
-                </div>
-              ) : (
-                <div className="space-y-1.5">
-                  <p className={labelClass}>Supplier</p>
-                  <p className="pt-2 text-sm text-foreground">
-                    {suppliers.find((v) => v.id === supplyVendorId)?.label ?? "Set under Vendor Supply Details"}
-                  </p>
-                </div>
-              )}
-              <div className="space-y-1.5">
-                <label htmlFor="purchase_date" className={labelClass}>Purchase Date</label>
-                <input id="purchase_date" name="purchase_date" type="date" defaultValue={selected?.purchase_date ?? ""} className={inputClass} />
-              </div>
-              <div className="space-y-1.5">
-                <label htmlFor="purchase_price" className={labelClass}>Purchase Price</label>
-                <input id="purchase_price" name="purchase_price" type="number" step="0.01" defaultValue={selected?.purchase_price ?? ""} className={inputClass} />
-              </div>
-            </div>
-          </div>
           )}
 
           {modalMode === "edit" && (
