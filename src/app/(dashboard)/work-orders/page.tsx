@@ -392,7 +392,7 @@ export default function WorkOrdersPage() {
       <div className="flex gap-1 border-b border-border">
         {([
           { key: "orders", label: "Work Orders" },
-          { key: "requests", label: "Requests" },
+          { key: "requests", label: "Work Requests" },
           { key: "receiving", label: "Work Receiving" },
         ] as const).map((t) => (
           <button
@@ -432,6 +432,7 @@ export default function WorkOrdersPage() {
                   <th className={`${thClass} w-8`}></th>
                   <th className={thClass}>WO #</th>
                   <th className={thClass}>Title</th>
+                  <th className={thClass}>For</th>
                   <th className={thClass}>Type</th>
                   <th className={thClass}>Vendor</th>
                   <th className={thClass}>Total</th>
@@ -454,6 +455,19 @@ export default function WorkOrdersPage() {
                       </span>
                     </td>
                     <td className={`${tdClass} font-medium text-foreground`}>{wo.title}</td>
+                    <td className={tdClass}>
+                      {wo.project_name ? (
+                        <span className="text-foreground">{wo.project_name}</span>
+                      ) : (
+                        <span className="text-muted-foreground">{wo.client_name ?? "No project"}</span>
+                      )}
+                      {(wo.asset_codes ?? []).length > 0 && (
+                        <span className="block font-mono text-2xs text-muted-foreground">
+                          {(wo.asset_codes ?? []).join(" · ")}
+                        </span>
+                      )}
+                      {wo.site_name && <span className="block text-2xs text-muted-foreground">{wo.site_name}</span>}
+                    </td>
                     <td className={`${tdClass} text-muted-foreground`}>{wo.order_type_display ?? LEGACY_TYPES[wo.order_type] ?? label(wo.order_type)}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{wo.supplier_name ?? "-"}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{wo.currency} {Number(wo.total_amount).toLocaleString()}</td>
@@ -480,7 +494,7 @@ export default function WorkOrdersPage() {
                   </tr>
                   {expanded === wo.id && (
                     <tr className="border-b border-border bg-secondary/20">
-                      <td colSpan={9} className="px-6 py-4">
+                      <td colSpan={10} className="px-6 py-4">
                         {(() => {
                           const d = detail[wo.id];
                           const lines = d?.items ?? [];

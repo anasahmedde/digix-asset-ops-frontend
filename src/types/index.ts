@@ -482,6 +482,8 @@ export interface WorkOrder {
   inspection_result?: "accepted" | "rework" | "" | null;
   inspection_result_display?: string | null;
   inspection_notes?: string;
+  /** What the work is for: the assets being worked on. */
+  asset_codes?: string[];
   /** How the order's jobs stand: how many in total, waiting, and still out. */
   line_count?: number;
   lines_awaiting_inspection?: number;
