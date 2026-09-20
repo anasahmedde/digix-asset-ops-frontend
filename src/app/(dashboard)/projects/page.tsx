@@ -1044,9 +1044,22 @@ export default function ProjectsPage() {
                     </select>
                   </div>
                   <input name="scope_notes" placeholder="Notes" className="h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none" />
-                  <button type="submit" disabled={addingScope} className="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-primary/90 disabled:opacity-50">
-                    <Plus className="h-3.5 w-3.5" /> Add to Scope
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button type="submit" disabled={addingScope} className="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-primary/90 disabled:opacity-50">
+                      <Plus className="h-3.5 w-3.5" /> Add to Scope
+                    </button>
+                    {/* The asset has to exist before it can be scoped. This
+                        opens the registration form on the Asset Registry. */}
+                    <Link
+                      href="/assets?new=1"
+                      className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                    >
+                      <Plus className="h-3.5 w-3.5" /> Define asset
+                    </Link>
+                    <span className="text-2xs text-muted-foreground">
+                      Not on the list yet? Define it first, then add it here.
+                    </span>
+                  </div>
                 </form>
               )}
             </div>

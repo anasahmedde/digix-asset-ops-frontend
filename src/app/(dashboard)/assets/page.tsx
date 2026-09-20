@@ -597,6 +597,14 @@ export default function AssetsPage() {
     const statusParam = searchParams.get("status");
     if (statusParam) setFilterValues((prev) => ({ ...prev, status: statusParam }));
     const deviceId = searchParams.get("device");
+    // Sent here to define an asset — from a project's scope, say — so open the
+    // registration form rather than making them find the button.
+    if (searchParams.get("new") && !deviceId) {
+      autoOpenedRef.current = true;
+      openCreate();
+      loadOptions();
+      return;
+    }
     if (!deviceId) return;
     autoOpenedRef.current = true;
     api.get(`/assets/devices/${deviceId}/`).then(({ data }) => {
