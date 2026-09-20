@@ -175,10 +175,12 @@ interface VendorOption extends Option {
   contact_email?: string;
 }
 
-/** The vendor's contact, as one line. */
-function vendorContact(v?: VendorOption): string {
+/** The vendor's contact, as one line. `full` adds the email. */
+function vendorContact(v?: VendorOption, full = false): string {
   if (!v) return "";
-  return [v.contact_person, v.contact_phone].filter(Boolean).join(" · ");
+  const parts = [v.contact_person, v.contact_phone];
+  if (full) parts.push(v.contact_email);
+  return parts.filter(Boolean).join(" · ");
 }
 
 interface AssetComponent {
@@ -2638,12 +2640,12 @@ export default function AssetsPage() {
             <div className="space-y-1.5">
               <label htmlFor="current_site" className={labelClass}>Location</label>
               <select id="current_site" name="current_site" defaultValue="" className={inputClass}>
-                <option value="">Not on a site yet</option>
+                <option value="">Not decided yet</option>
                 {sites.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
               </select>
               <p className="text-2xs text-muted-foreground">
-                Where the asset is now. Leave it blank for one still being built — assigning it for
-                installation sets the site it goes to.
+                Where the asset is to be installed. Leave it blank if that is not settled — assigning it
+                for installation sets the site.
               </p>
             </div>
           )}
@@ -2792,28 +2794,20 @@ export default function AssetsPage() {
                   </select>
                 </div>
                 <div className="space-y-1.5">
-                  <p className={labelClass}>Contact</p>
+                  <label htmlFor="supply_vendor_contact" className={labelClass}>Contact</label>
                   {/* Straight off the vendor's record — there is no second
                       phone number for the same firm. */}
-                  <div id="supply_vendor_contact" className="min-h-10 rounded-lg border border-border bg-secondary/20 px-3 py-2 text-sm">
-                    {supplyVendorId ? (
-                      vendorContact(suppliers.find((v) => v.id === supplyVendorId)) ? (
-                        <>
-                          <span className="text-foreground">{vendorContact(suppliers.find((v) => v.id === supplyVendorId))}</span>
-                          {suppliers.find((v) => v.id === supplyVendorId)?.contact_email && (
-                            <span className="block text-2xs text-muted-foreground">
-                              {suppliers.find((v) => v.id === supplyVendorId)?.contact_email}
-                            </span>
-                          )}
-                        </>
-                      ) : (
-                        <span className="text-muted-foreground">
-                          No contact on this vendor&apos;s record — add it under Vendors.
-                        </span>
-                      )
-                    ) : (
-                      <span className="text-muted-foreground">Choose a vendor and its contact appears here.</span>
-                    )}
+                  <div
+                    id="supply_vendor_contact"
+                    title={vendorContact(suppliers.find((v) => v.id === supplyVendorId), true)}
+                    className={`${inputClass} items-center bg-secondary/20`}
+                  >
+                    <span className="truncate">
+                      {supplyVendorId
+                        ? vendorContact(suppliers.find((v) => v.id === supplyVendorId), true)
+                          || <span className="text-muted-foreground">Nothing on this vendor&apos;s record — add it under Vendors</span>
+                        : <span className="text-muted-foreground">Chosen with the vendor</span>}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -2845,20 +2839,19 @@ export default function AssetsPage() {
                   </select>
                 </div>
                 <div className="space-y-1.5">
-                  <p className={labelClass}>Contact</p>
+                  <label htmlFor="assigned_vendor_contact" className={labelClass}>Contact</label>
                   {/* Straight off the vendor's record. */}
-                  <div id="assigned_vendor_contact" className="min-h-10 rounded-lg border border-border bg-secondary/20 px-3 py-2 text-sm">
-                    {assignVendorId ? (
-                      vendorContact(suppliers.find((v) => v.id === assignVendorId)) ? (
-                        <span className="text-foreground">{vendorContact(suppliers.find((v) => v.id === assignVendorId))}</span>
-                      ) : (
-                        <span className="text-muted-foreground">
-                          No contact on this vendor&apos;s record — add it under Vendors.
-                        </span>
-                      )
-                    ) : (
-                      <span className="text-muted-foreground">Choose a vendor and its contact appears here.</span>
-                    )}
+                  <div
+                    id="assigned_vendor_contact"
+                    title={vendorContact(suppliers.find((v) => v.id === assignVendorId), true)}
+                    className={`${inputClass} items-center bg-secondary/20`}
+                  >
+                    <span className="truncate">
+                      {assignVendorId
+                        ? vendorContact(suppliers.find((v) => v.id === assignVendorId), true)
+                          || <span className="text-muted-foreground">Nothing on this vendor&apos;s record — add it under Vendors</span>
+                        : <span className="text-muted-foreground">Chosen with the vendor</span>}
+                    </span>
                   </div>
                 </div>
               </div>
