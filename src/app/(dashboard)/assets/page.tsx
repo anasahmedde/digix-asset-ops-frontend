@@ -89,6 +89,8 @@ interface DeviceDetail extends Device {
   technician_employee_id: string | null;
   technician_job_title: string | null;
   technician_phone: string | null;
+  /** The installing vendor, picked from the register kept under Vendors. */
+  assigned_vendor: string | null;
   assigned_vendor_name: string;
   assigned_vendor_contact: string;
   assigned_to_display: string | null;
@@ -532,7 +534,8 @@ export default function AssetsPage() {
   // Moving an asset to "Assigned" must record who it went to: an internal
   // technician (from the manpower records) or an external vendor by hand.
   const [assignTechnician, setAssignTechnician] = useState("");
-  const [assignVendorName, setAssignVendorName] = useState("");
+  // The installing vendor, picked from the register kept under Vendors.
+  const [assignVendorId, setAssignVendorId] = useState("");
   const [assignVendorContact, setAssignVendorContact] = useState("");
   const [supplyVendorName, setSupplyVendorName] = useState("");
   const [supplyVendorContact, setSupplyVendorContact] = useState("");
@@ -667,7 +670,7 @@ export default function AssetsPage() {
     setAssetSource("inhouse");
     setFormAssetType("");
     setAssignTechnician("");
-    setAssignVendorName("");
+    setAssignVendorId("");
     setAssignVendorContact("");
     setSupplyVendorName("");
     setSupplyVendorContact("");
@@ -691,7 +694,7 @@ export default function AssetsPage() {
       setAssetSource(data.source ?? "inhouse");
       setFormAssetType(data.asset_type ?? "");
       setAssignTechnician(data.assigned_technician ?? "");
-      setAssignVendorName(data.assigned_vendor_name ?? "");
+      setAssignVendorId(data.assigned_vendor ?? "");
       setAssignVendorContact(data.assigned_vendor_contact ?? "");
       setSupplyVendorName(data.supply_vendor_name ?? "");
       setSupplyVendorContact(data.supply_vendor_contact ?? "");
@@ -806,7 +809,7 @@ export default function AssetsPage() {
     setTransitionReason("");
     clearActivePhotos();
     setAssignTechnician("");
-    setAssignVendorName("");
+    setAssignVendorId("");
     setAssignVendorContact("");
     setSupplyVendorName("");
     setSupplyVendorContact("");
@@ -821,7 +824,7 @@ export default function AssetsPage() {
   async function openInstallationJob(deviceId: string) {
     const turnkey = detailView?.source === "vendor_turnkey";
     if (!assignTechnician || !(assignSite || detailView?.current_site)) return;
-    if (turnkey && !assignVendorName.trim()) return;
+    if (turnkey && !assignVendorId) return;
     setInstallLoading(true);
     try {
       await api.post(`/assets/devices/${deviceId}/transition/`, {
@@ -830,7 +833,7 @@ export default function AssetsPage() {
         assigned_technician: assignTechnician,
         ...(assignSite ? { current_site: assignSite } : {}),
         ...(turnkey
-          ? { assigned_vendor_name: assignVendorName.trim(), assigned_vendor_contact: assignVendorContact.trim() }
+          ? { assigned_vendor: assignVendorId, assigned_vendor_contact: assignVendorContact.trim() }
           : {}),
       });
       toast.success("Installation opened — it runs on the Installation Tracker from here");
@@ -850,7 +853,7 @@ export default function AssetsPage() {
     const assigning = transitionTarget === "assigned";
     const turnkey = detailView?.source === "vendor_turnkey";
     if (assigning && !assignTechnician) return;
-    if (assigning && turnkey && !assignVendorName.trim()) return;
+    if (assigning && turnkey && !assignVendorId) return;
     if (assigning && !assignSite && !detailView?.current_site) return;
     const goingDown = transitionTarget === "under_maintenance";
     if (goingDown && (!maintDue || !maintTech)) return;
@@ -881,7 +884,7 @@ export default function AssetsPage() {
               ...(assignSite ? { current_site: assignSite } : {}),
               ...(turnkey
                 ? {
-                    assigned_vendor_name: assignVendorName.trim(),
+                    assigned_vendor: assignVendorId,
                     assigned_vendor_contact: assignVendorContact.trim(),
                   }
                 : {}),
@@ -1021,7 +1024,7 @@ export default function AssetsPage() {
       assigned_technician: assignTechnician || null,
       // Only a turnkey job has an installing vendor; both vendor routes have a
       // supplying one, and an in-house build has neither.
-      assigned_vendor_name: assetSource === "vendor_turnkey" ? assignVendorName.trim() : "",
+      assigned_vendor: assetSource === "vendor_turnkey" ? (assignVendorId || null) : null,
       assigned_vendor_contact: assetSource === "vendor_turnkey" ? assignVendorContact.trim() : "",
       supply_vendor_name: buildsInHouse ? "" : supplyVendorName.trim(),
       supply_vendor_contact: buildsInHouse ? "" : supplyVendorContact.trim(),
@@ -1361,12 +1364,14 @@ export default function AssetsPage() {
                                           asset is recorded in Edit Asset. */}
                                       {d.source === "vendor_turnkey" && (
                                         <div className="grid gap-2 sm:grid-cols-2">
-                                          <input
-                                            value={assignVendorName}
-                                            onChange={(e) => setAssignVendorName(e.target.value)}
-                                            placeholder="Vendor installing it"
+                                          <select
+                                            value={assignVendorId}
+                                            onChange={(e) => setAssignVendorId(e.target.value)}
                                             className={`${inputClass} h-9 text-xs`}
-                                          />
+                                          >
+                                            <option value="">Vendor installing it…</option>
+                                            {suppliers.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+                                          </select>
                                           <input
                                             value={assignVendorContact}
                                             onChange={(e) => setAssignVendorContact(e.target.value)}
@@ -1560,7 +1565,7 @@ export default function AssetsPage() {
                                         (transitionTarget === "assigned" && (
                                           !assignTechnician ||
                                           !(assignSite || d.current_site) ||
-                                          (d.source === "vendor_turnkey" && !assignVendorName.trim())
+                                          (d.source === "vendor_turnkey" && !assignVendorId)
                                         ))
                                       }
                                       className="h-8 flex-1 rounded-lg bg-primary text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
@@ -1903,18 +1908,20 @@ export default function AssetsPage() {
                           </div>
                           {d.source === "vendor_turnkey" && (
                             <div className="grid gap-2 sm:grid-cols-2">
-                              <input
+                              <select
                                 id="install_vendor"
-                                value={assignVendorName}
-                                onChange={(e) => setAssignVendorName(e.target.value)}
-                                placeholder="Vendor installing it"
+                                value={assignVendorId}
+                                onChange={(e) => setAssignVendorId(e.target.value)}
                                 className={`${inputClass} h-9 text-xs`}
-                              />
+                              >
+                                <option value="">Vendor installing it…</option>
+                                {suppliers.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+                              </select>
                               <input
                                 id="install_vendor_contact"
                                 value={assignVendorContact}
                                 onChange={(e) => setAssignVendorContact(e.target.value)}
-                                placeholder="Contact / phone"
+                                placeholder="Contact / phone (the vendor's own, if blank)"
                                 className={`${inputClass} h-9 text-xs`}
                               />
                             </div>
@@ -1931,7 +1938,7 @@ export default function AssetsPage() {
                             onClick={() => openInstallationJob(d.id)}
                             disabled={
                               installLoading || !assignTechnician || !(assignSite || d.current_site) ||
-                              (d.source === "vendor_turnkey" && !assignVendorName.trim())
+                              (d.source === "vendor_turnkey" && !assignVendorId)
                             }
                             className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
                           >
@@ -2792,15 +2799,19 @@ export default function AssetsPage() {
               </p>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
-                  <label htmlFor="assigned_vendor_name" className={labelClass}>Vendor Name</label>
-                  <input
-                    id="assigned_vendor_name"
-                    name="assigned_vendor_name"
-                    value={assignVendorName}
-                    onChange={(e) => setAssignVendorName(e.target.value)}
-                    placeholder="e.g. Skyline Displays"
+                  <label htmlFor="assigned_vendor" className={labelClass}>Vendor</label>
+                  {/* Kept under Vendors, so the installation links to the
+                      vendor's own record rather than a typed name. */}
+                  <select
+                    id="assigned_vendor"
+                    name="assigned_vendor"
+                    value={assignVendorId}
+                    onChange={(e) => setAssignVendorId(e.target.value)}
                     className={inputClass}
-                  />
+                  >
+                    <option value="">Select vendor…</option>
+                    {suppliers.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+                  </select>
                 </div>
                 <div className="space-y-1.5">
                   <label htmlFor="assigned_vendor_contact" className={labelClass}>Contact / Phone</label>
@@ -2814,13 +2825,22 @@ export default function AssetsPage() {
                   />
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => { setAssignVendorName(supplyVendorName); setAssignVendorContact(supplyVendorContact); }}
-                className="mt-2 text-2xs font-medium text-primary hover:underline"
-              >
-                Same as the supplying vendor
-              </button>
+              {/* The supplying vendor is typed by hand, so this only works
+                  when that name is one of the vendors on the register. */}
+              {(() => {
+                const match = suppliers.find(
+                  (v) => v.label.trim().toLowerCase() === supplyVendorName.trim().toLowerCase(),
+                );
+                return match ? (
+                  <button
+                    type="button"
+                    onClick={() => { setAssignVendorId(match.id); setAssignVendorContact(supplyVendorContact); }}
+                    className="mt-2 text-2xs font-medium text-primary hover:underline"
+                  >
+                    Same as the supplying vendor
+                  </button>
+                ) : null;
+              })()}
             </div>
           )}
 
