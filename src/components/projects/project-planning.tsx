@@ -55,7 +55,9 @@ interface Plan {
     vendor_asset?: boolean;
     source?: string;
     asset_price?: string | null;
+    /** Both named by the purchase order, once there is one. */
     supply_vendor_name?: string | null;
+    po_number?: string | null;
     lines: number;
     materials_total: string;
     /** What installing and activating this asset is expected to cost. */
@@ -550,7 +552,9 @@ export function ProjectPlanning({
                           Complete asset from the vendor
                           <span className="block text-2xs font-normal text-muted-foreground">
                             Bought whole on a purchase order — no components or production route.
-                            {asset.supply_vendor_name ? ` Vendor: ${asset.supply_vendor_name}.` : ""}
+                            {asset.supply_vendor_name
+                              ? ` ${asset.po_number ?? "On order"} · ${asset.supply_vendor_name}.`
+                              : " No order raised yet, so no vendor."}
                           </span>
                         </td>
                         <td className={`${tdClass} text-right text-foreground`}>1</td>
