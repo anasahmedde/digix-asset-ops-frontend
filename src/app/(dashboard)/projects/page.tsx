@@ -1060,7 +1060,11 @@ export default function ProjectsPage() {
                                 className="h-8 rounded-lg border border-border bg-card px-2 text-xs text-foreground focus:outline-none"
                               >
                                 <option value="">No site</option>
-                                {siteOptions.map((st) => <option key={st.id} value={st.id}>{st.label}</option>)}
+                                {/* Only the sites this order covers — the same
+                                    list the row below offers. */}
+                                {siteOptions
+                                  .filter((st) => !d.sites || d.sites.length === 0 || d.sites.map(String).includes(String(st.id)))
+                                  .map((st) => <option key={st.id} value={st.id}>{st.label}</option>)}
                               </select>
                             ) : (it.site_name || "—")}
                           </td>

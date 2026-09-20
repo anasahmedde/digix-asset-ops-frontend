@@ -1027,7 +1027,6 @@ export default function AssetsPage() {
       depth_in: fd.get("depth_in") || null,
       diagonal_inches: fd.get("diagonal_inches") || null,
       notes: fd.get("notes"),
-      current_site: fd.get("current_site") || null,
       // Only a turnkey job has an installing vendor; both vendor routes have a
       // supplying one, and an in-house build has neither.
       assigned_vendor: assetSource === "vendor_turnkey" ? (assignVendorId || null) : null,
@@ -2628,24 +2627,6 @@ export default function AssetsPage() {
             </div>
           </div>
 
-          {/* Where it goes. The same question on both forms. */}
-          <div className="space-y-1.5">
-            <label htmlFor="current_site" className={labelClass}>Location</label>
-            <select
-              id="current_site"
-              name="current_site"
-              key={`site-${selected?.id ?? "new"}`}
-              defaultValue={selected?.current_site ?? ""}
-              className={inputClass}
-            >
-              <option value="">Not decided yet</option>
-              {sites.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
-            </select>
-            <p className="text-2xs text-muted-foreground">
-              Where the asset is to be installed. Leave it blank if that is not settled — assigning it
-              for installation sets the site.
-            </p>
-          </div>
 
           <div className="grid gap-4 sm:grid-cols-4">
             <div className="space-y-1.5">
