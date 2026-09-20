@@ -322,7 +322,9 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
     try {
       const path = mode === "inventory" ? "fulfil-from-stock" : "mark-for-procurement";
       await api.post(`/assets/components/${row.id}/${path}/`, { quantity: qty });
-      toast.success(mode === "inventory" ? `${qty} × ${row.name} asked of the store` : `${qty} × ${row.name} to procure`);
+      toast.success(mode === "inventory"
+        ? `Issue request raised for ${qty} × ${row.name}`
+        : `${qty} × ${row.name} to procure`);
       setDecideFor(null);
       fetchRequirements();
     } catch (err) {
@@ -956,7 +958,7 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                 <span className="font-semibold text-foreground">{cap}</span> still to decide,{" "}
                 <span className="font-semibold text-foreground">{shelf}</span> on the shelf.
                 {decideFor.mode === "inventory"
-                  ? " The store issues what you ask for; anything it cannot cover stays on its queue."
+                  ? " This raises an issue request for the store; it issues what it can and the balance stays on the request."
                   : " What you buy goes to Procurement → To Procure for the purchase order; the rest of the line stays open to decide."}
               </p>
               <div className="space-y-1.5">
@@ -986,7 +988,7 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                 </button>
                 <button type="submit" disabled={busy === decideFor.row.id || qty < 1 || qty > cap} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-medium text-white transition-all disabled:opacity-50">
                   {decideFor.mode === "inventory" ? <Warehouse className="h-3.5 w-3.5" /> : <ShoppingCart className="h-3.5 w-3.5" />}
-                  {decideFor.mode === "inventory" ? `Ask the store for ${qty || 0}` : `Procure ${qty || 0}`}
+                  {decideFor.mode === "inventory" ? `Raise issue request for ${qty || 0}` : `Procure ${qty || 0}`}
                 </button>
               </div>
             </form>
