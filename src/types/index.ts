@@ -34,7 +34,8 @@ export type UserRole =
 export interface Device {
   id: string;
   asset_code: string;
-  serial_number: string;
+  /** The manufacturer's, where there is one. Assets go by their asset code. */
+  serial_number: string | null;
   mobile_id: string;
   mac_address: string;
   imei: string;

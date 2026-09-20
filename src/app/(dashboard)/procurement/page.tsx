@@ -56,6 +56,8 @@ interface PurchaseOrder {
   total_amount: string;
   /** True when the API withheld prices for this user's role. */
   prices_hidden?: boolean;
+  /** Who the order was raised for, worked out from what its lines point at. */
+  raised_for?: { kind: string; label: string; detail: string };
   notes: string;
   /** Terms as typed on this order; `effective_terms` falls back to the standard. */
   terms: string;
@@ -82,6 +84,8 @@ interface ReceiveRow {
   quantity: string;
   batch_number: string;
   serials: string; // textarea raw value, one serial per line
+  /** Registry codes of the complete assets this line brings in, if any. */
+  asset_codes: string[];
   /** Vendor warranty on a complete asset, in months from receipt (asset lines only). */
   warranty_months: string;
 }
@@ -89,7 +93,8 @@ interface ReceiveRow {
 interface CreatedDevice {
   id: string;
   asset_code: string;
-  serial_number: string;
+  /** The manufacturer's, where there is one. Assets go by their asset code. */
+  serial_number: string | null;
 }
 
 interface ReceiveResult {
@@ -538,7 +543,10 @@ export default function ProcurementPage() {
               description: i.description,
               // Assets and serialized inventory products both arrive with
               // serial numbers; generic stock does not.
-              serialized: Boolean(i.device_model || i.inventory_unit_type || (i.procured_asset_codes?.length ?? 0) > 0),
+              // Serials belong to parts. A complete asset is identified by
+              // the asset code the registry gave it, so nothing is typed here.
+              serialized: Boolean(i.device_model || i.inventory_unit_type),
+              asset_codes: i.procured_asset_codes ?? [],
               ordered: i.quantity,
               received,
               outstanding: Math.max(i.quantity - received, 0),
@@ -603,7 +611,7 @@ export default function ProcurementPage() {
       quantity: Number(r.quantity),
       ...(r.batch_number.trim() ? { batch_number: r.batch_number.trim() } : {}),
       ...(r.serialized ? { serial_numbers: parseSerials(r.serials) } : {}),
-      ...(r.serialized && r.warranty_months ? { warranty_months: Number(r.warranty_months) } : {}),
+      ...(r.warranty_months ? { warranty_months: Number(r.warranty_months) } : {}),
     }));
     setReceiveSaving(true);
     setReceiveError(null);
@@ -773,6 +781,7 @@ export default function ProcurementPage() {
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
                   <th className={thClass}>PO Number</th>
+                  <th className={thClass}>For</th>
                   <th className={thClass}>Supplier</th>
                   <th className={thClass}>Status</th>
                   <th className={thClass}>Items</th>
@@ -792,6 +801,15 @@ export default function ProcurementPage() {
                         {expandedId === po.id ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
                         {po.po_number}
                       </span>
+                    </td>
+                    {/* Who the order is for, read off what its lines point at. */}
+                    <td className={tdClass}>
+                      <span className={po.raised_for?.kind === "unknown" ? "text-muted-foreground" : "text-foreground"}>
+                        {po.raised_for?.label ?? "—"}
+                      </span>
+                      {po.raised_for?.detail && (
+                        <span className="block font-mono text-2xs text-muted-foreground">{po.raised_for.detail}</span>
+                      )}
                     </td>
                     <td className={`${tdClass} text-muted-foreground`}>{po.supplier_name || "-"}</td>
                     <td className={tdClass}>
@@ -821,7 +839,7 @@ export default function ProcurementPage() {
                   </tr>
                   {expandedId === po.id && (
                     <tr className="border-b border-border bg-secondary/20">
-                      <td colSpan={9} className="px-5 py-4">
+                      <td colSpan={10} className="px-5 py-4">
                         <div className="space-y-3">
                           {po.items && po.items.length > 0 ? (
                             <div className="overflow-x-auto rounded-lg border border-border">
@@ -1094,7 +1112,7 @@ export default function ProcurementPage() {
                           {receiveResult.created_devices.map((d) => (
                             <tr key={d.id} className="border-b border-border last:border-0">
                               <td className="px-4 py-2 font-medium text-foreground">{d.asset_code}</td>
-                              <td className="px-4 py-2 text-muted-foreground">{d.serial_number}</td>
+                              <td className="px-4 py-2 text-muted-foreground">{d.serial_number || "—"}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -1140,9 +1158,20 @@ export default function ProcurementPage() {
                             <p className="truncate text-sm font-medium text-foreground">{r.description}</p>
                             <p className="mt-0.5 text-xs text-muted-foreground">
                               Ordered {r.ordered} · Received {r.received} · Outstanding {r.outstanding}
-                              {r.serialized && (
+                              {/* Every line says which kind it is. A line with
+                                  no badge used to look like one nobody had got
+                                  round to marking. */}
+                              {r.asset_codes.length > 0 ? (
                                 <span className="ml-2 inline-flex rounded-full bg-indigo-500/10 px-2 py-0.5 text-2xs font-medium text-indigo-400 ring-1 ring-indigo-500/20">
-                                  Serialized
+                                  Complete asset
+                                </span>
+                              ) : r.serialized ? (
+                                <span className="ml-2 inline-flex rounded-full bg-indigo-500/10 px-2 py-0.5 text-2xs font-medium text-indigo-400 ring-1 ring-indigo-500/20">
+                                  Unique · serial no. required
+                                </span>
+                              ) : (
+                                <span className="ml-2 inline-flex rounded-full bg-secondary px-2 py-0.5 text-2xs font-medium text-muted-foreground ring-1 ring-border">
+                                  Generic · no serial no.
                                 </span>
                               )}
                             </p>
@@ -1174,6 +1203,32 @@ export default function ProcurementPage() {
                             </>
                           )}
                         </div>
+                        {r.asset_codes.length > 0 && !fullyReceived && qty > 0 && (
+                          <div className="space-y-1">
+                            <label className={labelClass}>Assets arriving</label>
+                            <div className="flex flex-wrap gap-1.5">
+                              {r.asset_codes.map((code) => (
+                                <span
+                                  key={code}
+                                  className="rounded-md bg-secondary px-2 py-1 font-mono text-xs text-foreground"
+                                >
+                                  {code}
+                                </span>
+                              ))}
+                            </div>
+                            <label htmlFor={`wty-${r.po_item}`} className={`${labelClass} mt-3 block`}>Vendor warranty (months, from today)</label>
+                            <input
+                              id={`wty-${r.po_item}`}
+                              type="number"
+                              min={1}
+                              max={120}
+                              value={r.warranty_months}
+                              onChange={(e) => updateReceiveRow(r.po_item, { warranty_months: e.target.value })}
+                              placeholder="Blank = no vendor warranty"
+                              className={`${rowInputClass} w-56`}
+                            />
+                          </div>
+                        )}
                         {r.serialized && !fullyReceived && qty > 0 && (
                           <div className="space-y-1">
                             <div className="flex items-center justify-between">

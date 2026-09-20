@@ -59,7 +59,6 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
   const router = useRouter();
 
   const [lines, setLines] = useState<ReceiptLine[]>([]);
-  const [categories, setCategories] = useState<Ref[]>([]);
   const [materialTypes, setMaterialTypes] = useState<Ref[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -70,7 +69,6 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
   const [notes, setNotes] = useState("");
   const [units, setUnits] = useState<UnitRow[]>([]);
   const [materialType, setMaterialType] = useState("");
-  const [category, setCategory] = useState("");
   // Where the storekeeper is putting this delivery.
   const [storageLocation, setStorageLocation] = useState("");
 
@@ -142,7 +140,6 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
 
   useEffect(() => {
     fetchLines();
-    api.get("/inventory/categories/").then((r) => setCategories(r.data.results ?? r.data)).catch(() => {});
     api.get("/assets/material-types/").then((r) => setMaterialTypes(r.data.results ?? r.data)).catch(() => {});
   }, [fetchLines]);
 
@@ -151,7 +148,6 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
     setAccepted(line.quantity);
     setNotes("");
     setMaterialType(line.material_type ?? "");
-    setCategory("");
     setStorageLocation("");
     // The order already says what this is; only a hand-typed line is asked.
     const preset = line.serial_numbers.length > 0;
@@ -189,7 +185,6 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
         if (route === "generic") {
           payload.generic = {
             material_type: materialType || null,
-            category: category || null,
             storage_location: storageLocation.trim(),
           };
         } else {
@@ -332,7 +327,11 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
           <div className="space-y-4">
             <div className="rounded-xl border border-border bg-secondary/20 p-3 text-xs text-muted-foreground">
               <span className="font-medium text-foreground">
-                {active.po_item_description ?? active.material_name ?? "Item"}
+                {active.known_component
+                  ?? active.po_item_description
+                  ?? active.material_name
+                  ?? active.device_model_name
+                  ?? "Not named on the delivery"}
               </span>
               {" · "}GRN <span className="font-mono">{active.grn_number}</span>
               {active.po_number && <> · PO <span className="font-mono">{active.po_number}</span></>}
@@ -419,20 +418,15 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
               </div>
             )}
 
+            {/* A component already belongs to a category, so naming it once
+                settles both. */}
             {accepted > 0 && route === "generic" && active.kind !== "generic" && (
-              <div className="grid gap-4 rounded-xl border border-border bg-secondary/20 p-4 sm:grid-cols-3">
+              <div className="grid gap-4 rounded-xl border border-border bg-secondary/20 p-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
-                  <label htmlFor="ins_material" className={labelClass}>Material Type</label>
+                  <label htmlFor="ins_material" className={labelClass}>Component</label>
                   <select id="ins_material" value={materialType} onChange={(e) => setMaterialType(e.target.value)} className={inputClass}>
                     <option value="">From the purchase order</option>
                     {materialTypes.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-                  </select>
-                </div>
-                <div className="space-y-1.5">
-                  <label htmlFor="ins_category" className={labelClass}>Category</label>
-                  <select id="ins_category" value={category} onChange={(e) => setCategory(e.target.value)} className={inputClass}>
-                    <option value="">—</option>
-                    {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
                 </div>
                 <div className="space-y-1.5">
