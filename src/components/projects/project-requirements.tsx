@@ -854,14 +854,14 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                   <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
                     <p className="text-xs text-muted-foreground">
                       {asset.source === "vendor_turnkey"
-                        ? "The vendor installs it and our technician oversees — pick both on the asset."
-                        : "Pick the site and the technician who puts it in, on the asset."}
+                        ? "The vendor installs it and our technician oversees — pick both on the asset. It goes to the site it was scoped to."
+                        : "Pick the technician who puts it in, on the asset. It goes to the site it was scoped to."}
                       {asset.status === "in_production" && " The build finishes into stock first."}
                     </p>
                     <button
                       onClick={() => assignForInstallation(asset)}
                       disabled={busy === asset.id}
-                      title="Open the asset to assign its site, technician and installing vendor"
+                      title="Open the asset to assign its technician and installing vendor"
                       className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
                     >
                       Assign for installation <ArrowRight className="h-3.5 w-3.5" />

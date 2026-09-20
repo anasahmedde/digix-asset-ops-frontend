@@ -34,6 +34,8 @@ interface RequestRow {
   issued_by_name: string | null;
   received_by: string;
   issued_serials: string[];
+  /** The units this request will draw, oldest first — what issuing will take. */
+  next_units?: { serial_number: string; unit_code: string }[];
   status: string;
   status_display: string;
   /** Item 19: the part is on order; it is issued once it has been received. */
@@ -60,14 +62,6 @@ const inputClass =
 const labelClass = "text-xs font-medium text-muted-foreground";
 const thClass = "px-5 py-3.5 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground";
 const tdClass = "px-5 py-3.5";
-
-/** What the material is for, in the words of whoever asked for it. */
-function against(row: RequestRow) {
-  if (row.asset_code) return `${row.asset_code}${row.component_name ? ` · ${row.component_name}` : ""}`;
-  if (row.maintenance_title) return row.maintenance_title;
-  if (row.project_name) return row.project_name;
-  return row.purpose || "—";
-}
 
 export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
   const { user } = useUser();
@@ -282,6 +276,13 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                       <td className={`${tdClass} text-foreground`}><Qty value={row.quantity_requested} unit={row.unit} /></td>
                       <td className={`${tdClass} text-muted-foreground`}>
                         <Qty value={row.quantity_issued} unit={row.unit} />
+                        {/* A unique item is a particular one. Which one left
+                            the store is the thing worth recording. */}
+                        {row.issued_serials.length > 0 && (
+                          <span className="block font-mono text-2xs text-foreground">
+                            {row.issued_serials.join(" · ")}
+                          </span>
+                        )}
                         {row.outstanding_quantity > 0 && (
                           <span className="block text-2xs text-amber-600">
                             balance <Qty value={row.outstanding_quantity} unit={row.unit} />
@@ -291,10 +292,16 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                       <td className={`${tdClass} ${short ? "text-amber-600" : "text-muted-foreground"}`}>
                         {row.available_quantity != null ? <Qty value={row.available_quantity} unit={row.unit} /> : "—"}
                       </td>
-                      <td className={`${tdClass} text-muted-foreground`}>
-                        {against(row)}
-                        {row.purpose && against(row) !== row.purpose && (
-                          <span className="block text-2xs">{row.purpose}</span>
+                      <td className={tdClass}>
+                        {/* The column asks for the project, so the project leads
+                            and the asset it is for sits under it. */}
+                        <span className="block text-foreground">
+                          {row.project_name ?? row.maintenance_title ?? "Not on a project"}
+                        </span>
+                        {row.asset_code && (
+                          <span className="block font-mono text-2xs text-muted-foreground">
+                            {row.asset_code}{row.component_name ? ` · ${row.component_name}` : ""}
+                          </span>
                         )}
                       </td>
                       <td className={`${tdClass} text-muted-foreground`}>{row.requested_by_name ?? "—"}</td>
@@ -385,6 +392,31 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                 Issue less than asked for and the balance stays on this queue.
               </p>
             </div>
+            {/* A unique item is a particular one. The store takes the oldest
+                units first, so say which ones before it does. */}
+            {(issueFor.next_units ?? []).length > 0 && (
+              <div className="space-y-1.5">
+                <label className={labelClass}>Serial numbers going out</label>
+                <div className="flex flex-wrap gap-1.5 rounded-lg border border-border bg-secondary/30 p-2.5">
+                  {(issueFor.next_units ?? [])
+                    .slice(0, Math.max(Number(issue.quantity) || 0, 0))
+                    .map((u) => (
+                      <span
+                        key={u.unit_code}
+                        className="rounded-md bg-card px-2 py-1 font-mono text-xs text-foreground ring-1 ring-border"
+                      >
+                        {u.serial_number}
+                      </span>
+                    ))}
+                  {(Number(issue.quantity) || 0) === 0 && (
+                    <span className="text-xs text-muted-foreground">Enter a quantity to see which units go.</span>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Oldest units first. Issuing hands over exactly these.
+                </p>
+              </div>
+            )}
             <div className="space-y-1.5">
               <label htmlFor="issue-to" className={labelClass}>Received by</label>
               <select

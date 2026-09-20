@@ -25,7 +25,8 @@ import { useUser } from "@/lib/user-context";
 interface Device {
   id: string;
   asset_code: string;
-  serial_number: string;
+  /** The manufacturer's, where there is one. Assets go by their asset code. */
+  serial_number: string | null;
   device_model: string;
   device_model_name: string | null;
   source_display: string;
@@ -188,7 +189,8 @@ interface AssetComponent {
   device: string;
   name: string;
   component_type: string;
-  serial_number: string;
+  /** The manufacturer's, where there is one. Assets go by their asset code. */
+  serial_number: string | null;
   quantity: number;
   supplier: string | null;
   supplier_name: string | null;
@@ -614,7 +616,9 @@ export default function AssetsPage() {
       // assigns the site and technician and opens the installation.
       if (searchParams.get("assign") && (data.allowed_transitions ?? []).includes("assigned")) {
         setTimeout(() => {
-          const field = document.getElementById("install_site");
+          // The site is already settled, so land on what is still open.
+          const field = document.getElementById("install_technician")
+            ?? document.getElementById("install_site");
           field?.scrollIntoView({ behavior: "smooth", block: "center" });
           (field as HTMLSelectElement | null)?.focus();
         }, 700);
@@ -1140,7 +1144,7 @@ export default function AssetsPage() {
     if (filterValues.flag === "warranty_expired" && d.warranty_status !== "expired") return false;
     if (search) {
       const q = search.toLowerCase();
-      if (!d.asset_code.toLowerCase().includes(q) && !d.serial_number.toLowerCase().includes(q) && !(d.display_name || "").toLowerCase().includes(q) && !(d.site_name || "").toLowerCase().includes(q)) return false;
+      if (!d.asset_code.toLowerCase().includes(q) && !(d.serial_number || "").toLowerCase().includes(q) && !(d.display_name || "").toLowerCase().includes(q) && !(d.site_name || "").toLowerCase().includes(q)) return false;
     }
     return true;
   });
@@ -1862,19 +1866,33 @@ export default function AssetsPage() {
                       ) : canEdit && (d.allowed_transitions ?? []).includes("assigned") ? (
                         <div className="space-y-2.5 rounded-xl border border-border p-4">
                           <p className="text-xs text-muted-foreground">
-                            Say where it goes and who puts it in. That opens the job on the Installation Tracker and
-                            the asset follows it from there — no status is typed in.
+                            {d.current_site
+                              ? "Say who puts it in. That opens the job on the Installation Tracker and the asset follows it from there — no status is typed in."
+                              : "Say where it goes and who puts it in. That opens the job on the Installation Tracker and the asset follows it from there — no status is typed in."}
                           </p>
                           <div className="grid gap-2 sm:grid-cols-2">
-                            <select
-                              id="install_site"
-                              value={assignSite || d.current_site || ""}
-                              onChange={(e) => setAssignSite(e.target.value)}
-                              className={`${inputClass} h-9 text-xs`}
-                            >
-                              <option value="">Select site…</option>
-                              {sites.map((site) => <option key={site.id} value={site.id}>{site.label}</option>)}
-                            </select>
+                            {/* The site was settled when the asset was scoped to
+                                the project. Asking again would let somebody send
+                                it where the project never agreed to. */}
+                            {d.current_site ? (
+                              <div
+                                id="install_site"
+                                className={`${inputClass} flex h-9 items-center justify-between gap-2 text-xs`}
+                              >
+                                <span className="truncate text-foreground">{d.site_name ?? "Site set on the project"}</span>
+                                <span className="shrink-0 text-2xs text-muted-foreground">from the project</span>
+                              </div>
+                            ) : (
+                              <select
+                                id="install_site"
+                                value={assignSite}
+                                onChange={(e) => setAssignSite(e.target.value)}
+                                className={`${inputClass} h-9 text-xs`}
+                              >
+                                <option value="">Select site…</option>
+                                {sites.map((site) => <option key={site.id} value={site.id}>{site.label}</option>)}
+                              </select>
+                            )}
                             <select
                               id="install_technician"
                               value={assignTechnician}
