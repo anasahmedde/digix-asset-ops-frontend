@@ -19,7 +19,15 @@ const money = (v: string | number | null | undefined) =>
  * Where the project stands against the figure that was signed off: what was
  * approved, what has been spent, and how much of the budget that uses up.
  */
-export function ProjectBudgetSummary({ projectId }: { projectId: string }) {
+export function ProjectBudgetSummary({
+  projectId,
+  refreshKey,
+}: {
+  projectId: string;
+  /** Bumped whenever the project is re-read, so approving in Planning below
+   *  is reflected here rather than leaving a stale "Not approved yet". */
+  refreshKey?: number | string;
+}) {
   const [actuals, setActuals] = useState<Actuals | null>(null);
 
   const load = useCallback(async () => {
@@ -33,7 +41,7 @@ export function ProjectBudgetSummary({ projectId }: { projectId: string }) {
 
   useEffect(() => {
     load();
-  }, [load]);
+  }, [load, refreshKey]);
 
   if (!actuals) return null;
 

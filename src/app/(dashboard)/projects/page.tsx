@@ -278,6 +278,7 @@ export default function ProjectsPage() {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
+  const [detailVersion, setDetailVersion] = useState(0);
   const [linkedAssets, setLinkedAssets] = useState<LinkedAsset[]>([]);
   const [deviceOptions, setDeviceOptions] = useState<Option[]>([]);
   const [siteOptions, setSiteOptions] = useState<Option[]>([]);
@@ -312,6 +313,9 @@ export default function ProjectsPage() {
     try {
       const { data } = await api.get(`/teams/projects/${id}/`);
       setDetail(data);
+      // The summary strip sits above the tabs and would otherwise keep its
+      // first answer after the budget is approved in Planning below it.
+      setDetailVersion((v) => v + 1);
       api.get("/teams/bom-lines/", { params: { project: id, page_size: 500 } })
         .then((r) => setBomLines(r.data.results ?? r.data ?? []))
         .catch(() => setBomLines([]));
@@ -949,7 +953,7 @@ export default function ProjectsPage() {
         </div>
 
         {/* What was signed off against what it has cost so far. */}
-        <ProjectBudgetSummary projectId={detail.id} />
+        <ProjectBudgetSummary projectId={detail.id} refreshKey={detailVersion} />
 
         {/* Two halves of running a project: work out and agree what it will
             cost, then deliver it within that. */}
