@@ -40,6 +40,12 @@ import { BarChart } from "@/components/charts/bar-chart";
 
 interface ClientOpt { id: string; name: string }
 interface Option { id: string; label: string }
+
+/** Sites read as "name · city": several can share a name, and the city is what
+ *  tells them apart on a list. */
+function siteLabels(rows: { id: string; name: string; city?: string }[]): Option[] {
+  return rows.map((s) => ({ id: s.id, label: s.city ? `${s.name} · ${s.city}` : s.name }));
+}
 const STATUS_OPTIONS = [
   { value: "planning", label: "Planning" },
   { value: "on_track", label: "On Track" },
@@ -272,6 +278,11 @@ export default function ProjectsPage() {
   const [linkedAssets, setLinkedAssets] = useState<LinkedAsset[]>([]);
   const [deviceOptions, setDeviceOptions] = useState<Option[]>([]);
   const [siteOptions, setSiteOptions] = useState<Option[]>([]);
+  // Opening a site from inside the project form, so the flow is not broken to
+  // go and define one under Sites first.
+  const [newSiteOpen, setNewSiteOpen] = useState(false);
+  const [newSite, setNewSite] = useState({ name: "", address: "", city: "" });
+  const [savingSite, setSavingSite] = useState(false);
   const [managerOptions, setManagerOptions] = useState<Option[]>([]);
   const [scopeDevice, setScopeDevice] = useState("");
   const [scopeComponents, setScopeComponents] = useState<Option[]>([]);
@@ -327,7 +338,7 @@ export default function ProjectsPage() {
           }))))
           .catch(() => {});
         api.get("/sites/sites/", { params: { page_size: 1000 } })
-          .then((r) => setSiteOptions((r.data.results ?? []).map((s: { id: string; name: string }) => ({ id: s.id, label: s.name }))))
+          .then((r) => setSiteOptions(siteLabels(r.data.results ?? [])))
           .catch(() => {});
       }
     } catch (err) {
@@ -612,7 +623,7 @@ export default function ProjectsPage() {
       .then((r) => setClients((r.data.results ?? r.data).map((c: ClientOpt) => ({ id: c.id, name: c.name }))))
       .catch(() => {});
     api.get("/sites/sites/", { params: { page_size: 1000 } })
-      .then((r) => setSiteOptions((r.data.results ?? []).map((st: { id: string; name: string }) => ({ id: st.id, label: st.name }))))
+      .then((r) => setSiteOptions(siteLabels(r.data.results ?? [])))
       .catch(() => {});
     api.get("/accounts/users/", { params: { is_active: true, page_size: 200 } })
       .then((r) => setManagerOptions((r.data.results ?? []).map((u: { id: string; first_name: string; last_name: string; username: string }) => ({
@@ -633,7 +644,8 @@ export default function ProjectsPage() {
       status: form.status,
       phase: form.phase,
       client: form.client || null,
-      site: form.site || null,
+      // The project's own site is the first of the ones the order covers.
+      site: form.sites[0] ?? null,
       manager: form.manager || null,
       start_date: form.start_date || null,
       target_date: form.target_date || null,
@@ -657,6 +669,35 @@ export default function ProjectsPage() {
       toast.error(getApiError(err, "Failed to save project"));
     } finally {
       setSaving(false);
+    }
+  }
+
+  /** Open a site here and put the project on it. */
+  async function createSite() {
+    const name = newSite.name.trim();
+    const address = newSite.address.trim();
+    if (!name || !address) {
+      toast.error("A site needs a name and an address.");
+      return;
+    }
+    setSavingSite(true);
+    try {
+      const { data } = await api.post("/sites/sites/", {
+        name,
+        address,
+        city: newSite.city.trim(),
+        client: form.client || null,
+      });
+      const [option] = siteLabels([data]);
+      setSiteOptions((prev) => [...prev, option].sort((a, b) => a.label.localeCompare(b.label)));
+      setForm((f) => ({ ...f, sites: [...f.sites, data.id] }));
+      setNewSite({ name: "", address: "", city: "" });
+      setNewSiteOpen(false);
+      toast.success(`${data.name} added and put on this project`);
+    } catch (err) {
+      toast.error(getApiError(err, "Could not add the site"));
+    } finally {
+      setSavingSite(false);
     }
   }
 
@@ -689,16 +730,109 @@ export default function ProjectsPage() {
           </div>
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-muted-foreground">Sites (one order can span several)</label>
-          <select
-            multiple
-            value={form.sites}
-            onChange={(e) => setForm((f) => ({ ...f, sites: Array.from(e.target.selectedOptions).map((o) => o.value) }))}
-            className="h-28 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none"
-          >
-            {siteOptions.map((st) => <option key={st.id} value={st.id}>{st.label}</option>)}
-          </select>
-          <p className="mt-1 text-2xs text-muted-foreground">Hold Ctrl (Cmd on Mac) to pick more than one. Locations are defined under Sites.</p>
+          <label htmlFor="project_site" className="mb-1 block text-xs font-medium text-muted-foreground">
+            Sites (one order can span several)
+          </label>
+          <div className="flex gap-2">
+            <select
+              id="project_site"
+              value=""
+              onChange={(e) => {
+                const id = e.target.value;
+                if (id) setForm((f) => (f.sites.includes(id) ? f : { ...f, sites: [...f.sites, id] }));
+              }}
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none"
+            >
+              <option value="">
+                {siteOptions.every((st) => form.sites.includes(st.id)) ? "Every site is on this project" : "Add a site…"}
+              </option>
+              {siteOptions
+                .filter((st) => !form.sites.includes(st.id))
+                .map((st) => <option key={st.id} value={st.id}>{st.label}</option>)}
+            </select>
+            <button
+              type="button"
+              onClick={() => setNewSiteOpen((open) => !open)}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            >
+              <Plus className="h-3.5 w-3.5" /> Add site
+            </button>
+          </div>
+
+          {form.sites.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {form.sites.map((id) => {
+                const site = siteOptions.find((st) => st.id === id);
+                return (
+                  <span
+                    key={id}
+                    className="inline-flex items-center gap-1 rounded-full bg-secondary px-2.5 py-1 text-2xs font-medium text-foreground"
+                  >
+                    {site?.label ?? "Site"}
+                    <button
+                      type="button"
+                      onClick={() => setForm((f) => ({ ...f, sites: f.sites.filter((x) => x !== id) }))}
+                      aria-label={`Take ${site?.label ?? "this site"} off the project`}
+                      className="text-muted-foreground transition-colors hover:text-destructive"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                );
+              })}
+            </div>
+          )}
+
+          {newSiteOpen && (
+            <div className="mt-2 space-y-2 rounded-lg border border-border bg-secondary/20 p-3">
+              <p className="text-2xs text-muted-foreground">
+                A new location for the register. It joins this project and stays available under Sites.
+              </p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <input
+                  id="new_site_name"
+                  value={newSite.name}
+                  onChange={(e) => setNewSite((n) => ({ ...n, name: e.target.value }))}
+                  placeholder="Site name *"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none"
+                />
+                <input
+                  id="new_site_city"
+                  value={newSite.city}
+                  onChange={(e) => setNewSite((n) => ({ ...n, city: e.target.value }))}
+                  placeholder="City"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none"
+                />
+              </div>
+              <input
+                id="new_site_address"
+                value={newSite.address}
+                onChange={(e) => setNewSite((n) => ({ ...n, address: e.target.value }))}
+                placeholder="Address *"
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none"
+              />
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setNewSiteOpen(false); setNewSite({ name: "", address: "", city: "" }); }}
+                  className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={createSite}
+                  disabled={savingSite || !newSite.name.trim() || !newSite.address.trim()}
+                  className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white transition-all disabled:opacity-50"
+                >
+                  {savingSite ? "Adding…" : "Add site"}
+                </button>
+              </div>
+            </div>
+          )}
+          <p className="mt-1 text-2xs text-muted-foreground">
+            Pick each site the order covers. Locations are kept under Sites.
+          </p>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -719,21 +853,12 @@ export default function ProjectsPage() {
             </div>
           )}
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Project Manager</label>
-            <select value={form.manager} onChange={(e) => setForm((f) => ({ ...f, manager: e.target.value }))} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none">
-              <option value="">—</option>
-              {managerOptions.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Site</label>
-            <select value={form.site} onChange={(e) => setForm((f) => ({ ...f, site: e.target.value }))} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none">
-              <option value="">—</option>
-              {siteOptions.map((st) => <option key={st.id} value={st.id}>{st.label}</option>)}
-            </select>
-          </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">Project Manager</label>
+          <select value={form.manager} onChange={(e) => setForm((f) => ({ ...f, manager: e.target.value }))} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none">
+            <option value="">—</option>
+            {managerOptions.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+          </select>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
