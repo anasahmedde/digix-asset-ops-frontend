@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, Check, Factory, Lock, PackagePlus, PackageSearch, RotateCcw, ShoppingCart, Truck, Warehouse, X } from "lucide-react";
+import { ArrowRight, Check, Download, Factory, Lock, PackagePlus, PackageSearch, RotateCcw, ShoppingCart, Truck, Warehouse, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
@@ -79,6 +79,26 @@ interface AssetGroup {
   steps: StepRow[];
   route_complete: boolean;
   components: RequirementRow[];
+  /** Who the asset is assigned to, whether or not a job has opened yet. */
+  assigned_to_display?: string | null;
+  /** The asset's job on the Installation Tracker, once it has one. */
+  installation?: InstallationJob | null;
+}
+
+/** What the Installation Tracker knows about an asset. */
+interface InstallationJob {
+  id: string;
+  site_name: string | null;
+  installed_by_name: string | null;
+  vendor_name: string | null;
+  due_date: string | null;
+  installed_at: string | null;
+  completed_at: string | null;
+  steps_done: number;
+  steps_total: number;
+  progress: number;
+  stage: string;
+  stage_status: string | null;
 }
 interface Totals {
   required: number;
@@ -240,6 +260,24 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
     }
   }
 
+  /** The asset's parts list and route, as a document for the floor. */
+  async function downloadBom(asset: AssetGroup) {
+    setBusy(`bom-${asset.id}`);
+    try {
+      const { data } = await api.get(`/assets/devices/${asset.id}/bom/`, { responseType: "blob" });
+      const url = URL.createObjectURL(data as Blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `bom-${asset.asset_code}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast.error(getApiError(err, "Could not produce the bill of materials"));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   /** Built: finish the asset into stock and open its record to assign a site and technician. */
   async function assignForInstallation(asset: AssetGroup) {
     setBusy(asset.id);
@@ -380,16 +418,6 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                   <span className="rounded-full bg-card px-2.5 py-0.5 text-xs text-muted-foreground ring-1 ring-border">
                     {asset.status_display ?? asset.status.replace(/_/g, " ")}
                   </span>
-                  {canDecide && ["in_production", "in_stock"].includes(asset.status) && (asset.vendor_asset || asset.route_complete) && (
-                    <button
-                      onClick={() => assignForInstallation(asset)}
-                      disabled={busy === asset.id}
-                      title={asset.status === "in_stock" ? "Open the asset to assign its site and technician" : "Finish the build into stock, then assign its site and technician"}
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
-                    >
-                      Assign for installation <ArrowRight className="h-3.5 w-3.5" />
-                    </button>
-                  )}
                 </div>
               </div>
 
@@ -445,11 +473,24 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                     )}
                   </div>
                 </div>
-              ) : asset.components.length === 0 ? (
+              ) : (
+                <>
+                <div className="flex flex-wrap items-center justify-between gap-2 px-4 pt-3">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Bill of material</p>
+                  <button
+                    onClick={() => downloadBom(asset)}
+                    disabled={busy === `bom-${asset.id}`}
+                    title="The asset's parts list and route, as a document for the floor"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-2xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
+                  >
+                    <Download className="h-3 w-3" /> {busy === `bom-${asset.id}` ? "Preparing…" : "Download BOM"}
+                  </button>
+                </div>
+                {asset.components.length === 0 ? (
                 <p className="px-4 py-4 text-xs text-muted-foreground">
                   No components on this asset yet.
                 </p>
-              ) : (
+                ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
@@ -604,6 +645,8 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                     </tbody>
                   </table>
                 </div>
+                )}
+                </>
               )}
 
               {!asset.vendor_asset && asset.steps.length > 0 && (
@@ -728,6 +771,94 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                   </div>
                 </div>
               )}
+
+              {/* Who puts it in and switches it on. The decision is taken on
+                  the asset; the work runs on the Installation Tracker, and
+                  what it knows is read back here. */}
+              <div className="border-t border-border px-4 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Installation &amp; activation
+                  </p>
+                  {asset.installation && (
+                    <Link
+                      href={`/installation-tracker?device=${asset.id}`}
+                      className="inline-flex items-center gap-1 text-2xs font-medium text-primary hover:underline"
+                    >
+                      Open on the Installation Tracker <ArrowRight className="h-3 w-3" />
+                    </Link>
+                  )}
+                </div>
+                {asset.installation ? (
+                  <>
+                    <dl className="mt-2 grid gap-3 text-xs sm:grid-cols-4">
+                      <div>
+                        <dt className="text-2xs uppercase tracking-wider text-muted-foreground">Site</dt>
+                        <dd className="text-foreground">{asset.installation.site_name ?? "—"}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-2xs uppercase tracking-wider text-muted-foreground">Assigned to</dt>
+                        <dd className="text-foreground">
+                          {asset.installation.installed_by_name ?? "—"}
+                          {asset.installation.vendor_name && (
+                            <span className="block text-2xs text-muted-foreground">
+                              Vendor: {asset.installation.vendor_name}
+                            </span>
+                          )}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-2xs uppercase tracking-wider text-muted-foreground">Stage</dt>
+                        <dd className="text-foreground">
+                          {asset.installation.stage}
+                          <span className="block text-2xs text-muted-foreground">
+                            {asset.installation.steps_done} of {asset.installation.steps_total} steps done
+                          </span>
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-2xs uppercase tracking-wider text-muted-foreground">Target date</dt>
+                        <dd className="text-foreground">{asset.installation.due_date ?? "Not agreed"}</dd>
+                      </div>
+                    </dl>
+                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-secondary">
+                      <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${asset.installation.progress}%` }} />
+                    </div>
+                    <p className="mt-1.5 text-2xs text-muted-foreground">
+                      {asset.status === "active"
+                        ? "Active — the technician activated it on site."
+                        : asset.status === "installed"
+                          ? "Installed. It becomes Active when the technician activates it on the tracker."
+                          : "The asset becomes Installed when the checklist is finished, and Active when the technician activates it."}
+                    </p>
+                  </>
+                ) : canDecide && ["in_production", "in_stock"].includes(asset.status) && (asset.vendor_asset || asset.route_complete) ? (
+                  <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-xs text-muted-foreground">
+                      {asset.source === "vendor_turnkey"
+                        ? "The vendor installs it and our technician oversees — pick both on the asset."
+                        : "Pick the site and the technician who puts it in, on the asset."}
+                      {asset.status === "in_production" && " The build finishes into stock first."}
+                    </p>
+                    <button
+                      onClick={() => assignForInstallation(asset)}
+                      disabled={busy === asset.id}
+                      title="Open the asset to assign its site, technician and installing vendor"
+                      className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
+                    >
+                      Assign for installation <ArrowRight className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {["procured", "in_production"].includes(asset.status)
+                      ? asset.vendor_asset
+                        ? "Available once the asset has been received into stock."
+                        : "Available once every component is issued and the route is finished."
+                      : `No installation job on record — this asset is ${(asset.status_display ?? asset.status.replace(/_/g, " ")).toLowerCase()}.`}
+                  </p>
+                )}
+              </div>
             </div>
           ))}
         </div>
