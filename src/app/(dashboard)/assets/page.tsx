@@ -168,6 +168,19 @@ interface DocumentItem {
 
 interface Option { id: string; label: string }
 
+/** A vendor as the register holds it, so choosing one brings its details. */
+interface VendorOption extends Option {
+  contact_person?: string;
+  contact_phone?: string;
+  contact_email?: string;
+}
+
+/** The vendor's contact, as one line. */
+function vendorContact(v?: VendorOption): string {
+  if (!v) return "";
+  return [v.contact_person, v.contact_phone].filter(Boolean).join(" · ");
+}
+
 interface AssetComponent {
   id: string;
   device: string;
@@ -524,11 +537,9 @@ export default function AssetsPage() {
   const [assignTechnician, setAssignTechnician] = useState("");
   // The installing vendor, picked from the register kept under Vendors.
   const [assignVendorId, setAssignVendorId] = useState("");
-  const [assignVendorContact, setAssignVendorContact] = useState("");
   // The vendor the finished asset was bought from — the asset's supplier,
   // picked from the register kept under Vendors.
   const [supplyVendorId, setSupplyVendorId] = useState("");
-  const [supplyVendorContact, setSupplyVendorContact] = useState("");
   const [transitionLoading, setTransitionLoading] = useState(false);
   // Photo evidence of the installed asset, attached when moving to Active.
   const [activePhotos, setActivePhotos] = useState<File[]>([]);
@@ -547,7 +558,7 @@ export default function AssetsPage() {
   const [assetTypes, setAssetTypes] = useState<Option[]>([]);
   const [sites, setSites] = useState<Option[]>([]);
   const [clients, setClients] = useState<Option[]>([]);
-  const [suppliers, setSuppliers] = useState<Option[]>([]);
+  const [suppliers, setSuppliers] = useState<VendorOption[]>([]);
   const [technicians, setTechnicians] = useState<Option[]>([]);
   const [projects, setProjects] = useState<Option[]>([]);
   const [filterValues, setFilterValues] = useState<Record<string, string>>({ status: "", asset_type: "", client: "", site: "", warranty: "", flag: "" });
@@ -651,7 +662,12 @@ export default function AssetsPage() {
     if (at.status === "fulfilled") setAssetTypes((at.value.data.results ?? at.value.data).map((t: { id: string; name: string }) => ({ id: t.id, label: t.name })));
     if (st.status === "fulfilled") setSites((st.value.data.results ?? st.value.data).map((s: { id: string; name: string; city?: string }) => ({ id: s.id, label: s.city ? `${s.name} · ${s.city}` : s.name })));
     if (cl.status === "fulfilled") setClients((cl.value.data.results ?? cl.value.data).map((c: { id: string; name: string }) => ({ id: c.id, label: c.name })));
-    if (su.status === "fulfilled") setSuppliers((su.value.data.results ?? su.value.data).map((s: { id: string; name: string }) => ({ id: s.id, label: s.name })));
+    if (su.status === "fulfilled") setSuppliers((su.value.data.results ?? su.value.data).map(
+      (v: { id: string; name: string; contact_person?: string; contact_phone?: string; contact_email?: string }) => ({
+        id: v.id, label: v.name,
+        contact_person: v.contact_person, contact_phone: v.contact_phone, contact_email: v.contact_email,
+      }),
+    ));
     if (proj.status === "fulfilled") setProjects((proj.value.data.results ?? proj.value.data).map((x: { id: string; name: string }) => ({ id: x.id, label: x.name })));
     if (tech.status === "fulfilled") setTechnicians((tech.value.data.results ?? tech.value.data).map((u: {
       id: string; first_name: string; last_name: string; username: string;
@@ -669,9 +685,7 @@ export default function AssetsPage() {
     setFormAssetType("");
     setAssignTechnician("");
     setAssignVendorId("");
-    setAssignVendorContact("");
     setSupplyVendorId("");
-    setSupplyVendorContact("");
     setSelected(null);
     setImageFiles([]);
     setImagePreviews([]);
@@ -692,9 +706,7 @@ export default function AssetsPage() {
       setFormAssetType(data.asset_type ?? "");
       setAssignTechnician(data.assigned_technician ?? "");
       setAssignVendorId(data.assigned_vendor ?? "");
-      setAssignVendorContact(data.assigned_vendor_contact ?? "");
       setSupplyVendorId(data.supplier ?? "");
-      setSupplyVendorContact(data.supply_vendor_contact ?? "");
       setModalMode("edit");
       loadOptions();
       // The edit modal only exists in the list render; leaving the detail
@@ -807,9 +819,7 @@ export default function AssetsPage() {
     clearActivePhotos();
     setAssignTechnician("");
     setAssignVendorId("");
-    setAssignVendorContact("");
     setSupplyVendorId("");
-    setSupplyVendorContact("");
     setAssignSite("");
     setMaintDue("");
     setMaintTech("");
@@ -830,7 +840,10 @@ export default function AssetsPage() {
         assigned_technician: assignTechnician,
         ...(assignSite ? { current_site: assignSite } : {}),
         ...(turnkey
-          ? { assigned_vendor: assignVendorId, assigned_vendor_contact: assignVendorContact.trim() }
+          ? {
+              assigned_vendor: assignVendorId,
+              assigned_vendor_contact: vendorContact(suppliers.find((v) => v.id === assignVendorId)),
+            }
           : {}),
       });
       toast.success("Installation opened — it runs on the Installation Tracker from here");
@@ -882,7 +895,7 @@ export default function AssetsPage() {
               ...(turnkey
                 ? {
                     assigned_vendor: assignVendorId,
-                    assigned_vendor_contact: assignVendorContact.trim(),
+                    assigned_vendor_contact: vendorContact(suppliers.find((v) => v.id === assignVendorId)),
                   }
                 : {}),
             }
@@ -1022,13 +1035,17 @@ export default function AssetsPage() {
       // Only a turnkey job has an installing vendor; both vendor routes have a
       // supplying one, and an in-house build has neither.
       assigned_vendor: assetSource === "vendor_turnkey" ? (assignVendorId || null) : null,
-      assigned_vendor_contact: assetSource === "vendor_turnkey" ? assignVendorContact.trim() : "",
+      assigned_vendor_contact: assetSource === "vendor_turnkey"
+        ? vendorContact(suppliers.find((v) => v.id === assignVendorId))
+        : "",
       // The name is kept alongside the link so older records and the asset's
       // own summary still read correctly.
       supply_vendor_name: buildsInHouse
         ? ""
         : (suppliers.find((v) => v.id === supplyVendorId)?.label ?? ""),
-      supply_vendor_contact: buildsInHouse ? "" : supplyVendorContact.trim(),
+      supply_vendor_contact: buildsInHouse
+        ? ""
+        : vendorContact(suppliers.find((v) => v.id === supplyVendorId)),
       // One field, one control: the vendor chosen under Vendor Supply Details.
       supplier: buildsInHouse ? (fd.get("supplier") || null) : (supplyVendorId || null),
       purchase_date: fd.get("purchase_date") || null,
@@ -1358,12 +1375,10 @@ export default function AssetsPage() {
                                             <option value="">Vendor installing it…</option>
                                             {suppliers.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
                                           </select>
-                                          <input
-                                            value={assignVendorContact}
-                                            onChange={(e) => setAssignVendorContact(e.target.value)}
-                                            placeholder="Contact / phone"
-                                            className={`${inputClass} h-9 text-xs`}
-                                          />
+                                          <div className={`${inputClass} flex h-9 items-center text-xs`}>
+                                            {vendorContact(suppliers.find((v) => v.id === assignVendorId))
+                                              || <span className="text-muted-foreground">Contact comes from the vendor</span>}
+                                          </div>
                                         </div>
                                       )}
                                       <select
@@ -1903,13 +1918,10 @@ export default function AssetsPage() {
                                 <option value="">Vendor installing it…</option>
                                 {suppliers.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
                               </select>
-                              <input
-                                id="install_vendor_contact"
-                                value={assignVendorContact}
-                                onChange={(e) => setAssignVendorContact(e.target.value)}
-                                placeholder="Contact / phone (the vendor's own, if blank)"
-                                className={`${inputClass} h-9 text-xs`}
-                              />
+                              <div id="install_vendor_contact" className={`${inputClass} flex h-9 items-center text-xs`}>
+                                {vendorContact(suppliers.find((v) => v.id === assignVendorId))
+                                  || <span className="text-muted-foreground">Contact comes from the vendor</span>}
+                              </div>
                             </div>
                           )}
                           <p className="text-2xs text-muted-foreground">
@@ -2780,15 +2792,29 @@ export default function AssetsPage() {
                   </select>
                 </div>
                 <div className="space-y-1.5">
-                  <label htmlFor="supply_vendor_contact" className={labelClass}>Contact / Phone</label>
-                  <input
-                    id="supply_vendor_contact"
-                    name="supply_vendor_contact"
-                    value={supplyVendorContact}
-                    onChange={(e) => setSupplyVendorContact(e.target.value)}
-                    placeholder="e.g. 0300-1234567"
-                    className={inputClass}
-                  />
+                  <p className={labelClass}>Contact</p>
+                  {/* Straight off the vendor's record — there is no second
+                      phone number for the same firm. */}
+                  <div id="supply_vendor_contact" className="min-h-10 rounded-lg border border-border bg-secondary/20 px-3 py-2 text-sm">
+                    {supplyVendorId ? (
+                      vendorContact(suppliers.find((v) => v.id === supplyVendorId)) ? (
+                        <>
+                          <span className="text-foreground">{vendorContact(suppliers.find((v) => v.id === supplyVendorId))}</span>
+                          {suppliers.find((v) => v.id === supplyVendorId)?.contact_email && (
+                            <span className="block text-2xs text-muted-foreground">
+                              {suppliers.find((v) => v.id === supplyVendorId)?.contact_email}
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-muted-foreground">
+                          No contact on this vendor&apos;s record — add it under Vendors.
+                        </span>
+                      )
+                    ) : (
+                      <span className="text-muted-foreground">Choose a vendor and its contact appears here.</span>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -2819,15 +2845,21 @@ export default function AssetsPage() {
                   </select>
                 </div>
                 <div className="space-y-1.5">
-                  <label htmlFor="assigned_vendor_contact" className={labelClass}>Contact / Phone</label>
-                  <input
-                    id="assigned_vendor_contact"
-                    name="assigned_vendor_contact"
-                    value={assignVendorContact}
-                    onChange={(e) => setAssignVendorContact(e.target.value)}
-                    placeholder="e.g. 0300-1234567"
-                    className={inputClass}
-                  />
+                  <p className={labelClass}>Contact</p>
+                  {/* Straight off the vendor's record. */}
+                  <div id="assigned_vendor_contact" className="min-h-10 rounded-lg border border-border bg-secondary/20 px-3 py-2 text-sm">
+                    {assignVendorId ? (
+                      vendorContact(suppliers.find((v) => v.id === assignVendorId)) ? (
+                        <span className="text-foreground">{vendorContact(suppliers.find((v) => v.id === assignVendorId))}</span>
+                      ) : (
+                        <span className="text-muted-foreground">
+                          No contact on this vendor&apos;s record — add it under Vendors.
+                        </span>
+                      )
+                    ) : (
+                      <span className="text-muted-foreground">Choose a vendor and its contact appears here.</span>
+                    )}
+                  </div>
                 </div>
               </div>
               {/* The supplying vendor is typed by hand, so this only works
@@ -2835,7 +2867,7 @@ export default function AssetsPage() {
               {supplyVendorId && supplyVendorId !== assignVendorId && (
                 <button
                   type="button"
-                  onClick={() => { setAssignVendorId(supplyVendorId); setAssignVendorContact(supplyVendorContact); }}
+                  onClick={() => setAssignVendorId(supplyVendorId)}
                   className="mt-2 text-2xs font-medium text-primary hover:underline"
                 >
                   Same as the supplying vendor
