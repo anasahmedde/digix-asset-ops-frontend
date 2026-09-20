@@ -38,7 +38,10 @@ interface RequestRow {
   status_display: string;
   /** Item 19: the part is on order; it is issued once it has been received. */
   awaiting_procurement?: boolean;
+  /** Raised by a Procure decision: the goods come in on a PO and are issued from here. */
+  procured?: boolean;
   po_number?: string | null;
+  po_received_quantity?: number;
   created_at: string;
 }
 
@@ -306,6 +309,11 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                         {row.awaiting_procurement && (
                           <span className="mt-1 block text-2xs font-medium text-indigo-600">
                             Procurement in progress{row.po_number ? ` · ${row.po_number}` : ""}
+                          </span>
+                        )}
+                        {!row.awaiting_procurement && row.procured && !settled && (
+                          <span className="mt-1 block text-2xs font-medium text-emerald-600">
+                            {row.po_received_quantity ?? 0} received into stock{row.po_number ? ` · ${row.po_number}` : ""} — ready to issue
                           </span>
                         )}
                       </td>

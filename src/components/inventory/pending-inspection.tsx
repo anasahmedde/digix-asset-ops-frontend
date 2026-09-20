@@ -213,6 +213,10 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
             ? `${stocked} unique component${stocked === 1 ? "" : "s"} added to inventory`
             : `${accepted} added to generic stock`,
       );
+      const ready: string[] = data.ready_requests ?? [];
+      if (ready.length > 0) {
+        toast.message(`Bought for a project line — the store issues it against ${ready.join(", ")} in Issue Requests`);
+      }
       setActive(null);
       fetchLines();
       onStocked?.();

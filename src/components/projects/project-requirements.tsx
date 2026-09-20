@@ -29,6 +29,10 @@ interface RequirementRow {
   fulfilment: string;
   source_label: string | null;
   po_number: string | null;
+  /** How much of what was bought for this line has passed inspection into stock. */
+  po_stocked_quantity?: number;
+  /** The material requests the Procure decision raised — the store issues against them. */
+  procure_requests?: string[];
   /** An increase asked for but not yet granted. */
   pending_increase: number | null;
   increase_reason: string;
@@ -496,6 +500,12 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                               )}
                               {row.po_number && (
                                 <span className="block font-mono text-2xs text-muted-foreground">{row.po_number}</span>
+                              )}
+                              {row.po_number && (row.po_stocked_quantity ?? 0) > 0 && row.outstanding_quantity > 0 && (
+                                <span className="block text-2xs font-medium text-emerald-600">
+                                  {row.po_stocked_quantity} received into stock · the store issues it against{" "}
+                                  {row.procure_requests?.length ? row.procure_requests.join(", ") : "the material request"}
+                                </span>
                               )}
                               {row.pending_increase ? (
                                 <span

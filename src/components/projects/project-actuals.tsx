@@ -28,6 +28,11 @@ interface ActualStep {
   status?: string;
   planned_cost: string | null;
   actual_cost: string | null;
+  location?: string;
+  /** Where the actual comes from: the vendor's work-order line, or typed by hand. */
+  actual_source?: string;
+  actual_editable?: boolean;
+  work_order?: { id: string; wo_number: string; status: string; status_display?: string; supplier: string } | null;
 }
 interface ActualWorkOrder {
   id: string;
@@ -264,8 +269,9 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
           <div>
             <h4 className="text-sm font-semibold text-foreground">Assets — materials, production and vendor work</h4>
             <p className="text-2xs text-muted-foreground">
-              Materials count as each line is issued from stock or received against its purchase order;
-              production as each step&apos;s actual cost is typed; vendor builds at their work-order amount.
+              Materials count as each line is issued from stock at what it was bought for. An operation given to a
+              vendor costs what its work order charges; one done in-house is typed once it is known. A vendor-built
+              asset counts at its work-order amount.
             </p>
           </div>
           <p className="shrink-0 text-right text-sm font-semibold text-foreground">
@@ -331,13 +337,26 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
                       <td className={`${tdClass} pl-6 text-foreground`}>
                         <span className="mr-1.5 font-mono text-2xs text-muted-foreground">#{st.step_number}</span>
                         {st.name}
-                        <span className="ml-1.5 text-2xs text-muted-foreground">production · {(st.status ?? "pending").replace(/_/g, " ")}</span>
+                        <span className="ml-1.5 text-2xs text-muted-foreground">
+                          {st.work_order ? "vendor" : "in-house"} · {(st.status ?? "pending").replace(/_/g, " ")}
+                        </span>
                       </td>
                       <td className={`${tdClass} text-right text-muted-foreground`} colSpan={2}>
                         planned {st.planned_cost != null ? money(st.planned_cost) : "—"}
                       </td>
                       <td className={`${tdClass} text-right`} colSpan={2}>
-                        {canEdit ? (
+                        {st.work_order ? (
+                          /* Priced from the vendor's order, the way a bought part is priced from its PO. */
+                          <span
+                            className="inline-flex flex-col items-end text-2xs text-muted-foreground"
+                            title="Priced from the vendor's work order — not typed in"
+                          >
+                            <span className="font-mono text-foreground">{st.work_order.wo_number}</span>
+                            <span>
+                              {st.work_order.supplier || "vendor"} · {(st.work_order.status_display ?? st.work_order.status).replace(/_/g, " ")}
+                            </span>
+                          </span>
+                        ) : canEdit && st.actual_editable !== false ? (
                           <input
                             type="number"
                             min={0}
