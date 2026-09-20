@@ -9,7 +9,6 @@ import { toast } from "sonner";
 import { SegmentBar, StatTiles } from "@/components/ui/analytics-strip";
 import { ProductionRoute, type ProductionStep } from "@/components/assets/production-route";
 import { Timeline, type TimelineItem, type TimelineTone } from "@/components/ui/timeline";
-import { SelectOrCreate } from "@/components/ui/select-or-create";
 import { CopyButton } from "@/components/ui/copy-button";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { MultiSelect } from "@/components/ui/multi-select";
@@ -110,6 +109,19 @@ interface DeviceDetail extends Device {
 }
 
 /** An asset's own cover, as opposed to a part's. */
+/** The asset's job on the Installation Tracker. */
+interface InstallationJob {
+  id: string;
+  site_name: string | null;
+  installed_by_name: string | null;
+  vendor_display: string | null;
+  due_date: string | null;
+  completed_at: string | null;
+  progress: number;
+  steps_done: number;
+  steps_total: number;
+}
+
 interface AssetWarranty {
   id: string;
   start_date: string;
@@ -262,6 +274,22 @@ const TRACK_ALL = ["procured", "in_production", "in_stock", "assigned", "install
 const TRACK_END = ["client_property", "decommissioned"] as const;
 // States that take an asset off the line for a while.
 const OFF_TRACK = ["in_transit", "rma", "lost_stolen"];
+
+// The lifecycle follows the work. These two are the only stages nobody's work
+// produces — handing the asset to the client, and retiring it — so they are the
+// only ones a person sets by hand.
+const MANUAL_STATUSES = ["client_property", "decommissioned"];
+
+// What is actually moving the asset on, said plainly where the old dropdown was.
+const LIFECYCLE_SOURCE: Record<string, string> = {
+  procured: "It moves on its own: In Production when its parts are issued, In Stock when the build is finished.",
+  in_production: "It becomes In Stock on its own once every component is issued and every operation is finished.",
+  in_stock: "Assign it under Installation & Activation below — that opens the job on the Installation Tracker.",
+  assigned: "Installed is recorded by the technician finishing the checklist on the Installation Tracker.",
+  installed: "Active is recorded by the technician on site, with a photo, in the Installation Tracker.",
+  active: "Hand it to the client or retire it here — everything else follows the work.",
+  under_maintenance: "It returns to Active on its own when its maintenance job is completed.",
+};
 
 function shortDate(iso: string | undefined) {
   if (!iso) return null;
@@ -518,6 +546,9 @@ export default function AssetsPage() {
   const [maintSchedules, setMaintSchedules] = useState<MaintenanceItem[]>([]);
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [deviceTickets, setDeviceTickets] = useState<{ id: string; ticket_number: string; occurrence: number; title: string; status: string; created_at: string }[]>([]);
+  // The asset's job on the Installation Tracker, when it has one.
+  const [installation, setInstallation] = useState<InstallationJob | null>(null);
+  const [installLoading, setInstallLoading] = useState(false);
 
   const [deviceModels, setDeviceModels] = useState<Option[]>([]);
   const [assetTypes, setAssetTypes] = useState<Option[]>([]);
@@ -568,9 +599,14 @@ export default function AssetsPage() {
     api.get(`/assets/devices/${deviceId}/`).then(({ data }) => {
       setDetailView(data);
       setDetailTab("overview");
-      // Coming from a project's Execution tab: straight to assigning the site and technician.
+      // Coming from a project's Execution tab: straight to the section that
+      // assigns the site and technician and opens the installation.
       if (searchParams.get("assign") && (data.allowed_transitions ?? []).includes("assigned")) {
-        setTransitionTarget("assigned");
+        setTimeout(() => {
+          const field = document.getElementById("install_site");
+          field?.scrollIntoView({ behavior: "smooth", block: "center" });
+          (field as HTMLSelectElement | null)?.focus();
+        }, 700);
       }
       fetchRelatedData(data.id);
       // Deep-linking straight to an asset still needs the technician, site and
@@ -580,12 +616,20 @@ export default function AssetsPage() {
   }, [searchParams, loading]);
 
   async function fetchRelatedData(deviceId: string) {
-    const [warRes, maintRes, docRes, tickRes] = await Promise.allSettled([
+    const [warRes, maintRes, docRes, tickRes, instRes] = await Promise.allSettled([
       api.get("/warranties/", { params: { device: deviceId } }),
       api.get("/maintenance/schedules/", { params: { device: deviceId } }),
       api.get("/infrastructure/documents/", { params: { device: deviceId } }),
       api.get("/tickets/", { params: { device: deviceId, page_size: 100 } }),
+      api.get("/sites/installations/", { params: { device: deviceId, ordering: "-installed_at", page_size: 5 } }),
     ]);
+    if (instRes.status === "fulfilled") {
+      const jobs: InstallationJob[] = instRes.value.data.results ?? instRes.value.data;
+      // The live job if there is one, otherwise the most recent finished one.
+      setInstallation(jobs.find((j) => !j.completed_at) ?? jobs[0] ?? null);
+    } else {
+      setInstallation(null);
+    }
     if (tickRes.status === "fulfilled") setDeviceTickets(tickRes.value.data.results ?? tickRes.value.data);
     if (warRes.status === "fulfilled") setWarranties(warRes.value.data.results ?? warRes.value.data);
     if (maintRes.status === "fulfilled") setMaintSchedules(maintRes.value.data.results ?? maintRes.value.data);
@@ -771,6 +815,34 @@ export default function AssetsPage() {
     setMaintTech("");
     setMaintPriority("high");
     setMaintInstructions("");
+  }
+
+  /** Assign the asset for installation — that is what opens its tracker job. */
+  async function openInstallationJob(deviceId: string) {
+    const turnkey = detailView?.source === "vendor_turnkey";
+    if (!assignTechnician || !(assignSite || detailView?.current_site)) return;
+    if (turnkey && !assignVendorName.trim()) return;
+    setInstallLoading(true);
+    try {
+      await api.post(`/assets/devices/${deviceId}/transition/`, {
+        status: "assigned",
+        reason: "Assigned for installation",
+        assigned_technician: assignTechnician,
+        ...(assignSite ? { current_site: assignSite } : {}),
+        ...(turnkey
+          ? { assigned_vendor_name: assignVendorName.trim(), assigned_vendor_contact: assignVendorContact.trim() }
+          : {}),
+      });
+      toast.success("Installation opened — it runs on the Installation Tracker from here");
+      resetTransition();
+      refreshDetail(deviceId);
+      fetchRelatedData(deviceId);
+      fetchDevices();
+    } catch (err: unknown) {
+      toast.error(getApiError(err, "Could not open the installation"));
+    } finally {
+      setInstallLoading(false);
+    }
   }
 
   async function handleStatusTransition(deviceId: string) {
@@ -1246,23 +1318,20 @@ export default function AssetsPage() {
                       <LifecycleStepper requiresProduction={d.requires_production} status={d.status} stageDates={d.stage_dates ?? {}} />
                       {canEdit && (
                         <div className="mt-4 rounded-lg border border-border bg-secondary/20 p-3">
-                          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Change Status</p>
-                          {/* Installed and Active are recorded on site, in the
-                              tracker, with the technician's photo — not typed
-                              in here — so say where they come from. */}
-                          {["assigned", "installed"].includes(d.status) && (
-                            <p className="mb-2 text-2xs text-muted-foreground">
-                              {d.status === "assigned" ? "Installed" : "Active"} is recorded by the technician in the{" "}
-                              <Link href={`/installation-tracker?device=${d.id}`} className="font-medium text-primary hover:underline">
-                                Installation Tracker
-                              </Link>
-                              {d.status === "installed" ? ", with a photo of the installed asset." : ", not here."}
-                            </p>
-                          )}
-                          {(d.allowed_transitions ?? []).length > 0 ? (
+                          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                            Record manually
+                          </p>
+                          {/* The lifecycle follows the work: the build moves it
+                              into stock, the tracker moves it through
+                              installation, maintenance brings it back. Only the
+                              two end states below are somebody's decision. */}
+                          <p className="mb-2 text-2xs text-muted-foreground">
+                            {LIFECYCLE_SOURCE[d.status] ?? "The lifecycle follows the work — these two end states are the only ones anybody sets by hand."}
+                          </p>
+                          {(d.allowed_transitions ?? []).filter((s) => MANUAL_STATUSES.includes(s)).length > 0 ? (
                             <>
                               <div className="flex flex-wrap gap-2">
-                                {(d.allowed_transitions ?? []).map((s) => (
+                                {(d.allowed_transitions ?? []).filter((s) => MANUAL_STATUSES.includes(s)).map((s) => (
                                   <button
                                     key={s}
                                     type="button"
@@ -1503,7 +1572,9 @@ export default function AssetsPage() {
                               )}
                             </>
                           ) : (
-                            <p className="text-xs text-muted-foreground">No further transitions available from “{statusLabel(d.status)}”.</p>
+                            <p className="text-xs text-muted-foreground">
+                              Nothing to record by hand from “{statusLabel(d.status)}”.
+                            </p>
                           )}
                         </div>
                       )}
@@ -1744,6 +1815,139 @@ export default function AssetsPage() {
                       />
                     </div>
                     </>)}
+                    {/* Who puts it in and switches it on. Assigning here is
+                        what opens the job on the Installation Tracker; the
+                        technician's work there is what moves the asset to
+                        Installed and then Active. */}
+                    <div>
+                      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                        <h4 className="text-sm font-semibold text-foreground">Installation &amp; Activation</h4>
+                        {installation && (
+                          <Link
+                            href={`/installation-tracker?device=${d.id}`}
+                            className="inline-flex items-center gap-1 text-2xs font-medium text-primary hover:underline"
+                          >
+                            Open in Installation Tracker <ChevronRight className="h-3 w-3" />
+                          </Link>
+                        )}
+                      </div>
+                      {installation ? (
+                        <div className="rounded-xl border border-border p-4">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <dl className="grid flex-1 gap-3 text-xs sm:grid-cols-4">
+                              <div>
+                                <dt className="text-2xs uppercase tracking-wider text-muted-foreground">Site</dt>
+                                <dd className="text-foreground">{installation.site_name ?? "—"}</dd>
+                              </div>
+                              <div>
+                                <dt className="text-2xs uppercase tracking-wider text-muted-foreground">Technician</dt>
+                                <dd className="text-foreground">{installation.installed_by_name || installation.vendor_display || "—"}</dd>
+                              </div>
+                              <div>
+                                <dt className="text-2xs uppercase tracking-wider text-muted-foreground">Due</dt>
+                                <dd className="text-foreground">{installation.due_date ?? "—"}</dd>
+                              </div>
+                              <div>
+                                <dt className="text-2xs uppercase tracking-wider text-muted-foreground">Steps</dt>
+                                <dd className="text-foreground">
+                                  {installation.steps_done ?? 0} of {installation.steps_total ?? 0} done
+                                </dd>
+                              </div>
+                            </dl>
+                            <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-2xs font-medium ring-1 ${
+                              installation.completed_at
+                                ? "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20"
+                                : "bg-amber-500/10 text-amber-600 ring-amber-500/20"
+                            }`}>
+                              {installation.completed_at ? "Checklist complete" : "On site"}
+                            </span>
+                          </div>
+                          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-secondary">
+                            <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${installation.progress ?? 0}%` }} />
+                          </div>
+                          <p className="mt-2 text-2xs text-muted-foreground">
+                            {d.status === "active"
+                              ? "Active — the technician activated it on site with a photo."
+                              : d.status === "installed"
+                                ? "Installed. It becomes Active when the technician activates it in the tracker, with a photo."
+                                : "The asset becomes Installed when the checklist there is finished, and Active when the technician activates it."}
+                          </p>
+                        </div>
+                      ) : canEdit && (d.allowed_transitions ?? []).includes("assigned") ? (
+                        <div className="space-y-2.5 rounded-xl border border-border p-4">
+                          <p className="text-xs text-muted-foreground">
+                            Say where it goes and who puts it in. That opens the job on the Installation Tracker and
+                            the asset follows it from there — no status is typed in.
+                          </p>
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            <select
+                              id="install_site"
+                              value={assignSite || d.current_site || ""}
+                              onChange={(e) => setAssignSite(e.target.value)}
+                              className={`${inputClass} h-9 text-xs`}
+                            >
+                              <option value="">Select site…</option>
+                              {sites.map((site) => <option key={site.id} value={site.id}>{site.label}</option>)}
+                            </select>
+                            <select
+                              id="install_technician"
+                              value={assignTechnician}
+                              onChange={(e) => setAssignTechnician(e.target.value)}
+                              className={`${inputClass} h-9 text-xs`}
+                            >
+                              <option value="">
+                                {d.source === "vendor_turnkey" ? "Technician overseeing…" : "Select technician…"}
+                              </option>
+                              {technicians.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+                            </select>
+                          </div>
+                          {d.source === "vendor_turnkey" && (
+                            <div className="grid gap-2 sm:grid-cols-2">
+                              <input
+                                id="install_vendor"
+                                value={assignVendorName}
+                                onChange={(e) => setAssignVendorName(e.target.value)}
+                                placeholder="Vendor installing it"
+                                className={`${inputClass} h-9 text-xs`}
+                              />
+                              <input
+                                id="install_vendor_contact"
+                                value={assignVendorContact}
+                                onChange={(e) => setAssignVendorContact(e.target.value)}
+                                placeholder="Contact / phone"
+                                className={`${inputClass} h-9 text-xs`}
+                              />
+                            </div>
+                          )}
+                          <p className="text-2xs text-muted-foreground">
+                            {d.source === "vendor_turnkey"
+                              ? "The vendor supplies and installs it; our technician oversees."
+                              : d.source === "vendor_supplied"
+                                ? "The vendor supplies the asset; our own technician installs it."
+                                : "Details come from the manpower records."}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => openInstallationJob(d.id)}
+                            disabled={
+                              installLoading || !assignTechnician || !(assignSite || d.current_site) ||
+                              (d.source === "vendor_turnkey" && !assignVendorName.trim())
+                            }
+                            className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+                          >
+                            {installLoading ? "Opening…" : "Assign & open installation"}
+                          </button>
+                        </div>
+                      ) : (
+                        <p className="rounded-xl border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
+                          {["procured", "in_production"].includes(d.status)
+                            ? "Available once the build is finished and the asset is in stock."
+                            : ["installed", "active", "under_maintenance", "client_property", "decommissioned"].includes(d.status)
+                              ? "No installation job on record — this asset was not put in through the tracker."
+                              : `Not available while the asset is “${statusLabel(d.status)}”.`}
+                        </p>
+                      )}
+                    </div>
                     <div>
                       <h4 className="text-sm font-semibold text-foreground mb-3">Service History</h4>
                       <div className="grid gap-3 sm:grid-cols-2">
@@ -2399,17 +2603,22 @@ export default function AssetsPage() {
           )}
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <SelectOrCreate
-              id="asset_type"
-              label="Asset Type"
-              value={formAssetType}
-              onChange={setFormAssetType}
-              options={assetTypes.map((a) => ({ id: a.id, name: a.label }))}
-              onCreated={(created) => setAssetTypes((prev) => [...prev, { id: created.id, label: created.name }])}
-              endpoint="/assets/asset-types/"
-              createPlaceholder="e.g. Standee, SMD Screen"
-              emptyLabel="Select…"
-            />
+            <div className="space-y-1.5">
+              <label htmlFor="asset_type" className={labelClass}>Asset Type</label>
+              {/* The list of types is maintained in Setup › Asset Types, so it
+                  is chosen here, never invented on the registration form. */}
+              <select
+                id="asset_type"
+                value={formAssetType}
+                onChange={(e) => setFormAssetType(e.target.value)}
+                className={inputClass}
+              >
+                <option value="">Select…</option>
+                {assetTypes.map((a) => (
+                  <option key={a.id} value={a.id}>{a.label}</option>
+                ))}
+              </select>
+            </div>
             <div className="space-y-1.5">
               <label htmlFor="display_name" className={labelClass}>Asset Name</label>
               <input id="display_name" name="display_name" defaultValue={selected?.display_name ?? ""} className={inputClass} placeholder="e.g. Main entrance SMD wall" />
