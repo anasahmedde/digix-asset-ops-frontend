@@ -5,12 +5,13 @@ import { Fragment, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { CopyButton } from "@/components/ui/copy-button";
+import { Modal } from "@/components/ui/modal";
 import { WorkOrderRequests } from "@/components/work-orders/work-order-requests";
 import { WorkReceiving } from "@/components/work-orders/work-receiving";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
-import type { PaymentTerms, Supplier, WorkOrder, WorkOrderStatus } from "@/types";
+import type { PaymentTerms, Supplier, WorkOrder, WorkOrderItem, WorkOrderStatus } from "@/types";
 
 const inputClass =
   "flex h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors";
@@ -61,6 +62,8 @@ const TRANSITIONS: Record<WorkOrderStatus, Array<{ status: WorkOrderStatus; labe
   ],
   partially_delivered: [
     { status: "delivered", label: "Vendor Delivered" },
+    // The vendor can keep sending jobs in until the last one is done.
+    { status: "partially_delivered", label: "Partly Delivered" },
     { status: "cancelled", label: "Cancel WO" },
   ],
   delivered: [],
@@ -91,6 +94,26 @@ function labelFor(status: WorkOrderStatus, next: WorkOrderStatus): string {
   return TRANSITIONS[status].find((a) => a.status === next)?.label ?? next;
 }
 const CURRENCIES = ["PKR", "AED", "SAR", "QAR", "USD", "EUR", "GBP"];
+
+// Where one job on an order stands, in the same colours the order's own status
+// uses: out with the vendor, on the receiving desk, or done.
+const LINE_STATE_STYLES: Record<string, string> = {
+  with_vendor: "bg-amber-500/10 text-amber-600 ring-amber-500/20",
+  awaiting_inspection: "bg-blue-500/10 text-blue-600 ring-blue-500/20",
+  accepted: "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20",
+  rework: "bg-rose-500/10 text-rose-600 ring-rose-500/20",
+};
+
+/** Whether the work came in on time, once it has come in. */
+function lateness(wo: WorkOrder): string {
+  if (!wo.expected_delivery || !wo.delivered_at) return "";
+  const due = new Date(`${wo.expected_delivery}T00:00:00`);
+  const came = new Date(wo.delivered_at);
+  const days = Math.round((came.getTime() - due.getTime()) / 86_400_000);
+  if (days > 0) return `${days} day${days === 1 ? "" : "s"} late`;
+  if (days < 0) return `${-days} day${days === -1 ? "" : "s"} early`;
+  return "on the day";
+}
 
 interface ItemRow {
   description: string;
@@ -127,17 +150,24 @@ export default function WorkOrdersPage() {
   const [tab, setTab] = useState<"orders" | "requests" | "receiving">("orders");
   const [expanded, setExpanded] = useState<string | null>(null);
   const [detail, setDetail] = useState<Record<string, WorkOrder>>({});
+  const [downloading, setDownloading] = useState<string | null>(null);
+  // The vendor has finished some of the jobs on an order: which ones.
+  const [partDelivery, setPartDelivery] = useState<{ wo: WorkOrder; lines: WorkOrderItem[] } | null>(null);
+  const [partPicked, setPartPicked] = useState<Set<string>>(new Set());
+  const [partSaving, setPartSaving] = useState(false);
 
-  /** The full order for the open row — lines and inspection. */
+  /** The full order — lines, receipt and inspection. */
+  async function loadDetail(id: string) {
+    try {
+      const { data } = await api.get<WorkOrder>(`/work-orders/${id}/`);
+      setDetail((d) => ({ ...d, [id]: data }));
+    } catch { /* the row still shows its summary */ }
+  }
+
   async function expandRow(id: string) {
     if (expanded === id) { setExpanded(null); return; }
     setExpanded(id);
-    if (!detail[id]) {
-      try {
-        const { data } = await api.get<WorkOrder>(`/work-orders/${id}/`);
-        setDetail((d) => ({ ...d, [id]: data }));
-      } catch { /* the row still shows its summary */ }
-    }
+    if (!detail[id]) await loadDetail(id);
   }
 
   const [orders, setOrders] = useState<WorkOrder[]>([]);
@@ -283,13 +313,49 @@ export default function WorkOrdersPage() {
     }
   }
 
+  /** The order as a PDF, the way the vendor receives it. */
   async function handlePrint(wo: WorkOrder) {
+    setDownloading(wo.id);
     try {
       const res = await api.get(`/work-orders/${wo.id}/print/`, { responseType: "blob" });
       const url = URL.createObjectURL(res.data as Blob);
-      window.open(url, "_blank");
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${wo.wo_number || "work-order"}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
     } catch (err) {
-      toast.error(getApiError(err, "Failed to generate PDF"));
+      toast.error(getApiError(err, "Could not produce the work order"));
+    } finally {
+      setDownloading(null);
+    }
+  }
+
+  /** Part delivery: the vendor names the jobs he has finished. */
+  function openPartDelivery(wo: WorkOrder) {
+    const lines = detail[wo.id]?.items ?? [];
+    setPartDelivery({ wo, lines: lines.filter((i) => i.line_state === "with_vendor") });
+    setPartPicked(new Set());
+  }
+
+  async function submitPartDelivery() {
+    if (!partDelivery || partPicked.size === 0) return;
+    setPartSaving(true);
+    try {
+      const { data } = await api.post(`/work-orders/${partDelivery.wo.id}/transition/`, {
+        status: "partially_delivered",
+        items: Array.from(partPicked),
+      });
+      toast.success(
+        `${partPicked.size} job${partPicked.size === 1 ? "" : "s"} received on ${data.wo_number} — inspect ${partPicked.size === 1 ? "it" : "them"} under Work Receiving`,
+      );
+      setPartDelivery(null);
+      fetchOrders();
+      loadDetail(partDelivery.wo.id);
+    } catch (err) {
+      toast.error(getApiError(err, "Could not record the delivery"));
+    } finally {
+      setPartSaving(false);
     }
   }
 
@@ -399,9 +465,6 @@ export default function WorkOrdersPage() {
                     <td className={`${tdClass} text-muted-foreground`}>{wo.expected_delivery ?? "-"}</td>
                     <td className={tdClass} onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center gap-1">
-                        <button onClick={() => handlePrint(wo)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground" title="Print PDF">
-                          <FileDown className="h-3.5 w-3.5" />
-                        </button>
                         {canEdit && (
                           <>
                             <button onClick={() => openEdit(wo.id)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground" title="Edit">
@@ -420,7 +483,13 @@ export default function WorkOrdersPage() {
                       <td colSpan={9} className="px-6 py-4">
                         {(() => {
                           const d = detail[wo.id];
-                          const moves = movesFor(wo.status, user?.role);
+                          const lines = d?.items ?? [];
+                          // Nothing is "partly" about a single job, and there
+                          // has to be more than one still out for it to apply.
+                          const canSplit = lines.length > 1 && lines.filter((i) => i.line_state === "with_vendor").length > 1;
+                          const moves = movesFor(wo.status, user?.role).filter(
+                            (m) => m !== "partially_delivered" || canSplit,
+                          );
                           return (
                             <div className="space-y-4">
                               <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-4 text-sm">
@@ -428,31 +497,61 @@ export default function WorkOrdersPage() {
                                 <div><p className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">Project</p><p className="mt-0.5 text-foreground">{wo.project_name ?? "—"}</p></div>
                                 <div><p className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">Order date</p><p className="mt-0.5 text-foreground">{d?.order_date ?? "Set when the Group Head approves"}</p></div>
                                 <div><p className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">Approved by</p><p className="mt-0.5 text-foreground">{d?.approved_by_name ?? "—"}</p></div>
-                                <div><p className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">Delivered</p><p className="mt-0.5 text-foreground">{wo.delivered_at ? new Date(wo.delivered_at).toLocaleString() : "—"}</p></div>
+                                <div>
+                                  <p className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">Work received</p>
+                                  <p className="mt-0.5 text-foreground">{wo.delivered_at ? new Date(wo.delivered_at).toLocaleString() : "—"}</p>
+                                  <p className="text-2xs text-muted-foreground">
+                                    {wo.expected_delivery
+                                      ? <>due {wo.expected_delivery}{lateness(wo) ? ` · ${lateness(wo)}` : ""}</>
+                                      : "no date agreed"}
+                                  </p>
+                                </div>
                                 <div className="sm:col-span-2 lg:col-span-3">
                                   <p className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">Inspection</p>
                                   <p className="mt-0.5 text-foreground">
                                     {wo.inspection_result
                                       ? <>{wo.inspection_result_display}{wo.inspected_by_name ? ` by ${wo.inspected_by_name}` : ""}{wo.inspected_at ? ` on ${new Date(wo.inspected_at).toLocaleString()}` : ""}</>
-                                      : wo.status === "delivered" ? "Awaiting inspection — Work Receiving" : "—"}
+                                      : wo.status === "delivered" || wo.status === "partially_delivered" ? "Awaiting inspection — Work Receiving" : "—"}
                                   </p>
                                   {wo.inspection_notes && <p className="mt-1 whitespace-pre-line text-2xs text-muted-foreground">{wo.inspection_notes}</p>}
                                 </div>
                               </div>
-                              {d && d.items.length > 0 && (
+                              {d && lines.length > 0 && (
                                 <div className="overflow-hidden rounded-lg border border-border bg-card">
                                   <table className="w-full text-xs">
                                     <thead>
                                       <tr className="border-b border-border bg-secondary/40 text-left text-muted-foreground">
-                                        <th className="px-3 py-2 font-medium">Line</th>
+                                        <th className="px-3 py-2 font-medium">Job</th>
+                                        <th className="px-3 py-2 font-medium">Where it stands</th>
+                                        <th className="px-3 py-2 font-medium">Received</th>
+                                        <th className="px-3 py-2 font-medium">Inspected</th>
                                         <th className="px-3 py-2 text-right font-medium">Qty</th>
                                         <th className="px-3 py-2 text-right font-medium">Amount</th>
                                       </tr>
                                     </thead>
                                     <tbody>
-                                      {d.items.map((i, n) => (
-                                        <tr key={i.id ?? n} className="border-b border-border/60 last:border-0">
-                                          <td className="px-3 py-1.5 text-foreground">{i.description}</td>
+                                      {lines.map((i, n) => (
+                                        <tr key={i.id ?? n} className="border-b border-border/60 align-top last:border-0">
+                                          <td className="px-3 py-1.5 text-foreground">
+                                            {i.description}
+                                            {i.asset_code && <span className="ml-1.5 font-mono text-2xs text-muted-foreground">{i.asset_code}</span>}
+                                          </td>
+                                          <td className="px-3 py-1.5">
+                                            <span className={`inline-flex rounded-full px-2 py-0.5 text-2xs font-medium ring-1 ${LINE_STATE_STYLES[i.line_state ?? "with_vendor"]}`}>
+                                              {i.line_state_display ?? "With the vendor"}
+                                            </span>
+                                          </td>
+                                          <td className="px-3 py-1.5 text-muted-foreground">
+                                            {i.delivered_at ? new Date(i.delivered_at).toLocaleString() : "—"}
+                                          </td>
+                                          <td className="px-3 py-1.5 text-muted-foreground">
+                                            {i.inspected_at
+                                              ? <>{i.inspected_by_name ?? "—"}<span className="block text-2xs">{new Date(i.inspected_at).toLocaleString()}</span></>
+                                              : "—"}
+                                            {i.inspection_notes && (
+                                              <span className="mt-0.5 block whitespace-pre-line text-2xs text-muted-foreground">{i.inspection_notes}</span>
+                                            )}
+                                          </td>
                                           <td className="px-3 py-1.5 text-right text-muted-foreground">{i.quantity}</td>
                                           <td className="px-3 py-1.5 text-right text-foreground">{Number(i.unit_price).toLocaleString()}</td>
                                         </tr>
@@ -461,6 +560,17 @@ export default function WorkOrdersPage() {
                                   </table>
                                 </div>
                               )}
+                              {/* Where the purchase order keeps its download. */}
+                              <div>
+                                <button
+                                  onClick={() => handlePrint(wo)}
+                                  disabled={downloading === wo.id}
+                                  className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
+                                >
+                                  <FileDown className="h-4 w-4" />
+                                  {downloading === wo.id ? "Preparing…" : "Download WO"}
+                                </button>
+                              </div>
                               {canEdit && (moves.length > 0 || wo.status === "delivered" || wo.status === "partially_delivered" || wo.status === "pending_approval") && (
                                 <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-secondary/30 p-3">
                                   {(wo.status === "delivered" || wo.status === "partially_delivered") && (
@@ -473,7 +583,8 @@ export default function WorkOrdersPage() {
                                     <span className="text-2xs text-muted-foreground">Waiting for the Group Head to approve.</span>
                                   )}
                                   {moves.map((m) => (
-                                    <button key={m} type="button" onClick={() => handleTransition(wo.id, m)}
+                                    <button key={m} type="button"
+                                      onClick={() => (m === "partially_delivered" ? openPartDelivery(wo) : handleTransition(wo.id, m))}
                                       className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${m === "cancelled" ? "border-border text-muted-foreground hover:bg-destructive/10 hover:text-destructive" : m === "approved" ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/20" : "border-border bg-card text-foreground hover:bg-secondary"}`}>
                                       {labelFor(wo.status, m)}
                                     </button>
@@ -615,6 +726,61 @@ export default function WorkOrdersPage() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Which jobs the vendor has finished. Only the ones still with him can
+          be named, and naming them all is simply a whole delivery. */}
+      {partDelivery && (
+        <Modal
+          open
+          onClose={() => setPartDelivery(null)}
+          title={`What has come in on ${partDelivery.wo.wo_number}?`}
+          size="md"
+        >
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Tick the jobs {partDelivery.wo.supplier_name ?? "the vendor"} has finished. They go to Work
+              Receiving to be inspected; the rest stay with him and follow the same way in.
+            </p>
+            <div className="divide-y divide-border overflow-hidden rounded-lg border border-border">
+              {partDelivery.lines.map((line) => (
+                <label key={line.id} className="flex cursor-pointer items-start gap-3 p-3 hover:bg-secondary/40">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 h-4 w-4 rounded border-border accent-primary"
+                    checked={partPicked.has(line.id as string)}
+                    onChange={(e) => setPartPicked((prev) => {
+                      const next = new Set(prev);
+                      if (e.target.checked) next.add(line.id as string); else next.delete(line.id as string);
+                      return next;
+                    })}
+                  />
+                  <span className="text-sm">
+                    <span className="font-medium text-foreground">{line.description}</span>
+                    {line.asset_code && <span className="ml-1.5 font-mono text-2xs text-muted-foreground">{line.asset_code}</span>}
+                  </span>
+                </label>
+              ))}
+            </div>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setPartDelivery(null)}
+                className="inline-flex h-10 items-center rounded-lg border border-border px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={submitPartDelivery}
+                disabled={partSaving || partPicked.size === 0}
+                className="inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-medium text-white transition-all disabled:opacity-50"
+              >
+                {partSaving ? "Recording…" : `Received ${partPicked.size || ""}`.trim()}
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );

@@ -8,7 +8,12 @@ import { Modal } from "@/components/ui/modal";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
-import type { WorkOrder } from "@/types";
+import type { WorkOrder, WorkOrderItem } from "@/types";
+
+/** The jobs on an order that have come in and nobody has looked at yet. */
+function waitingLines(wo: WorkOrder): WorkOrderItem[] {
+  return (wo.items ?? []).filter((i) => i.line_state === "awaiting_inspection");
+}
 
 const thClass = "px-5 py-3.5 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground";
 const tdClass = "px-4 py-3";
@@ -27,6 +32,9 @@ export function WorkReceiving({ onInspected }: { onInspected?: () => void }) {
   const [target, setTarget] = useState<WorkOrder | null>(null);
   const [result, setResult] = useState<"accepted" | "rework">("accepted");
   const [notes, setNotes] = useState("");
+  // Which of the delivered jobs this verdict covers. All of them, unless the
+  // inspector passes some and sends others back.
+  const [picked, setPicked] = useState<Set<string>>(new Set());
 
   const fetchRows = useCallback(async () => {
     setLoading(true);
@@ -46,18 +54,29 @@ export function WorkReceiving({ onInspected }: { onInspected?: () => void }) {
     setTarget(wo);
     setResult("accepted");
     setNotes("");
+    setPicked(new Set(waitingLines(wo).map((i) => i.id as string)));
   }
 
   async function submit() {
     if (!target) return;
     if (result === "rework" && !notes.trim()) { toast.error("Say what has to be redone."); return; }
+    const waiting = waitingLines(target);
+    if (waiting.length > 1 && picked.size === 0) { toast.error("Pick the jobs this verdict covers."); return; }
     setSaving(true);
     try {
-      const { data } = await api.post(`/work-orders/${target.id}/inspect/`, { result, notes: notes.trim() });
+      const some = waiting.length > 1 && picked.size < waiting.length;
+      const { data } = await api.post(`/work-orders/${target.id}/inspect/`, {
+        result,
+        notes: notes.trim(),
+        // Only name the jobs when it is some of them; all of them is the default.
+        ...(some ? { items: Array.from(picked) } : {}),
+      });
       toast.success(
         result === "accepted"
-          ? `${data.wo_number} accepted — the work is complete and its operations are marked done`
-          : `${data.wo_number} sent back to ${data.supplier_name} for rework`,
+          ? data.status === "completed"
+            ? `${data.wo_number} accepted — the work is complete and its operations are marked done`
+            : `${picked.size} job${picked.size === 1 ? "" : "s"} accepted on ${data.wo_number}; the rest are still with ${data.supplier_name}`
+          : `${some ? `${picked.size} job${picked.size === 1 ? "" : "s"} on ` : ""}${data.wo_number} sent back to ${data.supplier_name} for rework`,
       );
       setTarget(null);
       fetchRows();
@@ -112,8 +131,13 @@ export function WorkReceiving({ onInspected }: { onInspected?: () => void }) {
                     <td className={`${tdClass} text-foreground`}>
                       {wo.title}
                       <span className="block text-2xs text-muted-foreground">
-                        {wo.items.map((i) => i.description).join(" · ")}
+                        {waitingLines(wo).map((i) => i.description).join(" · ") || wo.items.map((i) => i.description).join(" · ")}
                       </span>
+                      {(wo.lines_with_vendor ?? 0) > 0 && (
+                        <span className="mt-0.5 block text-2xs font-medium text-amber-600">
+                          {waitingLines(wo).length} of {wo.line_count ?? wo.items.length} in · {wo.lines_with_vendor} still with the vendor
+                        </span>
+                      )}
                     </td>
                     <td className={`${tdClass} text-muted-foreground`}>{wo.supplier_name ?? "—"}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{wo.project_name ?? "—"}</td>
@@ -148,9 +172,40 @@ export function WorkReceiving({ onInspected }: { onInspected?: () => void }) {
             <div className="rounded-xl border border-border bg-secondary/20 p-3 text-xs text-muted-foreground">
               <span className="font-medium text-foreground">{target.title}</span>
               {" · "}{target.supplier_name}
-              {target.items.length > 0 && <span className="block mt-1">{target.items.map((i) => i.description).join(" · ")}</span>}
               {target.inspection_notes && <span className="mt-1 block whitespace-pre-line text-amber-700">{target.inspection_notes}</span>}
             </div>
+            {waitingLines(target).length > 1 ? (
+              <div className="space-y-1.5">
+                <p className={labelClass}>Which jobs this covers</p>
+                <div className="divide-y divide-border overflow-hidden rounded-lg border border-border">
+                  {waitingLines(target).map((line) => (
+                    <label key={line.id} className="flex cursor-pointer items-start gap-3 p-2.5 hover:bg-secondary/40">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 h-4 w-4 rounded border-border accent-primary"
+                        checked={picked.has(line.id as string)}
+                        onChange={(e) => setPicked((prev) => {
+                          const next = new Set(prev);
+                          if (e.target.checked) next.add(line.id as string); else next.delete(line.id as string);
+                          return next;
+                        })}
+                      />
+                      <span className="text-sm text-foreground">
+                        {line.description}
+                        {line.asset_code && <span className="ml-1.5 font-mono text-2xs text-muted-foreground">{line.asset_code}</span>}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                <p className="text-2xs text-muted-foreground">
+                  Pass some and send others back by inspecting them separately.
+                </p>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                {waitingLines(target)[0]?.description ?? target.items.map((i) => i.description).join(" · ")}
+              </p>
+            )}
             <div className="grid gap-2 sm:grid-cols-2">
               <button
                 type="button"
@@ -172,7 +227,8 @@ export function WorkReceiving({ onInspected }: { onInspected?: () => void }) {
               <textarea id="wi_notes" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={result === "rework" ? "e.g. Paint runs on two panels" : "Optional"} className={inputClass} />
             </div>
             <p className="text-2xs text-muted-foreground">
-              Recorded as inspected by you, now. Accepted work completes the order and every operation on it in the project.
+              Recorded as inspected by you, now. Accepted work finishes those jobs and their operations in the
+              project; the order completes once every job on it has passed.
             </p>
             <div className="flex justify-end gap-3">
               <button type="button" onClick={() => setTarget(null)} className="inline-flex h-10 items-center rounded-lg border border-border px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">Cancel</button>

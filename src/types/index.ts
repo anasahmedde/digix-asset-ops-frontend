@@ -431,6 +431,18 @@ export interface WorkOrderItem {
   unit_price: string | number;
   received_quantity?: number;
   line_total?: string;
+  /** The operation and asset this line pays for, when it came from a route. */
+  operation?: string | null;
+  asset_code?: string | null;
+  /** Each job comes in and is inspected on its own. */
+  delivered_at?: string | null;
+  inspected_at?: string | null;
+  inspected_by_name?: string | null;
+  inspection_result?: "accepted" | "rework" | "" | null;
+  inspection_result_display?: string | null;
+  inspection_notes?: string;
+  line_state?: "with_vendor" | "awaiting_inspection" | "accepted" | "rework";
+  line_state_display?: string;
 }
 
 export interface WorkOrder {
@@ -470,6 +482,10 @@ export interface WorkOrder {
   inspection_result?: "accepted" | "rework" | "" | null;
   inspection_result_display?: string | null;
   inspection_notes?: string;
+  /** How the order's jobs stand: how many in total, waiting, and still out. */
+  line_count?: number;
+  lines_awaiting_inspection?: number;
+  lines_with_vendor?: number;
   created_at: string;
   updated_at: string;
 }
