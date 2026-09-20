@@ -1941,7 +1941,9 @@ export default function AssetsPage() {
                       ) : (
                         <p className="rounded-xl border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
                           {["procured", "in_production"].includes(d.status)
-                            ? "Available once the build is finished and the asset is in stock."
+                            ? d.requires_production
+                              ? "Available once the build is finished and the asset is in stock."
+                              : "Available once the asset has been received into stock."
                             : ["installed", "active", "under_maintenance", "client_property", "decommissioned"].includes(d.status)
                               ? "No installation job on record — this asset was not put in through the tracker."
                               : `Not available while the asset is “${statusLabel(d.status)}”.`}
