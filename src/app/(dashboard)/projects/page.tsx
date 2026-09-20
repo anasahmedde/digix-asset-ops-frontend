@@ -41,6 +41,12 @@ import { BarChart } from "@/components/charts/bar-chart";
 interface ClientOpt { id: string; name: string }
 interface Option { id: string; label: string }
 
+/** An asset as the picker needs it: what to call it and where it is. */
+interface DeviceRow { id: string; asset_code: string; display_name: string | null; current_site?: string | null; site_name?: string | null }
+interface DeviceSite { site: string | null; site_name: string | null; code: string }
+/** An asset whose own site is not one the project covers. */
+interface SiteClash { device: string; code: string; site: string; siteName: string; payload: Record<string, unknown> }
+
 /** Sites read as "name · city": several can share a name, and the city is what
  *  tells them apart on a list. */
 function siteLabels(rows: { id: string; name: string; city?: string }[]): Option[] {
@@ -277,6 +283,10 @@ export default function ProjectsPage() {
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
   const [linkedAssets, setLinkedAssets] = useState<LinkedAsset[]>([]);
   const [deviceOptions, setDeviceOptions] = useState<Option[]>([]);
+  const [deviceSites, setDeviceSites] = useState<Record<string, DeviceSite>>({});
+  // An asset being scoped that sits somewhere the project does not cover.
+  const [siteClash, setSiteClash] = useState<SiteClash | null>(null);
+  const [resolvingClash, setResolvingClash] = useState(false);
   const [siteOptions, setSiteOptions] = useState<Option[]>([]);
   const [managerOptions, setManagerOptions] = useState<Option[]>([]);
   const [scopeDevice, setScopeDevice] = useState("");
@@ -327,10 +337,20 @@ export default function ProjectsPage() {
         .catch(() => setLinkedAssets([]));
       if (deviceOptions.length === 0) {
         api.get("/assets/devices/", { params: { page_size: 1000 } })
-          .then((r) => setDeviceOptions((r.data.results ?? []).map((d: { id: string; asset_code: string; display_name: string | null }) => ({
-            id: d.id,
-            label: d.display_name ? `${d.asset_code} — ${d.display_name}` : d.asset_code,
-          }))))
+          .then((r) => {
+            const rows: DeviceRow[] = r.data.results ?? [];
+            setDeviceOptions(rows.map((d) => ({
+              id: d.id,
+              label: d.display_name ? `${d.asset_code} — ${d.display_name}` : d.asset_code,
+            })));
+            // Where each asset sits, so scoping one can tell when it is
+            // somewhere the project does not cover.
+            setDeviceSites(Object.fromEntries(rows.map((d) => [d.id, {
+              site: d.current_site ?? null,
+              site_name: d.site_name ?? null,
+              code: d.asset_code,
+            }])));
+          })
           .catch(() => {});
         api.get("/sites/sites/", { params: { page_size: 1000 } })
           .then((r) => setSiteOptions(siteLabels(r.data.results ?? [])))
@@ -366,19 +386,40 @@ export default function ProjectsPage() {
   async function addScopeItem(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!detail) return;
-    setAddingScope(true);
     const fd = new FormData(e.currentTarget);
     const formEl = e.currentTarget;
-    try {
-      await api.post("/teams/scope-items/", {
-        project: detail.id,
-        device: fd.get("scope_device"),
-        component: null,
-        quantity: 1,
-        site: fd.get("scope_site") || null,
-        start_date: null,
-        notes: fd.get("scope_notes") || "",
+    const deviceId = String(fd.get("scope_device") ?? "");
+    const payload = {
+      project: detail.id,
+      device: deviceId,
+      component: null,
+      quantity: 1,
+      site: fd.get("scope_site") || null,
+      start_date: null,
+      notes: fd.get("scope_notes") || "",
+    };
+
+    // The asset carries its own location. If the project does not cover it,
+    // say so rather than quietly scoping work to a place nobody listed.
+    const where = deviceSites[deviceId];
+    const covered = (detail.sites ?? []).map(String);
+    if (where?.site && !covered.includes(String(where.site))) {
+      setSiteClash({
+        device: deviceId,
+        code: where.code,
+        site: String(where.site),
+        siteName: where.site_name ?? "its site",
+        payload,
       });
+      formEl.reset();
+      setScopeDevice("");
+      setScopeComponents([]);
+      return;
+    }
+
+    setAddingScope(true);
+    try {
+      await api.post("/teams/scope-items/", payload);
       formEl.reset();
       setScopeDevice("");
       setScopeComponents([]);
@@ -388,6 +429,31 @@ export default function ProjectsPage() {
       toast.error(getApiError(err, "Failed to add scope item"));
     } finally {
       setAddingScope(false);
+    }
+  }
+
+  /** Settle the clash: put the asset's site on the project, or scope it anyway. */
+  async function resolveSiteClash(addSite: boolean) {
+    if (!siteClash || !detail) return;
+    setResolvingClash(true);
+    try {
+      if (addSite) {
+        await api.patch(`/teams/projects/${detail.id}/`, {
+          sites: [...(detail.sites ?? []).map(String), siteClash.site],
+        });
+      }
+      await api.post("/teams/scope-items/", siteClash.payload);
+      toast.success(
+        addSite
+          ? `${siteClash.siteName} added to the project, and ${siteClash.code} with it`
+          : `${siteClash.code} added to the scope`,
+      );
+      setSiteClash(null);
+      loadDetail(detail.id);
+    } catch (err) {
+      toast.error(getApiError(err, "Failed to add scope item"));
+    } finally {
+      setResolvingClash(false);
     }
   }
 
@@ -896,7 +962,18 @@ export default function ProjectsPage() {
         </div>
 
         {/* Info strip */}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-7">
+          {/* Where the order is. It spans two so a list of sites has room. */}
+          <div className="rounded-xl border border-border bg-card px-4 py-3 sm:col-span-2 lg:col-span-2">
+            <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Location{(d.site_names ?? []).length > 1 ? ` · ${(d.site_names ?? []).length} sites` : ""}
+            </p>
+            {(d.site_names ?? []).length > 0 ? (
+              <p className="text-sm font-medium text-foreground">{(d.site_names ?? []).join(", ")}</p>
+            ) : (
+              <p className="text-sm font-medium text-amber-600">No site on this project yet</p>
+            )}
+          </div>
           {[
             { label: "Manager", value: d.manager_name || "—" },
             { label: "Start Date", value: d.start_date || "—" },
@@ -1401,6 +1478,66 @@ export default function ProjectsPage() {
               </button>
             </div>
           </form>
+        </Modal>
+
+        {/* The asset sits somewhere the project does not cover. Say so, and
+            offer the obvious fix rather than a dead end. */}
+        <Modal
+          open={!!siteClash}
+          onClose={() => setSiteClash(null)}
+          title="This asset is somewhere else"
+          size="md"
+        >
+          {siteClash && (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                <span className="font-mono font-medium text-foreground">{siteClash.code}</span> is at{" "}
+                <span className="font-medium text-foreground">{siteClash.siteName}</span>, which is not one of the
+                sites this project covers.
+              </p>
+              <dl className="space-y-2 rounded-lg border border-border bg-secondary/20 p-3 text-xs">
+                <div className="flex justify-between gap-4">
+                  <dt className="text-muted-foreground">The asset is at</dt>
+                  <dd className="text-right font-medium text-foreground">{siteClash.siteName}</dd>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <dt className="text-muted-foreground">The project covers</dt>
+                  <dd className="text-right font-medium text-foreground">
+                    {(detail.site_names ?? []).join(", ") || "no sites yet"}
+                  </dd>
+                </div>
+              </dl>
+              <p className="text-2xs text-muted-foreground">
+                Put the asset&apos;s site on the project, or scope it anyway and leave the sites as they are.
+              </p>
+              <div className="flex flex-wrap justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setSiteClash(null)}
+                  disabled={resolvingClash}
+                  className="inline-flex h-10 items-center rounded-lg border border-border px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => resolveSiteClash(false)}
+                  disabled={resolvingClash}
+                  className="inline-flex h-10 items-center rounded-lg border border-border px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
+                >
+                  Add anyway
+                </button>
+                <button
+                  type="button"
+                  onClick={() => resolveSiteClash(true)}
+                  disabled={resolvingClash}
+                  className="inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-medium text-white transition-all disabled:opacity-50"
+                >
+                  {resolvingClash ? "Adding…" : `Add ${siteClash.siteName} to the project`}
+                </button>
+              </div>
+            </div>
+          )}
         </Modal>
 
         {projectFormModal}
