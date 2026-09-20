@@ -134,6 +134,8 @@ interface InstallationListItem {
   device_name: string | null;
   asset_name: string | null;
   client_names: string[];
+  /** The order this installation belongs to. */
+  project_name: string | null;
   site_name: string;
   installed_by_name: string | null;
   installed_by_phone: string | null;
@@ -271,7 +273,7 @@ function stepperStatus(status: string): "completed" | "in_progress" | "on_hold" 
 }
 
 function exportCsv(rows: InstallationListItem[]) {
-  const header = ["Asset Code", "Asset Name", "Status", "Client(s)", "Site", "Installer", "POC", "Assigned", "Due Date", "Installed On", "Progress %", "Client Delays"];
+  const header = ["Asset Code", "Asset Name", "Status", "Client(s)", "Project", "Site", "Installer", "POC", "Assigned", "Due Date", "Installed On", "Progress %", "Client Delays"];
   const escape = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
   const lines = rows.map((r) =>
     [
@@ -279,6 +281,7 @@ function exportCsv(rows: InstallationListItem[]) {
       r.asset_name || r.device_name || "",
       r.health_display ?? "",
       r.client_names.join("; "),
+      r.project_name ?? "",
       r.site_name,
       r.installed_by_name ?? "",
       r.poc_name ?? "",
@@ -1912,6 +1915,7 @@ export default function InstallationTrackerPage() {
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Asset ID</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Asset Name</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Client(s)</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Project</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Site</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Installer</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">POC</th>
@@ -1945,6 +1949,9 @@ export default function InstallationTrackerPage() {
                           || "—"}
                       </td>
                       <td className="px-4 py-3.5 text-foreground">{inst.client_names.length > 0 ? inst.client_names.join(", ") : "—"}</td>
+                      {/* Which order the installation belongs to — the question
+                          asked of every other list in the system. */}
+                      <td className="px-4 py-3.5 text-foreground">{inst.project_name || "Not on a project"}</td>
                       <td className="px-4 py-3.5 text-foreground">{inst.site_name}</td>
                       <td className="px-4 py-3.5 text-foreground">
                         {inst.installed_by_name || "—"}
