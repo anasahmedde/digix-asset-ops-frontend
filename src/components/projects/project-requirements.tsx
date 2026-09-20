@@ -443,10 +443,11 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                 <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-4">
                   <div className="text-sm">
                     <p className="font-medium text-foreground">Complete asset from the vendor</p>
+                    {/* What it costs is the Actual Cost section's business,
+                        further down. This says what the thing is. */}
                     <p className="text-xs text-muted-foreground">
                       Bought whole on a purchase order — no components or production route of its own.
                       {asset.supply_vendor_name ? ` Vendor: ${asset.supply_vendor_name}.` : ""}
-                      {asset.purchase_price ? ` Planned price PKR ${Number(asset.purchase_price).toLocaleString()}.` : " No price in the plan yet."}
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
@@ -683,7 +684,6 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                           <th className={thClass}>Operation</th>
                           <th className={thClass}>Where</th>
                           <th className={thClass}>Status</th>
-                          <th className={`${thClass} text-right`}>Planned</th>
                           {canDecide && <th className={thClass}>Decision</th>}
                         </tr>
                       </thead>
@@ -720,9 +720,6 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                                 }`}>
                                   {st.status_display}
                                 </span>
-                              </td>
-                              <td className={`${tdClass} text-right text-muted-foreground`}>
-                                {st.planned_cost != null ? `PKR ${Number(st.planned_cost).toLocaleString()}` : "—"}
                               </td>
                               {canDecide && (
                                 <td className={tdClass}>

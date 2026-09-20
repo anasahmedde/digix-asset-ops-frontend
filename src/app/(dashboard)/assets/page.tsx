@@ -48,6 +48,8 @@ interface Device {
   status_display?: string;
   warranty_status: string;
   image: string | null;
+  /** The picture to show: its own, else the gallery's primary photo. */
+  display_image?: string | null;
   current_site: string | null;
   site_name: string | null;
   project: string | null;
@@ -2124,7 +2126,7 @@ export default function AssetsPage() {
                           <p className="rounded-xl border border-dashed border-border p-4 text-xs text-muted-foreground">
                             {d.requires_production
                               ? "None of this asset's components carry a warranty."
-                              : "No vendor warranty recorded — add its expiry in Edit Asset."}
+                              : "No vendor warranty recorded. Warranties are raised under Warranties."}
                           </p>
                         )}
                       </div>
@@ -2172,7 +2174,9 @@ export default function AssetsPage() {
                           </div>
                         ) : (
                           <p className="rounded-xl border border-dashed border-border p-4 text-xs text-muted-foreground">
-                            No client warranty recorded — add its expiry in Edit Asset.
+                            {/* Cover is a commercial commitment, raised and
+                                revised in one place. */}
+                            No client warranty recorded. Warranties are raised under Warranties.
                           </p>
                         )}
                       </div>
@@ -2549,7 +2553,9 @@ export default function AssetsPage() {
                     )}
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-3">
-                        <DeviceImage src={d.image} alt={d.asset_code} size="sm" />
+                        {/* The photo it actually has: its own, else the
+                            primary one in its gallery. */}
+                        <DeviceImage src={d.display_image ?? d.image} alt={d.asset_code} size="sm" />
                         <span className="inline-flex items-center gap-1 font-mono text-sm font-medium text-primary">
                           {d.asset_code}
                           <CopyButton text={d.asset_code} label="asset code" />

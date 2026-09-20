@@ -126,6 +126,9 @@ interface ProjectDetail {
   location: string;
   client: string | null;
   client_name: string | null;
+  /** The client's own contact, so the team does not go hunting for it. */
+  client_contact_person?: string | null;
+  client_contact_phone?: string | null;
   site: string | null;
   site_name: string | null;
   /** Item 4: a project can cover several sites. */
@@ -968,6 +971,16 @@ export default function ProjectsPage() {
               <p className="text-sm font-medium text-amber-600">No site on this project yet</p>
             )}
           </div>
+          {/* Who the work is for, named once when the project was raised. */}
+          <div className="rounded-xl border border-border bg-card px-4 py-3">
+            <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">Client</p>
+            <p className="text-sm font-medium text-foreground">{d.client_name || "—"}</p>
+            {(d.client_contact_person || d.client_contact_phone) && (
+              <p className="mt-0.5 text-2xs text-muted-foreground">
+                {[d.client_contact_person, d.client_contact_phone].filter(Boolean).join(" · ")}
+              </p>
+            )}
+          </div>
           {[
             { label: "Manager", value: d.manager_name || "—" },
             { label: "Start Date", value: d.start_date || "—" },
@@ -1095,7 +1108,15 @@ export default function ProjectsPage() {
               ) : (
                 <p className="text-xs text-muted-foreground">No scope items yet.</p>
               )}
-              {canEdit && (
+              {/* What a project is building is settled in planning. Once the
+                  budget is approved the order is being delivered, and adding an
+                  asset then would land outside the figure that was signed off. */}
+              {canEdit && d.phase !== "planning" ? (
+                <p className="mt-3 rounded-lg border border-dashed border-border p-3 text-xs text-muted-foreground">
+                  The scope was settled in planning and the budget approved against it. Put the project
+                  back on Planning to change what it is building.
+                </p>
+              ) : canEdit && (
                 <form onSubmit={addScopeItem} className="mt-3 space-y-2 rounded-lg border border-border/70 p-3">
                   <p className="text-2xs text-muted-foreground">
                     Every asset has its own ID: add each one once. An asset already on another project cannot be added.
