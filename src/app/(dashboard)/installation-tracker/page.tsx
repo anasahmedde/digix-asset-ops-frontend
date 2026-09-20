@@ -13,6 +13,7 @@ import {
   Plus,
   RotateCcw,
   Download,
+  GripVertical,
   X,
 } from "lucide-react";
 import Link from "next/link";
@@ -263,7 +264,7 @@ function stepperStatus(status: string): "completed" | "in_progress" | "on_hold" 
 }
 
 function exportCsv(rows: InstallationListItem[]) {
-  const header = ["Asset Code", "Asset Name", "Status", "Client(s)", "Site", "Installer", "POC", "Installed At", "Due Date", "Completed At", "Progress %", "Client Delays"];
+  const header = ["Asset Code", "Asset Name", "Status", "Client(s)", "Site", "Installer", "POC", "Assigned", "Due Date", "Installed On", "Progress %", "Client Delays"];
   const escape = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
   const lines = rows.map((r) =>
     [
@@ -347,6 +348,9 @@ export default function InstallationTrackerPage() {
   const [editSaving, setEditSaving] = useState(false);
   const [editInstaller, setEditInstaller] = useState("");
   const [templateBusy, setTemplateBusy] = useState(false);
+  // The step currently being dragged, and the position it would drop into.
+  const [dragStep, setDragStep] = useState<string | null>(null);
+  const [dropAt, setDropAt] = useState<number | null>(null);
   const [newStepType, setNewStepType] = useState("survey");
   const [newStepLabel, setNewStepLabel] = useState("");
   const [activateOpen, setActivateOpen] = useState(false);
@@ -468,6 +472,25 @@ export default function InstallationTrackerPage() {
       toast.error(getApiError(err, "Could not add the step"));
     } finally {
       setTemplateBusy(false);
+    }
+  }
+
+  /** Move the step being dragged to the position it was dropped on. */
+  async function moveStepTo(target: number) {
+    const held = dragStep;
+    setDragStep(null);
+    setDropAt(null);
+    if (!selected || !held) return;
+    const ids = selected.steps.map((s) => s.id);
+    const from = ids.indexOf(held);
+    if (from < 0 || from === target) return;
+    ids.splice(target, 0, ids.splice(from, 1)[0]);
+    try {
+      await api.post(`/sites/installations/${selected.id}/reorder-steps/`, { steps: ids });
+      await loadDetail(selected.id);
+      toast.success("Step moved");
+    } catch (err) {
+      toast.error(getApiError(err, "Could not move the step"));
     }
   }
 
@@ -933,7 +956,8 @@ export default function InstallationTrackerPage() {
                   <p className="font-medium text-foreground">{selected.position_label || selected.site_city || "—"}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground">Installed At</p>
+                  {/* The day somebody took the job on, not the day it went in. */}
+                  <p className="text-xs text-muted-foreground">Assigned</p>
                   <p className="font-medium text-foreground">{formatDate(selected.installed_at)}</p>
                 </div>
                 <div>
@@ -952,8 +976,10 @@ export default function InstallationTrackerPage() {
                   )}
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground">Completed</p>
-                  <p className="font-medium text-foreground">{selected.completed_at ? formatDate(selected.completed_at) : "—"}</p>
+                  <p className="text-xs text-muted-foreground">Installed On</p>
+                  <p className="font-medium text-foreground">
+                    {selected.completed_at ? formatDate(selected.completed_at) : "Not yet installed"}
+                  </p>
                 </div>
               </div>
             </div>
@@ -1040,12 +1066,28 @@ export default function InstallationTrackerPage() {
               checklist is a record of what was done. */}
           {isManager && editableChecklist && (
             <div className="mt-5 border-t border-border pt-4">
+              <p className="mb-2 text-2xs text-muted-foreground">
+                Drag a step to move it. They run in the order shown.
+              </p>
               <div className="flex flex-wrap gap-1.5">
-                {selected.steps.map((step) => (
+                {selected.steps.map((step, i) => (
                   <span
                     key={step.id}
-                    className="inline-flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-2xs text-foreground"
+                    draggable
+                    onDragStart={() => setDragStep(step.id)}
+                    onDragEnd={() => { setDragStep(null); setDropAt(null); }}
+                    onDragOver={(e) => { e.preventDefault(); setDropAt(i); }}
+                    onDrop={(e) => { e.preventDefault(); moveStepTo(i); }}
+                    title="Drag to move this step"
+                    className={`inline-flex cursor-grab items-center gap-1 rounded-lg border px-2 py-1 text-2xs text-foreground transition-colors active:cursor-grabbing ${
+                      dragStep === step.id
+                        ? "border-primary bg-primary/10 opacity-60"
+                        : dropAt === i && dragStep
+                          ? "border-primary bg-primary/5"
+                          : "border-border"
+                    }`}
                   >
+                    <GripVertical className="h-3 w-3 text-muted-foreground" />
                     {step.step_number}. {step.step_type_display}
                     <button
                       onClick={() => removeStep(step.id)}
@@ -1469,7 +1511,7 @@ export default function InstallationTrackerPage() {
                 </select>
               </div>
               <div>
-                <label htmlFor="ei-installed-at" className={createLabelClass}>Start / Installed At</label>
+                <label htmlFor="ei-installed-at" className={createLabelClass}>Assigned</label>
                 <input
                   id="ei-installed-at"
                   name="installed_at"
@@ -1817,7 +1859,7 @@ export default function InstallationTrackerPage() {
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Installer</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">POC</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Due Date</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Completed</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Installed On</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Status</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Progress</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Action</th>

@@ -539,6 +539,8 @@ export default function AssetsPage() {
   // Moving an asset to "Assigned" must record who it went to: an internal
   // technician (from the manpower records) or an external vendor by hand.
   const [assignTechnician, setAssignTechnician] = useState("");
+  // When the installation has to be finished — agreed as the job is handed out.
+  const [assignDue, setAssignDue] = useState("");
   // The installing vendor, picked from the register kept under Vendors.
   const [assignVendorId, setAssignVendorId] = useState("");
   const [transitionLoading, setTransitionLoading] = useState(false);
@@ -687,6 +689,7 @@ export default function AssetsPage() {
     setAssetSource("inhouse");
     setFormAssetType("");
     setAssignTechnician("");
+    setAssignDue("");
     setAssignVendorId("");
     setSelected(null);
     setImageFiles([]);
@@ -819,6 +822,7 @@ export default function AssetsPage() {
     setTransitionReason("");
     clearActivePhotos();
     setAssignTechnician("");
+    setAssignDue("");
     setAssignVendorId("");
     setAssignSite("");
     setMaintDue("");
@@ -830,7 +834,7 @@ export default function AssetsPage() {
   /** Assign the asset for installation — that is what opens its tracker job. */
   async function openInstallationJob(deviceId: string) {
     const turnkey = detailView?.source === "vendor_turnkey";
-    if (!assignTechnician || !(assignSite || detailView?.current_site)) return;
+    if (!assignTechnician || !assignDue || !(assignSite || detailView?.current_site)) return;
     if (turnkey && !assignVendorId) return;
     setInstallLoading(true);
     try {
@@ -838,6 +842,8 @@ export default function AssetsPage() {
         status: "assigned",
         reason: "Assigned for installation",
         assigned_technician: assignTechnician,
+        // The date the installation has to be finished by.
+        installation_date: assignDue,
         ...(assignSite ? { current_site: assignSite } : {}),
         ...(turnkey
           ? {
@@ -891,6 +897,7 @@ export default function AssetsPage() {
         ...(assigning
           ? {
               assigned_technician: assignTechnician,
+              ...(assignDue ? { installation_date: assignDue } : {}),
               ...(assignSite ? { current_site: assignSite } : {}),
               ...(turnkey
                 ? {
@@ -1922,6 +1929,24 @@ export default function AssetsPage() {
                               </div>
                             </div>
                           )}
+                          {/* Agreed here, with whoever is taking the job, rather
+                              than left blank on the tracker for somebody to
+                              guess at afterwards. */}
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            <div className="space-y-1">
+                              <label htmlFor="install_due" className="text-2xs font-medium text-muted-foreground">
+                                Due by
+                              </label>
+                              <input
+                                id="install_due"
+                                type="date"
+                                min={new Date().toISOString().slice(0, 10)}
+                                value={assignDue}
+                                onChange={(e) => setAssignDue(e.target.value)}
+                                className={`${inputClass} h-9 text-xs`}
+                              />
+                            </div>
+                          </div>
                           <p className="text-2xs text-muted-foreground">
                             {d.source === "vendor_turnkey"
                               ? "The vendor supplies and installs it; our technician oversees."
@@ -1933,7 +1958,8 @@ export default function AssetsPage() {
                             type="button"
                             onClick={() => openInstallationJob(d.id)}
                             disabled={
-                              installLoading || !assignTechnician || !(assignSite || d.current_site) ||
+                              installLoading || !assignTechnician || !assignDue ||
+                              !(assignSite || d.current_site) ||
                               (d.source === "vendor_turnkey" && !assignVendorId)
                             }
                             className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
