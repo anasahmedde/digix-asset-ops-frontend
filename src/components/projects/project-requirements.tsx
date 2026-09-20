@@ -61,6 +61,14 @@ interface StepRow {
   /** Execution asked for a work order that Work Orders has not raised yet. */
   work_order_requested?: boolean;
 }
+// The three manufacturing routes, worded as the asset register words them.
+// The API sends `source_display`; this is the fallback, not a second opinion.
+const SOURCE_LABELS: Record<string, string> = {
+  inhouse: "In-house Production",
+  vendor_supplied: "Vendor Supplied \u00b7 Installed In-house",
+  vendor_turnkey: "Vendor Supplied & Installed",
+};
+
 interface AssetGroup {
   id: string;
   asset_code: string;
@@ -412,11 +420,19 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                   <p className="text-xs text-muted-foreground">{asset.display_name}</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  {asset.vendor_asset && (
-                    <span className="rounded-full bg-indigo-500/10 px-2.5 py-0.5 text-2xs font-medium text-indigo-600 ring-1 ring-indigo-500/20">
-                      {asset.source_display ?? "Vendor supplied"}
-                    </span>
-                  )}
+                  {/* How the asset is made is true of every asset, not just the
+                      bought ones, and it is what decides everything below. It
+                      is worded here exactly as the register words it. */}
+                  <span
+                    title="Manufacturing route"
+                    className={`rounded-full px-2.5 py-0.5 text-2xs font-medium ring-1 ${
+                      asset.vendor_asset
+                        ? "bg-indigo-500/10 text-indigo-600 ring-indigo-500/20"
+                        : "bg-primary/10 text-primary ring-primary/20"
+                    }`}
+                  >
+                    {asset.source_display ?? SOURCE_LABELS[asset.source] ?? "In-house Production"}
+                  </span>
                   <span className="rounded-full bg-card px-2.5 py-0.5 text-xs text-muted-foreground ring-1 ring-border">
                     {asset.status_display ?? asset.status.replace(/_/g, " ")}
                   </span>
