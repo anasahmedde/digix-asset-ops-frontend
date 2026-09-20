@@ -214,17 +214,6 @@ interface StockProductRef {
   unit?: string | null;
 }
 
-interface NewComponentRow {
-  source: "generic" | "unique";
-  inventory_item: string;
-  inventory_unit_type: string;
-  quantity: number;
-}
-
-const EMPTY_COMPONENT: NewComponentRow = {
-  source: "generic", inventory_item: "", inventory_unit_type: "", quantity: 1,
-};
-
 const STATUSES = [
   { value: "procured", label: "In Procurement" },
   { value: "in_transit", label: "In Transit" },
@@ -476,7 +465,6 @@ export default function AssetsPage() {
   const [detailView, setDetailView] = useState<DeviceDetail | null>(null);
   const [returnToDetailId, setReturnToDetailId] = useState<string | null>(null);
   const [additionalClients, setAdditionalClients] = useState<string[]>([]);
-  const [newComponents, setNewComponents] = useState<NewComponentRow[]>([]);
   // Components are drawn from inventory: generic stock (qty) or a unique unit.
   const [compSource, setCompSource] = useState<"generic" | "unique">("generic");
   const [compItemId, setCompItemId] = useState("");
@@ -659,7 +647,7 @@ export default function AssetsPage() {
     ]);
     if (dm.status === "fulfilled") setDeviceModels((dm.value.data.results ?? dm.value.data).map((m: { id: string; name: string; brand_name?: string }) => ({ id: m.id, label: m.brand_name ? `${m.brand_name} ${m.name}` : m.name })));
     if (at.status === "fulfilled") setAssetTypes((at.value.data.results ?? at.value.data).map((t: { id: string; name: string }) => ({ id: t.id, label: t.name })));
-    if (st.status === "fulfilled") setSites((st.value.data.results ?? st.value.data).map((s: { id: string; name: string }) => ({ id: s.id, label: s.name })));
+    if (st.status === "fulfilled") setSites((st.value.data.results ?? st.value.data).map((s: { id: string; name: string; city?: string }) => ({ id: s.id, label: s.city ? `${s.name} · ${s.city}` : s.name })));
     if (cl.status === "fulfilled") setClients((cl.value.data.results ?? cl.value.data).map((c: { id: string; name: string }) => ({ id: c.id, label: c.name })));
     if (su.status === "fulfilled") setSuppliers((su.value.data.results ?? su.value.data).map((s: { id: string; name: string }) => ({ id: s.id, label: s.name })));
     if (proj.status === "fulfilled") setProjects((proj.value.data.results ?? proj.value.data).map((x: { id: string; name: string }) => ({ id: x.id, label: x.name })));
@@ -686,7 +674,6 @@ export default function AssetsPage() {
     setImageFiles([]);
     setImagePreviews([]);
     setAdditionalClients([]);
-    setNewComponents([]);
     setModalMode("create");
     loadOptions();
   }
@@ -1057,22 +1044,6 @@ export default function AssetsPage() {
         toast.success("Device updated");
       } else {
         return;
-      }
-
-      // Rows may linger if the route was switched after they were added.
-      if (modalMode === "create" && buildsInHouse && newComponents.length > 0) {
-        for (const row of newComponents) {
-          const isUnique = row.source === "unique";
-          // Skip rows where no inventory item was picked.
-          if (!(isUnique ? row.inventory_unit_type : row.inventory_item)) continue;
-          await api.post("/assets/components/", {
-            device: deviceId,
-            inventory_item: isUnique ? null : row.inventory_item,
-            inventory_unit_type: isUnique ? row.inventory_unit_type : null,
-            quantity: row.quantity || 1,
-          });
-        }
-        loadInventorySources();
       }
 
       if (imageFiles.length > 0) {
@@ -2642,6 +2613,22 @@ export default function AssetsPage() {
             </div>
           </div>
 
+          {/* Where it physically is. The edit form asks again under Assignment,
+              so this is only for a new record. */}
+          {modalMode === "create" && (
+            <div className="space-y-1.5">
+              <label htmlFor="current_site" className={labelClass}>Location</label>
+              <select id="current_site" name="current_site" defaultValue="" className={inputClass}>
+                <option value="">Not on a site yet</option>
+                {sites.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+              </select>
+              <p className="text-2xs text-muted-foreground">
+                Where the asset is now. Leave it blank for one still being built — assigning it for
+                installation sets the site it goes to.
+              </p>
+            </div>
+          )}
+
           <div className="grid gap-4 sm:grid-cols-4">
             <div className="space-y-1.5">
               <label htmlFor="length_in" className={labelClass}>Length (in)</label>
@@ -2949,103 +2936,6 @@ export default function AssetsPage() {
               />
             </div>
           </div>
-          )}
-
-          {modalMode === "create" && (
-            <div className={`border-t border-border pt-4 ${buildsInHouse ? "" : "opacity-60"}`}>
-              <div className="mb-1 flex items-center justify-between">
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Components</p>
-                <button
-                  type="button"
-                  disabled={!buildsInHouse}
-                  onClick={() => setNewComponents((rows) => [...rows, { ...EMPTY_COMPONENT }])}
-                  className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/5 disabled:pointer-events-none disabled:opacity-50"
-                >
-                  <Plus className="h-3.5 w-3.5" /> Add Component
-                </button>
-              </div>
-              <p className="mb-3 text-2xs text-muted-foreground">
-                {buildsInHouse
-                  ? "CMS, stand, SMD modules, receiving cards, frame, accessories… each drawn from the warehouse. Stock is not reduced here — the project decides later whether to take each line from inventory or procure it."
-                  : "Only in-house builds are assembled from our inventory — a vendor-supplied asset arrives complete."}
-              </p>
-              {newComponents.length === 0 && (
-                <p className="text-xs text-muted-foreground">No components added — single-unit asset.</p>
-              )}
-              <fieldset disabled={!buildsInHouse} className="space-y-3">
-                {newComponents.map((row, i) => (
-                  <div key={i} className="rounded-lg border border-border/70 p-3">
-                    <div className="grid gap-2 sm:grid-cols-3">
-                      <select
-                        value={row.source}
-                        onChange={(e) => setNewComponents((rows) => rows.map((r, j) => (j === i ? { ...r, source: e.target.value as "generic" | "unique", inventory_item: "", inventory_unit_type: "" } : r)))}
-                        className={`${inputClass} h-9`}
-                        title="Inventory source"
-                      >
-                        <option value="generic">Stock item</option>
-                        <option value="unique">Unique item</option>
-                      </select>
-                      {row.source === "generic" ? (
-                        <select
-                          value={row.inventory_item}
-                          onChange={(e) => setNewComponents((rows) => rows.map((r, j) => (j === i ? { ...r, inventory_item: e.target.value } : r)))}
-                          className={`${inputClass} h-9 sm:col-span-2`}
-                        >
-                          <option value="">Select stock item…</option>
-                          {stockItems.map((it) => (
-                            <option key={it.id} value={it.id}>{(it.material_name ?? it.sku)} · {it.quantity} {it.unit || "piece"} in stock</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <select
-                          value={row.inventory_unit_type}
-                          onChange={(e) => setNewComponents((rows) => rows.map((r, j) => (j === i ? { ...r, inventory_unit_type: e.target.value } : r)))}
-                          className={`${inputClass} h-9 sm:col-span-2`}
-                        >
-                          <option value="">Select unique item…</option>
-                          {stockProducts.map((p) => (
-                            <option key={p.id} value={p.id}>
-                              {[p.name, p.model_name].filter(Boolean).join(" ")} · {p.in_stock_count} {p.unit || "piece"} in stock
-                            </option>
-                          ))}
-                        </select>
-                      )}
-                    </div>
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <div className="flex items-center gap-1">
-                        <span className="text-xs text-muted-foreground">Qty needed</span>
-                        <input
-                          type="number"
-                          min={1}
-                          value={row.quantity}
-                          onChange={(e) => setNewComponents((rows) => rows.map((r, j) => (j === i ? { ...r, quantity: Math.max(1, Number(e.target.value) || 1) } : r)))}
-                          title="Quantity"
-                          className="flex h-9 w-20 shrink-0 rounded-lg border border-border bg-card px-3 text-sm text-foreground focus:border-primary/50 focus:outline-none"
-                        />
-                        {(row.source === "generic" ? row.inventory_item : row.inventory_unit_type) && (
-                          <span className="text-xs text-muted-foreground">
-                            {(row.source === "generic"
-                              ? stockItems.find((it) => it.id === row.inventory_item)?.unit
-                              : stockProducts.find((p) => p.id === row.inventory_unit_type)?.unit) || "piece"}
-                          </span>
-                        )}
-                      </div>
-                      <span className="text-2xs text-muted-foreground">
-                        Name, serial, supplier and warranty are imported from inventory.
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setNewComponents((rows) => rows.filter((_, j) => j !== i))}
-                        className="ml-auto flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:text-destructive"
-                        title="Remove component"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </fieldset>
-            </div>
           )}
 
           <div className="space-y-1.5">
