@@ -132,7 +132,9 @@ export function UniqueItems() {
     if (units[productId]) return;
     try {
       const { data } = await api.get(`/inventory/products/${productId}/units/`, {
-        params: { page_size: 200 },
+        // The shelf only. A unit that has been issued left the store; the
+        // Issuance Log says where it went and who took it.
+        params: { page_size: 200, in_store: 1 },
       });
       setUnits((prev) => ({ ...prev, [productId]: data.results ?? data }));
     } catch (err) {
@@ -434,6 +436,12 @@ export function UniqueItems() {
                               </tbody>
                             </table>
                           )}
+                          {/* A unit that has been issued is not on the shelf,
+                              so it is not listed here. Say where it went to. */}
+                          <p className="mt-2 text-2xs text-muted-foreground">
+                            What the store is holding. A unit that has been issued has left — the
+                            Issuance Log shows where each serial went, who issued it and who took it.
+                          </p>
                         </td>
                       </tr>
                     )}

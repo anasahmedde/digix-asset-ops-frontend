@@ -16,6 +16,8 @@ interface RequestRow {
   item_sku: string | null;
   item_name: string | null;
   unit_type_name: string | null;
+  /** The component's own code, as the Unique Components list prints it. */
+  unit_type_code?: string | null;
   unit: string;
   quantity_requested: number;
   quantity_issued: number;
@@ -24,6 +26,9 @@ interface RequestRow {
   purpose: string;
   project_name: string | null;
   asset_code: string | null;
+  /** The asset the material is going into, as people name it. */
+  asset_name?: string | null;
+  maintenance_title?: string | null;
   component_name: string | null;
   requested_by_name: string | null;
   issued_by_name: string | null;
@@ -73,6 +78,22 @@ function receivers(r: RequestRow): string[] {
   }
   if (names.length === 0 && r.received_by) names.push(r.received_by);
   return names;
+}
+
+/** What the material was drawn for: a project, a maintenance job, or the store\'s
+ *  own reason. Separate from who carried it away. */
+function drawnFor(row: LogRow): { name: string; kind: string } | null {
+  if (row.kind === "request") {
+    if (row.row.project_name) return { name: row.row.project_name, kind: "Project" };
+    if (row.row.maintenance_title) return { name: row.row.maintenance_title, kind: "Maintenance" };
+    // Nothing named it, so the source is all there is — and labelling
+    // "Maintenance" as "Store" would just contradict itself.
+    if (row.row.source_display) return { name: row.row.source_display, kind: "" };
+    return null;
+  }
+  if (row.row.project_name) return { name: row.row.project_name, kind: "Project" };
+  if (row.row.site_name) return { name: row.row.site_name, kind: "Site" };
+  return null;
 }
 
 /** Where the stock went: the people who took it, else the project or asset it was for. */
@@ -148,7 +169,8 @@ export function IssuanceLog() {
       const to = destination(r);
       const fields = r.kind === "request"
         ? [r.number, r.row.what, r.row.item_sku, r.row.project_name, r.row.asset_code, r.row.component_name,
-           r.row.received_by, r.row.purpose, r.row.issued_by_name, r.row.requested_by_name, ...(r.row.issued_serials ?? [])]
+           r.row.received_by, r.row.purpose, r.row.issued_by_name, r.row.requested_by_name,
+           r.row.asset_name, r.row.unit_type_code, ...(r.row.issued_serials ?? [])]
         : [r.number, r.row.item_name, r.row.project_name, r.row.issued_to_user_name, r.row.site_name, r.row.reason, r.row.issued_by_name];
       return [...fields, to?.name].some((v) => (v ?? "").toLowerCase().includes(query));
     });
@@ -238,14 +260,17 @@ export function IssuanceLog() {
                   <th className={thClass}>Component</th>
                   <th className={thClass}>Kind</th>
                   <th className={thClass}>Issued</th>
-                  <th className={thClass}>Issued To</th>
-                  <th className={thClass}>Purpose</th>
+                  <th className={thClass}>For / Received By</th>
+                  <th className={thClass}>For Asset</th>
                   <th className={thClass}>Issued By</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map((r) => {
-                  const to = destination(r);
+                  const forWhat = drawnFor(r);
+                  const takenBy = r.kind === "request"
+                    ? receivers(r.row)
+                    : (r.row.issued_to_user_name ? [r.row.issued_to_user_name] : []);
                   const isOpen = open === r.id;
                   return (
                     <Fragment key={r.id}>
@@ -268,6 +293,9 @@ export function IssuanceLog() {
                         <td className={`${tdClass} text-muted-foreground`}>{new Date(r.date).toLocaleDateString()}</td>
                         <td className={`${tdClass} text-foreground`}>
                           {r.kind === "request" ? (r.row.unit_type_name ?? r.row.item_name ?? r.row.what) : (r.row.item_name ?? "—")}
+                          {r.kind === "request" && r.row.unit_type_code && (
+                            <span className="block font-mono text-2xs text-muted-foreground">{r.row.unit_type_code}</span>
+                          )}
                         </td>
                         <td className={tdClass}>
                           {r.kind === "request" ? (
@@ -283,25 +311,49 @@ export function IssuanceLog() {
                               {r.row.outstanding_quantity > 0 && (
                                 <span className="ml-1 text-2xs font-normal text-amber-600">of {r.row.quantity_requested} · balance {r.row.outstanding_quantity}</span>
                               )}
+                              {/* Searching a serial should show the hit without
+                                  having to open the line to find it. */}
+                              {(r.row.issued_serials ?? []).length > 0 && (
+                                <span className="block font-mono text-2xs font-normal text-muted-foreground">
+                                  {(r.row.issued_serials ?? []).join(" · ")}
+                                </span>
+                              )}
                             </>
                           ) : (
                             r.row.quantity
                           )}
                         </td>
                         <td className={tdClass}>
-                          {to ? (
+                          {/* What it was drawn for, then who actually took it. */}
+                          {forWhat ? (
                             <span className="inline-flex items-center gap-2">
-                              <span className="text-foreground">{to.name}</span>
-                              <span className="rounded-full bg-secondary px-2 py-0.5 text-2xs font-medium uppercase tracking-wider text-muted-foreground">
-                                {to.kind}
-                              </span>
+                              <span className="text-foreground">{forWhat.name}</span>
+                              {forWhat.kind && (
+                                <span className="rounded-full bg-secondary px-2 py-0.5 text-2xs font-medium uppercase tracking-wider text-muted-foreground">
+                                  {forWhat.kind}
+                                </span>
+                              )}
                             </span>
                           ) : (
                             <span className="text-muted-foreground">—</span>
                           )}
+                          <span className="block text-2xs text-muted-foreground">
+                            {takenBy.length ? takenBy.join(", ") : "Nobody named"}
+                          </span>
                         </td>
-                        <td className={`${tdClass} text-muted-foreground`}>
-                          {r.kind === "request" ? (r.row.purpose || r.row.source_display) : (r.row.reason || r.row.notes || "—")}
+                        <td className={tdClass}>
+                          {r.kind === "request" && r.row.asset_code ? (
+                            <>
+                              <span className="block font-mono text-xs text-foreground">{r.row.asset_code}</span>
+                              {r.row.asset_name && (
+                                <span className="block text-2xs text-muted-foreground">{r.row.asset_name}</span>
+                              )}
+                            </>
+                          ) : (
+                            <span className="text-muted-foreground">
+                              {r.kind === "request" ? (r.row.purpose || "—") : (r.row.reason || r.row.notes || "—")}
+                            </span>
+                          )}
                         </td>
                         <td className={`${tdClass} text-muted-foreground`}>{r.row.issued_by_name ?? "—"}</td>
                       </tr>
@@ -312,7 +364,7 @@ export function IssuanceLog() {
                             {r.kind === "request" ? (
                               <div className="space-y-4">
                                 <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-4">
-                                  <Detail label="Component" value={<>{r.row.unit_type_name ?? r.row.item_name ?? r.row.what}{r.row.item_sku ? <span className="ml-1 font-mono text-xs text-muted-foreground">{r.row.item_sku}</span> : null}<span className={`ml-2 rounded-full px-2 py-0.5 text-2xs font-medium ${r.row.unit_type_name ? "bg-indigo-500/10 text-indigo-600" : "bg-secondary text-muted-foreground"}`}>{r.row.unit_type_name ? "Unique item" : "Generic stock"}</span></>} />
+                                  <Detail label="Component" value={<>{r.row.unit_type_name ?? r.row.item_name ?? r.row.what}{r.row.unit_type_code ? <span className="ml-1 font-mono text-xs text-muted-foreground">{r.row.unit_type_code}</span> : null}{r.row.item_sku ? <span className="ml-1 font-mono text-xs text-muted-foreground">{r.row.item_sku}</span> : null}<span className={`ml-2 rounded-full px-2 py-0.5 text-2xs font-medium ${r.row.unit_type_name ? "bg-indigo-500/10 text-indigo-600" : "bg-secondary text-muted-foreground"}`}>{r.row.unit_type_name ? "Unique item" : "Generic stock"}</span></>} />
                                   <Detail label="For asset" value={r.row.asset_code ? <>{r.row.asset_code}{r.row.component_name ? <span className="text-muted-foreground"> · {r.row.component_name}</span> : null}</> : null} />
                                   <Detail label="Project" value={r.row.project_name} />
                                   <Detail label="Source" value={r.row.source_display} />
@@ -363,7 +415,7 @@ export function IssuanceLog() {
                                           <tr className="border-b border-border bg-secondary/40 text-left text-muted-foreground">
                                             <th className="px-3 py-2 font-medium">#</th>
                                             <th className="px-3 py-2 font-medium">Serial No</th>
-                                            <th className="px-3 py-2 font-medium">Unit Code</th>
+                                            <th className="px-3 py-2 font-medium">Component</th>
                                             <th className="px-3 py-2 font-medium">Status</th>
                                           </tr>
                                         </thead>
@@ -372,7 +424,13 @@ export function IssuanceLog() {
                                             <tr key={u.serial_number} className="border-b border-border/60 last:border-0">
                                               <td className="px-3 py-1.5 text-muted-foreground">{i + 1}</td>
                                               <td className="px-3 py-1.5 font-mono text-foreground">{u.serial_number}</td>
-                                              <td className="px-3 py-1.5 font-mono text-muted-foreground">{u.unit_code ?? "—"}</td>
+                                              <td className="px-3 py-1.5 text-muted-foreground">
+                                                {r.row.unit_type_code && (
+                                                  <span className="font-mono">{r.row.unit_type_code}</span>
+                                                )}
+                                                {r.row.unit_type_code && r.row.unit_type_name ? " · " : ""}
+                                                {r.row.unit_type_name ?? ""}
+                                              </td>
                                               <td className="px-3 py-1.5 text-muted-foreground">{u.status_display ?? "—"}</td>
                                             </tr>
                                           ))}
