@@ -525,7 +525,9 @@ export default function AssetsPage() {
   // The installing vendor, picked from the register kept under Vendors.
   const [assignVendorId, setAssignVendorId] = useState("");
   const [assignVendorContact, setAssignVendorContact] = useState("");
-  const [supplyVendorName, setSupplyVendorName] = useState("");
+  // The vendor the finished asset was bought from — the asset's supplier,
+  // picked from the register kept under Vendors.
+  const [supplyVendorId, setSupplyVendorId] = useState("");
   const [supplyVendorContact, setSupplyVendorContact] = useState("");
   const [transitionLoading, setTransitionLoading] = useState(false);
   // Photo evidence of the installed asset, attached when moving to Active.
@@ -668,7 +670,7 @@ export default function AssetsPage() {
     setAssignTechnician("");
     setAssignVendorId("");
     setAssignVendorContact("");
-    setSupplyVendorName("");
+    setSupplyVendorId("");
     setSupplyVendorContact("");
     setSelected(null);
     setImageFiles([]);
@@ -691,7 +693,7 @@ export default function AssetsPage() {
       setAssignTechnician(data.assigned_technician ?? "");
       setAssignVendorId(data.assigned_vendor ?? "");
       setAssignVendorContact(data.assigned_vendor_contact ?? "");
-      setSupplyVendorName(data.supply_vendor_name ?? "");
+      setSupplyVendorId(data.supplier ?? "");
       setSupplyVendorContact(data.supply_vendor_contact ?? "");
       setModalMode("edit");
       loadOptions();
@@ -806,7 +808,7 @@ export default function AssetsPage() {
     setAssignTechnician("");
     setAssignVendorId("");
     setAssignVendorContact("");
-    setSupplyVendorName("");
+    setSupplyVendorId("");
     setSupplyVendorContact("");
     setAssignSite("");
     setMaintDue("");
@@ -1021,9 +1023,14 @@ export default function AssetsPage() {
       // supplying one, and an in-house build has neither.
       assigned_vendor: assetSource === "vendor_turnkey" ? (assignVendorId || null) : null,
       assigned_vendor_contact: assetSource === "vendor_turnkey" ? assignVendorContact.trim() : "",
-      supply_vendor_name: buildsInHouse ? "" : supplyVendorName.trim(),
+      // The name is kept alongside the link so older records and the asset's
+      // own summary still read correctly.
+      supply_vendor_name: buildsInHouse
+        ? ""
+        : (suppliers.find((v) => v.id === supplyVendorId)?.label ?? ""),
       supply_vendor_contact: buildsInHouse ? "" : supplyVendorContact.trim(),
-      supplier: fd.get("supplier") || null,
+      // One field, one control: the vendor chosen under Vendor Supply Details.
+      supplier: buildsInHouse ? (fd.get("supplier") || null) : (supplyVendorId || null),
       purchase_date: fd.get("purchase_date") || null,
       purchase_price: fd.get("purchase_price") || null,
       installation_date: fd.get("installation_date") || null,
@@ -2759,15 +2766,18 @@ export default function AssetsPage() {
               </p>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
-                  <label htmlFor="supply_vendor_name" className={labelClass}>Vendor Name</label>
-                  <input
-                    id="supply_vendor_name"
-                    name="supply_vendor_name"
-                    value={supplyVendorName}
-                    onChange={(e) => setSupplyVendorName(e.target.value)}
-                    placeholder="e.g. Skyline Displays"
+                  <label htmlFor="supply_vendor" className={labelClass}>Vendor</label>
+                  {/* Kept under Vendors, so the asset links to that vendor's
+                      record rather than a name somebody typed. */}
+                  <select
+                    id="supply_vendor"
+                    value={supplyVendorId}
+                    onChange={(e) => setSupplyVendorId(e.target.value)}
                     className={inputClass}
-                  />
+                  >
+                    <option value="">Select vendor…</option>
+                    {suppliers.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+                  </select>
                 </div>
                 <div className="space-y-1.5">
                   <label htmlFor="supply_vendor_contact" className={labelClass}>Contact / Phone</label>
@@ -2822,20 +2832,15 @@ export default function AssetsPage() {
               </div>
               {/* The supplying vendor is typed by hand, so this only works
                   when that name is one of the vendors on the register. */}
-              {(() => {
-                const match = suppliers.find(
-                  (v) => v.label.trim().toLowerCase() === supplyVendorName.trim().toLowerCase(),
-                );
-                return match ? (
-                  <button
-                    type="button"
-                    onClick={() => { setAssignVendorId(match.id); setAssignVendorContact(supplyVendorContact); }}
-                    className="mt-2 text-2xs font-medium text-primary hover:underline"
-                  >
-                    Same as the supplying vendor
-                  </button>
-                ) : null;
-              })()}
+              {supplyVendorId && supplyVendorId !== assignVendorId && (
+                <button
+                  type="button"
+                  onClick={() => { setAssignVendorId(supplyVendorId); setAssignVendorContact(supplyVendorContact); }}
+                  className="mt-2 text-2xs font-medium text-primary hover:underline"
+                >
+                  Same as the supplying vendor
+                </button>
+              )}
             </div>
           )}
 
@@ -2875,13 +2880,25 @@ export default function AssetsPage() {
           <div className="border-t border-border pt-4">
             <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Procurement</p>
             <div className="grid gap-4 sm:grid-cols-3">
-              <div className="space-y-1.5">
-                <label htmlFor="supplier" className={labelClass}>Supplier</label>
-                <select id="supplier" name="supplier" defaultValue={selected?.supplier ?? ""} className={inputClass}>
-                  <option value="">None</option>
-                  {suppliers.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
-                </select>
-              </div>
+              {/* A vendor-supplied asset names its vendor under Vendor Supply
+                  Details, which writes this same field — asking twice would
+                  let the two disagree. */}
+              {buildsInHouse ? (
+                <div className="space-y-1.5">
+                  <label htmlFor="supplier" className={labelClass}>Supplier</label>
+                  <select id="supplier" name="supplier" defaultValue={selected?.supplier ?? ""} className={inputClass}>
+                    <option value="">None</option>
+                    {suppliers.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+                  </select>
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  <p className={labelClass}>Supplier</p>
+                  <p className="pt-2 text-sm text-foreground">
+                    {suppliers.find((v) => v.id === supplyVendorId)?.label ?? "Set under Vendor Supply Details"}
+                  </p>
+                </div>
+              )}
               <div className="space-y-1.5">
                 <label htmlFor="purchase_date" className={labelClass}>Purchase Date</label>
                 <input id="purchase_date" name="purchase_date" type="date" defaultValue={selected?.purchase_date ?? ""} className={inputClass} />

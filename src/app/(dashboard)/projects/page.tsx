@@ -969,7 +969,14 @@ export default function ProjectsPage() {
               Location{(d.site_names ?? []).length > 1 ? ` · ${(d.site_names ?? []).length} sites` : ""}
             </p>
             {(d.site_names ?? []).length > 0 ? (
-              <p className="text-sm font-medium text-foreground">{(d.site_names ?? []).join(", ")}</p>
+              <ul className="mt-0.5 space-y-0.5">
+                {(d.site_names ?? []).map((n) => (
+                  <li key={n} className="flex gap-1.5 text-sm font-medium text-foreground">
+                    <span aria-hidden className="text-muted-foreground">·</span>
+                    <span>{n}</span>
+                  </li>
+                ))}
+              </ul>
             ) : (
               <p className="text-sm font-medium text-amber-600">No site on this project yet</p>
             )}
