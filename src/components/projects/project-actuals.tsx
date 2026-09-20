@@ -372,7 +372,12 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
                         <span className="mr-1.5 font-mono text-2xs text-muted-foreground">#{st.step_number}</span>
                         {st.name}
                         <span className="ml-1.5 text-2xs text-muted-foreground">
-                          {st.work_order ? "vendor" : "in-house"} · {(st.status ?? "pending").replace(/_/g, " ")}
+                          {/* Where it happens is Execution's call; say so until
+                              it is taken rather than assuming our own floor. */}
+                          {st.work_order ? "vendor"
+                            : st.location === "in_house" ? "in-house"
+                              : st.location === "external" ? "vendor"
+                                : "not decided"} · {(st.status ?? "pending").replace(/_/g, " ")}
                         </span>
                       </td>
                       <td className={`${tdClass} text-right text-muted-foreground`} colSpan={2}>

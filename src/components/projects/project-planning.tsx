@@ -706,9 +706,12 @@ export function ProjectPlanning({
                             )}
                           </td>
                           <td className={`${tdClass} text-muted-foreground`}>
+                            {/* Where the operation happens is Execution's call.
+                                Until it is taken, the plan says so. */}
                             {s.location === "external"
                               ? s.workshop ? `Outside workshop · ${s.workshop}` : "Outside workshop"
-                              : "In-house"}
+                              : s.location === "in_house" ? "In-house"
+                                : <span className="italic">Not decided yet</span>}
                           </td>
                           <td className={`${tdClass} text-right font-medium text-foreground`}>
                             {s.planned_cost != null ? money(s.planned_cost) : "—"}
