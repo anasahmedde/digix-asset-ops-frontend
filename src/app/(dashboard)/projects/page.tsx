@@ -57,16 +57,14 @@ const STATUS_OPTIONS = [
   { value: "on_hold", label: "On Hold" },
   { value: "completed", label: "Completed" },
 ];
-// Commercial lifecycle, in order. "On Hold" and "Lost" are off-ramp phases.
+// The phases the work actually goes through, in order. The commercial run-up
+// is one phase to the delivery team. "On Hold" and "Lost" are off-ramps.
 const PHASES = [
-  { value: "query", label: "Query" },
-  { value: "quotation", label: "Quotation" },
-  { value: "negotiation", label: "Negotiation" },
-  { value: "order_confirmation", label: "Order Confirmation" },
-  { value: "production", label: "Production" },
-  { value: "delivery", label: "Delivery" },
-  { value: "installation", label: "Installation" },
-  { value: "handover", label: "Handing Over" },
+  { value: "planning", label: "Planning", tracks: "Estimate agreed and the budget signed off" },
+  { value: "procurement", label: "Procurement", tracks: "Every part procured and issued, every bought asset received" },
+  { value: "production", label: "Production", tracks: "Every operation on every route finished" },
+  { value: "installation", label: "Installation", tracks: "The installation checklist worked through on site" },
+  { value: "handover", label: "Handing Over", tracks: "Assets handed over and running" },
 ];
 const OFF_RAMP_PHASES = [
   { value: "on_hold", label: "On Hold" },
@@ -77,7 +75,7 @@ const CONTRACT_TYPES = [
   { value: "rental", label: "Rental" },
 ];
 const emptyForm = {
-  name: "", description: "", status: "planning", phase: "query",
+  name: "", description: "", status: "planning", phase: "planning",
   client: "", site: "", sites: [] as string[], manager: "", start_date: "", target_date: "",
   contract_type: "", rental_end_date: "",
 };
@@ -133,6 +131,8 @@ interface ProjectDetail {
   /** Item 4: a project can cover several sites. */
   sites: string[];
   site_names: string[];
+  /** How far each phase has got, counted from the work itself. */
+  phase_progress?: Record<string, { done: number; total: number; percent: number; note: string }>;
   status: string;
   status_display: string;
   phase: string;
@@ -290,6 +290,10 @@ export default function ProjectsPage() {
   // Planning (estimate + budget approval) comes first; execution (stock,
   // procurement, delivery) follows once the budget is signed off.
   const [projectTab, setProjectTab] = useState<"planning" | "execution">("planning");
+  // Opening a project lands on the half that is live: Planning while the
+  // estimate is still being agreed, Execution once it has been. Only on the
+  // way in — after that the tab is the reader's to choose.
+  const landedOn = useRef<string | null>(null);
 
   // BOM tab (WF-02 / WF-03)
   const [bomLines, setBomLines] = useState<BOMLine[]>([]);
@@ -313,6 +317,10 @@ export default function ProjectsPage() {
     try {
       const { data } = await api.get(`/teams/projects/${id}/`);
       setDetail(data);
+      if (landedOn.current !== id) {
+        landedOn.current = id;
+        setProjectTab(data.phase === "planning" ? "planning" : "execution");
+      }
       // The summary strip sits above the tabs and would otherwise keep its
       // first answer after the budget is approved in Planning below it.
       setDetailVersion((v) => v + 1);
@@ -878,29 +886,51 @@ export default function ProjectsPage() {
               </span>
             )}
           </div>
-          <div className="flex flex-wrap gap-1.5">
+          {/* Each phase is a body of work, so each says how much of it is
+              done — counted from the work, never typed in. */}
+          <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-5">
             {PHASES.map((ph, i) => {
               const isCurrent = ph.value === d.phase;
               const isDone = phaseIdx >= 0 && i < phaseIdx;
+              const bar = d.phase_progress?.[ph.value];
+              const pct = bar?.percent ?? 0;
               return (
                 <button
                   key={ph.value}
                   onClick={() => canEdit && setPhase(ph.value)}
                   disabled={!canEdit}
-                  title={canEdit ? `Move project to ${ph.label}` : undefined}
-                  className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                  title={canEdit ? `${ph.tracks}. Click to move the project here.` : ph.tracks}
+                  className={`rounded-xl border p-3 text-left transition-colors ${
                     isCurrent
-                      ? "border-primary bg-primary text-white"
+                      ? "border-primary bg-primary/5"
                       : isDone
-                        ? "border-primary/40 bg-primary/10 text-primary"
-                        : "border-border bg-card text-muted-foreground"
+                        ? "border-primary/40 bg-primary/5"
+                        : "border-border bg-card"
                   } ${canEdit ? "cursor-pointer hover:border-primary/50" : "cursor-default"}`}
                 >
-                  {isDone && <Check className="h-3 w-3" />}
-                  {ph.label}
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={`inline-flex items-center gap-1 text-xs font-semibold ${
+                      isCurrent ? "text-primary" : isDone ? "text-primary/80" : "text-foreground"
+                    }`}>
+                      {isDone && <Check className="h-3 w-3" />}
+                      {ph.label}
+                    </span>
+                    <span className={`text-2xs font-medium ${pct === 100 ? "text-emerald-600" : "text-muted-foreground"}`}>
+                      {pct}%
+                    </span>
+                  </div>
+                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-secondary">
+                    <div
+                      className={`h-full rounded-full transition-all ${pct === 100 ? "bg-emerald-500" : "bg-primary"}`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  <p className="mt-1.5 text-2xs text-muted-foreground">{bar?.note ?? ph.tracks}</p>
                 </button>
               );
             })}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1.5">
             {OFF_RAMP_PHASES.map((ph) => (
               <button
                 key={ph.value}
