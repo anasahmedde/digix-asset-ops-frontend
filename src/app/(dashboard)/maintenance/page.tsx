@@ -151,6 +151,13 @@ export default function MaintenancePage() {
   } | null>(null);
   const [completeFor, setCompleteFor] = useState<MaintenanceSchedule | null>(null);
   const [completeComponents, setCompleteComponents] = useState<{ id: string; name: string }[]>([]);
+  // The cover the billing answer turns on, and who would be billed without it.
+  const [completeCover, setCompleteCover] = useState<{
+    covered: boolean;
+    label: string;
+    until: string | null;
+    clientName: string | null;
+  } | null>(null);
   const [usedComponents, setUsedComponents] = useState<string[]>([]);
   const [completePhotos, setCompletePhotos] = useState<File[]>([]);
   const [completing, setCompleting] = useState(false);
@@ -158,7 +165,6 @@ export default function MaintenancePage() {
   // (null = unknown → server derives on save) and the user's explicit edits
   // (null = untouched → omitted from the payload).
   const [completeBilling, setCompleteBilling] = useState<BillingDefaults | null>(null);
-  const [billingEdit, setBillingEdit] = useState<BillingDefaults | null>(null);
   const [pastRecords, setPastRecords] = useState<MaintenanceRecordRow[]>([]);
   // Guards openEdit's past-records fetch against out-of-order responses from
   // a previously opened schedule (null = no edit modal open).
@@ -262,11 +268,16 @@ export default function MaintenancePage() {
     setCompletePhotos([]);
     setCompleteComponents([]);
     setCompleteBilling(null);
-    setBillingEdit(null);
     if (s.device) {
       try {
         const { data } = await api.get(`/assets/devices/${s.device}/`);
         setCompleteComponents((data.components ?? []).map((c: { id: string; name: string }) => ({ id: c.id, name: c.name })));
+        setCompleteCover((prev) => ({
+          covered: prev?.covered ?? false,
+          label: prev?.label ?? "",
+          until: prev?.until ?? null,
+          clientName: data.client_name ?? null,
+        }));
       } catch { /* components stay empty */ }
       try {
         // Mirror the backend default: active client warranty → company (or
@@ -274,12 +285,20 @@ export default function MaintenancePage() {
         const { data } = await api.get("/warranties/", {
           params: { device: s.device, status: "active", page_size: 100 },
         });
-        const list: { warranty_type: string }[] = data.results ?? data;
-        const hasClient = list.some((w) => w.warranty_type === "client");
-        const hasSupplierSide = list.some((w) => SUPPLIER_SIDE_TYPES.includes(w.warranty_type));
+        const list: { warranty_type: string; warranty_type_display?: string; end_date?: string }[] =
+          data.results ?? data;
+        const client = list.find((w) => w.warranty_type === "client");
+        const supplierSide = list.find((w) => SUPPLIER_SIDE_TYPES.includes(w.warranty_type));
+        const cover = client ?? supplierSide;
+        setCompleteCover((prev) => ({
+          covered: Boolean(client),
+          label: cover?.warranty_type_display ?? (cover ? cover.warranty_type : ""),
+          until: cover?.end_date ?? null,
+          clientName: prev?.clientName ?? null,
+        }));
         setCompleteBilling(
-          hasClient
-            ? { is_billable: false, charge_to: hasSupplierSide ? "vendor" : "company" }
+          client
+            ? { is_billable: false, charge_to: supplierSide ? "vendor" : "company" }
             : { is_billable: true, charge_to: "client" }
         );
       } catch { /* unknown — billing derived server-side, shown after submit */ }
@@ -299,8 +318,8 @@ export default function MaintenancePage() {
         notes: fd.get("notes") || "",
         cost: fd.get("cost") || null,
         components_used: usedComponents,
-        // Omit billing when untouched so the warranty-derived server defaults apply.
-        ...(billingEdit ? { is_billable: billingEdit.is_billable, charge_to: billingEdit.charge_to } : {}),
+        // Billing is not sent: the server reads the asset's cover, which is
+        // the same thing this dialog is showing.
       });
       for (const photo of completePhotos) {
         const photoForm = new FormData();
@@ -1140,43 +1159,46 @@ export default function MaintenancePage() {
                     <span className="text-2xs text-muted-foreground">Derived from the asset&apos;s warranty on save</span>
                   )}
                 </div>
+                {/* Cover decides who pays, so it is stated rather than asked
+                    for — a tick box here could only contradict the warranty. */}
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="flex h-10 cursor-pointer items-center gap-2 rounded-lg border border-border bg-card px-3 text-sm text-foreground">
-                    <input
-                      type="checkbox"
-                      checked={(billingEdit ?? completeBilling)?.is_billable ?? false}
-                      onChange={(e) =>
-                        setBillingEdit({
-                          charge_to: (billingEdit ?? completeBilling)?.charge_to ?? "",
-                          is_billable: e.target.checked,
-                        })
-                      }
-                      className="h-4 w-4 accent-primary"
-                    />
-                    Billable
-                  </label>
-                  <select
-                    value={(billingEdit ?? completeBilling)?.charge_to ?? ""}
-                    onChange={(e) =>
-                      setBillingEdit({
-                        is_billable: (billingEdit ?? completeBilling)?.is_billable ?? false,
-                        charge_to: e.target.value,
-                      })
-                    }
-                    title="Charge to"
-                    className={inputClass}
-                  >
-                    <option value="">Charge to — auto</option>
-                    <option value="company">Company</option>
-                    <option value="client">Client</option>
-                    <option value="vendor">Vendor</option>
-                  </select>
+                  <div className="space-y-0.5">
+                    <p className="text-2xs uppercase tracking-wider text-muted-foreground">Warranty</p>
+                    {completeCover === null ? (
+                      <p className="text-sm text-muted-foreground">Checking the asset&apos;s cover…</p>
+                    ) : completeCover.covered ? (
+                      <p className="text-sm font-medium text-emerald-600">
+                        Under warranty
+                        <span className="block text-2xs font-normal text-muted-foreground">
+                          {[completeCover.label, completeCover.until ? `to ${formatDate(completeCover.until)}` : null]
+                            .filter(Boolean).join(" · ")}
+                        </span>
+                      </p>
+                    ) : (
+                      <p className="text-sm font-medium text-amber-600">
+                        Not under warranty
+                        <span className="block text-2xs font-normal text-muted-foreground">
+                          No active client cover on this asset.
+                        </span>
+                      </p>
+                    )}
+                  </div>
+                  <div className="space-y-0.5">
+                    <p className="text-2xs uppercase tracking-wider text-muted-foreground">Charged to</p>
+                    <p className="text-sm font-medium text-foreground">
+                      {completeBilling === null
+                        ? "Worked out on save"
+                        : completeBilling.charge_to === "client"
+                          ? completeCover?.clientName ?? "The client"
+                          : completeBilling.charge_to === "vendor"
+                            ? "The vendor, under its warranty"
+                            : "Us, under the client's warranty"}
+                      <span className="block text-2xs font-normal text-muted-foreground">
+                        From the asset&apos;s cover — not entered here.
+                      </span>
+                    </p>
+                  </div>
                 </div>
-                {!billingEdit && (
-                  <p className="text-2xs text-muted-foreground">
-                    Left untouched, billing is derived from the asset&apos;s warranty automatically.
-                  </p>
-                )}
               </div>
               <p className="text-2xs text-muted-foreground">
                 Completing logs a maintenance record and rolls the schedule to its next {FREQ_LABEL[completeFor.frequency]?.toLowerCase() ?? ""} cycle{completeFor.frequency === "one_time" ? " (one-time schedules close out)" : ""}.
