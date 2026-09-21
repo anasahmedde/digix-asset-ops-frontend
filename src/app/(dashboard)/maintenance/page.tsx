@@ -1,17 +1,17 @@
 "use client";
 
 import { AlertTriangle, CalendarClock, Check, Pencil, Play, Plus, Ticket, Trash2, Wrench, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import { FilterBar } from "@/components/ui/filter-bar";
 import { MultiSelect } from "@/components/ui/multi-select";
-import { SearchSelect } from "@/components/ui/search-select";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
+import { formatDate } from "@/lib/utils";
 
 interface MaintenanceSchedule {
   id: string;
@@ -30,6 +30,8 @@ interface MaintenanceSchedule {
   vendors: string[];
   vendor_names: string[];
   required_components: ReqRow[];
+  /** The day the rounds begin, which stays put as next_due moves on. */
+  start_date: string | null;
   next_due: string;
   instructions: string;
   status: string;
@@ -75,6 +77,15 @@ const labelClass = "text-xs font-medium text-muted-foreground";
 const thClass =
   "px-5 py-3.5 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground";
 const tdClass = "px-5 py-3.5";
+
+/** How far on the next round is, said the way somebody would say it. */
+const CYCLE_LABELS: Record<string, string> = {
+  daily: "a day on",
+  weekly: "a week on",
+  monthly: "a month on",
+  quarterly: "a quarter on",
+  yearly: "a year on",
+};
 
 const TYPE_BADGES: Record<string, string> = {
   preventive: "bg-blue-500/10 text-blue-600 ring-blue-500/20",
@@ -124,6 +135,10 @@ export default function MaintenancePage() {
   const [userOptions, setUserOptions] = useState<Option[]>([]);
   const [formDevice, setFormDevice] = useState("");
   const [formAssignee, setFormAssignee] = useState("");
+  // Start date and frequency decide when the next round falls, so the form
+  // holds both and shows the answer rather than asking for a third date.
+  const [formStart, setFormStart] = useState("");
+  const [formFrequency, setFormFrequency] = useState("monthly");
   const [formVendors, setFormVendors] = useState<string[]>([]);
   const [reqComponents, setReqComponents] = useState<ReqRow[]>([]);
   const [stockOptions, setStockOptions] = useState<StockOption[]>([]);
@@ -313,6 +328,8 @@ export default function MaintenancePage() {
     setSelected(s);
     handleFormDeviceChange(s.device ?? "");
     setFormAssignee(s.assigned_to ?? "");
+    setFormStart(s.start_date?.split("T")[0] ?? "");
+    setFormFrequency(s.frequency ?? "monthly");
     setFormVendors(s.vendors ?? []);
     setReqComponents(s.required_components ?? []);
     setPastRecords([]);
@@ -345,6 +362,34 @@ export default function MaintenancePage() {
     setPastRecords([]);
   }
 
+  /** Assets free to be scheduled: everything live, less what is already on a
+   *  round. The schedule being edited keeps its own asset, or the field it is
+   *  bound to would open empty. */
+  const assetChoices = useMemo(() => {
+    const taken = new Set(
+      schedules
+        .filter((s) => s.device && s.is_active && (s.effective_status || s.status) !== "completed")
+        .filter((s) => s.id !== selected?.id)
+        .map((s) => s.device as string),
+    );
+    return deviceOptions.filter((d: Option) => !taken.has(d.id));
+  }, [schedules, deviceOptions, selected]);
+
+  /** When the round after `start` falls, one cycle on. A one-time job has none. */
+  function dueAfter(start: string, frequency: string): string {
+    if (!start || frequency === "one_time") return start;
+    const d = new Date(`${start}T00:00:00`);
+    if (frequency === "daily") d.setDate(d.getDate() + 1);
+    else if (frequency === "weekly") d.setDate(d.getDate() + 7);
+    else if (frequency === "monthly") d.setMonth(d.getMonth() + 1);
+    else if (frequency === "quarterly") d.setMonth(d.getMonth() + 3);
+    else if (frequency === "yearly") d.setFullYear(d.getFullYear() + 1);
+    // Built by hand, not through toISOString: the date is local and that
+    // converts to UTC, which rolls it back a day everywhere east of London.
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }
+
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setSaving(true);
@@ -360,7 +405,9 @@ export default function MaintenancePage() {
       assigned_to: fd.get("assigned_to") || null,
       vendors: fd.getAll("vendors"),
       required_components: reqComponents.filter((r) => r.inventory_item || r.inventory_unit_type || r.name.trim()),
-      next_due: fd.get("next_due"),
+      // The server works the next round out from these two, so it is not sent:
+      // a date from here could only disagree with the ones it comes from.
+      start_date: fd.get("start_date"),
       instructions: fd.get("instructions"),
       // Status is not asked for: a schedule being written has not started, and
       // what happens to it afterwards is recorded by the work, not typed here.
@@ -415,6 +462,8 @@ export default function MaintenancePage() {
               setFormDevice("");
               setFormAssetInfo(null);
               setFormAssignee("");
+              setFormStart("");
+              setFormFrequency("monthly");
               setFormVendors([]);
               setReqComponents([]);
               setModalMode("create");
@@ -737,7 +786,8 @@ export default function MaintenancePage() {
                   <select
                     id="frequency"
                     name="frequency"
-                    defaultValue={selected?.frequency ?? "monthly"}
+                    value={formFrequency}
+                    onChange={(e) => setFormFrequency(e.target.value)}
                     className={inputClass}
                   >
                     <option value="daily">Daily</option>
@@ -751,14 +801,21 @@ export default function MaintenancePage() {
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
-                  <label className={labelClass}>Asset</label>
-                  <SearchSelect
-                    options={deviceOptions}
-                    value={formDevice}
-                    onChange={handleFormDeviceChange}
+                  {/* Only live assets are serviceable, so the list is short
+                      enough to read rather than search. */}
+                  <label htmlFor="device" className={labelClass}>Asset</label>
+                  <select
+                    id="device"
                     name="device"
-                    placeholder="Search asset…"
-                  />
+                    value={formDevice}
+                    onChange={(e) => handleFormDeviceChange(e.target.value)}
+                    className={inputClass}
+                  >
+                    <option value="">Select asset…</option>
+                    {assetChoices.map((d) => (
+                      <option key={d.id} value={d.id}>{d.label}</option>
+                    ))}
+                  </select>
                 </div>
                 <div className="space-y-1.5">
                   {/* Where the asset stands is recorded on the asset when it
@@ -775,14 +832,21 @@ export default function MaintenancePage() {
                   </div>
                 </div>
                 <div className="space-y-1.5">
-                  <label className={labelClass}>Assign To</label>
-                  <SearchSelect
-                    options={userOptions}
-                    value={formAssignee}
-                    onChange={setFormAssignee}
+                  {/* Few enough technicians to read at a glance, so a list
+                      rather than a type-ahead nobody can guess into. */}
+                  <label htmlFor="assigned_to" className={labelClass}>Assign To</label>
+                  <select
+                    id="assigned_to"
                     name="assigned_to"
-                    placeholder="Search person…"
-                  />
+                    value={formAssignee}
+                    onChange={(e) => setFormAssignee(e.target.value)}
+                    className={inputClass}
+                  >
+                    <option value="">Unassigned</option>
+                    {userOptions.map((u) => (
+                      <option key={u.id} value={u.id}>{u.label}</option>
+                    ))}
+                  </select>
                 </div>
                 <div className="space-y-1.5 sm:col-span-2">
                   <label className={labelClass}>Vendors (can be multiple)</label>
@@ -890,18 +954,40 @@ export default function MaintenancePage() {
                   </div>
                 )}
               </div>
-              <div className="space-y-1.5">
-                <label htmlFor="next_due" className={labelClass}>
-                  Next Due Date
-                </label>
-                <input
-                  id="next_due"
-                  name="next_due"
-                  type="date"
-                  required
-                  defaultValue={selected?.next_due?.split("T")[0] ?? ""}
-                  className={inputClass}
-                />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <label htmlFor="start_date" className={labelClass}>
+                    Start Date
+                  </label>
+                  <input
+                    id="start_date"
+                    name="start_date"
+                    type="date"
+                    required
+                    value={formStart}
+                    onChange={(e) => setFormStart(e.target.value)}
+                    className={inputClass}
+                  />
+                  <p className="text-2xs text-muted-foreground">The day these rounds begin.</p>
+                </div>
+                {/* A one-time job happens once, on its start date, so there is
+                    no next round to report. */}
+                {formFrequency !== "one_time" && (
+                  <div className="space-y-1.5">
+                    <label htmlFor="next_due" className={labelClass}>Next Due Date</label>
+                    <div id="next_due" className={`${inputClass} flex items-center justify-between gap-2`}>
+                      <span className="text-foreground">
+                        {formStart ? formatDate(dueAfter(formStart, formFrequency)) : "Pick a start date"}
+                      </span>
+                      {formStart && (
+                        <span className="shrink-0 text-2xs text-muted-foreground">{CYCLE_LABELS[formFrequency] ?? ""}</span>
+                      )}
+                    </div>
+                    <p className="text-2xs text-muted-foreground">
+                      Worked out from the start date and how often the round repeats.
+                    </p>
+                  </div>
+                )}
               </div>
               <div className="space-y-1.5">
                 <label htmlFor="instructions" className={labelClass}>
