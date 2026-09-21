@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, Check, Factory, Lock, PackagePlus, PackageSearch, RotateCcw, ShoppingCart, Truck, Warehouse, X } from "lucide-react";
+import { ArrowRight, Check, Download, Factory, Lock, PackagePlus, PackageSearch, RotateCcw, ShoppingCart, Truck, Warehouse, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
@@ -29,6 +29,10 @@ interface RequirementRow {
   fulfilment: string;
   source_label: string | null;
   po_number: string | null;
+  /** How much of what was bought for this line has passed inspection into stock. */
+  po_stocked_quantity?: number;
+  /** The material requests the Procure decision raised — the store issues against them. */
+  procure_requests?: string[];
   /** An increase asked for but not yet granted. */
   pending_increase: number | null;
   increase_reason: string;
@@ -48,8 +52,23 @@ interface StepRow {
   planned_cost: string | null;
   /** True while the project still has to say where this operation happens. */
   decision_pending?: boolean;
-  work_order: { id: string; wo_number: string; status: string; status_display: string; amount: string } | null;
+  work_order: {
+    id: string; wo_number: string; status: string; status_display: string; amount: string;
+    supplier_name?: string | null; delivered_at?: string | null;
+    inspected_by_name?: string | null; inspected_at?: string | null;
+    inspection_result?: "accepted" | "rework" | null; inspection_notes?: string;
+  } | null;
+  /** Execution asked for a work order that Work Orders has not raised yet. */
+  work_order_requested?: boolean;
 }
+// The three manufacturing routes, worded as the asset register words them.
+// The API sends `source_display`; this is the fallback, not a second opinion.
+const SOURCE_LABELS: Record<string, string> = {
+  inhouse: "In-house Production",
+  vendor_supplied: "Vendor Supplied \u00b7 Installed In-house",
+  vendor_turnkey: "Vendor Supplied & Installed",
+};
+
 interface AssetGroup {
   id: string;
   asset_code: string;
@@ -68,6 +87,26 @@ interface AssetGroup {
   steps: StepRow[];
   route_complete: boolean;
   components: RequirementRow[];
+  /** Who the asset is assigned to, whether or not a job has opened yet. */
+  assigned_to_display?: string | null;
+  /** The asset's job on the Installation Tracker, once it has one. */
+  installation?: InstallationJob | null;
+}
+
+/** What the Installation Tracker knows about an asset. */
+interface InstallationJob {
+  id: string;
+  site_name: string | null;
+  installed_by_name: string | null;
+  vendor_name: string | null;
+  due_date: string | null;
+  installed_at: string | null;
+  completed_at: string | null;
+  steps_done: number;
+  steps_total: number;
+  progress: number;
+  stage: string;
+  stage_status: string | null;
 }
 interface Totals {
   required: number;
@@ -114,10 +153,6 @@ const fieldClass =
 export function ProjectRequirements({ projectId }: { projectId: string }) {
   const { canWrite, user } = useUser();
   const router = useRouter();
-  // Work order for one operation of a route (vendor, amount, delivery).
-  const [woFor, setWoFor] = useState<{ asset: AssetGroup; step: StepRow } | null>(null);
-  const [woSuppliers, setWoSuppliers] = useState<{ id: string; name: string }[]>([]);
-  const [wo, setWo] = useState({ supplier: "", amount: "", expected_delivery: "", notes: "" });
   // Fulfilment writes to asset components, so it follows the devices rule.
   const canDecide = canWrite("devices") || canWrite("inventory");
   // Granting more than was planned is a manager's call (the backend agrees).
@@ -219,34 +254,33 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
     }
   }
 
-  function openStepWorkOrder(asset: AssetGroup, step: StepRow) {
-    setWo({ supplier: "", amount: step.planned_cost ? String(Number(step.planned_cost)) : "", expected_delivery: "", notes: "" });
-    setWoFor({ asset, step });
-    if (woSuppliers.length === 0) {
-      api.get("/suppliers/", { params: { page_size: 500 } })
-        .then((r) => setWoSuppliers(r.data.results ?? r.data))
-        .catch(() => {});
+  /** Execution decides the operation goes to a vendor; Work Orders › Requests picks the vendor and raises the order. */
+  async function requestStepWorkOrder(step: StepRow) {
+    setBusy(step.id);
+    try {
+      await api.post(`/assets/production-steps/${step.id}/decide/`, { location: "external" });
+      toast.success(`${step.name} — work order requested. Raise it under Work Orders › Requests.`);
+      await fetchRequirements();
+    } catch (err) {
+      toast.error(getApiError(err, "Could not request the work order"));
+    } finally {
+      setBusy(null);
     }
   }
 
-  async function submitStepWorkOrder(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    if (!woFor || !wo.supplier) return;
-    setBusy(woFor.step.id);
+  /** The asset's parts list and route, as a document for the floor. */
+  async function downloadBom(asset: AssetGroup) {
+    setBusy(`bom-${asset.id}`);
     try {
-      const { data } = await api.post(`/teams/projects/${projectId}/raise-work-order/`, {
-        device: woFor.asset.id,
-        production_step: woFor.step.id,
-        supplier: wo.supplier,
-        amount: wo.amount || null,
-        expected_delivery: wo.expected_delivery || null,
-        notes: wo.notes,
-      });
-      toast.success(`${data.wo_number ?? "Work order"} raised for ${woFor.step.name}`);
-      setWoFor(null);
-      await fetchRequirements();
+      const { data } = await api.get(`/assets/devices/${asset.id}/bom/`, { responseType: "blob" });
+      const url = URL.createObjectURL(data as Blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `bom-${asset.asset_code}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
     } catch (err) {
-      toast.error(getApiError(err, "Could not raise the work order"));
+      toast.error(getApiError(err, "Could not produce the bill of materials"));
     } finally {
       setBusy(null);
     }
@@ -270,11 +304,15 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
     return row.undecided_quantity ?? row.outstanding_quantity;
   }
 
+  /** How much a decision may cover: what is undecided — and, from inventory, no more than the shelf holds. */
+  function decisionCap(row: RequirementRow, mode: "inventory" | "procure") {
+    const open = openQty(row);
+    return mode === "inventory" ? Math.min(open, Math.max(row.available_quantity ?? 0, 0)) : open;
+  }
+
   function openDecision(row: RequirementRow, mode: "inventory" | "procure") {
-    const cap = openQty(row);
-    // Default to everything still undecided; for inventory, no more than the shelf holds.
-    const start = mode === "inventory" ? Math.min(cap, Math.max(1, row.available_quantity ?? cap)) : cap;
-    setDecideQty(String(Math.max(1, start)));
+    const cap = decisionCap(row, mode);
+    setDecideQty(String(Math.max(1, cap)));
     setDecideFor({ row, mode });
   }
 
@@ -282,7 +320,7 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
     e.preventDefault();
     if (!decideFor) return;
     const { row, mode } = decideFor;
-    const cap = openQty(row);
+    const cap = decisionCap(row, mode);
     const qty = Number(decideQty) || 0;
     if (qty < 1 || qty > cap) {
       toast.error(`Enter between 1 and ${cap}.`);
@@ -292,7 +330,9 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
     try {
       const path = mode === "inventory" ? "fulfil-from-stock" : "mark-for-procurement";
       await api.post(`/assets/components/${row.id}/${path}/`, { quantity: qty });
-      toast.success(mode === "inventory" ? `${qty} × ${row.name} asked of the store` : `${qty} × ${row.name} to procure`);
+      toast.success(mode === "inventory"
+        ? `Issue request raised for ${qty} × ${row.name}`
+        : `${qty} × ${row.name} to procure`);
       setDecideFor(null);
       fetchRequirements();
     } catch (err) {
@@ -380,24 +420,22 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                   <p className="text-xs text-muted-foreground">{asset.display_name}</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  {asset.vendor_asset && (
-                    <span className="rounded-full bg-indigo-500/10 px-2.5 py-0.5 text-2xs font-medium text-indigo-600 ring-1 ring-indigo-500/20">
-                      {asset.source_display ?? "Vendor supplied"}
-                    </span>
-                  )}
+                  {/* How the asset is made is true of every asset, not just the
+                      bought ones, and it is what decides everything below. It
+                      is worded here exactly as the register words it. */}
+                  <span
+                    title="Manufacturing route"
+                    className={`rounded-full px-2.5 py-0.5 text-2xs font-medium ring-1 ${
+                      asset.vendor_asset
+                        ? "bg-indigo-500/10 text-indigo-600 ring-indigo-500/20"
+                        : "bg-primary/10 text-primary ring-primary/20"
+                    }`}
+                  >
+                    {asset.source_display ?? SOURCE_LABELS[asset.source] ?? "In-house Production"}
+                  </span>
                   <span className="rounded-full bg-card px-2.5 py-0.5 text-xs text-muted-foreground ring-1 ring-border">
                     {asset.status_display ?? asset.status.replace(/_/g, " ")}
                   </span>
-                  {canDecide && ["in_production", "in_stock"].includes(asset.status) && (asset.vendor_asset || asset.route_complete) && (
-                    <button
-                      onClick={() => assignForInstallation(asset)}
-                      disabled={busy === asset.id}
-                      title={asset.status === "in_stock" ? "Open the asset to assign its site and technician" : "Finish the build into stock, then assign its site and technician"}
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
-                    >
-                      Assign for installation <ArrowRight className="h-3.5 w-3.5" />
-                    </button>
-                  )}
                 </div>
               </div>
 
@@ -405,10 +443,11 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                 <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-4">
                   <div className="text-sm">
                     <p className="font-medium text-foreground">Complete asset from the vendor</p>
+                    {/* What it costs is the Actual Cost section's business,
+                        further down. This says what the thing is. */}
                     <p className="text-xs text-muted-foreground">
                       Bought whole on a purchase order — no components or production route of its own.
                       {asset.supply_vendor_name ? ` Vendor: ${asset.supply_vendor_name}.` : ""}
-                      {asset.purchase_price ? ` Planned price PKR ${Number(asset.purchase_price).toLocaleString()}.` : " No price in the plan yet."}
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
@@ -453,11 +492,24 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                     )}
                   </div>
                 </div>
-              ) : asset.components.length === 0 ? (
+              ) : (
+                <>
+                <div className="flex flex-wrap items-center justify-between gap-2 px-4 pt-3">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Bill of material</p>
+                  <button
+                    onClick={() => downloadBom(asset)}
+                    disabled={busy === `bom-${asset.id}`}
+                    title="The asset's parts list and route, as a document for the floor"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-2xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
+                  >
+                    <Download className="h-3 w-3" /> {busy === `bom-${asset.id}` ? "Preparing…" : "Download BOM"}
+                  </button>
+                </div>
+                {asset.components.length === 0 ? (
                 <p className="px-4 py-4 text-xs text-muted-foreground">
                   No components on this asset yet.
                 </p>
-              ) : (
+                ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
@@ -509,6 +561,12 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                               {row.po_number && (
                                 <span className="block font-mono text-2xs text-muted-foreground">{row.po_number}</span>
                               )}
+                              {row.po_number && (row.po_stocked_quantity ?? 0) > 0 && row.outstanding_quantity > 0 && (
+                                <span className="block text-2xs font-medium text-emerald-600">
+                                  {row.po_stocked_quantity} received into stock · the store issues it against{" "}
+                                  {row.procure_requests?.length ? row.procure_requests.join(", ") : "the material request"}
+                                </span>
+                              )}
                               {row.pending_increase ? (
                                 <span
                                   className="mt-1 inline-flex rounded-full bg-violet-500/10 px-2 py-0.5 text-2xs font-medium text-violet-600 ring-1 ring-violet-500/20"
@@ -527,10 +585,16 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                                 <div className="flex flex-wrap items-center gap-1.5">
                                   {openQty(row) > 0 && (
                                     <>
+                                      {/* Nothing on the shelf: the store cannot issue, so the
+                                          choice is procurement. Inventory stays visible but dead. */}
                                       <button
                                         onClick={() => openDecision(row, "inventory")}
-                                        disabled={locked || busy === row.id}
-                                        title={locked ? "Locked until the budget is approved" : `Take up to ${openQty(row)} from inventory — the store issues it`}
+                                        disabled={locked || busy === row.id || (row.available_quantity ?? 0) <= 0}
+                                        title={
+                                          locked ? "Locked until the budget is approved"
+                                          : (row.available_quantity ?? 0) <= 0 ? "Nothing in stock — procure this line"
+                                          : `Take up to ${Math.min(openQty(row), row.available_quantity ?? 0)} from inventory — the store issues it`
+                                        }
                                         className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-2xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-40"
                                       >
                                         <Warehouse className="h-3 w-3" /> Inventory
@@ -538,8 +602,16 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                                       <button
                                         onClick={() => openDecision(row, "procure")}
                                         disabled={locked || busy === row.id}
-                                        title={locked ? "Locked until the budget is approved" : `Buy up to ${openQty(row)}, even if stock is available`}
-                                        className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-2xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-40"
+                                        title={
+                                          locked ? "Locked until the budget is approved"
+                                          : (row.available_quantity ?? 0) <= 0 ? "Nothing in stock — buy this line"
+                                          : `Buy up to ${openQty(row)}, even if stock is available`
+                                        }
+                                        className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-2xs font-medium transition-colors disabled:opacity-40 ${
+                                          (row.available_quantity ?? 0) <= 0 && !locked
+                                            ? "border-primary/40 bg-primary/5 text-primary hover:bg-primary/10"
+                                            : "border-border text-foreground hover:bg-secondary"
+                                        }`}
                                       >
                                         <ShoppingCart className="h-3 w-3" /> Procure
                                       </button>
@@ -592,6 +664,8 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                     </tbody>
                   </table>
                 </div>
+                )}
+                </>
               )}
 
               {!asset.vendor_asset && asset.steps.length > 0 && (
@@ -610,7 +684,6 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                           <th className={thClass}>Operation</th>
                           <th className={thClass}>Where</th>
                           <th className={thClass}>Status</th>
-                          <th className={`${thClass} text-right`}>Planned</th>
                           {canDecide && <th className={thClass}>Decision</th>}
                         </tr>
                       </thead>
@@ -626,12 +699,19 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                               <td className={`${tdClass} text-muted-foreground`}>
                                 <span className={`inline-flex items-center gap-1 ${st.location === "undecided" ? "italic" : ""}`}>
                                   {st.location === "external" ? <Truck className="h-3 w-3 text-amber-500" /> : st.location === "in_house" ? <Factory className="h-3 w-3" /> : null}
-                                  {st.location === "external" ? (st.workshop_display ?? "Outside workshop") : st.location === "in_house" ? "In-house" : "Not decided"}
+                                  {st.location === "external" ? (st.workshop_display ?? (st.work_order_requested ? "Work order requested" : "Outside workshop")) : st.location === "in_house" ? "In-house" : "Not decided"}
                                 </span>
                                 {st.work_order && (
                                   <Link href="/work-orders" className="block font-mono text-2xs text-indigo-600 hover:underline">
                                     {st.work_order.wo_number} · {st.work_order.status_display}
                                   </Link>
+                                )}
+                                {st.work_order?.inspection_result && (
+                                  <span className={`block text-2xs ${st.work_order.inspection_result === "accepted" ? "text-emerald-600" : "text-amber-600"}`}>
+                                    {st.work_order.inspection_result === "accepted" ? "Accepted" : "Sent back for rework"}
+                                    {st.work_order.inspected_by_name ? ` · inspected by ${st.work_order.inspected_by_name}` : ""}
+                                    {st.work_order.inspected_at ? ` on ${new Date(st.work_order.inspected_at).toLocaleDateString()}` : ""}
+                                  </span>
                                 )}
                               </td>
                               <td className={tdClass}>
@@ -641,13 +721,25 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                                   {st.status_display}
                                 </span>
                               </td>
-                              <td className={`${tdClass} text-right text-muted-foreground`}>
-                                {st.planned_cost != null ? `PKR ${Number(st.planned_cost).toLocaleString()}` : "—"}
-                              </td>
                               {canDecide && (
                                 <td className={tdClass}>
                                   <div className="flex items-center gap-1.5">
-                                    {st.location === "in_house" && !st.work_order ? (
+                                    {st.work_order_requested ? (
+                                      // Asked for: Work Orders raises it. In-house stays live to take it back.
+                                      <>
+                                        <button
+                                          onClick={() => stepInhouse(st)}
+                                          disabled={locked || done || busy === st.id}
+                                          title="Take it back: do this operation on our own floor"
+                                          className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-40"
+                                        >
+                                          <Factory className="h-3.5 w-3.5" /> In-house
+                                        </button>
+                                        <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-amber-500/40 bg-amber-500/10 px-2.5 py-1.5 text-xs font-medium text-amber-700" title="Raise the order under Work Orders › Requests">
+                                          <Truck className="h-3.5 w-3.5" /> Work order requested
+                                        </span>
+                                      </>
+                                    ) : st.location === "in_house" && !st.work_order ? (
                                       // The decision has been made: it reads as chosen, and the
                                       // other option stays live in case it changes.
                                       <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-primary/40 bg-primary/10 px-2.5 py-1.5 text-xs font-medium text-primary">
@@ -663,14 +755,26 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                                         <Factory className="h-3.5 w-3.5" /> In-house
                                       </button>
                                     )}
-                                    <button
-                                      onClick={() => openStepWorkOrder(asset, st)}
-                                      disabled={locked || done || busy === st.id || !!st.work_order}
-                                      title={locked ? "Locked until the budget is approved" : st.work_order ? "Already on a work order" : "Give this operation to an outside workshop on a work order"}
-                                      className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-40"
-                                    >
-                                      <Truck className="h-3.5 w-3.5" /> Work order
-                                    </button>
+                                    {!st.work_order_requested && (
+                                      st.work_order ? (
+                                        // The decision was a work order: it reads as chosen, like In-house does.
+                                        <span
+                                          className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-primary/40 bg-primary/10 px-2.5 py-1.5 text-xs font-medium text-primary"
+                                          title={`On ${st.work_order.wo_number} · ${st.work_order.status_display}`}
+                                        >
+                                          <Check className="h-3.5 w-3.5" /> Work order
+                                        </span>
+                                      ) : (
+                                        <button
+                                          onClick={() => requestStepWorkOrder(st)}
+                                          disabled={locked || done || busy === st.id}
+                                          title={locked ? "Locked until the budget is approved" : "Give this operation to a vendor — Work Orders raises the order"}
+                                          className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-40"
+                                        >
+                                          <Truck className="h-3.5 w-3.5" /> Work order
+                                        </button>
+                                      )
+                                    )}
                                   </div>
                                 </td>
                               )}
@@ -682,49 +786,98 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                   </div>
                 </div>
               )}
+
+              {/* Who puts it in and switches it on. The decision is taken on
+                  the asset; the work runs on the Installation Tracker, and
+                  what it knows is read back here. */}
+              <div className="border-t border-border px-4 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Installation &amp; activation
+                  </p>
+                  {asset.installation && (
+                    <Link
+                      href={`/installation-tracker?device=${asset.id}`}
+                      className="inline-flex items-center gap-1 text-2xs font-medium text-primary hover:underline"
+                    >
+                      Open on the Installation Tracker <ArrowRight className="h-3 w-3" />
+                    </Link>
+                  )}
+                </div>
+                {asset.installation ? (
+                  <>
+                    <dl className="mt-2 grid gap-3 text-xs sm:grid-cols-4">
+                      <div>
+                        <dt className="text-2xs uppercase tracking-wider text-muted-foreground">Site</dt>
+                        <dd className="text-foreground">{asset.installation.site_name ?? "—"}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-2xs uppercase tracking-wider text-muted-foreground">Assigned to</dt>
+                        <dd className="text-foreground">
+                          {asset.installation.installed_by_name ?? "—"}
+                          {asset.installation.vendor_name && (
+                            <span className="block text-2xs text-muted-foreground">
+                              Vendor: {asset.installation.vendor_name}
+                            </span>
+                          )}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-2xs uppercase tracking-wider text-muted-foreground">Stage</dt>
+                        <dd className="text-foreground">
+                          {asset.installation.stage}
+                          <span className="block text-2xs text-muted-foreground">
+                            {asset.installation.steps_done} of {asset.installation.steps_total} steps done
+                          </span>
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-2xs uppercase tracking-wider text-muted-foreground">Target date</dt>
+                        <dd className="text-foreground">{asset.installation.due_date ?? "Not agreed"}</dd>
+                      </div>
+                    </dl>
+                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-secondary">
+                      <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${asset.installation.progress}%` }} />
+                    </div>
+                    <p className="mt-1.5 text-2xs text-muted-foreground">
+                      {asset.status === "active"
+                        ? "Active — the technician activated it on site."
+                        : asset.status === "installed"
+                          ? "Installed. It becomes Active when the technician activates it on the tracker."
+                          : "The asset becomes Installed when the checklist is finished, and Active when the technician activates it."}
+                    </p>
+                  </>
+                ) : canDecide && ["in_production", "in_stock"].includes(asset.status) && (asset.vendor_asset || asset.route_complete) ? (
+                  <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-xs text-muted-foreground">
+                      {asset.source === "vendor_turnkey"
+                        ? "The vendor installs it and our technician oversees — pick both on the asset. It goes to the site it was scoped to."
+                        : "Pick the technician who puts it in, on the asset. It goes to the site it was scoped to."}
+                      {asset.status === "in_production" && " The build finishes into stock first."}
+                    </p>
+                    <button
+                      onClick={() => assignForInstallation(asset)}
+                      disabled={busy === asset.id}
+                      title="Open the asset to assign its technician and installing vendor"
+                      className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
+                    >
+                      Assign for installation <ArrowRight className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {["procured", "in_production"].includes(asset.status)
+                      ? asset.vendor_asset
+                        ? "Available once the asset has been received into stock."
+                        : "Available once every component is issued and the route is finished."
+                      : `No installation job on record — this asset is ${(asset.status_display ?? asset.status.replace(/_/g, " ")).toLowerCase()}.`}
+                  </p>
+                )}
+              </div>
             </div>
           ))}
         </div>
       )}
-
-      {/* One operation of a route, given to a workshop. */}
-      <Modal open={!!woFor} onClose={() => setWoFor(null)} title={woFor ? `Work order — ${woFor.step.name}` : "Work order"} size="md">
-        {woFor && (
-          <form onSubmit={submitStepWorkOrder} className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Gives <b>{woFor.step.name}</b> on {woFor.asset.asset_code} to an outside workshop. The route marks the
-              operation as done there, and the amount counts as this asset&apos;s production cost.
-            </p>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <label htmlFor="swo_supplier" className="text-xs font-medium text-muted-foreground">Workshop / vendor *</label>
-                <select id="swo_supplier" required value={wo.supplier} onChange={(e) => setWo({ ...wo, supplier: e.target.value })} className="flex h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground focus:border-primary/50 focus:outline-none">
-                  <option value="">Select…</option>
-                  {woSuppliers.map((sup) => <option key={sup.id} value={sup.id}>{sup.name}</option>)}
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <label htmlFor="swo_amount" className="text-xs font-medium text-muted-foreground">Amount (PKR)</label>
-                <input id="swo_amount" type="number" min={0} step="0.01" value={wo.amount} onChange={(e) => setWo({ ...wo, amount: e.target.value })} placeholder="Blank uses the planned step cost" className="flex h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground focus:border-primary/50 focus:outline-none" />
-              </div>
-              <div className="space-y-1.5">
-                <label htmlFor="swo_delivery" className="text-xs font-medium text-muted-foreground">Required back</label>
-                <input id="swo_delivery" type="date" value={wo.expected_delivery} onChange={(e) => setWo({ ...wo, expected_delivery: e.target.value })} className="flex h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground focus:border-primary/50 focus:outline-none" />
-              </div>
-              <div className="space-y-1.5 sm:col-span-2">
-                <label htmlFor="swo_notes" className="text-xs font-medium text-muted-foreground">Notes</label>
-                <textarea id="swo_notes" rows={2} value={wo.notes} onChange={(e) => setWo({ ...wo, notes: e.target.value })} className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none" />
-              </div>
-            </div>
-            <div className="flex justify-end gap-3">
-              <button type="button" onClick={() => setWoFor(null)} className="inline-flex h-10 items-center rounded-lg border border-border px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">Cancel</button>
-              <button type="submit" disabled={!wo.supplier || busy === woFor.step.id} className="inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-medium text-white transition-all disabled:opacity-50">
-                Raise work order
-              </button>
-            </div>
-          </form>
-        )}
-      </Modal>
 
       {/* Asking for more mid-project, with the reason on record. */}
       <Modal
@@ -807,7 +960,7 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
         size="sm"
       >
         {decideFor && (() => {
-          const cap = openQty(decideFor.row);
+          const cap = decisionCap(decideFor.row, decideFor.mode);
           const qty = Number(decideQty) || 0;
           const shelf = decideFor.row.available_quantity ?? 0;
           const overShelf = decideFor.mode === "inventory" && qty > shelf;
@@ -818,7 +971,7 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                 <span className="font-semibold text-foreground">{cap}</span> still to decide,{" "}
                 <span className="font-semibold text-foreground">{shelf}</span> on the shelf.
                 {decideFor.mode === "inventory"
-                  ? " The store issues what you ask for; anything it cannot cover stays on its queue."
+                  ? " This raises an issue request for the store; it issues what it can and the balance stays on the request."
                   : " What you buy goes to Procurement → To Procure for the purchase order; the rest of the line stays open to decide."}
               </p>
               <div className="space-y-1.5">
@@ -848,7 +1001,7 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                 </button>
                 <button type="submit" disabled={busy === decideFor.row.id || qty < 1 || qty > cap} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-medium text-white transition-all disabled:opacity-50">
                   {decideFor.mode === "inventory" ? <Warehouse className="h-3.5 w-3.5" /> : <ShoppingCart className="h-3.5 w-3.5" />}
-                  {decideFor.mode === "inventory" ? `Ask the store for ${qty || 0}` : `Procure ${qty || 0}`}
+                  {decideFor.mode === "inventory" ? `Raise issue request for ${qty || 0}` : `Procure ${qty || 0}`}
                 </button>
               </div>
             </form>

@@ -34,7 +34,8 @@ export type UserRole =
 export interface Device {
   id: string;
   asset_code: string;
-  serial_number: string;
+  /** The manufacturer's, where there is one. Assets go by their asset code. */
+  serial_number: string | null;
   mobile_id: string;
   mac_address: string;
   imei: string;
@@ -431,6 +432,18 @@ export interface WorkOrderItem {
   unit_price: string | number;
   received_quantity?: number;
   line_total?: string;
+  /** The operation and asset this line pays for, when it came from a route. */
+  operation?: string | null;
+  asset_code?: string | null;
+  /** Each job comes in and is inspected on its own. */
+  delivered_at?: string | null;
+  inspected_at?: string | null;
+  inspected_by_name?: string | null;
+  inspection_result?: "accepted" | "rework" | "" | null;
+  inspection_result_display?: string | null;
+  inspection_notes?: string;
+  line_state?: "with_vendor" | "awaiting_inspection" | "accepted" | "rework";
+  line_state_display?: string;
 }
 
 export interface WorkOrder {
@@ -438,7 +451,7 @@ export interface WorkOrder {
   wo_number: string;
   title: string;
   description: string;
-  order_type: "supply" | "installation" | "supply_install";
+  order_type: "services" | "supply" | "installation" | "supply_install" | "production";
   order_type_display?: string;
   status: WorkOrderStatus;
   status_display?: string;
@@ -460,6 +473,22 @@ export interface WorkOrder {
   total_amount: string;
   notes: string;
   items: WorkOrderItem[];
+  project_name?: string | null;
+  created_by_name?: string | null;
+  approved_by_name?: string | null;
+  /** Work receiving: when the vendor delivered and how the work was inspected. */
+  delivered_at?: string | null;
+  inspected_by_name?: string | null;
+  inspected_at?: string | null;
+  inspection_result?: "accepted" | "rework" | "" | null;
+  inspection_result_display?: string | null;
+  inspection_notes?: string;
+  /** What the work is for: the assets being worked on. */
+  asset_codes?: string[];
+  /** How the order's jobs stand: how many in total, waiting, and still out. */
+  line_count?: number;
+  lines_awaiting_inspection?: number;
+  lines_with_vendor?: number;
   created_at: string;
   updated_at: string;
 }

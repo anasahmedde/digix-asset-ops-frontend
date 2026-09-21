@@ -20,6 +20,11 @@ interface ReceiptLine {
   material_type: string | null;
   material_name: string | null;
   device_model_name: string | null;
+  /** What the purchase order line was bought for: a counted stock item, a
+   *  serialised product, a whole asset — or null on a line typed by hand. */
+  kind?: "generic" | "unique" | "asset" | null;
+  /** The inventory item or unique product the goods will be filed under. */
+  known_component?: string | null;
   quantity: number;
   /** Unit of measure of the delivered line. */
   unit?: string;
@@ -54,7 +59,6 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
   const router = useRouter();
 
   const [lines, setLines] = useState<ReceiptLine[]>([]);
-  const [categories, setCategories] = useState<Ref[]>([]);
   const [materialTypes, setMaterialTypes] = useState<Ref[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -65,7 +69,6 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
   const [notes, setNotes] = useState("");
   const [units, setUnits] = useState<UnitRow[]>([]);
   const [materialType, setMaterialType] = useState("");
-  const [category, setCategory] = useState("");
   // Where the storekeeper is putting this delivery.
   const [storageLocation, setStorageLocation] = useState("");
 
@@ -137,7 +140,6 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
 
   useEffect(() => {
     fetchLines();
-    api.get("/inventory/categories/").then((r) => setCategories(r.data.results ?? r.data)).catch(() => {});
     api.get("/assets/material-types/").then((r) => setMaterialTypes(r.data.results ?? r.data)).catch(() => {});
   }, [fetchLines]);
 
@@ -146,11 +148,10 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
     setAccepted(line.quantity);
     setNotes("");
     setMaterialType(line.material_type ?? "");
-    setCategory("");
     setStorageLocation("");
-    // Serials captured at the door pre-fill the unique rows.
+    // The order already says what this is; only a hand-typed line is asked.
     const preset = line.serial_numbers.length > 0;
-    setRoute(preset ? "unique" : "generic");
+    setRoute(line.kind === "unique" || line.kind === "generic" ? line.kind : preset ? "unique" : "generic");
     setUnits(
       preset
         ? line.serial_numbers.map((s) => emptyUnit(s))
@@ -184,7 +185,6 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
         if (route === "generic") {
           payload.generic = {
             material_type: materialType || null,
-            category: category || null,
             storage_location: storageLocation.trim(),
           };
         } else {
@@ -208,6 +208,10 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
             ? `${stocked} unique component${stocked === 1 ? "" : "s"} added to inventory`
             : `${accepted} added to generic stock`,
       );
+      const ready: string[] = data.ready_requests ?? [];
+      if (ready.length > 0) {
+        toast.message(`Bought for a project line — the store issues it against ${ready.join(", ")} in Issue Requests`);
+      }
       setActive(null);
       fetchLines();
       onStocked?.();
@@ -262,28 +266,43 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
                   <th className={thClass}>GRN</th>
-                  <th className={thClass}>PO</th>
-                  <th className={thClass}>Supplier</th>
-                  <th className={thClass}>Item</th>
-                  <th className={thClass}>Qty</th>
+                  <th className={thClass}>Source</th>
+                  <th className={thClass}>Component</th>
+                  <th className={thClass}>Kind</th>
+                  <th className={thClass}>Received</th>
                   <th className={thClass}>Batch</th>
-                  <th className={thClass}>Serials</th>
-                  {canInspect && <th className={thClass}>Action</th>}
+                  <th className={thClass}>Serial Nos</th>
+                  {canInspect && <th className={thClass}>Actions</th>}
                 </tr>
               </thead>
               <tbody>
                 {lines.map((line) => (
                   <tr key={line.id} className="border-b border-border transition-colors hover:bg-secondary/30">
-                    <td className={`${tdClass} font-mono text-foreground`}>{line.grn_number ?? "—"}</td>
-                    <td className={`${tdClass} font-mono text-muted-foreground`}>{line.po_number ?? "—"}</td>
-                    <td className={`${tdClass} text-muted-foreground`}>{line.supplier_name ?? "—"}</td>
+                    <td className={`${tdClass} whitespace-nowrap font-mono text-foreground`}>{line.grn_number ?? "—"}</td>
+                    <td className={tdClass}>
+                      {line.po_number ? (
+                        <span>
+                          <span className="font-mono text-foreground">{line.po_number}</span>
+                          {line.supplier_name && <span className="block text-2xs text-muted-foreground">{line.supplier_name}</span>}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">Return</span>
+                      )}
+                    </td>
                     <td className={`${tdClass} text-foreground`}>
-                      {line.po_item_description ?? line.material_name ?? line.device_model_name ?? "—"}
+                      {line.known_component ?? line.po_item_description ?? line.material_name ?? line.device_model_name ?? "—"}
+                    </td>
+                    <td className={tdClass}>
+                      {line.kind === "unique" || line.kind === "generic" ? (
+                        <span className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-2xs font-medium ${line.kind === "unique" ? "bg-indigo-500/10 text-indigo-600" : "bg-secondary text-muted-foreground"}`}>{line.kind === "unique" ? "Unique item" : "Generic stock"}</span>
+                      ) : (
+                        <span className="text-2xs text-muted-foreground">decided at inspection</span>
+                      )}
                     </td>
                     <td className={`${tdClass} font-medium text-foreground`}><Qty value={line.quantity} unit={line.unit} /></td>
                     <td className={`${tdClass} font-mono text-muted-foreground`}>{line.batch_number || "—"}</td>
                     <td className={`${tdClass} text-muted-foreground`}>
-                      {line.serial_numbers.length > 0 ? `${line.serial_numbers.length} captured` : "—"}
+                      {line.kind === "generic" ? "—" : line.serial_numbers.length > 0 ? `${line.serial_numbers.length} captured` : "—"}
                     </td>
                     {canInspect && (
                       <td className={tdClass}>
@@ -308,7 +327,11 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
           <div className="space-y-4">
             <div className="rounded-xl border border-border bg-secondary/20 p-3 text-xs text-muted-foreground">
               <span className="font-medium text-foreground">
-                {active.po_item_description ?? active.material_name ?? "Item"}
+                {active.known_component
+                  ?? active.po_item_description
+                  ?? active.material_name
+                  ?? active.device_model_name
+                  ?? "Not named on the delivery"}
               </span>
               {" · "}GRN <span className="font-mono">{active.grn_number}</span>
               {active.po_number && <> · PO <span className="font-mono">{active.po_number}</span></>}
@@ -342,37 +365,68 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
               </div>
               <div className="space-y-1.5">
                 <label htmlFor="route" className={labelClass}>File into</label>
-                <select
-                  id="route"
-                  value={route}
-                  disabled={accepted === 0}
-                  onChange={(e) => {
-                    const r = e.target.value as "generic" | "unique";
-                    setRoute(r);
-                    if (r === "unique") setUnitCount(accepted);
-                  }}
-                  className={`${inputClass} disabled:opacity-50`}
-                >
-                  <option value="generic">Generic stock</option>
-                  <option value="unique">Unique items</option>
-                </select>
+                {active.kind === "generic" || active.kind === "unique" ? (
+                  // Known from the purchase order: the component was opened in
+                  // inventory before it was ever ordered, so nothing to decide.
+                  <div>
+                    <p id="route" className="flex h-10 items-center rounded-lg border border-border bg-secondary/40 px-3 text-sm text-foreground">
+                      {active.kind === "unique" ? "Unique items" : "Generic stock"}
+                      {active.known_component && (
+                        <span className="ml-1.5 truncate text-muted-foreground">· {active.known_component}</span>
+                      )}
+                    </p>
+                    <p className="mt-1 text-2xs text-muted-foreground">Set by the purchase order line.</p>
+                  </div>
+                ) : (
+                  <select
+                    id="route"
+                    value={route}
+                    disabled={accepted === 0}
+                    onChange={(e) => {
+                      const r = e.target.value as "generic" | "unique";
+                      setRoute(r);
+                      if (r === "unique") setUnitCount(accepted);
+                    }}
+                    className={`${inputClass} disabled:opacity-50`}
+                  >
+                    <option value="generic">Generic stock</option>
+                    <option value="unique">Unique items</option>
+                  </select>
+                )}
               </div>
             </div>
 
-            {accepted > 0 && route === "generic" && (
+            {accepted > 0 && route === "generic" && active.kind === "generic" && (
               <div className="grid gap-4 rounded-xl border border-border bg-secondary/20 p-4 sm:grid-cols-3">
+                <div className="space-y-1.5 sm:col-span-2">
+                  <label className={labelClass}>Tops up</label>
+                  <p className="flex h-10 items-center rounded-lg border border-border bg-secondary/40 px-3 text-sm text-foreground">
+                    {active.known_component ?? active.material_name ?? "the stock item on the order"}
+                  </p>
+                  <p className="text-2xs text-muted-foreground">The accepted quantity is added to this stock item and journalled against GRN {active.grn_number}.</p>
+                </div>
                 <div className="space-y-1.5">
-                  <label htmlFor="ins_material" className={labelClass}>Material Type</label>
+                  <label htmlFor="ins_placed" className={labelClass}>Placed At</label>
+                  <input
+                    id="ins_placed"
+                    value={storageLocation}
+                    onChange={(e) => setStorageLocation(e.target.value)}
+                    placeholder="e.g. Rack A3"
+                    className={inputClass}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* A component already belongs to a category, so naming it once
+                settles both. */}
+            {accepted > 0 && route === "generic" && active.kind !== "generic" && (
+              <div className="grid gap-4 rounded-xl border border-border bg-secondary/20 p-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <label htmlFor="ins_material" className={labelClass}>Component</label>
                   <select id="ins_material" value={materialType} onChange={(e) => setMaterialType(e.target.value)} className={inputClass}>
                     <option value="">From the purchase order</option>
                     {materialTypes.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-                  </select>
-                </div>
-                <div className="space-y-1.5">
-                  <label htmlFor="ins_category" className={labelClass}>Category</label>
-                  <select id="ins_category" value={category} onChange={(e) => setCategory(e.target.value)} className={inputClass}>
-                    <option value="">—</option>
-                    {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
                 </div>
                 <div className="space-y-1.5">
@@ -391,8 +445,9 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
             {accepted > 0 && route === "unique" && (
               <div className="space-y-2 rounded-xl border border-border bg-secondary/20 p-4">
                 <p className="text-xs text-muted-foreground">
-                  One row per physical unit. Make, supplier, price and batch are taken from the purchase order.
-                  A warranty term runs from today, the day the unit was received.
+                  {active.kind === "unique" && active.known_component
+                    ? <>One row per physical unit, filed under <span className="font-medium text-foreground">{active.known_component}</span>. Make, model, technical details, supplier, price and batch come from the product and the purchase order. A warranty term runs from today, the day the unit was received.</>
+                    : <>One row per physical unit. Make, supplier, price and batch are taken from the purchase order. A warranty term runs from today, the day the unit was received.</>}
                 </p>
                 <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
                   {units.slice(0, accepted).map((u, i) => (
@@ -403,12 +458,18 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
                         placeholder={`Serial no ${i + 1} *`}
                         className={`${smallInput} sm:col-span-4`}
                       />
-                      <input
-                        value={u.model_name}
-                        onChange={(e) => patchUnit(i, { model_name: e.target.value })}
-                        placeholder="Model"
-                        className={`${smallInput} sm:col-span-3`}
-                      />
+                      {active.kind === "unique" ? (
+                        <p className={`${smallInput} flex items-center bg-secondary/40 text-muted-foreground sm:col-span-3`} title="From the opened product">
+                          {active.known_component}
+                        </p>
+                      ) : (
+                        <input
+                          value={u.model_name}
+                          onChange={(e) => patchUnit(i, { model_name: e.target.value })}
+                          placeholder="Model"
+                          className={`${smallInput} sm:col-span-3`}
+                        />
+                      )}
                       <div className="flex items-center gap-2 sm:col-span-5">
                         <input
                           type="number"

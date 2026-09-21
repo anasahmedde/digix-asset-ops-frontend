@@ -34,11 +34,16 @@ interface RequestRow {
   issued_by_name: string | null;
   received_by: string;
   issued_serials: string[];
+  /** The units this request will draw, oldest first — what issuing will take. */
+  next_units?: { serial_number: string; unit_code: string }[];
   status: string;
   status_display: string;
   /** Item 19: the part is on order; it is issued once it has been received. */
   awaiting_procurement?: boolean;
+  /** Raised by a Procure decision: the goods come in on a PO and are issued from here. */
+  procured?: boolean;
   po_number?: string | null;
+  po_received_quantity?: number;
   created_at: string;
 }
 
@@ -58,14 +63,6 @@ const labelClass = "text-xs font-medium text-muted-foreground";
 const thClass = "px-5 py-3.5 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground";
 const tdClass = "px-5 py-3.5";
 
-/** What the material is for, in the words of whoever asked for it. */
-function against(row: RequestRow) {
-  if (row.asset_code) return `${row.asset_code}${row.component_name ? ` · ${row.component_name}` : ""}`;
-  if (row.maintenance_title) return row.maintenance_title;
-  if (row.project_name) return row.project_name;
-  return row.purpose || "—";
-}
-
 export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
   const { user } = useUser();
   const canIssue = user != null && STORE_ROLES.includes(user.role);
@@ -77,6 +74,20 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
   const [showDone, setShowDone] = useState(false);
   const [issueFor, setIssueFor] = useState<RequestRow | null>(null);
   const [issue, setIssue] = useState({ quantity: "", received_by: "", notes: "" });
+  // Who takes the material away: one of the team, or someone named by hand.
+  const [people, setPeople] = useState<{ id: string; label: string }[]>([]);
+  const [receiverPick, setReceiverPick] = useState("");
+  useEffect(() => {
+    api.get("/accounts/users/", { params: { is_active: true, page_size: 200 } })
+      .then((r) => {
+        const rows_: { id: string; full_name?: string; username: string; role?: string }[] = r.data.results ?? r.data;
+        setPeople(rows_.map((u) => ({
+          id: u.id,
+          label: `${(u.full_name || "").trim() || u.username}${u.role ? ` · ${u.role.replace(/_/g, " ")}` : ""}`,
+        })));
+      })
+      .catch(() => {});
+  }, []);
 
   const fetchRows = useCallback(async () => {
     setLoading(true);
@@ -117,6 +128,7 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
     // Default to what can actually be covered right now.
     const possible = Math.min(row.outstanding_quantity, row.available_quantity ?? row.outstanding_quantity);
     setIssue({ quantity: String(Math.max(possible, 0)), received_by: "", notes: "" });
+    setReceiverPick("");
     setIssueFor(row);
   }
 
@@ -131,9 +143,14 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
         notes: issue.notes.trim(),
       });
       const left = data.request.outstanding_quantity;
-      toast.success(
-        left > 0 ? `Issued ${data.issued} — ${left} still owed` : `Issued ${data.issued}, request complete`,
-      );
+      if (data.closed) {
+        // Nothing moved: the requirement was already covered another way.
+        toast.message(data.reason || "Already covered from stock — request closed");
+      } else {
+        toast.success(
+          left > 0 ? `Issued ${data.issued} — ${left} still owed` : `Issued ${data.issued}, request complete`,
+        );
+      }
       setIssueFor(null);
       fetchRows();
       onIssued?.();
@@ -229,14 +246,15 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
                   <th className={thClass}>Request</th>
-                  <th className={thClass}>Item</th>
-                  <th className={thClass}>Asked</th>
+                  <th className={thClass}>Component</th>
+                  <th className={thClass}>Kind</th>
+                  <th className={thClass}>Requested</th>
                   <th className={thClass}>Issued</th>
-                  <th className={thClass}>In Stock</th>
-                  <th className={thClass}>For</th>
-                  <th className={thClass}>Asked By</th>
+                  <th className={thClass}>On Hand</th>
+                  <th className={thClass}>Project / Asset</th>
+                  <th className={thClass}>Requested By</th>
                   <th className={thClass}>Status</th>
-                  <th className={thClass}>Action</th>
+                  <th className={thClass}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -245,29 +263,45 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                   const settled = row.status === "fulfilled" || row.status === "cancelled";
                   return (
                     <tr key={row.id} className="border-b border-border transition-colors hover:bg-secondary/30">
-                      <td className={`${tdClass} font-mono text-foreground`}>
+                      <td className={`${tdClass} whitespace-nowrap font-mono text-foreground`}>
                         {row.request_number}
                         <span className="block text-2xs font-sans text-muted-foreground">
                           {row.source_display}
                         </span>
                       </td>
                       <td className={`${tdClass} text-foreground`}>{row.what}</td>
+                      <td className={tdClass}>
+                        <span className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-2xs font-medium ${row.unit_type_name ? "bg-indigo-500/10 text-indigo-600" : "bg-secondary text-muted-foreground"}`}>{row.unit_type_name ? "Unique item" : "Generic stock"}</span>
+                      </td>
                       <td className={`${tdClass} text-foreground`}><Qty value={row.quantity_requested} unit={row.unit} /></td>
                       <td className={`${tdClass} text-muted-foreground`}>
-                        {row.quantity_issued}
+                        <Qty value={row.quantity_issued} unit={row.unit} />
+                        {/* A unique item is a particular one. Which one left
+                            the store is the thing worth recording. */}
+                        {row.issued_serials.length > 0 && (
+                          <span className="block font-mono text-2xs text-foreground">
+                            {row.issued_serials.join(" · ")}
+                          </span>
+                        )}
                         {row.outstanding_quantity > 0 && (
                           <span className="block text-2xs text-amber-600">
-                            {row.outstanding_quantity} owed
+                            balance <Qty value={row.outstanding_quantity} unit={row.unit} />
                           </span>
                         )}
                       </td>
                       <td className={`${tdClass} ${short ? "text-amber-600" : "text-muted-foreground"}`}>
-                        {row.available_quantity ?? "—"}
+                        {row.available_quantity != null ? <Qty value={row.available_quantity} unit={row.unit} /> : "—"}
                       </td>
-                      <td className={`${tdClass} text-muted-foreground`}>
-                        {against(row)}
-                        {row.purpose && against(row) !== row.purpose && (
-                          <span className="block text-2xs">{row.purpose}</span>
+                      <td className={tdClass}>
+                        {/* The column asks for the project, so the project leads
+                            and the asset it is for sits under it. */}
+                        <span className="block text-foreground">
+                          {row.project_name ?? row.maintenance_title ?? "Not on a project"}
+                        </span>
+                        {row.asset_code && (
+                          <span className="block font-mono text-2xs text-muted-foreground">
+                            {row.asset_code}{row.component_name ? ` · ${row.component_name}` : ""}
+                          </span>
                         )}
                       </td>
                       <td className={`${tdClass} text-muted-foreground`}>{row.requested_by_name ?? "—"}</td>
@@ -282,6 +316,11 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                         {row.awaiting_procurement && (
                           <span className="mt-1 block text-2xs font-medium text-indigo-600">
                             Procurement in progress{row.po_number ? ` · ${row.po_number}` : ""}
+                          </span>
+                        )}
+                        {!row.awaiting_procurement && row.procured && !settled && (
+                          <span className="mt-1 block text-2xs font-medium text-emerald-600">
+                            {row.po_received_quantity ?? 0} received into stock{row.po_number ? ` · ${row.po_number}` : ""} — ready to issue
                           </span>
                         )}
                       </td>
@@ -353,15 +392,58 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                 Issue less than asked for and the balance stays on this queue.
               </p>
             </div>
+            {/* A unique item is a particular one. The store takes the oldest
+                units first, so say which ones before it does. */}
+            {(issueFor.next_units ?? []).length > 0 && (
+              <div className="space-y-1.5">
+                <label className={labelClass}>Serial numbers going out</label>
+                <div className="flex flex-wrap gap-1.5 rounded-lg border border-border bg-secondary/30 p-2.5">
+                  {(issueFor.next_units ?? [])
+                    .slice(0, Math.max(Number(issue.quantity) || 0, 0))
+                    .map((u) => (
+                      <span
+                        key={u.unit_code}
+                        className="rounded-md bg-card px-2 py-1 font-mono text-xs text-foreground ring-1 ring-border"
+                      >
+                        {u.serial_number}
+                      </span>
+                    ))}
+                  {(Number(issue.quantity) || 0) === 0 && (
+                    <span className="text-xs text-muted-foreground">Enter a quantity to see which units go.</span>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Oldest units first. Issuing hands over exactly these.
+                </p>
+              </div>
+            )}
             <div className="space-y-1.5">
               <label htmlFor="issue-to" className={labelClass}>Received by</label>
-              <input
+              <select
                 id="issue-to"
-                value={issue.received_by}
-                onChange={(e) => setIssue({ ...issue, received_by: e.target.value })}
-                placeholder="Who is taking it away"
+                value={receiverPick}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setReceiverPick(v);
+                  setIssue({ ...issue, received_by: v === "__other__" ? "" : v });
+                }}
                 className={inputClass}
-              />
+              >
+                <option value="">Who is taking it away…</option>
+                {people.map((p) => <option key={p.id} value={p.label}>{p.label}</option>)}
+                <option value="__other__">Someone else…</option>
+              </select>
+              {receiverPick === "__other__" && (
+                <input
+                  id="issue-to-other"
+                  value={issue.received_by}
+                  onChange={(e) => setIssue({ ...issue, received_by: e.target.value })}
+                  placeholder="Name of the person taking it"
+                  className={inputClass}
+                  autoFocus
+                />
+              )}
+              <p className="text-xs text-muted-foreground">The team as set up under Teams; pick “Someone else” for an outside collector.</p>
             </div>
             <div className="space-y-1.5">
               <label htmlFor="issue-notes" className={labelClass}>Notes</label>

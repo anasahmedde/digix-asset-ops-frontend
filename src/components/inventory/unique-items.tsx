@@ -51,8 +51,12 @@ interface UnitRow {
   supplier_name: string | null;
   warranty_state: "none" | "active" | "expired";
   warranty_end: string | null;
+  /** Free text on the unit; opening-stock units carry "Opening stock." */
+  notes?: string;
 }
 interface Ref { id: string; name: string }
+/** A unit of measure as maintained under Setup. */
+interface UnitRef { id: string; name: string; symbol: string; is_active: boolean }
 interface SpecRow { key: string; value: string }
 
 const inputClass =
@@ -77,12 +81,24 @@ export function UniqueItems() {
   const [products, setProducts] = useState<UniqueProduct[]>([]);
   const [categories, setCategories] = useState<Ref[]>([]);
   const [brands, setBrands] = useState<Ref[]>([]);
+  const [uoms, setUoms] = useState<UnitRef[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   const [modal, setModal] = useState<"open" | "edit" | null>(null);
   const [selected, setSelected] = useState<UniqueProduct | null>(null);
   const [specs, setSpecs] = useState<SpecRow[]>([]);
+  // Opening stock: how many units are on the shelf, and the serial of each.
+  const [openingQty, setOpeningQty] = useState(0);
+  const [openingSerials, setOpeningSerials] = useState<string[]>([]);
+  useEffect(() => {
+    if (modal === "open") { setOpeningQty(0); setOpeningSerials([]); }
+  }, [modal]);
+  const trimmedSerials = openingSerials.map((sn) => sn.trim());
+  const serialsEntered = trimmedSerials.filter(Boolean).length;
+  const serialsRepeated = new Set(trimmedSerials.filter(Boolean).map((sn) => sn.toLowerCase())).size !== serialsEntered;
+  // Stock on the shelf needs every serial before the item can be opened.
+  const openingBlocked = modal === "open" && openingQty > 0 && (serialsEntered < openingQty || serialsRepeated);
 
   const [expanded, setExpanded] = useState<string | null>(null);
   const [units, setUnits] = useState<Record<string, UnitRow[]>>({});
@@ -107,6 +123,7 @@ export function UniqueItems() {
     fetchProducts();
     api.get("/inventory/categories/").then((r) => setCategories(r.data.results ?? r.data)).catch(() => {});
     api.get("/assets/brands/").then((r) => setBrands(r.data.results ?? r.data)).catch(() => {});
+    api.get("/setup/units/", { params: { is_active: true, page_size: 200 } }).then((r) => setUoms(r.data.results ?? r.data)).catch(() => {});
   }, [fetchProducts]);
 
   async function toggleUnits(productId: string) {
@@ -115,7 +132,9 @@ export function UniqueItems() {
     if (units[productId]) return;
     try {
       const { data } = await api.get(`/inventory/products/${productId}/units/`, {
-        params: { page_size: 200 },
+        // The shelf only. A unit that has been issued left the store; the
+        // Issuance Log says where it went and who took it.
+        params: { page_size: 200, in_store: 1 },
       });
       setUnits((prev) => ({ ...prev, [productId]: data.results ?? data }));
     } catch (err) {
@@ -167,14 +186,14 @@ export function UniqueItems() {
       unit_cost: fd.get("unit_cost") || null,
       min_stock_level: Number(fd.get("min_stock_level") || 0),
       // Only meaningful on the way in; the API ignores it on an edit.
-      ...(selected ? {} : { opening_quantity: Number(fd.get("opening_quantity") || 0) }),
+      ...(selected ? {} : { opening_quantity: openingQty, opening_serials: trimmedSerials }),
       specifications,
       notes: fd.get("notes") || "",
     };
     try {
       if (modal === "open") {
         await api.post("/inventory/products/", payload);
-        toast.success("Unique item opened — stock starts at zero");
+        toast.success(openingQty > 0 ? `Unique item opened with ${openingQty} unit${openingQty === 1 ? "" : "s"} on the shelf` : "Unique item opened — stock starts at zero");
       } else if (selected) {
         await api.patch(`/inventory/products/${selected.id}/`, payload);
         toast.success("Product updated");
@@ -219,8 +238,8 @@ export function UniqueItems() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
-          Unique products are opened here with their technical details and no stock. Serial numbers are
-          added later, when goods arrive and pass inspection.
+          Unique products are opened here with their technical details — empty, with serials arriving at
+          goods inspection, or with the stock already on the shelf and a serial typed for each unit.
         </p>
         {canEdit && (
           <button
@@ -287,7 +306,7 @@ export function UniqueItems() {
                   <th className={thClass}>Code</th>
                   <th className={thClass}>Component</th>
                   <th className={thClass}>Make / Model</th>
-                  <th className={thClass}>In Stock</th>
+                  <th className={thClass}>On Hand</th>
                   <th className={thClass}>Unit Cost</th>
                   {canEdit && <th className={thClass}>Actions</th>}
                 </tr>
@@ -363,7 +382,7 @@ export function UniqueItems() {
                                   <th className="py-1.5 font-medium">Serial No</th>
                                   <th className="py-1.5 font-medium">Status</th>
                                   <th className="py-1.5 font-medium">Batch</th>
-                                  <th className="py-1.5 font-medium">GRN / PO</th>
+                                  <th className="py-1.5 font-medium">Source</th>
                                   <th className="py-1.5 font-medium">Warranty</th>
                                 </tr>
                               </thead>
@@ -402,7 +421,7 @@ export function UniqueItems() {
                                     <td className="py-1.5 text-muted-foreground">{STATUS_LABELS[u.status] ?? u.status}</td>
                                     <td className="py-1.5 font-mono text-muted-foreground">{u.batch_number || "—"}</td>
                                     <td className="py-1.5 font-mono text-muted-foreground">
-                                      {[u.grn_number, u.po_number].filter(Boolean).join(" · ") || "Entered by hand"}
+                                      {[u.grn_number, u.po_number].filter(Boolean).join(" · ") || (u.notes?.startsWith("Opening stock") ? "Opening stock" : "Entered by hand")}
                                       {u.supplier_name && (
                                         <span className="block font-sans text-2xs text-muted-foreground">{u.supplier_name}</span>
                                       )}
@@ -417,6 +436,12 @@ export function UniqueItems() {
                               </tbody>
                             </table>
                           )}
+                          {/* A unit that has been issued is not on the shelf,
+                              so it is not listed here. Say where it went to. */}
+                          <p className="mt-2 text-2xs text-muted-foreground">
+                            What the store is holding. A unit that has been issued has left — the
+                            Issuance Log shows where each serial went, who issued it and who took it.
+                          </p>
                         </td>
                       </tr>
                     )}
@@ -437,8 +462,8 @@ export function UniqueItems() {
         <form onSubmit={handleSubmit} className="space-y-4">
           {modal === "open" && (
             <p className="rounded-lg border border-border bg-secondary/20 p-3 text-xs text-muted-foreground">
-              Define the product now — quantity starts at zero. Serial numbers are captured later at
-              goods inspection, where only the serial has to be typed.
+              Define the product now. Open it empty and serial numbers come in at goods inspection —
+              or enter the stock already on the shelf and type each unit&apos;s serial here.
             </p>
           )}
           {modal === "edit" && (
@@ -458,8 +483,11 @@ export function UniqueItems() {
             <div className="space-y-1.5">
               <label htmlFor="unit" className={labelClass}>Unit of Measure</label>
               <select id="unit" name="unit" defaultValue={selected?.unit ?? "piece"} className={inputClass}>
-                {["piece", "set", "pair", "box", "meter", "roll", "kg", "litre"].map((u) => <option key={u} value={u}>{u}</option>)}
+                {/* The units opened under Setup; a legacy unit on an existing product stays selectable. */}
+                {uoms.map((u) => <option key={u.id} value={u.name}>{u.name}{u.symbol ? ` (${u.symbol})` : ""}</option>)}
+                {selected?.unit && !uoms.some((u) => u.name === selected.unit) && <option value={selected.unit}>{selected.unit}</option>}
               </select>
+              <p className="text-2xs text-muted-foreground">Units are maintained under Setup › Units of Measure.</p>
             </div>
           </div>
 
@@ -507,16 +535,53 @@ export function UniqueItems() {
                   type="number"
                   min={0}
                   max={500}
-                  defaultValue={0}
+                  value={openingQty}
+                  onChange={(e) => {
+                    const n = Math.max(0, Math.min(500, Number(e.target.value) || 0));
+                    setOpeningQty(n);
+                    setOpeningSerials((prev) => Array.from({ length: n }, (_, i) => prev[i] ?? ""));
+                  }}
                   className={inputClass}
                 />
                 <p className="text-2xs text-muted-foreground">
-                  Units already on the shelf. Each gets a provisional serial from the product
-                  code — correct them as the units are found. Leave at 0 to open empty.
+                  Units already on the shelf — a serial number is typed for each one below.
+                  Leave at 0 to open empty; serials then come in at goods inspection.
                 </p>
               </div>
             )}
           </div>
+
+          {/* One serial per unit on the shelf; the item opens only once all are typed. */}
+          {!selected && openingQty > 0 && (
+            <div className="space-y-2 rounded-xl border border-primary/30 bg-primary/5 p-4">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium text-foreground">
+                  Serial numbers — {openingQty} unit{openingQty === 1 ? "" : "s"} on the shelf
+                </p>
+                <span className={`text-2xs font-medium ${serialsEntered === openingQty && !serialsRepeated ? "text-emerald-600" : "text-amber-600"}`}>
+                  {serialsEntered}/{openingQty} entered{serialsRepeated ? " · repeated serial" : ""}
+                </span>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {openingSerials.map((sn, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <span className="w-6 text-right font-mono text-2xs text-muted-foreground">{i + 1}.</span>
+                    <input
+                      id={`opening_serial_${i}`}
+                      value={sn}
+                      required
+                      onChange={(e) => setOpeningSerials((prev) => prev.map((v, j) => (j === i ? e.target.value : v)))}
+                      placeholder="Serial number"
+                      className={`${inputClass} h-9 font-mono text-xs`}
+                    />
+                  </div>
+                ))}
+              </div>
+              <p className="text-2xs text-muted-foreground">
+                Every unit needs its serial before the item can be opened.
+              </p>
+            </div>
+          )}
 
           {/* Technical details, free-form key/value. */}
           <div className="space-y-2 rounded-xl border border-border bg-secondary/20 p-4">
@@ -575,7 +640,8 @@ export function UniqueItems() {
             </button>
             <button
               type="submit"
-              disabled={saving}
+              disabled={saving || openingBlocked}
+              title={openingBlocked ? "Type a serial number for every unit on the shelf" : undefined}
               className="inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-medium text-white transition-all disabled:opacity-50"
             >
               {saving ? "Saving..." : modal === "open" ? "Open Item" : "Save Changes"}
