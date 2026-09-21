@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, CalendarClock, Check, Pencil, Play, Plus, Ticket, Trash2, Wrench, X } from "lucide-react";
+import { AlertTriangle, CalendarClock, Check, Pencil, Plus, Trash2, Wrench, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -10,6 +10,7 @@ import { FilterBar } from "@/components/ui/filter-bar";
 import { MultiSelect } from "@/components/ui/multi-select";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
+import { ScheduleDetail } from "@/components/maintenance/schedule-detail";
 import { useUser } from "@/lib/user-context";
 import { formatDate } from "@/lib/utils";
 
@@ -25,6 +26,8 @@ interface MaintenanceSchedule {
   device_status: string | null;
   site: string | null;
   site_name: string | null;
+  /** The order the asset belongs to, where it is on one. */
+  project_name: string | null;
   assigned_to: string | null;
   assigned_to_name: string | null;
   vendors: string[];
@@ -46,16 +49,6 @@ interface Option { id: string; label: string }
 /** A material the visit takes along — picked from inventory, or (on older
  *  schedules) a name typed by hand. */
 type ReqRow = { name: string; quantity: number; inventory_item?: string; inventory_unit_type?: string };
-
-interface StockOption {
-  value: string;
-  id: string;
-  kind: "item" | "product";
-  name: string;
-  label: string;
-  /** How this component is counted — metres of cable, not "12". */
-  unit: string;
-}
 
 interface BillingDefaults {
   is_billable: boolean;
@@ -130,12 +123,14 @@ function BillingChip({ billable, chargeTo }: { billable: boolean; chargeTo: stri
 }
 
 export default function MaintenancePage() {
-  const { user, canWrite } = useUser();
+  const { canWrite } = useUser();
   const canEdit = canWrite("maintenance");
   const [schedules, setSchedules] = useState<MaintenanceSchedule[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
   const [selected, setSelected] = useState<MaintenanceSchedule | null>(null);
+  // The job opened in full. Editing is a form; this is where the work happens.
+  const [detailFor, setDetailFor] = useState<MaintenanceSchedule | null>(null);
   const [saving, setSaving] = useState(false);
   const [filterValues, setFilterValues] = useState<Record<string, string>>({ type: "", frequency: "", active: "" });
   const [search, setSearch] = useState("");
@@ -148,15 +143,9 @@ export default function MaintenancePage() {
   const [formStart, setFormStart] = useState("");
   const [formFrequency, setFormFrequency] = useState("monthly");
   const [formVendors, setFormVendors] = useState<string[]>([]);
-  const [reqComponents, setReqComponents] = useState<ReqRow[]>([]);
-  const [stockOptions, setStockOptions] = useState<StockOption[]>([]);
   const [supplierOptions, setSupplierOptions] = useState<Option[]>([]);
-  const [formAssetInfo, setFormAssetInfo] = useState<{
-    components: { name: string; quantity: number }[];
-    dims: string | null;
-    /** Where the asset stands — the schedule's site follows it. */
-    siteName: string | null;
-  } | null>(null);
+  /** Where the chosen asset stands — the schedule's site follows it. */
+  const [formAssetSite, setFormAssetSite] = useState<string | null>(null);
   const [completeFor, setCompleteFor] = useState<MaintenanceSchedule | null>(null);
   const [completeComponents, setCompleteComponents] = useState<{ id: string; name: string }[]>([]);
   // The cover the billing answer turns on, and who would be billed without it.
@@ -179,37 +168,6 @@ export default function MaintenancePage() {
   const openScheduleIdRef = useRef<string | null>(null);
   const searchParams = useSearchParams();
   const autoOpenedRef = useRef(false);
-
-  // What a visit can take along: generic stock and opened unique products.
-  useEffect(() => {
-    Promise.allSettled([
-      api.get("/inventory/items/", { params: { page_size: 500 } }),
-      api.get("/inventory/products/", { params: { page_size: 500 } }),
-    ]).then(([items, products]) => {
-      const opts: StockOption[] = [];
-      if (items.status === "fulfilled") {
-        for (const it of items.value.data.results ?? items.value.data) {
-          const name = it.material_name ?? it.sku;
-          opts.push({
-            value: `item:${it.id}`, id: it.id, kind: "item", name,
-            unit: it.unit || "piece",
-            label: `${name} · ${it.quantity} ${it.unit || "piece"} in stock`,
-          });
-        }
-      }
-      if (products.status === "fulfilled") {
-        for (const p of products.value.data.results ?? products.value.data) {
-          const name = [p.name, p.model_name].filter(Boolean).join(" ");
-          opts.push({
-            value: `product:${p.id}`, id: p.id, kind: "product", name,
-            unit: p.unit || "piece",
-            label: `${name} · ${p.in_stock_count} ${p.unit || "piece"} in stock`,
-          });
-        }
-      }
-      setStockOptions(opts);
-    });
-  }, []);
 
   const fetchSchedules = useCallback(async () => {
     try {
@@ -251,21 +209,12 @@ export default function MaintenancePage() {
 
   async function handleFormDeviceChange(id: string) {
     setFormDevice(id);
-    setFormAssetInfo(null);
+    setFormAssetSite(null);
     if (!id) return;
     try {
       const { data } = await api.get(`/assets/devices/${id}/`);
-      const dims = data.length_in && data.width_in
-        ? `${data.length_in} × ${data.width_in}${data.depth_in ? ` × ${data.depth_in}` : ""} in`
-        : data.diagonal_inches
-          ? `${data.diagonal_inches}"`
-          : null;
-      setFormAssetInfo({
-        components: (data.components ?? []).map((c: { name: string; quantity: number }) => ({ name: c.name, quantity: c.quantity })),
-        dims,
-        siteName: data.site_name ?? null,
-      });
-    } catch { /* card stays hidden */ }
+      setFormAssetSite(data.site_name ?? null);
+    } catch { /* the site field says it could not be read */ }
   }
 
   async function startWork(s: MaintenanceSchedule) {
@@ -366,7 +315,6 @@ export default function MaintenancePage() {
     setFormStart(s.start_date?.split("T")[0] ?? "");
     setFormFrequency(s.frequency ?? "monthly");
     setFormVendors(s.vendors ?? []);
-    setReqComponents(s.required_components ?? []);
     setPastRecords([]);
     setModalMode("edit");
     const scheduleId = s.id;
@@ -395,15 +343,6 @@ export default function MaintenancePage() {
     setModalMode(null);
     setSelected(null);
     setPastRecords([]);
-  }
-
-  /** How a requirement row is counted, from the stock line it names. */
-  function unitOf(row: ReqRow): string {
-    const opt = stockOptions.find(
-      (o) => (row.inventory_item && o.id === row.inventory_item)
-        || (row.inventory_unit_type && o.id === row.inventory_unit_type),
-    );
-    return opt?.unit ?? "";
   }
 
   /** Assets free to be scheduled: everything live, less what is already on a
@@ -448,7 +387,9 @@ export default function MaintenancePage() {
       device: fd.get("device") || null,
       assigned_to: fd.get("assigned_to") || null,
       vendors: fd.getAll("vendors"),
-      required_components: reqComponents.filter((r) => r.inventory_item || r.inventory_unit_type || r.name.trim()),
+      // Parts are asked for on the job by whoever is doing it, so this form
+      // sends none — and does not send an empty list either, which would wipe
+      // what an older schedule already has.
       // The server works the next round out from these two, so it is not sent:
       // a date from here could only disagree with the ones it comes from.
       start_date: fd.get("start_date"),
@@ -485,6 +426,19 @@ export default function MaintenancePage() {
     }
   }
 
+  if (detailFor) {
+    return (
+      <ScheduleDetail
+        schedule={detailFor}
+        onBack={() => setDetailFor(null)}
+        onChanged={fetchSchedules}
+        onStart={() => startWork(detailFor)}
+        onComplete={() => openComplete(detailFor)}
+        onEdit={canEdit ? () => openEdit(detailFor) : undefined}
+      />
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -504,12 +458,11 @@ export default function MaintenancePage() {
             onClick={() => {
               setSelected(null);
               setFormDevice("");
-              setFormAssetInfo(null);
+              setFormAssetSite(null);
               setFormAssignee("");
               setFormStart("");
               setFormFrequency("monthly");
               setFormVendors([]);
-              setReqComponents([]);
               setModalMode("create");
             }}
             className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-all"
@@ -642,6 +595,7 @@ export default function MaintenancePage() {
                   <th className={thClass}>Next Due</th>
                   <th className={thClass}>Asset ID</th>
                   <th className={thClass}>Asset Name</th>
+                  <th className={thClass}>Project</th>
                   <th className={thClass}>Site</th>
                   <th className={thClass}>Assigned To</th>
                   <th className={thClass}>Status</th>
@@ -652,7 +606,8 @@ export default function MaintenancePage() {
                 {filtered.map((s) => (
                   <tr
                     key={s.id}
-                    onClick={() => openEdit(s)}
+                    onClick={() => setDetailFor(s)}
+                    title="Open this job"
                     className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30"
                   >
                     <td className={`${tdClass} font-medium text-foreground`}>
@@ -686,6 +641,9 @@ export default function MaintenancePage() {
                     <td className={`${tdClass} text-muted-foreground`}>
                       {s.device_name || "-"}
                     </td>
+                    <td className={`${tdClass} text-foreground`}>
+                      {s.project_name || <span className="text-muted-foreground">Not on a project</span>}
+                    </td>
                     <td className={`${tdClass} text-muted-foreground`}>
                       {s.site_name || "-"}
                     </td>
@@ -712,36 +670,11 @@ export default function MaintenancePage() {
                       })()}
                     </td>
                     <td className={tdClass} onClick={(e) => e.stopPropagation()}>
-                      {(canEdit || user?.id === s.assigned_to) ? (
+                      {/* Starting, completing and ticketing are things you do
+                          to a job, so they live inside it. Editing and deleting
+                          are what you do to a line on a list. */}
+                      {canEdit ? (
                         <div className="flex items-center gap-1">
-                          {["active", "pending", "overdue"].includes(s.effective_status || s.status) && (
-                            <button
-                              onClick={() => startWork(s)}
-                              className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 px-2 py-1 text-2xs font-medium text-amber-600 transition-colors hover:bg-amber-500/20"
-                              title="Start maintenance"
-                            >
-                              <Play className="h-3 w-3" /> Start
-                            </button>
-                          )}
-                          {s.maintenance_type === "preventive" && s.device && (
-                            <Link
-                              href={`/tickets?create=1&device=${s.device}&category=repair`}
-                              className="inline-flex items-center gap-1 rounded-md bg-red-500/10 px-2 py-1 text-2xs font-medium text-red-600 transition-colors hover:bg-red-500/20"
-                              title="Found a major fault? Raise a maintenance ticket"
-                            >
-                              <Ticket className="h-3 w-3" /> Ticket
-                            </Link>
-                          )}
-                          {(s.effective_status || s.status) !== "completed" && (
-                            <button
-                              onClick={() => openComplete(s)}
-                              className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-1 text-2xs font-medium text-emerald-600 transition-colors hover:bg-emerald-500/20"
-                              title="Complete this cycle"
-                            >
-                              <Check className="h-3 w-3" /> Complete
-                            </button>
-                          )}
-                          {canEdit && (
                           <button
                             onClick={() => openEdit(s)}
                             className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
@@ -749,7 +682,6 @@ export default function MaintenancePage() {
                           >
                             <Pencil className="h-3.5 w-3.5" />
                           </button>
-                          )}
                           {canEdit && (() => {
                             // A fault is closed, not deleted: deleting the open
                             // job would strand the asset out of service.
@@ -868,9 +800,9 @@ export default function MaintenancePage() {
                   <label htmlFor="m-site" className={labelClass}>Site</label>
                   <div id="m-site" className={`${inputClass} flex items-center justify-between gap-2`}>
                     <span className="truncate text-foreground">
-                      {formAssetInfo?.siteName ?? (formDevice ? "No site on this asset" : "Pick an asset first")}
+                      {formAssetSite ?? (formDevice ? "No site on this asset" : "Pick an asset first")}
                     </span>
-                    {formAssetInfo?.siteName && (
+                    {formAssetSite && (
                       <span className="shrink-0 text-2xs text-muted-foreground">from the asset</span>
                     )}
                   </div>
@@ -910,100 +842,6 @@ export default function MaintenancePage() {
                     <option value="high">High</option>
                   </select>
                 </div>
-              </div>
-              {formAssetInfo && (
-                <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-xs">
-                  <p className="mb-1 font-semibold text-foreground">
-                    Asset components: {formAssetInfo.components.length}
-                    {formAssetInfo.dims ? ` · dimensions ${formAssetInfo.dims}` : ""}
-                  </p>
-                  {formAssetInfo.components.length > 0 ? (
-                    <div className="flex flex-wrap gap-1.5">
-                      {formAssetInfo.components.map((c, i) => (
-                        <span key={i} className="rounded-full bg-card px-2 py-0.5 text-2xs text-muted-foreground ring-1 ring-border">
-                          {c.name} ×{c.quantity}
-                        </span>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-muted-foreground">Single-unit asset — no components recorded.</p>
-                  )}
-                </div>
-              )}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label className={labelClass}>Components required for this maintenance</label>
-                  <button
-                    type="button"
-                    onClick={() => setReqComponents((rows) => [...rows, { name: "", quantity: 1 }])}
-                    className="inline-flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-2xs font-medium text-primary transition-colors hover:bg-primary/5"
-                  >
-                    <Plus className="h-3 w-3" /> Add
-                  </button>
-                </div>
-                {reqComponents.length === 0 ? (
-                  <p className="text-2xs text-muted-foreground">None added — pick what the technician takes along from inventory.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {reqComponents.map((row, i) => (
-                      <div key={i} className="flex gap-2">
-                        <select
-                          value={row.inventory_item ? `item:${row.inventory_item}` : row.inventory_unit_type ? `product:${row.inventory_unit_type}` : ""}
-                          onChange={(e) => {
-                            const opt = stockOptions.find((o) => o.value === e.target.value);
-                            setReqComponents((rows) => rows.map((r, j) => (j === i
-                              ? {
-                                  quantity: r.quantity,
-                                  name: opt?.name ?? "",
-                                  ...(opt?.kind === "item" ? { inventory_item: opt.id } : {}),
-                                  ...(opt?.kind === "product" ? { inventory_unit_type: opt.id } : {}),
-                                }
-                              : r)));
-                          }}
-                          className="h-9 min-w-0 flex-1 rounded-lg border border-border bg-card px-2 text-sm text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                        >
-                          <option value="">
-                            {row.name && !row.inventory_item && !row.inventory_unit_type ? `${row.name} (typed by hand)` : "Select from inventory…"}
-                          </option>
-                          <optgroup label="Stock items">
-                            {stockOptions.filter((o) => o.kind === "item").map((o) => (
-                              <option key={o.value} value={o.value}>{o.label}</option>
-                            ))}
-                          </optgroup>
-                          <optgroup label="Unique items">
-                            {stockOptions.filter((o) => o.kind === "product").map((o) => (
-                              <option key={o.value} value={o.value}>{o.label}</option>
-                            ))}
-                          </optgroup>
-                        </select>
-                        {/* A bare number says nothing: twelve of a cable is
-                            twelve metres, twelve of a mount is twelve of them. */}
-                        <div className="flex h-9 w-32 shrink-0 items-center rounded-lg border border-border bg-card pr-2 focus-within:border-primary/50">
-                          <input
-                            type="number"
-                            min={1}
-                            value={row.quantity}
-                            onChange={(e) => setReqComponents((rows) => rows.map((r, j) => (j === i ? { ...r, quantity: Number(e.target.value) || 1 } : r)))}
-                            title="Quantity"
-                            placeholder="Qty"
-                            className="h-full w-full min-w-0 rounded-l-lg bg-transparent px-3 text-sm text-foreground focus:outline-none"
-                          />
-                          <span className="shrink-0 text-2xs text-muted-foreground">
-                            {unitOf(row) || "qty"}
-                          </span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setReqComponents((rows) => rows.filter((_, j) => j !== i))}
-                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:text-destructive"
-                          title="Remove"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
