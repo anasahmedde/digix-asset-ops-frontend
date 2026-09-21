@@ -193,7 +193,7 @@ export function ScheduleDetail({
   async function ask(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const opt = stock.find((o) => o.value === askPart);
-    if (!opt) { toast.error("Pick the part you need"); return; }
+    if (!opt) { toast.error("Pick the component you need"); return; }
     setAsking(true);
     try {
       await api.post("/maintenance/part-requests/", {
@@ -204,9 +204,9 @@ export function ScheduleDetail({
       });
       setAskPart(""); setAskQty(1);
       await loadParts();
-      toast.success("Asked for — a supervisor decides next");
+      toast.success("Request raised — a supervisor decides next");
     } catch (err) {
-      toast.error(getApiError(err, "Could not ask for that part"));
+      toast.error(getApiError(err, "Could not raise that request"));
     } finally {
       setAsking(false);
     }
@@ -550,7 +550,7 @@ export function ScheduleDetail({
               disabled={asking || !askPart}
               className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-medium text-white disabled:opacity-50"
             >
-              <Plus className="h-3.5 w-3.5" /> {asking ? "Asking…" : "Ask"}
+              <Plus className="h-3.5 w-3.5" /> {asking ? "Raising…" : "Raise request"}
             </button>
           </form>
         )}
