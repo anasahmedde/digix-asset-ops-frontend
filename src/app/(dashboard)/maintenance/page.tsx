@@ -47,7 +47,15 @@ interface Option { id: string; label: string }
  *  schedules) a name typed by hand. */
 type ReqRow = { name: string; quantity: number; inventory_item?: string; inventory_unit_type?: string };
 
-interface StockOption { value: string; id: string; kind: "item" | "product"; name: string; label: string }
+interface StockOption {
+  value: string;
+  id: string;
+  kind: "item" | "product";
+  name: string;
+  label: string;
+  /** How this component is counted — metres of cable, not "12". */
+  unit: string;
+}
 
 interface BillingDefaults {
   is_billable: boolean;
@@ -182,13 +190,21 @@ export default function MaintenancePage() {
       if (items.status === "fulfilled") {
         for (const it of items.value.data.results ?? items.value.data) {
           const name = it.material_name ?? it.sku;
-          opts.push({ value: `item:${it.id}`, id: it.id, kind: "item", name, label: `${name} · ${it.quantity} in stock` });
+          opts.push({
+            value: `item:${it.id}`, id: it.id, kind: "item", name,
+            unit: it.unit || "piece",
+            label: `${name} · ${it.quantity} ${it.unit || "piece"} in stock`,
+          });
         }
       }
       if (products.status === "fulfilled") {
         for (const p of products.value.data.results ?? products.value.data) {
           const name = [p.name, p.model_name].filter(Boolean).join(" ");
-          opts.push({ value: `product:${p.id}`, id: p.id, kind: "product", name, label: `${name} · ${p.in_stock_count} in stock` });
+          opts.push({
+            value: `product:${p.id}`, id: p.id, kind: "product", name,
+            unit: p.unit || "piece",
+            label: `${name} · ${p.in_stock_count} ${p.unit || "piece"} in stock`,
+          });
         }
       }
       setStockOptions(opts);
@@ -379,6 +395,15 @@ export default function MaintenancePage() {
     setModalMode(null);
     setSelected(null);
     setPastRecords([]);
+  }
+
+  /** How a requirement row is counted, from the stock line it names. */
+  function unitOf(row: ReqRow): string {
+    const opt = stockOptions.find(
+      (o) => (row.inventory_item && o.id === row.inventory_item)
+        || (row.inventory_unit_type && o.id === row.inventory_unit_type),
+    );
+    return opt?.unit ?? "";
   }
 
   /** Assets free to be scheduled: everything live, less what is already on a
@@ -951,15 +976,22 @@ export default function MaintenancePage() {
                             ))}
                           </optgroup>
                         </select>
-                        <input
-                          type="number"
-                          min={1}
-                          value={row.quantity}
-                          onChange={(e) => setReqComponents((rows) => rows.map((r, j) => (j === i ? { ...r, quantity: Number(e.target.value) || 1 } : r)))}
-                          title="Quantity"
-                          placeholder="Qty"
-                          className="h-9 w-20 shrink-0 rounded-lg border border-border bg-card px-3 text-sm text-foreground focus:border-primary/50 focus:outline-none"
-                        />
+                        {/* A bare number says nothing: twelve of a cable is
+                            twelve metres, twelve of a mount is twelve of them. */}
+                        <div className="flex h-9 w-32 shrink-0 items-center rounded-lg border border-border bg-card pr-2 focus-within:border-primary/50">
+                          <input
+                            type="number"
+                            min={1}
+                            value={row.quantity}
+                            onChange={(e) => setReqComponents((rows) => rows.map((r, j) => (j === i ? { ...r, quantity: Number(e.target.value) || 1 } : r)))}
+                            title="Quantity"
+                            placeholder="Qty"
+                            className="h-full w-full min-w-0 rounded-l-lg bg-transparent px-3 text-sm text-foreground focus:outline-none"
+                          />
+                          <span className="shrink-0 text-2xs text-muted-foreground">
+                            {unitOf(row) || "qty"}
+                          </span>
+                        </div>
                         <button
                           type="button"
                           onClick={() => setReqComponents((rows) => rows.filter((_, j) => j !== i))}
