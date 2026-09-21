@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Check, Package, Pencil, Play, Plus, Ticket as TicketIcon, Trash2, Wrench, X } from "lucide-react";
+import { ArrowLeft, Check, Package, Pause, Pencil, Play, Plus, Ticket as TicketIcon, Trash2, Wrench, X } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -243,6 +243,28 @@ export function ScheduleDetail({
   }
 
   const state = schedule.effective_status || schedule.status;
+  const started = state === "in_process";
+  // An asset out of service, a site shut for the season: the rounds stop
+  // falling due, but the job and everything recorded against it stay.
+  const paused = !schedule.is_active || state === "on_hold";
+
+  async function togglePaused() {
+    if (!paused && !confirm(`Pause "${schedule.title}"? No further rounds fall due until it is resumed.`))
+      return;
+    setBusy("schedule");
+    try {
+      await api.patch(
+        `/maintenance/schedules/${schedule.id}/`,
+        paused ? { status: "active", is_active: true } : { status: "on_hold", is_active: false },
+      );
+      toast.success(paused ? "Schedule resumed" : "Schedule paused");
+      onChanged();
+    } catch (err) {
+      toast.error(getApiError(err, paused ? "Failed to resume the schedule" : "Failed to pause the schedule"));
+    } finally {
+      setBusy(null);
+    }
+  }
   const waiting = parts.filter((p) => p.status === "requested");
 
   return (
@@ -296,21 +318,33 @@ export function ScheduleDetail({
             {schedule.frequency.replace("_", " ")} · {schedule.priority} priority
           </p>
         </div>
-        <span className="ml-auto inline-flex rounded-full bg-secondary px-2.5 py-0.5 text-xs font-medium text-muted-foreground ring-1 ring-border">
-          {schedule.status_display ?? state}
+        <span className={`ml-auto inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${
+          started
+            ? "bg-amber-500/10 text-amber-600 ring-amber-500/20"
+            : state === "completed"
+              ? "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20"
+              : "bg-secondary text-muted-foreground ring-border"
+        }`}>
+          {paused ? "Paused" : started ? "In progress" : schedule.status_display ?? state}
         </span>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        {["active", "pending", "overdue"].includes(state) && (
+        {/* A visit already under way cannot be started again, so the button
+            stays visible and says so rather than disappearing. */}
+        {state !== "completed" && !paused && (
           <button
-            onClick={() => setAskingBeforeStart(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-600 transition-colors hover:bg-amber-500/20"
+            // Only worth asking when nothing has been asked for yet: somebody
+            // who has already listed what they need has answered it.
+            onClick={() => (parts.length === 0 ? setAskingBeforeStart(true) : onStart())}
+            disabled={started}
+            title={started ? "This visit is already under way" : undefined}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-600 transition-colors hover:bg-amber-500/20 disabled:pointer-events-none disabled:bg-secondary disabled:text-muted-foreground"
           >
-            <Play className="h-3.5 w-3.5" /> Start work
+            <Play className="h-3.5 w-3.5" /> {started ? "Work started" : "Start work"}
           </button>
         )}
-        {state !== "completed" && (
+        {state !== "completed" && !paused && (
           <button
             onClick={onComplete}
             className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-emerald-700"
@@ -335,6 +369,21 @@ export function ScheduleDetail({
             <Pencil className="h-3.5 w-3.5" /> Edit schedule
           </button>
         )}
+        {canDecide && state !== "completed" && (
+          <button
+            onClick={togglePaused}
+            disabled={busy === "schedule"}
+            title={
+              paused
+                ? "Put this schedule back in service"
+                : "Stop the rounds falling due, without losing the job"
+            }
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
+          >
+            {paused ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
+            {paused ? "Resume schedule" : "Pause schedule"}
+          </button>
+        )}
       </div>
 
       <div className={card}>
@@ -347,7 +396,7 @@ export function ScheduleDetail({
                   <span className="block text-xs text-muted-foreground">{schedule.device_name}</span>
                 )}
               </>
-            ) : "No asset — a site round"}
+            ) : "—"}
           </Field>
           <Field name="Site">{schedule.site_name}</Field>
           <Field name="Client">{clientName}</Field>

@@ -130,7 +130,9 @@ export default function MaintenancePage() {
   const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
   const [selected, setSelected] = useState<MaintenanceSchedule | null>(null);
   // The job opened in full. Editing is a form; this is where the work happens.
-  const [detailFor, setDetailFor] = useState<MaintenanceSchedule | null>(null);
+  // Held by id, not by value: the job is read back out of the refreshed list
+  // so starting or completing it is reflected without reopening the row.
+  const [detailForId, setDetailForId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [filterValues, setFilterValues] = useState<Record<string, string>>({ type: "", frequency: "", active: "" });
   const [search, setSearch] = useState("");
@@ -206,6 +208,28 @@ export default function MaintenancePage() {
     fetchSchedules();
     loadOptions();
   }, [fetchSchedules, loadOptions]);
+
+  // Opening a job looks like going somewhere, so it goes somewhere: the id
+  // lives in the address, and Back closes the job instead of leaving
+  // Maintenance for whatever page came before it.
+  useEffect(() => {
+    const readHash = () => {
+      const match = window.location.hash.match(/^#job-(.+)$/);
+      setDetailForId(match ? match[1] : null);
+    };
+    readHash();
+    window.addEventListener("popstate", readHash);
+    window.addEventListener("hashchange", readHash);
+    return () => {
+      window.removeEventListener("popstate", readHash);
+      window.removeEventListener("hashchange", readHash);
+    };
+  }, []);
+
+  function openDetail(id: string) {
+    window.history.pushState(null, "", `#job-${id}`);
+    setDetailForId(id);
+  }
 
   async function handleFormDeviceChange(id: string) {
     setFormDevice(id);
@@ -426,11 +450,12 @@ export default function MaintenancePage() {
     }
   }
 
+  const detailFor = detailForId ? schedules.find((s) => s.id === detailForId) ?? null : null;
   if (detailFor) {
     return (
       <ScheduleDetail
         schedule={detailFor}
-        onBack={() => setDetailFor(null)}
+        onBack={() => window.history.back()}
         onChanged={fetchSchedules}
         onStart={() => startWork(detailFor)}
         onComplete={() => openComplete(detailFor)}
@@ -552,7 +577,7 @@ export default function MaintenancePage() {
         filters={[
           { key: "type", label: "Type", options: Object.keys(TYPE_BADGES).map((t) => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) })) },
           { key: "frequency", label: "Frequency", options: Object.entries(FREQ_LABEL).map(([v, l]) => ({ value: v, label: l })) },
-          { key: "status", label: "Status", options: [["active", "Active"], ["pending", "Pending"], ["in_process", "In Process"], ["on_hold", "On Hold"], ["overdue", "Over Due"], ["completed", "Completed"]].map(([v, l]) => ({ value: v, label: l })) },
+          { key: "status", label: "Status", options: [["active", "Active"], ["pending", "Pending"], ["in_process", "In progress"], ["on_hold", "Paused"], ["overdue", "Over Due"], ["completed", "Completed"]].map(([v, l]) => ({ value: v, label: l })) },
         ]}
         values={filterValues}
         onChange={(k, v) => setFilterValues((prev) => ({ ...prev, [k]: v }))}
@@ -606,7 +631,7 @@ export default function MaintenancePage() {
                 {filtered.map((s) => (
                   <tr
                     key={s.id}
-                    onClick={() => setDetailFor(s)}
+                    onClick={() => openDetail(s.id)}
                     title="Open this job"
                     className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30"
                   >
@@ -664,7 +689,7 @@ export default function MaintenancePage() {
                           overdue: "bg-red-500/10 text-red-600 ring-red-500/20",
                           completed: "bg-gray-500/10 text-gray-600 ring-gray-500/20",
                         };
-                        const labels: Record<string, string> = { in_process: "In Process", on_hold: "On Hold", overdue: "Over Due" };
+                        const labels: Record<string, string> = { in_process: "In progress", on_hold: "Paused", overdue: "Over Due" };
                         const text = labels[st] || st.charAt(0).toUpperCase() + st.slice(1);
                         return <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${styles[st] || styles.active}`}>{text}</span>;
                       })()}
