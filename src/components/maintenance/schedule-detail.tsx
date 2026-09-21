@@ -44,6 +44,7 @@ interface Visit {
   performed_at: string;
   performed_by_name: string | null;
   status: string;
+  status_display: string;
   notes: string;
   cost: string | null;
   is_billable: boolean;
@@ -536,7 +537,13 @@ export function ScheduleDetail({
                     </td>
                     <td className="px-3 py-2.5">
                       {line.status === "requested" ? (
-                        canDecide ? (
+                        <>
+                        {line.decision_note && (
+                          <span className="mb-1 block text-2xs italic text-muted-foreground">
+                            {line.decision_note}
+                          </span>
+                        )}
+                        {canDecide ? (
                           <div className="flex flex-wrap items-center gap-1.5">
                             <input
                               type="number"
@@ -576,7 +583,8 @@ export function ScheduleDetail({
                               </button>
                             )}
                           </div>
-                        )
+                        )}
+                        </>
                       ) : (
                         <span className="text-2xs text-muted-foreground">
                           {line.decided_by_name ? `${line.decided_by_name}` : "—"}
@@ -666,15 +674,18 @@ export function ScheduleDetail({
           </p>
         ) : (
           <ol className="space-y-2.5">
-            {visits.map((v) => (
+            {visits.map((v, i) => (
               <li key={v.id} className="rounded-lg border border-border p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-sm font-medium text-foreground">
-                    {formatDateTime(v.performed_at)}
-                    <span className="ml-2 text-2xs font-normal text-muted-foreground">
-                      by {v.performed_by_name || "—"}
+                  <div className="flex items-center gap-2">
+                    {/* Newest first, so the highest number is the latest round. */}
+                    <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-secondary px-1.5 text-2xs font-semibold text-muted-foreground ring-1 ring-border">
+                      {visits.length - i}
                     </span>
-                  </p>
+                    <p className="text-sm font-medium text-foreground">
+                      {v.status === "completed" ? "Visit completed" : v.status_display}
+                    </p>
+                  </div>
                   <div className="flex flex-wrap items-center gap-1.5">
                     {v.cost && (
                       <span className="text-2xs font-medium text-foreground">PKR {v.cost}</span>
@@ -689,7 +700,22 @@ export function ScheduleDetail({
                     </span>
                   </div>
                 </div>
-                {v.notes && <p className="mt-1 text-xs text-muted-foreground">{v.notes}</p>}
+                {/* Who was there, where, and when — a visit read on its own
+                    should not need the job above it to make sense. */}
+                <div className="mt-2.5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <Field name="Date">{formatDateTime(v.performed_at)}</Field>
+                  <Field name="Completed by">{v.performed_by_name || null}</Field>
+                  <Field name="Technician">{schedule.assigned_to_name || null}</Field>
+                  <Field name="Location">
+                    {schedule.site_name || null}
+                    {schedule.device_code && (
+                      <span className="block font-mono text-2xs text-muted-foreground">
+                        {schedule.device_code}
+                      </span>
+                    )}
+                  </Field>
+                </div>
+                {v.notes && <p className="mt-2 text-xs text-muted-foreground">{v.notes}</p>}
                 {(v.component_names ?? []).length > 0 && (
                   <p className="mt-1 text-2xs text-muted-foreground">
                     Serviced: {v.component_names.join(", ")}

@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, PackageCheck, Search, X } from "lucide-react";
+import { Download, PackageCheck, Search, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -71,6 +71,10 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
+  // Handing a request back to whoever raised it, with a reason they can read.
+  const [backFor, setBackFor] = useState<RequestRow | null>(null);
+  const [backNote, setBackNote] = useState("");
+  const [sendingBack, setSendingBack] = useState(false);
   const [showDone, setShowDone] = useState(false);
   const [issueFor, setIssueFor] = useState<RequestRow | null>(null);
   const [issue, setIssue] = useState({ quantity: "", received_by: "", notes: "" });
@@ -161,14 +165,25 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
     }
   }
 
-  async function cancelRequest(row: RequestRow) {
-    if (!confirm(`Cancel ${row.request_number}? Anything already issued stays issued.`)) return;
+  async function sendBack(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!backFor) return;
+    setSendingBack(true);
     try {
-      await api.post(`/inventory/issuance-requests/${row.id}/cancel/`, {});
-      toast.success("Request cancelled");
+      const { data } = await api.post(
+        `/inventory/issuance-requests/${backFor.id}/send-back/`,
+        { note: backNote },
+      );
+      toast.success(`Sent back to ${data.sent_back_to}`, {
+        description: "Whoever raised it decides again; nothing is issued against it now.",
+      });
+      setBackFor(null);
+      setBackNote("");
       fetchRows();
     } catch (err) {
-      toast.error(getApiError(err, "Could not cancel the request"));
+      toast.error(getApiError(err, "Could not send the request back"));
+    } finally {
+      setSendingBack(false);
     }
   }
 
@@ -347,11 +362,11 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                           )}
                           {canIssue && !settled && (
                             <button
-                              onClick={() => cancelRequest(row)}
-                              title="Cancel this request"
-                              className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:text-destructive"
+                              onClick={() => { setBackFor(row); setBackNote(""); }}
+                              title="Send this request back to whoever raised it"
+                              className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                             >
-                              <X className="h-3.5 w-3.5" />
+                              <Undo2 className="h-3.5 w-3.5" /> Send back
                             </button>
                           )}
                         </div>
@@ -364,6 +379,67 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
           </div>
         </div>
       )}
+
+      <Modal
+        open={backFor !== null}
+        onClose={() => setBackFor(null)}
+        title={backFor ? `Send ${backFor.request_number} back` : "Send back"}
+        size="sm"
+      >
+        {backFor && (
+          <form onSubmit={sendBack} className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              <span className="font-medium text-foreground">{backFor.what}</span> ·{" "}
+              {backFor.outstanding_quantity} {backFor.unit ?? "piece"} still owed
+            </p>
+            {/* Where it goes is the whole point of the action, so it is said
+                plainly rather than left to the person to work out. */}
+            <div className="rounded-lg border border-border bg-secondary/30 p-3 text-xs text-muted-foreground">
+              Goes back to{" "}
+              <span className="font-medium text-foreground">
+                {backFor.source === "maintenance"
+                  ? backFor.maintenance_title ?? "the maintenance job"
+                  : backFor.source === "project"
+                    ? [backFor.asset_code, backFor.component_name].filter(Boolean).join(" · ") ||
+                      backFor.project_name || "the project"
+                    : "whoever raised it"}
+              </span>
+              {backFor.source === "maintenance"
+                ? " — the supervisor answers it again, and approving raises a fresh request here."
+                : " — the requirement is undecided again, to be issued or procured."}
+              {backFor.quantity_issued > 0 &&
+                ` ${backFor.quantity_issued} ${backFor.unit ?? "piece"} already issued stays issued.`}
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="back-note" className={labelClass}>Why (optional)</label>
+              <textarea
+                id="back-note"
+                rows={2}
+                value={backNote}
+                onChange={(e) => setBackNote(e.target.value)}
+                placeholder="e.g. Not in stock until Thursday — decide again or procure"
+                className={`${inputClass} h-auto py-2`}
+              />
+            </div>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setBackFor(null)}
+                className="inline-flex h-10 items-center rounded-lg border border-border px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              >
+                Keep it here
+              </button>
+              <button
+                type="submit"
+                disabled={sendingBack}
+                className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-primary px-5 text-sm font-medium text-primary-foreground transition-all disabled:opacity-50"
+              >
+                <Undo2 className="h-4 w-4" /> {sendingBack ? "Sending…" : "Send back"}
+              </button>
+            </div>
+          </form>
+        )}
+      </Modal>
 
       <Modal
         open={issueFor !== null}
