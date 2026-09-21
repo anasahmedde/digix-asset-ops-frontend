@@ -30,7 +30,26 @@ interface PartRequest {
   issue_number: string | null;
   issue_status: string | null;
   quantity_issued: number | null;
+  issued_serials: string[];
+  /** Null until the visit that used them was closed out. */
+  quantity_used: number | null;
+  quantity_returned: number;
+  return_reference: string;
   created_at: string;
+}
+
+/** A visit that has been closed out against this schedule. */
+interface Visit {
+  id: string;
+  performed_at: string;
+  performed_by_name: string | null;
+  status: string;
+  notes: string;
+  cost: string | null;
+  is_billable: boolean;
+  charge_to: string;
+  component_names: string[];
+  photos: { id: string }[];
 }
 
 interface StockOption {
@@ -62,6 +81,8 @@ export interface ScheduleSummary {
   next_due: string;
   instructions: string;
   is_active: boolean;
+  /** Changes whenever the job does — the visits list reads it as its cue. */
+  updated_at?: string;
 }
 
 const card = "rounded-xl border border-border bg-card p-5";
@@ -103,6 +124,7 @@ export function ScheduleDetail({
 }) {
   const { user } = useUser();
   const [parts, setParts] = useState<PartRequest[]>([]);
+  const [visits, setVisits] = useState<Visit[]>([]);
   const [stock, setStock] = useState<StockOption[]>([]);
   const [asking, setAsking] = useState(false);
   // The kind is settled first: counted stock and individually tracked units
@@ -132,7 +154,18 @@ export function ScheduleDetail({
     } catch { /* the panel shows nothing rather than a stale list */ }
   }, [schedule.id]);
 
-  useEffect(() => { loadParts(); }, [loadParts]);
+  // Re-read when the job itself changes: completing a visit rolls the
+  // schedule, so its updated_at is the cue that there is a new one to show.
+  useEffect(() => {
+    let live = true;
+    api.get("/maintenance/records/", {
+      params: { schedule: schedule.id, ordering: "-performed_at", page_size: 50 },
+    })
+      .then(({ data }) => { if (live) setVisits(data.results ?? data); })
+      .catch(() => { /* the section says there are none rather than a stale list */ });
+    loadParts();
+    return () => { live = false; };
+  }, [schedule.id, schedule.updated_at, loadParts]);
 
   useEffect(() => {
     Promise.allSettled([
@@ -490,6 +523,14 @@ export function ScheduleDetail({
                           <span className="block text-2xs">
                             {line.quantity_issued ? `${line.quantity_issued} ${line.unit} issued` : "awaiting issue"}
                           </span>
+                          {line.quantity_used !== null && (
+                            <span className="block text-2xs">
+                              {line.quantity_used} {line.unit} used
+                              {line.quantity_returned > 0
+                                ? ` · ${line.quantity_returned} back to the store on ${line.return_reference}`
+                                : ""}
+                            </span>
+                          )}
                         </>
                       ) : "—"}
                     </td>
@@ -609,11 +650,60 @@ export function ScheduleDetail({
         <div className="mb-2 flex items-center gap-2">
           <Wrench className="h-4 w-4 text-primary" />
           <h2 className="text-sm font-semibold text-foreground">Visits</h2>
+          {visits.length > 0 && (
+            <span className="rounded-full bg-secondary px-2 py-0.5 text-2xs font-medium text-muted-foreground ring-1 ring-border">
+              {visits.length}
+            </span>
+          )}
         </div>
-        <p className="text-xs text-muted-foreground">
+        <p className="mb-3 text-xs text-muted-foreground">
           Each completed visit is recorded against this schedule, with what was done, what it cost
           and who bore it.
         </p>
+        {visits.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
+            No visit closed out yet.
+          </p>
+        ) : (
+          <ol className="space-y-2.5">
+            {visits.map((v) => (
+              <li key={v.id} className="rounded-lg border border-border p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-foreground">
+                    {formatDateTime(v.performed_at)}
+                    <span className="ml-2 text-2xs font-normal text-muted-foreground">
+                      by {v.performed_by_name || "—"}
+                    </span>
+                  </p>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {v.cost && (
+                      <span className="text-2xs font-medium text-foreground">PKR {v.cost}</span>
+                    )}
+                    <span className={`inline-flex rounded-full px-2 py-0.5 text-2xs font-medium ring-1 ${
+                      v.is_billable
+                        ? "bg-amber-500/10 text-amber-600 ring-amber-500/20"
+                        : "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20"
+                    }`}>
+                      {v.is_billable ? "Billable" : "Under warranty"}
+                      {v.charge_to ? ` · ${v.charge_to}` : ""}
+                    </span>
+                  </div>
+                </div>
+                {v.notes && <p className="mt-1 text-xs text-muted-foreground">{v.notes}</p>}
+                {(v.component_names ?? []).length > 0 && (
+                  <p className="mt-1 text-2xs text-muted-foreground">
+                    Serviced: {v.component_names.join(", ")}
+                  </p>
+                )}
+                {(v.photos ?? []).length > 0 && (
+                  <p className="mt-1 text-2xs text-muted-foreground">
+                    {v.photos.length} photo{v.photos.length > 1 ? "s" : ""} attached
+                  </p>
+                )}
+              </li>
+            ))}
+          </ol>
+        )}
       </div>
     </div>
   );
