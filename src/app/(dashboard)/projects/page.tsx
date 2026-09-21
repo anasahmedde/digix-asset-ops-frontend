@@ -10,6 +10,7 @@ import {
   Eye,
   Pencil,
   Plus,
+  Search,
   ShoppingCart,
   Trash2,
   Truck,
@@ -17,7 +18,7 @@ import {
   XCircle,
 } from "lucide-react";
 import Link from "next/link";
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { ProjectRequirements } from "@/components/projects/project-requirements";
@@ -39,6 +40,15 @@ import { BarChart } from "@/components/charts/bar-chart";
 
 interface ClientOpt { id: string; name: string }
 interface Option { id: string; label: string }
+
+/** An asset as the picker needs it: what to call it and where it is. */
+interface DeviceRow { id: string; asset_code: string; display_name: string | null; current_site?: string | null; site_name?: string | null }
+
+/** Sites read as "name · city": several can share a name, and the city is what
+ *  tells them apart on a list. */
+function siteLabels(rows: { id: string; name: string; city?: string }[]): Option[] {
+  return rows.map((s) => ({ id: s.id, label: s.city ? `${s.name} · ${s.city}` : s.name }));
+}
 const STATUS_OPTIONS = [
   { value: "planning", label: "Planning" },
   { value: "on_track", label: "On Track" },
@@ -47,16 +57,14 @@ const STATUS_OPTIONS = [
   { value: "on_hold", label: "On Hold" },
   { value: "completed", label: "Completed" },
 ];
-// Commercial lifecycle, in order. "On Hold" and "Lost" are off-ramp phases.
+// The phases the work actually goes through, in order. The commercial run-up
+// is one phase to the delivery team. "On Hold" and "Lost" are off-ramps.
 const PHASES = [
-  { value: "query", label: "Query" },
-  { value: "quotation", label: "Quotation" },
-  { value: "negotiation", label: "Negotiation" },
-  { value: "order_confirmation", label: "Order Confirmation" },
-  { value: "production", label: "Production" },
-  { value: "delivery", label: "Delivery" },
-  { value: "installation", label: "Installation" },
-  { value: "handover", label: "Handing Over" },
+  { value: "planning", label: "Planning", tracks: "Estimate agreed and the budget signed off" },
+  { value: "procurement", label: "Procurement", tracks: "Every part procured and issued, every bought asset received" },
+  { value: "production", label: "Production", tracks: "Every operation on every route finished" },
+  { value: "installation", label: "Installation", tracks: "The installation checklist worked through on site" },
+  { value: "handover", label: "Handing Over", tracks: "Assets handed over and running" },
 ];
 const OFF_RAMP_PHASES = [
   { value: "on_hold", label: "On Hold" },
@@ -67,7 +75,7 @@ const CONTRACT_TYPES = [
   { value: "rental", label: "Rental" },
 ];
 const emptyForm = {
-  name: "", description: "", status: "planning", phase: "query",
+  name: "", description: "", status: "planning", phase: "planning",
   client: "", site: "", sites: [] as string[], manager: "", start_date: "", target_date: "",
   contract_type: "", rental_end_date: "",
 };
@@ -118,11 +126,16 @@ interface ProjectDetail {
   location: string;
   client: string | null;
   client_name: string | null;
+  /** The client's own contact, so the team does not go hunting for it. */
+  client_contact_person?: string | null;
+  client_contact_phone?: string | null;
   site: string | null;
   site_name: string | null;
   /** Item 4: a project can cover several sites. */
   sites: string[];
   site_names: string[];
+  /** How far each phase has got, counted from the work itself. */
+  phase_progress?: Record<string, { done: number; total: number; percent: number; note: string }>;
   status: string;
   status_display: string;
   phase: string;
@@ -256,6 +269,11 @@ export default function ProjectsPage() {
   const canEdit = canWrite("devices");
   const [stats, setStats] = useState<ProjectStats | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
+  // Search by name, client or site. The server does the matching, so it finds
+  // projects beyond the first page and in any status.
+  const [query, setQuery] = useState("");
+  const queryRef = useRef("");
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [loading, setLoading] = useState(true);
   const [clients, setClients] = useState<ClientOpt[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
@@ -263,6 +281,7 @@ export default function ProjectsPage() {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
+  const [detailVersion, setDetailVersion] = useState(0);
   const [linkedAssets, setLinkedAssets] = useState<LinkedAsset[]>([]);
   const [deviceOptions, setDeviceOptions] = useState<Option[]>([]);
   const [siteOptions, setSiteOptions] = useState<Option[]>([]);
@@ -274,6 +293,10 @@ export default function ProjectsPage() {
   // Planning (estimate + budget approval) comes first; execution (stock,
   // procurement, delivery) follows once the budget is signed off.
   const [projectTab, setProjectTab] = useState<"planning" | "execution">("planning");
+  // Opening a project lands on the half that is live: Planning while the
+  // estimate is still being agreed, Execution once it has been. Only on the
+  // way in — after that the tab is the reader's to choose.
+  const landedOn = useRef<string | null>(null);
 
   // BOM tab (WF-02 / WF-03)
   const [bomLines, setBomLines] = useState<BOMLine[]>([]);
@@ -297,6 +320,13 @@ export default function ProjectsPage() {
     try {
       const { data } = await api.get(`/teams/projects/${id}/`);
       setDetail(data);
+      if (landedOn.current !== id) {
+        landedOn.current = id;
+        setProjectTab(data.phase === "planning" ? "planning" : "execution");
+      }
+      // The summary strip sits above the tabs and would otherwise keep its
+      // first answer after the budget is approved in Planning below it.
+      setDetailVersion((v) => v + 1);
       api.get("/teams/bom-lines/", { params: { project: id, page_size: 500 } })
         .then((r) => setBomLines(r.data.results ?? r.data ?? []))
         .catch(() => setBomLines([]));
@@ -315,13 +345,13 @@ export default function ProjectsPage() {
         .catch(() => setLinkedAssets([]));
       if (deviceOptions.length === 0) {
         api.get("/assets/devices/", { params: { page_size: 1000 } })
-          .then((r) => setDeviceOptions((r.data.results ?? []).map((d: { id: string; asset_code: string; display_name: string | null }) => ({
+          .then((r) => setDeviceOptions((r.data.results ?? []).map((d: DeviceRow) => ({
             id: d.id,
             label: d.display_name ? `${d.asset_code} — ${d.display_name}` : d.asset_code,
           }))))
           .catch(() => {});
         api.get("/sites/sites/", { params: { page_size: 1000 } })
-          .then((r) => setSiteOptions((r.data.results ?? []).map((s: { id: string; name: string }) => ({ id: s.id, label: s.name }))))
+          .then((r) => setSiteOptions(siteLabels(r.data.results ?? [])))
           .catch(() => {});
       }
     } catch (err) {
@@ -354,19 +384,35 @@ export default function ProjectsPage() {
   async function addScopeItem(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!detail) return;
-    setAddingScope(true);
     const fd = new FormData(e.currentTarget);
     const formEl = e.currentTarget;
+    const deviceId = String(fd.get("scope_device") ?? "");
+    const site = String(fd.get("scope_site") ?? "");
+
+    // An asset on a project is work at a place. Scoping one without saying
+    // where leaves it nowhere, so ask before it goes in.
+    if (!site) {
+      toast.error(
+        (detail.sites ?? []).length === 0
+          ? "This project has no sites yet — add one to the project, then say which one this asset goes to."
+          : "Say which of the project's sites this asset goes to.",
+      );
+      return;
+    }
+
+    const payload = {
+      project: detail.id,
+      device: deviceId,
+      component: null,
+      quantity: 1,
+      site,
+      start_date: null,
+      notes: fd.get("scope_notes") || "",
+    };
+
+    setAddingScope(true);
     try {
-      await api.post("/teams/scope-items/", {
-        project: detail.id,
-        device: fd.get("scope_device"),
-        component: null,
-        quantity: 1,
-        site: fd.get("scope_site") || null,
-        start_date: null,
-        notes: fd.get("scope_notes") || "",
-      });
+      await api.post("/teams/scope-items/", payload);
       formEl.reset();
       setScopeDevice("");
       setScopeComponents([]);
@@ -550,6 +596,22 @@ export default function ProjectsPage() {
     }
   }
 
+  async function deleteProject(p: ProjectDetail) {
+    const sure = window.confirm(
+      `Delete project "${p.name}"?\n\nIts scope, milestones, requirements and budget go with it. ` +
+      "Assets and stock stay where they are. A project with stock issued, orders or work orders cannot be deleted.",
+    );
+    if (!sure) return;
+    try {
+      await api.delete(`/teams/projects/${p.id}/`);
+      toast.success(`Project "${p.name}" deleted`);
+      setDetail(null);
+      fetchAll();
+    } catch (err) {
+      toast.error(getApiError(err, "Could not delete the project"));
+    }
+  }
+
   function openEdit(p: ProjectDetail) {
     setForm({
       name: p.name,
@@ -573,7 +635,9 @@ export default function ProjectsPage() {
     try {
       const [statsRes, projectsRes] = await Promise.allSettled([
         api.get("/teams/projects/dashboard_stats/"),
-        api.get("/teams/projects/", { params: { page_size: 50, ordering: "-created_at" } }),
+        api.get("/teams/projects/", {
+          params: { page_size: 100, ordering: "-created_at", ...(queryRef.current ? { search: queryRef.current } : {}) },
+        }),
       ]);
       if (statsRes.status === "fulfilled") setStats(statsRes.value.data);
       if (projectsRes.status === "fulfilled") setProjects(projectsRes.value.data.results ?? []);
@@ -588,7 +652,7 @@ export default function ProjectsPage() {
       .then((r) => setClients((r.data.results ?? r.data).map((c: ClientOpt) => ({ id: c.id, name: c.name }))))
       .catch(() => {});
     api.get("/sites/sites/", { params: { page_size: 1000 } })
-      .then((r) => setSiteOptions((r.data.results ?? []).map((st: { id: string; name: string }) => ({ id: st.id, label: st.name }))))
+      .then((r) => setSiteOptions(siteLabels(r.data.results ?? [])))
       .catch(() => {});
     api.get("/accounts/users/", { params: { is_active: true, page_size: 200 } })
       .then((r) => setManagerOptions((r.data.results ?? []).map((u: { id: string; first_name: string; last_name: string; username: string }) => ({
@@ -609,7 +673,8 @@ export default function ProjectsPage() {
       status: form.status,
       phase: form.phase,
       client: form.client || null,
-      site: form.site || null,
+      // The project's own site is the first of the ones the order covers.
+      site: form.sites[0] ?? null,
       manager: form.manager || null,
       start_date: form.start_date || null,
       target_date: form.target_date || null,
@@ -665,16 +730,53 @@ export default function ProjectsPage() {
           </div>
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-muted-foreground">Sites (one order can span several)</label>
+          <label htmlFor="project_site" className="mb-1 block text-xs font-medium text-muted-foreground">
+            Sites (one order can span several)
+          </label>
           <select
-            multiple
-            value={form.sites}
-            onChange={(e) => setForm((f) => ({ ...f, sites: Array.from(e.target.selectedOptions).map((o) => o.value) }))}
-            className="h-28 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none"
+            id="project_site"
+            value=""
+            onChange={(e) => {
+              const id = e.target.value;
+              if (id) setForm((f) => (f.sites.includes(id) ? f : { ...f, sites: [...f.sites, id] }));
+            }}
+            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none"
           >
-            {siteOptions.map((st) => <option key={st.id} value={st.id}>{st.label}</option>)}
+            <option value="">
+              {siteOptions.every((st) => form.sites.includes(st.id)) ? "Every site is on this project" : "Add a site…"}
+            </option>
+            {siteOptions
+              .filter((st) => !form.sites.includes(st.id))
+              .map((st) => <option key={st.id} value={st.id}>{st.label}</option>)}
           </select>
-          <p className="mt-1 text-2xs text-muted-foreground">Hold Ctrl (Cmd on Mac) to pick more than one. Locations are defined under Sites.</p>
+
+          {form.sites.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {form.sites.map((id) => {
+                const site = siteOptions.find((st) => st.id === id);
+                return (
+                  <span
+                    key={id}
+                    className="inline-flex items-center gap-1 rounded-full bg-secondary px-2.5 py-1 text-2xs font-medium text-foreground"
+                  >
+                    {site?.label ?? "Site"}
+                    <button
+                      type="button"
+                      onClick={() => setForm((f) => ({ ...f, sites: f.sites.filter((x) => x !== id) }))}
+                      aria-label={`Take ${site?.label ?? "this site"} off the project`}
+                      className="text-muted-foreground transition-colors hover:text-destructive"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                );
+              })}
+            </div>
+          )}
+
+          <p className="mt-1 text-2xs text-muted-foreground">
+            Pick each site the order covers. Locations are kept under Sites.
+          </p>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -695,21 +797,12 @@ export default function ProjectsPage() {
             </div>
           )}
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Project Manager</label>
-            <select value={form.manager} onChange={(e) => setForm((f) => ({ ...f, manager: e.target.value }))} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none">
-              <option value="">—</option>
-              {managerOptions.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Site</label>
-            <select value={form.site} onChange={(e) => setForm((f) => ({ ...f, site: e.target.value }))} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none">
-              <option value="">—</option>
-              {siteOptions.map((st) => <option key={st.id} value={st.id}>{st.label}</option>)}
-            </select>
-          </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">Project Manager</label>
+          <select value={form.manager} onChange={(e) => setForm((f) => ({ ...f, manager: e.target.value }))} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none">
+            <option value="">—</option>
+            {managerOptions.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+          </select>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -746,7 +839,6 @@ export default function ProjectsPage() {
   /* ─── PROJECT DETAIL VIEW ─── */
   if (detail) {
     const d = detail;
-    const phaseIdx = PHASES.findIndex((ph) => ph.value === d.phase);
     const offRamp = OFF_RAMP_PHASES.find((ph) => ph.value === d.phase);
     return (
       <div className="space-y-6">
@@ -774,6 +866,15 @@ export default function ProjectsPage() {
                 <Pencil className="h-4 w-4" /> Edit
               </button>
             )}
+            {canEdit && (
+              <button
+                onClick={() => deleteProject(d)}
+                title="Delete this project — only while nothing has been issued, ordered or placed on it"
+                className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
+              >
+                <Trash2 className="h-4 w-4" /> Delete
+              </button>
+            )}
           </div>
         </div>
 
@@ -787,29 +888,55 @@ export default function ProjectsPage() {
               </span>
             )}
           </div>
-          <div className="flex flex-wrap gap-1.5">
-            {PHASES.map((ph, i) => {
-              const isCurrent = ph.value === d.phase;
-              const isDone = phaseIdx >= 0 && i < phaseIdx;
+          {/* Each phase is a body of work, so each says how much of it is
+              done — counted from the work, never typed in. */}
+          <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-5">
+            {PHASES.map((ph) => {
+              const bar = d.phase_progress?.[ph.value];
+              const pct = bar?.percent ?? 0;
+              // A phase is finished when its own work is, and the project is in
+              // the first one that is not. Both read off the bars, so the card
+              // and the figure beside it can never disagree.
+              const isDone = pct >= 100;
+              const isCurrent = ph.value === d.phase && !isDone;
               return (
-                <button
+                <div
                   key={ph.value}
-                  onClick={() => canEdit && setPhase(ph.value)}
-                  disabled={!canEdit}
-                  title={canEdit ? `Move project to ${ph.label}` : undefined}
-                  className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
-                    isCurrent
-                      ? "border-primary bg-primary text-white"
-                      : isDone
-                        ? "border-primary/40 bg-primary/10 text-primary"
-                        : "border-border bg-card text-muted-foreground"
-                  } ${canEdit ? "cursor-pointer hover:border-primary/50" : "cursor-default"}`}
+                  title={ph.tracks}
+                  className={`rounded-xl border p-3 text-left ${
+                    isDone
+                      ? "border-emerald-500/40 bg-emerald-500/5"
+                      : isCurrent
+                        ? "border-primary bg-primary/5"
+                        : "border-border bg-card"
+                  }`}
                 >
-                  {isDone && <Check className="h-3 w-3" />}
-                  {ph.label}
-                </button>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={`inline-flex items-center gap-1 text-xs font-semibold ${
+                      isDone ? "text-emerald-700" : isCurrent ? "text-primary" : "text-foreground"
+                    }`}>
+                      {isDone && <Check className="h-3 w-3" />}
+                      {ph.label}
+                    </span>
+                    <span className={`text-2xs font-medium ${isDone ? "text-emerald-600" : "text-muted-foreground"}`}>
+                      {isDone ? "Completed" : `${pct}%`}
+                    </span>
+                  </div>
+                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-secondary">
+                    <div
+                      className={`h-full rounded-full transition-all ${isDone ? "bg-emerald-500" : "bg-primary"}`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  <p className="mt-1.5 text-2xs text-muted-foreground">{bar?.note ?? ph.tracks}</p>
+                  {isCurrent && (
+                    <p className="mt-1 text-2xs font-medium text-primary">In progress</p>
+                  )}
+                </div>
               );
             })}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1.5">
             {OFF_RAMP_PHASES.map((ph) => (
               <button
                 key={ph.value}
@@ -828,7 +955,35 @@ export default function ProjectsPage() {
         </div>
 
         {/* Info strip */}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-7">
+          {/* Where the order is. It spans two so a list of sites has room. */}
+          <div className="rounded-xl border border-border bg-card px-4 py-3 sm:col-span-2 lg:col-span-2">
+            <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Location{(d.site_names ?? []).length > 1 ? ` · ${(d.site_names ?? []).length} sites` : ""}
+            </p>
+            {(d.site_names ?? []).length > 0 ? (
+              <ul className="mt-0.5 space-y-0.5">
+                {(d.site_names ?? []).map((n) => (
+                  <li key={n} className="flex gap-1.5 text-sm font-medium text-foreground">
+                    <span aria-hidden className="text-muted-foreground">·</span>
+                    <span>{n}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm font-medium text-amber-600">No site on this project yet</p>
+            )}
+          </div>
+          {/* Who the work is for, named once when the project was raised. */}
+          <div className="rounded-xl border border-border bg-card px-4 py-3">
+            <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">Client</p>
+            <p className="text-sm font-medium text-foreground">{d.client_name || "—"}</p>
+            {(d.client_contact_person || d.client_contact_phone) && (
+              <p className="mt-0.5 text-2xs text-muted-foreground">
+                {[d.client_contact_person, d.client_contact_phone].filter(Boolean).join(" · ")}
+              </p>
+            )}
+          </div>
           {[
             { label: "Manager", value: d.manager_name || "—" },
             { label: "Start Date", value: d.start_date || "—" },
@@ -844,7 +999,7 @@ export default function ProjectsPage() {
         </div>
 
         {/* What was signed off against what it has cost so far. */}
-        <ProjectBudgetSummary projectId={detail.id} />
+        <ProjectBudgetSummary projectId={detail.id} refreshKey={detailVersion} />
 
         {/* Two halves of running a project: work out and agree what it will
             cost, then deliver it within that. */}
@@ -908,7 +1063,11 @@ export default function ProjectsPage() {
                                 className="h-8 rounded-lg border border-border bg-card px-2 text-xs text-foreground focus:outline-none"
                               >
                                 <option value="">No site</option>
-                                {siteOptions.map((st) => <option key={st.id} value={st.id}>{st.label}</option>)}
+                                {/* Only the sites this order covers — the same
+                                    list the row below offers. */}
+                                {siteOptions
+                                  .filter((st) => !d.sites || d.sites.length === 0 || d.sites.map(String).includes(String(st.id)))
+                                  .map((st) => <option key={st.id} value={st.id}>{st.label}</option>)}
                               </select>
                             ) : (it.site_name || "—")}
                           </td>
@@ -952,7 +1111,15 @@ export default function ProjectsPage() {
               ) : (
                 <p className="text-xs text-muted-foreground">No scope items yet.</p>
               )}
-              {canEdit && (
+              {/* What a project is building is settled in planning. Once the
+                  budget is approved the order is being delivered, and adding an
+                  asset then would land outside the figure that was signed off. */}
+              {canEdit && d.phase !== "planning" ? (
+                <p className="mt-3 rounded-lg border border-dashed border-border p-3 text-xs text-muted-foreground">
+                  The scope was settled in planning and the budget approved against it. Put the project
+                  back on Planning to change what it is building.
+                </p>
+              ) : canEdit && (
                 <form onSubmit={addScopeItem} className="mt-3 space-y-2 rounded-lg border border-border/70 p-3">
                   <p className="text-2xs text-muted-foreground">
                     Every asset has its own ID: add each one once. An asset already on another project cannot be added.
@@ -968,17 +1135,30 @@ export default function ProjectsPage() {
                         placeholder="Search asset…"
                       />
                     </div>
-                    <select name="scope_site" defaultValue="" title="Site" className="h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-muted-foreground focus:outline-none">
-                      <option value="">Site: none</option>
+                    <select name="scope_site" defaultValue="" title="Which of the project's sites this asset goes to" className="h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-muted-foreground focus:outline-none">
+                      <option value="">Site *</option>
                       {siteOptions
                         .filter((st) => !d.sites || d.sites.length === 0 || d.sites.map(String).includes(String(st.id)))
                         .map((st) => <option key={st.id} value={st.id}>{st.label}</option>)}
                     </select>
                   </div>
                   <input name="scope_notes" placeholder="Notes" className="h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none" />
-                  <button type="submit" disabled={addingScope} className="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-primary/90 disabled:opacity-50">
-                    <Plus className="h-3.5 w-3.5" /> Add to Scope
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button type="submit" disabled={addingScope} className="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-primary/90 disabled:opacity-50">
+                      <Plus className="h-3.5 w-3.5" /> Add to Scope
+                    </button>
+                    {/* The asset has to exist before it can be scoped. This
+                        opens the registration form on the Asset Registry. */}
+                    <Link
+                      href="/assets?new=1"
+                      className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                    >
+                      <Plus className="h-3.5 w-3.5" /> Define asset
+                    </Link>
+                    <span className="text-2xs text-muted-foreground">
+                      Not on the list yet? Define it first, then add it here.
+                    </span>
+                  </div>
                 </form>
               )}
             </div>
@@ -1345,8 +1525,9 @@ export default function ProjectsPage() {
     { name: "Delayed", value: delayed },
   ];
 
+  const searching = query.trim().length > 0;
   const ongoing = projects.filter(
-    (p) => !["completed", "on_hold"].includes(p.status) && (!contractFilter || p.contract_type === contractFilter),
+    (p) => (searching || !["completed", "on_hold"].includes(p.status)) && (!contractFilter || p.contract_type === contractFilter),
   );
 
   function daysLeft(targetDate: string | null): string {
@@ -1364,6 +1545,23 @@ export default function ProjectsPage() {
           <p className="text-sm text-muted-foreground">Overview of all ongoing projects and their progress</p>
         </div>
         <div className="flex items-center gap-3">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              id="project_search"
+              type="search"
+              value={query}
+              onChange={(e) => {
+                const v = e.target.value;
+                setQuery(v);
+                queryRef.current = v.trim();
+                if (searchTimer.current) clearTimeout(searchTimer.current);
+                searchTimer.current = setTimeout(() => { fetchAll(); }, 300);
+              }}
+              placeholder="Search projects by name, client or site…"
+              className="h-10 w-80 rounded-lg border border-border bg-card pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none"
+            />
+          </div>
           <button
             onClick={() => { setEditingId(null); setForm(emptyForm); setModalOpen(true); }}
             className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-all hover:opacity-90"
@@ -1385,7 +1583,10 @@ export default function ProjectsPage() {
       {/* Ongoing Projects Table */}
       <div className="rounded-xl border border-border bg-card overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-5">
-          <h2 className="text-base font-semibold text-foreground">Ongoing Projects</h2>
+          <h2 className="text-base font-semibold text-foreground">
+            {searching ? `Projects matching "${query.trim()}"` : "Ongoing Projects"}
+            {searching && <span className="ml-2 text-xs font-normal text-muted-foreground">{ongoing.length} found · all statuses</span>}
+          </h2>
           <div className="flex items-center gap-3">
             <FilterBar
               filters={[{ key: "contract", label: "Contract", options: CONTRACT_TYPES }]}

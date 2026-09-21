@@ -4,7 +4,6 @@ import { Plus, Printer, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
-import { Modal } from "@/components/ui/modal";
 import { Qty } from "@/components/ui/qty";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
@@ -28,6 +27,11 @@ interface ActualStep {
   status?: string;
   planned_cost: string | null;
   actual_cost: string | null;
+  location?: string;
+  /** Where the actual comes from: the vendor's work-order line, or typed by hand. */
+  actual_source?: string;
+  actual_editable?: boolean;
+  work_order?: { id: string; wo_number: string; status: string; status_display?: string; supplier: string } | null;
 }
 interface ActualWorkOrder {
   id: string;
@@ -47,6 +51,13 @@ interface ActualAsset {
   materials_actual: string;
   production_actual: string;
   work_orders_actual: string;
+  /** What putting this asset in and switching it on cost, and was planned to. */
+  installation_actual: string | null;
+  installation_planned: string | null;
+  vendor_asset?: boolean;
+  asset_price?: string | null;
+  asset_priced_from?: string | null;
+  asset_arrived?: boolean | null;
   actual_total: string;
   outstanding: number;
 }
@@ -68,6 +79,7 @@ interface Actuals {
   materials_actual: string;
   production_actual: string;
   work_orders_actual: string;
+  installation_actual: string;
   overheads: Overhead[];
   overheads_planned_total: string;
   overheads_actual_total: string;
@@ -91,43 +103,6 @@ const inputClass =
  */
 export function ProjectActuals({ projectId }: { projectId: string }) {
   const { canWrite } = useUser();
-  const canBuy = canWrite("procurement");
-  // Item 22: a vendor-built asset is given to its vendor on a work order.
-  const [woModal, setWoModal] = useState<ActualAsset | null>(null);
-  const [woSuppliers, setWoSuppliers] = useState<{ id: string; name: string }[]>([]);
-  const [wo, setWo] = useState({ supplier: "", amount: "", expected_delivery: "", notes: "" });
-  const [woSaving, setWoSaving] = useState(false);
-
-  async function openWorkOrder(asset: ActualAsset) {
-    setWo({ supplier: "", amount: "", expected_delivery: "", notes: "" });
-    setWoModal(asset);
-    if (woSuppliers.length === 0) {
-      api.get("/suppliers/", { params: { page_size: 500 } })
-        .then((r) => setWoSuppliers(r.data.results ?? r.data))
-        .catch(() => {});
-    }
-  }
-
-  async function raiseWorkOrder() {
-    if (!woModal || !wo.supplier) return;
-    setWoSaving(true);
-    try {
-      const { data } = await api.post(`/teams/projects/${projectId}/raise-work-order/`, {
-        device: woModal.id,
-        supplier: wo.supplier,
-        amount: wo.amount || null,
-        expected_delivery: wo.expected_delivery || null,
-        notes: wo.notes,
-      });
-      toast.success(`${data.wo_number ?? "Work order"} raised for ${woModal.asset_code}`);
-      setWoModal(null);
-      load();
-    } catch (err) {
-      toast.error(getApiError(err, "Could not raise the work order"));
-    } finally {
-      setWoSaving(false);
-    }
-  }
 
   /** The complete actual-cost table as a PDF, fetched with the token and opened to print. */
   async function printActuals() {
@@ -136,6 +111,19 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
       window.open(URL.createObjectURL(data), "_blank", "noopener");
     } catch (err) {
       toast.error(getApiError(err, "Could not build the document"));
+    }
+  }
+
+  /** What putting this asset in and switching it on really cost. */
+  async function saveInstallActual(deviceId: string, raw: string, current: string | null) {
+    const value = raw.trim();
+    if (value === (current ?? "")) return;
+    try {
+      await api.patch(`/assets/devices/${deviceId}/`, { actual_installation_cost: value || null });
+      await load();
+      toast.success(value ? "Installation cost recorded" : "Installation cost cleared");
+    } catch (err) {
+      toast.error(getApiError(err, "Could not record that cost"));
     }
   }
 
@@ -262,16 +250,21 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
       <div>
         <div className="mb-2 flex items-end justify-between">
           <div>
-            <h4 className="text-sm font-semibold text-foreground">Assets — materials, production and vendor work</h4>
+            <h4 className="text-sm font-semibold text-foreground">Assets — components, production and installation</h4>
             <p className="text-2xs text-muted-foreground">
-              Materials count as each line is issued from stock or received against its purchase order;
-              production as each step&apos;s actual cost is typed; vendor builds at their work-order amount.
+              Components count as each line is issued from stock at what it was bought for. An operation given to a
+              vendor costs what its work order charges; one done in-house is typed once it is known. An asset bought
+              whole counts at what the purchase order charged, and installing it is recorded against it.
             </p>
           </div>
           <p className="shrink-0 text-right text-sm font-semibold text-foreground">
-            {money(Number(data.materials_actual) + Number(data.production_actual ?? 0) + Number(data.work_orders_actual ?? 0))}
+            {money(
+              Number(data.materials_actual) + Number(data.production_actual ?? 0)
+              + Number(data.work_orders_actual ?? 0) + Number(data.installation_actual ?? 0),
+            )}
             <span className="block text-2xs font-normal text-muted-foreground">
-              materials {money(data.materials_actual)} · production {money(data.production_actual ?? 0)} · vendor {money(data.work_orders_actual ?? 0)}
+              components {money(data.materials_actual)} · production {money(data.production_actual ?? 0)} ·
+              installation {money(data.installation_actual ?? 0)}
             </span>
           </p>
         </div>
@@ -284,7 +277,7 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
-                  <th className={thClass}>Component</th>
+                  <th className={thClass}>Line</th>
                   <th className={`${thClass} text-right`}>Required</th>
                   <th className={`${thClass} text-right`}>Used</th>
                   <th className={`${thClass} text-right`}>Unit price</th>
@@ -306,16 +299,46 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
                     </td>
                     <td className={`${tdClass} text-right font-semibold text-foreground`}>{money(asset.actual_total)}</td>
                   </tr>
-                  {asset.lines.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className={`${tdClass} pl-6 text-2xs font-semibold uppercase tracking-wider text-muted-foreground`}>
+                      {asset.vendor_asset ? "Asset" : "Components"}
+                    </td>
+                    <td className={`${tdClass} text-right text-2xs font-medium text-muted-foreground`}>
+                      {money(asset.materials_actual)}
+                    </td>
+                  </tr>
+                  {asset.vendor_asset ? (
+                    <tr className="border-t border-border/50">
+                      <td className={`${tdClass} pl-10 font-medium text-foreground`}>
+                        Complete asset from the vendor
+                        <span className="block text-2xs font-normal text-muted-foreground">
+                          Bought whole on a purchase order — it is not built here.
+                        </span>
+                      </td>
+                      <td className={`${tdClass} text-right text-muted-foreground`}>1</td>
+                      <td className={`${tdClass} text-right text-foreground`}>{asset.asset_arrived ? 1 : 0}</td>
+                      <td className={`${tdClass} text-right text-foreground`}>
+                        {asset.asset_price != null ? money(asset.asset_price) : "—"}
+                      </td>
+                      <td className={`${tdClass} text-muted-foreground`}>
+                        {!asset.asset_arrived
+                          ? "Not yet received"
+                          : asset.asset_priced_from ?? "Purchase order"}
+                      </td>
+                      <td className={`${tdClass} text-right font-medium text-foreground`}>
+                        {money(asset.materials_actual)}
+                      </td>
+                    </tr>
+                  ) : asset.lines.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className={`${tdClass} pl-6 text-2xs text-muted-foreground`}>
+                      <td colSpan={6} className={`${tdClass} pl-10 text-2xs text-muted-foreground`}>
                         No components on this asset.
                       </td>
                     </tr>
                   ) : (
                     asset.lines.map((l) => (
                       <tr key={l.component} className="border-t border-border/50">
-                        <td className={`${tdClass} pl-6 font-medium text-foreground`}>{l.name}</td>
+                        <td className={`${tdClass} pl-10 font-medium text-foreground`}>{l.name}</td>
                         <td className={`${tdClass} text-right text-muted-foreground`}><Qty value={l.required} unit={l.unit} /></td>
                         <td className={`${tdClass} text-right text-foreground`}><Qty value={l.issued} unit={l.unit} /></td>
                         <td className={`${tdClass} text-right text-foreground`}>{l.unit_price != null ? money(l.unit_price) : "—"}</td>
@@ -326,18 +349,53 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
                       </tr>
                     ))
                   )}
+                  {!asset.vendor_asset && (
+                    <tr>
+                      <td colSpan={5} className={`${tdClass} pl-6 text-2xs font-semibold uppercase tracking-wider text-muted-foreground`}>
+                        Production
+                      </td>
+                      <td className={`${tdClass} text-right text-2xs font-medium text-muted-foreground`}>
+                        {money(Number(asset.production_actual) + Number(asset.work_orders_actual ?? 0))}
+                      </td>
+                    </tr>
+                  )}
+                  {!asset.vendor_asset && (asset.steps ?? []).length === 0 && (
+                    <tr>
+                      <td colSpan={6} className={`${tdClass} pl-10 text-2xs text-muted-foreground`}>
+                        No production route on this asset.
+                      </td>
+                    </tr>
+                  )}
                   {(asset.steps ?? []).map((st) => (
                     <tr key={st.id} className="border-t border-border/50 bg-secondary/10">
-                      <td className={`${tdClass} pl-6 text-foreground`}>
+                      <td className={`${tdClass} pl-10 text-foreground`}>
                         <span className="mr-1.5 font-mono text-2xs text-muted-foreground">#{st.step_number}</span>
                         {st.name}
-                        <span className="ml-1.5 text-2xs text-muted-foreground">production · {(st.status ?? "pending").replace(/_/g, " ")}</span>
+                        <span className="ml-1.5 text-2xs text-muted-foreground">
+                          {/* Where it happens is Execution's call; say so until
+                              it is taken rather than assuming our own floor. */}
+                          {st.work_order ? "vendor"
+                            : st.location === "in_house" ? "in-house"
+                              : st.location === "external" ? "vendor"
+                                : "not decided"} · {(st.status ?? "pending").replace(/_/g, " ")}
+                        </span>
                       </td>
                       <td className={`${tdClass} text-right text-muted-foreground`} colSpan={2}>
                         planned {st.planned_cost != null ? money(st.planned_cost) : "—"}
                       </td>
                       <td className={`${tdClass} text-right`} colSpan={2}>
-                        {canEdit ? (
+                        {st.work_order ? (
+                          /* Priced from the vendor's order, the way a bought part is priced from its PO. */
+                          <span
+                            className="inline-flex flex-col items-end text-2xs text-muted-foreground"
+                            title="Priced from the vendor's work order — not typed in"
+                          >
+                            <span className="font-mono text-foreground">{st.work_order.wo_number}</span>
+                            <span>
+                              {st.work_order.supplier || "vendor"} · {(st.work_order.status_display ?? st.work_order.status).replace(/_/g, " ")}
+                            </span>
+                          </span>
+                        ) : canEdit && st.actual_editable !== false ? (
                           <input
                             type="number"
                             min={0}
@@ -359,7 +417,7 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
                   ))}
                   {(asset.work_orders ?? []).map((w) => (
                     <tr key={w.id} className="border-t border-border/50 bg-secondary/10">
-                      <td className={`${tdClass} pl-6 text-foreground`} colSpan={4}>
+                      <td className={`${tdClass} pl-10 text-foreground`} colSpan={4}>
                         <span className="font-mono text-2xs">{w.wo_number}</span>
                         <span className="ml-1.5 text-2xs text-muted-foreground">vendor work order · {w.supplier || "—"} · {(w.status ?? "").replace(/_/g, " ")}</span>
                       </td>
@@ -367,18 +425,46 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
                       <td className={`${tdClass} text-right font-medium text-foreground`}>{w.amount != null ? money(w.amount) : "—"}</td>
                     </tr>
                   ))}
-                  {asset.source !== "inhouse" && (asset.work_orders ?? []).filter((w) => w.status !== "cancelled").length === 0 && canBuy && (
-                    <tr className="border-t border-border/50">
-                      <td colSpan={6} className={`${tdClass} pl-6`}>
-                        <button
-                          onClick={() => openWorkOrder(asset)}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-2xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                        >
-                          <Plus className="h-3 w-3" /> Raise work order — the vendor builds this asset
-                        </button>
-                      </td>
-                    </tr>
-                  )}
+                  <tr>
+                    <td colSpan={5} className={`${tdClass} pl-6 text-2xs font-semibold uppercase tracking-wider text-muted-foreground`}>
+                      Installation &amp; activation
+                    </td>
+                    <td className={`${tdClass} text-right text-2xs font-medium text-muted-foreground`}>
+                      {asset.installation_actual != null ? money(asset.installation_actual) : money(0)}
+                    </td>
+                  </tr>
+                  <tr className="border-t border-border/50">
+                    <td className={`${tdClass} pl-10 text-foreground`}>
+                      Putting it in and switching it on
+                      <span className="block text-2xs text-muted-foreground">
+                        {asset.installation_planned != null
+                          ? `planned ${money(asset.installation_planned)}`
+                          : "not priced in the plan"}
+                      </span>
+                    </td>
+                    <td className={`${tdClass} text-right text-muted-foreground`} colSpan={2}>—</td>
+                    <td className={`${tdClass} text-right`} colSpan={2}>
+                      {canEdit ? (
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          defaultValue={asset.installation_actual ?? ""}
+                          onBlur={(e) => saveInstallActual(asset.id, e.target.value, asset.installation_actual)}
+                          placeholder="actual"
+                          aria-label={`Installation cost of ${asset.asset_code}`}
+                          className={`${inputClass} w-28 text-right`}
+                        />
+                      ) : (
+                        <span className="text-muted-foreground">
+                          {asset.installation_actual != null ? money(asset.installation_actual) : "—"}
+                        </span>
+                      )}
+                    </td>
+                    <td className={`${tdClass} text-right font-medium text-foreground`}>
+                      {asset.installation_actual != null ? money(asset.installation_actual) : "—"}
+                    </td>
+                  </tr>
                 </tbody>
               ))}
             </table>
@@ -512,8 +598,18 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
       <div className="ml-auto w-full max-w-md rounded-xl border border-border bg-card">
         <dl className="divide-y divide-border text-sm">
           <div className="flex justify-between px-4 py-2.5">
-            <dt className="text-muted-foreground">Materials used</dt>
+            <dt className="text-muted-foreground">Components used</dt>
             <dd className="font-medium text-foreground">{money(data.materials_actual)}</dd>
+          </div>
+          <div className="flex justify-between px-4 py-2.5">
+            <dt className="text-muted-foreground">Production</dt>
+            <dd className="font-medium text-foreground">
+              {money(Number(data.production_actual ?? 0) + Number(data.work_orders_actual ?? 0))}
+            </dd>
+          </div>
+          <div className="flex justify-between px-4 py-2.5">
+            <dt className="text-muted-foreground">Installation &amp; activation</dt>
+            <dd className="font-medium text-foreground">{money(data.installation_actual ?? 0)}</dd>
           </div>
           <div className="flex justify-between px-4 py-2.5">
             <dt className="text-muted-foreground">Overheads recorded</dt>
@@ -543,43 +639,6 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
           )}
         </dl>
       </div>
-      <Modal open={woModal !== null} onClose={() => setWoModal(null)} title={woModal ? `Work Order — ${woModal.asset_code}` : "Work Order"} size="md">
-        {woModal && (
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Gives {woModal.asset_name || woModal.asset_code} to its vendor to build. The amount counts
-              as this asset&apos;s production cost; the vendor&apos;s cover on the finished asset is recorded when it arrives.
-            </p>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <label htmlFor="wo_supplier" className="text-xs font-medium text-muted-foreground">Vendor *</label>
-                <select id="wo_supplier" value={wo.supplier} onChange={(e) => setWo({ ...wo, supplier: e.target.value })} className={`${inputClass} h-10 w-full`}>
-                  <option value="">Select vendor…</option>
-                  {woSuppliers.map((sup) => <option key={sup.id} value={sup.id}>{sup.name}</option>)}
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <label htmlFor="wo_amount" className="text-xs font-medium text-muted-foreground">Amount (PKR)</label>
-                <input id="wo_amount" type="number" min={0} step="0.01" value={wo.amount} onChange={(e) => setWo({ ...wo, amount: e.target.value })} placeholder="Blank uses the asset's purchase price" className={`${inputClass} h-10 w-full`} />
-              </div>
-              <div className="space-y-1.5">
-                <label htmlFor="wo_delivery" className="text-xs font-medium text-muted-foreground">Required delivery</label>
-                <input id="wo_delivery" type="date" value={wo.expected_delivery} onChange={(e) => setWo({ ...wo, expected_delivery: e.target.value })} className={`${inputClass} h-10 w-full`} />
-              </div>
-              <div className="space-y-1.5 sm:col-span-2">
-                <label htmlFor="wo_notes" className="text-xs font-medium text-muted-foreground">Notes</label>
-                <textarea id="wo_notes" rows={2} value={wo.notes} onChange={(e) => setWo({ ...wo, notes: e.target.value })} className={`${inputClass} h-auto w-full py-2`} />
-              </div>
-            </div>
-            <div className="flex justify-end gap-3">
-              <button type="button" onClick={() => setWoModal(null)} className="inline-flex h-10 items-center rounded-lg border border-border px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">Cancel</button>
-              <button type="button" onClick={raiseWorkOrder} disabled={woSaving || !wo.supplier} className="inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-medium text-white transition-all disabled:opacity-50">
-                {woSaving ? "Raising…" : "Raise work order"}
-              </button>
-            </div>
-          </div>
-        )}
-      </Modal>
     </div>
   );
 }

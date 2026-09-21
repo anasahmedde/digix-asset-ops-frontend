@@ -55,9 +55,13 @@ interface Plan {
     vendor_asset?: boolean;
     source?: string;
     asset_price?: string | null;
+    /** Both named by the purchase order, once there is one. */
     supply_vendor_name?: string | null;
+    po_number?: string | null;
     lines: number;
     materials_total: string;
+    /** What installing and activating this asset is expected to cost. */
+    installation_cost: string | null;
     unpriced_lines: number;
     steps: StepLine[];
     production_total: string;
@@ -66,6 +70,7 @@ interface Plan {
   overheads: OverheadLine[];
   materials_total: string;
   production_total: string;
+  installation_total: string;
   overheads_total: string;
   subtotal: string;
   contingency_amount: string;
@@ -257,6 +262,18 @@ export function ProjectPlanning({
       toast.success(value ? "Vendor price set" : "Vendor price cleared");
     } catch (err) {
       toast.error(getApiError(err, "Could not set that price"));
+    }
+  }
+
+  /** What putting this asset in and switching it on is expected to cost. */
+  async function saveInstallCost(deviceId: string, raw: string, current: string | null) {
+    const value = raw.trim();
+    if (value === (current ?? "")) return;
+    try {
+      await api.patch(`/assets/devices/${deviceId}/`, { planned_installation_cost: value || null });
+      await load();
+    } catch (err) {
+      toast.error(getApiError(err, "Could not price the installation"));
     }
   }
 
@@ -476,7 +493,7 @@ export function ProjectPlanning({
             </p>
           </div>
           <p className="shrink-0 text-sm font-semibold text-foreground">
-            {money(Number(plan.materials_total) + Number(plan.production_total))}
+            {money(Number(plan.materials_total) + Number(plan.production_total) + Number(plan.installation_total ?? 0))}
           </p>
         </div>
         {plan.assets.length === 0 ? (
@@ -521,12 +538,23 @@ export function ProjectPlanning({
                     </tr>
 
                     {asset.vendor_asset ? (
+                      <>
+                      <tr>
+                        <td colSpan={4} className={`${tdClass} pl-6 text-2xs font-semibold uppercase tracking-wider text-muted-foreground`}>
+                          Asset
+                        </td>
+                        <td className={`${tdClass} text-right text-2xs font-medium text-muted-foreground`}>
+                          {asset.asset_price != null ? money(asset.asset_price) : money(0)}
+                        </td>
+                      </tr>
                       <tr className="border-t border-border/50">
                         <td className={`${tdClass} pl-6 font-medium text-foreground`}>
                           Complete asset from the vendor
                           <span className="block text-2xs font-normal text-muted-foreground">
                             Bought whole on a purchase order — no components or production route.
-                            {asset.supply_vendor_name ? ` Vendor: ${asset.supply_vendor_name}.` : ""}
+                            {asset.supply_vendor_name
+                              ? ` ${asset.po_number ?? "On order"} · ${asset.supply_vendor_name}.`
+                              : " No order raised yet, so no vendor."}
                           </span>
                         </td>
                         <td className={`${tdClass} text-right text-foreground`}>1</td>
@@ -556,6 +584,44 @@ export function ProjectPlanning({
                           {asset.asset_price != null ? money(asset.asset_price) : "—"}
                         </td>
                       </tr>
+                    <tr>
+                      <td colSpan={4} className={`${tdClass} pl-6 text-2xs font-semibold uppercase tracking-wider text-muted-foreground`}>
+                        Installation &amp; activation
+                      </td>
+                      <td className={`${tdClass} text-right text-2xs font-medium text-muted-foreground`}>
+                        {asset.installation_cost != null ? money(asset.installation_cost) : money(0)}
+                      </td>
+                    </tr>
+                    <tr className="border-t border-border/50">
+                      <td className={`${tdClass} pl-10 font-medium text-foreground`}>
+                        Putting it in and switching it on
+                        <span className="block text-2xs font-normal text-muted-foreground">
+                          Labour, access, rigging and commissioning for this asset.
+                        </span>
+                      </td>
+                      <td className={`${tdClass} text-right text-muted-foreground`}>—</td>
+                      <td className={`${tdClass} text-right`}>
+                        {editable ? (
+                          <input
+                            key={`${asset.id}-install-${asset.installation_cost ?? ""}`}
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            defaultValue={asset.installation_cost ?? ""}
+                            onBlur={(e) => saveInstallCost(asset.id, e.target.value, asset.installation_cost)}
+                            placeholder="Price it"
+                            className={`${inputClass} w-28 text-right`}
+                          />
+                        ) : (
+                          <span className="text-foreground">{asset.installation_cost != null ? money(asset.installation_cost) : "—"}</span>
+                        )}
+                      </td>
+                      <td className={`${tdClass} text-muted-foreground`}>Set by hand</td>
+                      <td className={`${tdClass} text-right font-medium text-foreground`}>
+                        {asset.installation_cost != null ? money(asset.installation_cost) : "—"}
+                      </td>
+                    </tr>
+                      </>
                     ) : (
                     <>
                     <tr>
@@ -644,9 +710,12 @@ export function ProjectPlanning({
                             )}
                           </td>
                           <td className={`${tdClass} text-muted-foreground`}>
+                            {/* Where the operation happens is Execution's call.
+                                Until it is taken, the plan says so. */}
                             {s.location === "external"
                               ? s.workshop ? `Outside workshop · ${s.workshop}` : "Outside workshop"
-                              : "In-house"}
+                              : s.location === "in_house" ? "In-house"
+                                : <span className="italic">Not decided yet</span>}
                           </td>
                           <td className={`${tdClass} text-right font-medium text-foreground`}>
                             {s.planned_cost != null ? money(s.planned_cost) : "—"}
@@ -654,6 +723,43 @@ export function ProjectPlanning({
                         </tr>
                       ))
                     )}
+                    <tr>
+                      <td colSpan={4} className={`${tdClass} pl-6 text-2xs font-semibold uppercase tracking-wider text-muted-foreground`}>
+                        Installation &amp; activation
+                      </td>
+                      <td className={`${tdClass} text-right text-2xs font-medium text-muted-foreground`}>
+                        {asset.installation_cost != null ? money(asset.installation_cost) : money(0)}
+                      </td>
+                    </tr>
+                    <tr className="border-t border-border/50">
+                      <td className={`${tdClass} pl-10 font-medium text-foreground`}>
+                        Putting it in and switching it on
+                        <span className="block text-2xs font-normal text-muted-foreground">
+                          Labour, access, rigging and commissioning for this asset.
+                        </span>
+                      </td>
+                      <td className={`${tdClass} text-right text-muted-foreground`}>—</td>
+                      <td className={`${tdClass} text-right`}>
+                        {editable ? (
+                          <input
+                            key={`${asset.id}-install-${asset.installation_cost ?? ""}`}
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            defaultValue={asset.installation_cost ?? ""}
+                            onBlur={(e) => saveInstallCost(asset.id, e.target.value, asset.installation_cost)}
+                            placeholder="Price it"
+                            className={`${inputClass} w-28 text-right`}
+                          />
+                        ) : (
+                          <span className="text-foreground">{asset.installation_cost != null ? money(asset.installation_cost) : "—"}</span>
+                        )}
+                      </td>
+                      <td className={`${tdClass} text-muted-foreground`}>Set by hand</td>
+                      <td className={`${tdClass} text-right font-medium text-foreground`}>
+                        {asset.installation_cost != null ? money(asset.installation_cost) : "—"}
+                      </td>
+                    </tr>
                     </>
                     )}
                   </tbody>
@@ -757,12 +863,16 @@ export function ProjectPlanning({
       <div className="ml-auto w-full max-w-md rounded-xl border border-border bg-card">
         <dl className="divide-y divide-border text-sm">
           <div className="flex justify-between px-4 py-2.5">
-            <dt className="text-muted-foreground">Materials</dt>
+            <dt className="text-muted-foreground">Components</dt>
             <dd className="font-medium text-foreground">{money(plan.materials_total)}</dd>
           </div>
           <div className="flex justify-between px-4 py-2.5">
             <dt className="text-muted-foreground">Production</dt>
             <dd className="font-medium text-foreground">{money(plan.production_total)}</dd>
+          </div>
+          <div className="flex justify-between px-4 py-2.5">
+            <dt className="text-muted-foreground">Installation &amp; activation</dt>
+            <dd className="font-medium text-foreground">{money(plan.installation_total ?? 0)}</dd>
           </div>
           <div className="flex justify-between px-4 py-2.5">
             <dt className="text-muted-foreground">Overheads</dt>

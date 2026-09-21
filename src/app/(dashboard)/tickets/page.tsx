@@ -1750,7 +1750,7 @@ export default function TicketsPage() {
                           </button>
                         ))}
                         {deviceOptions.filter((d) => d.label.toLowerCase().includes(deviceQuery.toLowerCase())).length === 0 && (
-                          <p className="px-3 py-2 text-xs text-muted-foreground">No assets match "{deviceQuery}"</p>
+                          <p className="px-3 py-2 text-xs text-muted-foreground">No assets match &quot;{deviceQuery}&quot;</p>
                         )}
                       </div>
                     )}

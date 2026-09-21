@@ -18,6 +18,8 @@ export interface ProductionStep {
   hold_reason?: string;
   /** True while the project still has to say where this operation happens. */
   decision_pending?: boolean;
+  /** The live work order covering this operation, once raised. */
+  work_order?: { id: string; wo_number: string; status: string; status_display: string } | null;
   workshop: string | null;
   workshop_name: string;
   workshop_display: string | null;
@@ -173,7 +175,7 @@ export function ProductionRoute({
         <p className="text-2xs text-muted-foreground">
           {readOnly
             ? `${readOnlyReason ?? "This asset"} — the vendor builds it, so there is no in-house route to run.`
-            : "How this asset gets built. Mark each operation as done on our own floor or at an outside workshop, so the asset says where it physically is while it is away."}
+            : "The operations this asset is built through, in order. Where each one happens is the project's call, taken in Execution."}
         </p>
         <div className="flex shrink-0 items-center gap-2">
           {locked && (
@@ -259,14 +261,17 @@ export function ProductionRoute({
                     )}
                   </td>
                   <td className="px-3 py-2 text-muted-foreground">
-                    <span className={`inline-flex items-center gap-1 ${step.decision_pending ? "italic" : ""}`}>
+                    {/* Read off the operation itself. A new one is undecided
+                        until the project says where it happens — saying
+                        "In-house" before anyone chose would be a guess. */}
+                    <span className={`inline-flex items-center gap-1 ${step.location === "undecided" ? "italic" : ""}`}>
                       {step.location === "external"
                         ? <Truck className="h-3 w-3 text-amber-500" />
-                        : step.decision_pending
+                        : step.location === "undecided"
                           ? null
                           : <Factory className="h-3 w-3 text-muted-foreground" />}
                       {step.location === "external" ? (step.workshop_display ?? "Outside workshop")
-                        : step.decision_pending ? "Not decided" : "In-house"}
+                        : step.location === "undecided" ? "Not decided yet" : "In-house"}
                     </span>
                   </td>
                   <td className="px-3 py-2">
@@ -289,7 +294,7 @@ export function ProductionRoute({
                         >
                           <option value="">
                             {step.allowed_transitions.length === 0
-                              ? (["completed", "skipped"].includes(step.status) ? "Finished" : step.location === "external" ? "Follows the work order" : "Decide in Execution")
+                              ? (["completed", "skipped"].includes(step.status) ? "Finished" : step.location === "external" ? (step.work_order ? "Follows the work order" : "Awaiting the work order") : "Decide in Execution")
                               : "Move to…"}
                           </option>
                           {step.allowed_transitions.map((t) => (

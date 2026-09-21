@@ -13,6 +13,7 @@ import {
   Plus,
   RotateCcw,
   Download,
+  GripVertical,
   X,
 } from "lucide-react";
 import Link from "next/link";
@@ -51,6 +52,8 @@ interface Handover {
   accepted_by_name: string;
   acceptance_notes: string;
   signature: string | null;
+  /** The certificate the client signed, uploaded back after the visit. */
+  signed_document?: string | null;
   client: string;
   client_name: string;
   site_name: string;
@@ -68,7 +71,12 @@ interface Installation {
   asset_type_name: string | null;
   device_image: string | null;
   device_status: string;
+  /** How the asset is made — it decides who installs it. */
+  device_source?: string | null;
+  device_source_display?: string | null;
   client_names: string[];
+  /** The client this asset belongs to, from the project or the site. */
+  client_id?: string | null;
   project_name: string | null;
   poc_name: string | null;
   poc_phone: string | null;
@@ -126,6 +134,8 @@ interface InstallationListItem {
   device_name: string | null;
   asset_name: string | null;
   client_names: string[];
+  /** The order this installation belongs to. */
+  project_name: string | null;
   site_name: string;
   installed_by_name: string | null;
   installed_by_phone: string | null;
@@ -263,7 +273,7 @@ function stepperStatus(status: string): "completed" | "in_progress" | "on_hold" 
 }
 
 function exportCsv(rows: InstallationListItem[]) {
-  const header = ["Asset Code", "Asset Name", "Status", "Client(s)", "Site", "Installer", "POC", "Installed At", "Due Date", "Completed At", "Progress %", "Client Delays"];
+  const header = ["Asset Code", "Asset Name", "Status", "Client(s)", "Project", "Site", "Installer", "POC", "Assigned", "Due Date", "Installed On", "Progress %", "Client Delays"];
   const escape = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
   const lines = rows.map((r) =>
     [
@@ -271,6 +281,7 @@ function exportCsv(rows: InstallationListItem[]) {
       r.asset_name || r.device_name || "",
       r.health_display ?? "",
       r.client_names.join("; "),
+      r.project_name ?? "",
       r.site_name,
       r.installed_by_name ?? "",
       r.poc_name ?? "",
@@ -347,6 +358,9 @@ export default function InstallationTrackerPage() {
   const [editSaving, setEditSaving] = useState(false);
   const [editInstaller, setEditInstaller] = useState("");
   const [templateBusy, setTemplateBusy] = useState(false);
+  // The step currently being dragged, and the position it would drop into.
+  const [dragStep, setDragStep] = useState<string | null>(null);
+  const [dropAt, setDropAt] = useState<number | null>(null);
   const [newStepType, setNewStepType] = useState("survey");
   const [newStepLabel, setNewStepLabel] = useState("");
   const [activateOpen, setActivateOpen] = useState(false);
@@ -471,6 +485,25 @@ export default function InstallationTrackerPage() {
     }
   }
 
+  /** Move the step being dragged to the position it was dropped on. */
+  async function moveStepTo(target: number) {
+    const held = dragStep;
+    setDragStep(null);
+    setDropAt(null);
+    if (!selected || !held) return;
+    const ids = selected.steps.map((s) => s.id);
+    const from = ids.indexOf(held);
+    if (from < 0 || from === target) return;
+    ids.splice(target, 0, ids.splice(from, 1)[0]);
+    try {
+      await api.post(`/sites/installations/${selected.id}/reorder-steps/`, { steps: ids });
+      await loadDetail(selected.id);
+      toast.success("Step moved");
+    } catch (err) {
+      toast.error(getApiError(err, "Could not move the step"));
+    }
+  }
+
   async function removeStep(stepId: string) {
     if (!selected || !confirm("Remove this step from the checklist?")) return;
     try {
@@ -479,18 +512,6 @@ export default function InstallationTrackerPage() {
       toast.success("Step removed");
     } catch (err) {
       toast.error(getApiError(err, "Could not remove the step"));
-    }
-  }
-
-  async function updateDueDate(value: string) {
-    if (!selected) return;
-    try {
-      await api.patch(`/sites/installations/${selected.id}/`, { due_date: value || null });
-      await loadDetail(selected.id);
-      refreshList();
-      toast.success("Due date updated");
-    } catch (err) {
-      toast.error(getApiError(err, "Failed to update due date"));
     }
   }
 
@@ -664,19 +685,34 @@ export default function InstallationTrackerPage() {
     }
   }
 
+  /** The handover certificate, to take to site and have signed. */
+  async function downloadHandoverDocument() {
+    if (!selected) return;
+    try {
+      const res = await api.get(`/sites/installations/${selected.id}/handover-document/`, {
+        responseType: "blob",
+      });
+      const url = URL.createObjectURL(new Blob([res.data], { type: "application/pdf" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `handover-${selected.device_code}.pdf`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast.error(getApiError(err, "Could not produce the handover document"));
+    }
+  }
+
   function openHandover() {
     if (!selected) return;
-    setHandoverClient("");
+    // The installation already worked out whose asset this is, from the asset,
+    // the project it is scoped to or the site it stands on. Nobody re-types it.
+    setHandoverClient(selected.client_id ?? "");
     setHandoverOpen(true);
     api
       .get("/clients/", { params: { page_size: 200 } })
       .then(({ data }) => setClientOptions((data.results ?? []).map((c: { id: string; name: string }) => ({ id: c.id, label: c.name }))))
       .catch(() => setClientOptions([]));
-    // Default the client select to the client the asset is already assigned to.
-    api
-      .get(`/assets/devices/${selected.device}/`)
-      .then(({ data }) => setHandoverClient(data.assigned_client ?? ""))
-      .catch(() => {});
   }
 
   async function handleActivateSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -691,8 +727,6 @@ export default function InstallationTrackerPage() {
     activatePhotos.forEach((f) => fd.append("photos", f));
     const notes = String(fields.get("notes") ?? "").trim();
     if (notes) fd.append("notes", notes);
-    const months = String(fields.get("client_warranty_months") ?? "").trim();
-    if (months) fd.append("client_warranty_months", months);
     setActivateSaving(true);
     try {
       const { data } = await api.post(`/sites/installations/${selected.id}/activate/`, fd, {
@@ -720,8 +754,12 @@ export default function InstallationTrackerPage() {
     if (handoverClient) fd.append("client", handoverClient);
     if (fields.get("handover_date")) fd.append("handover_date", String(fields.get("handover_date")));
     if (fields.get("acceptance_notes")) fd.append("acceptance_notes", String(fields.get("acceptance_notes")));
-    const signature = (form.elements.namedItem("signature") as HTMLInputElement | null)?.files?.[0];
-    if (signature) fd.append("signature", signature);
+    const signed = (form.elements.namedItem("signed_document") as HTMLInputElement | null)?.files?.[0];
+    if (!signed) {
+      toast.error("Upload the handover document the client signed — that signature is the handover");
+      return;
+    }
+    fd.append("signed_document", signed);
     const photoFiles = (form.elements.namedItem("photos") as HTMLInputElement | null)?.files;
     if (photoFiles) Array.from(photoFiles).forEach((f) => fd.append("photos", f));
     setHandoverSaving(true);
@@ -828,6 +866,13 @@ export default function InstallationTrackerPage() {
                 <Play className="h-4 w-4" /> Mark Active
               </button>
             )}
+            {/* Printed first, signed on site, then uploaded on the form. */}
+            <button
+              onClick={downloadHandoverDocument}
+              className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            >
+              <Download className="h-4 w-4" /> Handover Document
+            </button>
             {canHandover && (
               <button
                 onClick={openHandover}
@@ -857,6 +902,20 @@ export default function InstallationTrackerPage() {
                   Asset ID: {selected.device_code}
                 </Link>
                 {selected.asset_name && <span className="text-sm font-semibold text-foreground">{selected.asset_name}</span>}
+                {/* How the asset is made, worded as the register words it —
+                    the same tag the project's Execution tab carries. */}
+                {selected.device_source_display && (
+                  <span
+                    title="Manufacturing route"
+                    className={`rounded-full px-2.5 py-0.5 text-2xs font-medium ring-1 ${
+                      selected.device_source === "inhouse"
+                        ? "bg-primary/10 text-primary ring-primary/20"
+                        : "bg-indigo-500/10 text-indigo-600 ring-indigo-500/20"
+                    }`}
+                  >
+                    {selected.device_source_display}
+                  </span>
+                )}
                 <StatusBadge status={selected.device_status} />
                 <span
                   title={selected.health_reason || undefined}
@@ -920,40 +979,50 @@ export default function InstallationTrackerPage() {
                   </p>
                 </div>
                 <div>
+                  {/* Only a turnkey asset is installed by a vendor. On the
+                      other two routes our own technician does it, so there is
+                      no vendor to name rather than one nobody filled in. */}
                   <p className="text-xs text-muted-foreground">Vendor</p>
-                  <p className="font-medium text-foreground">
-                    {selected.vendor_display || "—"}
-                    {!selected.vendor && selected.external_vendor_name && (
-                      <span className="block text-xs text-muted-foreground">Entered manually</span>
-                    )}
-                  </p>
+                  {selected.device_source === "vendor_turnkey" ? (
+                    <p className="font-medium text-foreground">
+                      {selected.vendor_display || "Not chosen yet"}
+                      <span className="block text-xs text-muted-foreground">
+                        Installing this asset
+                        {!selected.vendor && selected.external_vendor_name ? " · entered manually" : ""}
+                      </span>
+                    </p>
+                  ) : (
+                    <p className="font-medium text-foreground">
+                      N/A
+                      <span className="block text-xs text-muted-foreground">
+                        Installed by our own technician
+                      </span>
+                    </p>
+                  )}
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Location</p>
                   <p className="font-medium text-foreground">{selected.position_label || selected.site_city || "—"}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground">Installed At</p>
+                  {/* The day somebody took the job on, not the day it went in. */}
+                  <p className="text-xs text-muted-foreground">Assigned</p>
                   <p className="font-medium text-foreground">{formatDate(selected.installed_at)}</p>
                 </div>
                 <div>
+                  {/* Agreed with the technician when the supervisor handed the
+                      job out, on the asset. Changing it here would move a date
+                      somebody already committed to. */}
                   <p className="text-xs text-muted-foreground">Due Date</p>
-                  {isManager ? (
-                    <input
-                      type="date"
-                      defaultValue={selected.due_date ?? ""}
-                      onBlur={(e) => { if (e.target.value !== (selected.due_date ?? "")) updateDueDate(e.target.value); }}
-                      className={`rounded-md border border-border bg-background px-2 py-0.5 text-sm font-medium focus:border-primary/50 focus:outline-none ${overdue ? "text-red-500" : "text-foreground"}`}
-                    />
-                  ) : (
-                    <p className={`font-medium ${overdue ? "text-red-500" : "text-foreground"}`}>
-                      {selected.due_date ? formatDate(selected.due_date) : "—"}
-                    </p>
-                  )}
+                  <p className={`font-medium ${overdue ? "text-red-500" : "text-foreground"}`}>
+                    {selected.due_date ? formatDate(selected.due_date) : "Not agreed"}
+                  </p>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground">Completed</p>
-                  <p className="font-medium text-foreground">{selected.completed_at ? formatDate(selected.completed_at) : "—"}</p>
+                  <p className="text-xs text-muted-foreground">Installed On</p>
+                  <p className="font-medium text-foreground">
+                    {selected.completed_at ? formatDate(selected.completed_at) : "Not yet installed"}
+                  </p>
                 </div>
               </div>
             </div>
@@ -1040,12 +1109,28 @@ export default function InstallationTrackerPage() {
               checklist is a record of what was done. */}
           {isManager && editableChecklist && (
             <div className="mt-5 border-t border-border pt-4">
+              <p className="mb-2 text-2xs text-muted-foreground">
+                Drag a step to move it. They run in the order shown.
+              </p>
               <div className="flex flex-wrap gap-1.5">
-                {selected.steps.map((step) => (
+                {selected.steps.map((step, i) => (
                   <span
                     key={step.id}
-                    className="inline-flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-2xs text-foreground"
+                    draggable
+                    onDragStart={() => setDragStep(step.id)}
+                    onDragEnd={() => { setDragStep(null); setDropAt(null); }}
+                    onDragOver={(e) => { e.preventDefault(); setDropAt(i); }}
+                    onDrop={(e) => { e.preventDefault(); moveStepTo(i); }}
+                    title="Drag to move this step"
+                    className={`inline-flex cursor-grab items-center gap-1 rounded-lg border px-2 py-1 text-2xs text-foreground transition-colors active:cursor-grabbing ${
+                      dragStep === step.id
+                        ? "border-primary bg-primary/10 opacity-60"
+                        : dropAt === i && dragStep
+                          ? "border-primary bg-primary/5"
+                          : "border-border"
+                    }`}
                   >
+                    <GripVertical className="h-3 w-3 text-muted-foreground" />
                     {step.step_number}. {step.step_type_display}
                     <button
                       onClick={() => removeStep(step.id)}
@@ -1231,9 +1316,22 @@ export default function InstallationTrackerPage() {
                   {selected.handover.acceptance_notes && (
                     <p className="border-t border-emerald-500/20 pt-2 text-muted-foreground">{selected.handover.acceptance_notes}</p>
                   )}
-                  {selected.handover.signature && (
+                  {selected.handover.signed_document && (
+                    <div className="border-t border-emerald-500/20 pt-2">
+                      <a
+                        href={selected.handover.signed_document}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 hover:underline"
+                      >
+                        <Download className="h-3.5 w-3.5" /> Signed handover document
+                      </a>
+                    </div>
+                  )}
+                  {!selected.handover.signed_document && selected.handover.signature && (
                     <div className="border-t border-emerald-500/20 pt-2">
                       <p className="mb-1 text-muted-foreground">Signature</p>
+                      {/* Records made before the signed document was asked for. */}
                       <img
                         src={selected.handover.signature}
                         alt={`Signature — ${selected.handover.accepted_by_name}`}
@@ -1469,7 +1567,7 @@ export default function InstallationTrackerPage() {
                 </select>
               </div>
               <div>
-                <label htmlFor="ei-installed-at" className={createLabelClass}>Start / Installed At</label>
+                <label htmlFor="ei-installed-at" className={createLabelClass}>Assigned</label>
                 <input
                   id="ei-installed-at"
                   name="installed_at"
@@ -1534,21 +1632,6 @@ export default function InstallationTrackerPage() {
               )}
             </div>
             <div>
-              <label htmlFor="activate-warranty" className={createLabelClass}>Client warranty (months)</label>
-              <input
-                id="activate-warranty"
-                name="client_warranty_months"
-                type="number"
-                min={1}
-                max={120}
-                placeholder="e.g. 12"
-                className={createInputClass}
-              />
-              <p className="mt-1 text-2xs text-muted-foreground">
-                Our cover to the client starts today and is filed under Warranties. Leave blank if none.
-              </p>
-            </div>
-            <div>
               <label htmlFor="activate-notes" className={createLabelClass}>Notes</label>
               <textarea
                 id="activate-notes"
@@ -1596,13 +1679,28 @@ export default function InstallationTrackerPage() {
               </div>
               <div>
                 <label className={createLabelClass}>Client *</label>
-                <SearchSelect
-                  options={clientOptions}
-                  value={handoverClient}
-                  onChange={setHandoverClient}
-                  name="client"
-                  placeholder="Search client…"
-                />
+                {/* The client was settled when the project was raised. Letting
+                    it be changed here would hand the asset to somebody the
+                    project never named. */}
+                {selected.client_id ? (
+                  <div
+                    id="ho-client"
+                    className={`${createInputClass} flex items-center justify-between gap-2`}
+                  >
+                    <span className="truncate text-foreground">
+                      {selected.client_names[0] ?? "Client on the project"}
+                    </span>
+                    <span className="shrink-0 text-2xs text-muted-foreground">from the project</span>
+                  </div>
+                ) : (
+                  <SearchSelect
+                    options={clientOptions}
+                    value={handoverClient}
+                    onChange={setHandoverClient}
+                    name="client"
+                    placeholder="Search client…"
+                  />
+                )}
               </div>
               <div>
                 <label htmlFor="ho-date" className={createLabelClass}>Handover Date</label>
@@ -1615,14 +1713,19 @@ export default function InstallationTrackerPage() {
                 />
               </div>
               <div>
-                <label htmlFor="ho-signature" className={createLabelClass}>Signature (image)</label>
+                <label htmlFor="ho-document" className={createLabelClass}>Signed handover document *</label>
                 <input
-                  id="ho-signature"
-                  name="signature"
+                  id="ho-document"
+                  name="signed_document"
                   type="file"
-                  accept="image/*"
+                  required
+                  accept="application/pdf,image/*,.doc,.docx"
                   className={`${createInputClass} h-auto py-2 file:mr-3 file:rounded-md file:border-0 file:bg-secondary file:px-3 file:py-1 file:text-xs file:font-medium file:text-foreground`}
                 />
+                <p className="mt-1 text-2xs text-muted-foreground">
+                  The signature is the handover, so this is required. Download the certificate above,
+                  take it to site, upload the signed copy here — a scan or a photograph both count.
+                </p>
               </div>
               <div className="sm:col-span-2">
                 <label htmlFor="ho-photos" className={createLabelClass}>Additional Photos</label>
@@ -1812,11 +1915,12 @@ export default function InstallationTrackerPage() {
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Asset ID</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Asset Name</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Client(s)</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Project</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Site</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Installer</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">POC</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Due Date</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Completed</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Installed On</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Status</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Progress</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Action</th>
@@ -1845,6 +1949,9 @@ export default function InstallationTrackerPage() {
                           || "—"}
                       </td>
                       <td className="px-4 py-3.5 text-foreground">{inst.client_names.length > 0 ? inst.client_names.join(", ") : "—"}</td>
+                      {/* Which order the installation belongs to — the question
+                          asked of every other list in the system. */}
+                      <td className="px-4 py-3.5 text-foreground">{inst.project_name || "Not on a project"}</td>
                       <td className="px-4 py-3.5 text-foreground">{inst.site_name}</td>
                       <td className="px-4 py-3.5 text-foreground">
                         {inst.installed_by_name || "—"}
