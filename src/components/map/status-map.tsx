@@ -30,7 +30,6 @@ const STATUS_META: Record<string, { color: string; label: string; pulse?: boolea
 const MAINT_TYPE_META: Record<string, { color: string; label: string }> = {
   preventive: { color: "#f59e0b", label: "Preventive" },
   corrective: { color: "#ef4444", label: "Corrective" },
-  predictive: { color: "#a855f7", label: "Predictive" },
 };
 
 const iconCache = new Map<string, L.DivIcon>();

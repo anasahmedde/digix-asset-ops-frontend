@@ -79,7 +79,6 @@ const tdClass = "px-5 py-3.5";
 const TYPE_BADGES: Record<string, string> = {
   preventive: "bg-blue-500/10 text-blue-600 ring-blue-500/20",
   corrective: "bg-red-500/10 text-red-600 ring-red-500/20",
-  predictive: "bg-purple-500/10 text-purple-600 ring-purple-500/20",
 };
 
 const FREQ_LABEL: Record<string, string> = {
@@ -122,7 +121,6 @@ export default function MaintenancePage() {
   const [filterValues, setFilterValues] = useState<Record<string, string>>({ type: "", frequency: "", active: "" });
   const [search, setSearch] = useState("");
   const [deviceOptions, setDeviceOptions] = useState<Option[]>([]);
-  const [siteOptions, setSiteOptions] = useState<Option[]>([]);
   const [userOptions, setUserOptions] = useState<Option[]>([]);
   const [formDevice, setFormDevice] = useState("");
   const [formAssignee, setFormAssignee] = useState("");
@@ -133,6 +131,8 @@ export default function MaintenancePage() {
   const [formAssetInfo, setFormAssetInfo] = useState<{
     components: { name: string; quantity: number }[];
     dims: string | null;
+    /** Where the asset stands — the schedule's site follows it. */
+    siteName: string | null;
   } | null>(null);
   const [completeFor, setCompleteFor] = useState<MaintenanceSchedule | null>(null);
   const [completeComponents, setCompleteComponents] = useState<{ id: string; name: string }[]>([]);
@@ -186,10 +186,11 @@ export default function MaintenancePage() {
   }, []);
 
   const loadOptions = useCallback(async () => {
-    const [dev, sites, users, sups] = await Promise.allSettled([
-      api.get("/assets/devices/", { params: { page_size: 1000 } }),
-      api.get("/sites/sites/", { params: { page_size: 1000 } }),
-      api.get("/accounts/users/", { params: { is_field_staff: true, is_active: true, page_size: 200 } }),
+    const [dev, users, sups] = await Promise.allSettled([
+      // Only a live asset can be serviced, and only a technician attends. The
+      // site is not fetched: it comes from whichever asset is chosen.
+      api.get("/assets/devices/", { params: { status: "active", page_size: 1000 } }),
+      api.get("/accounts/users/", { params: { role: "technician", is_active: true, page_size: 200 } }),
       api.get("/suppliers/", { params: { page_size: 1000 } }),
     ]);
     if (dev.status === "fulfilled")
@@ -197,8 +198,6 @@ export default function MaintenancePage() {
         id: d.id,
         label: d.display_name ? `${d.asset_code} — ${d.display_name}` : d.asset_code,
       })));
-    if (sites.status === "fulfilled")
-      setSiteOptions((sites.value.data.results ?? []).map((s: { id: string; name: string }) => ({ id: s.id, label: s.name })));
     if (users.status === "fulfilled")
       setUserOptions((users.value.data.results ?? []).map((u: { id: string; first_name: string; last_name: string; username: string }) => ({
         id: u.id,
@@ -227,6 +226,7 @@ export default function MaintenancePage() {
       setFormAssetInfo({
         components: (data.components ?? []).map((c: { name: string; quantity: number }) => ({ name: c.name, quantity: c.quantity })),
         dims,
+        siteName: data.site_name ?? null,
       });
     } catch { /* card stays hidden */ }
   }
@@ -351,20 +351,19 @@ export default function MaintenancePage() {
     const fd = new FormData(e.currentTarget);
     const payload = {
       title: fd.get("title"),
-      maintenance_type: fd.get("maintenance_type"),
+      // Scheduled ahead, so preventive. The site follows the asset, which the
+      // server reads off the asset itself rather than trusting this form.
+      maintenance_type: "preventive",
       frequency: fd.get("frequency"),
       priority: fd.get("priority"),
       device: fd.get("device") || null,
-      site: fd.get("site") || null,
       assigned_to: fd.get("assigned_to") || null,
       vendors: fd.getAll("vendors"),
       required_components: reqComponents.filter((r) => r.inventory_item || r.inventory_unit_type || r.name.trim()),
       next_due: fd.get("next_due"),
       instructions: fd.get("instructions"),
-      // Status is sent only when the user changed it: the form holds the copy
-      // it was opened with, and a stale copy must not overwrite what happened
-      // since (a job completed elsewhere in the meantime).
-      ...(modalMode === "create" || fd.get("status") !== selected?.status ? { status: fd.get("status") } : {}),
+      // Status is not asked for: a schedule being written has not started, and
+      // what happens to it afterwards is recorded by the work, not typed here.
     };
     try {
       if (modalMode === "create") {
@@ -722,19 +721,14 @@ export default function MaintenancePage() {
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
-                  <label htmlFor="maintenance_type" className={labelClass}>
-                    Maintenance Type
-                  </label>
-                  <select
-                    id="maintenance_type"
-                    name="maintenance_type"
-                    defaultValue={selected?.maintenance_type ?? "preventive"}
-                    className={inputClass}
-                  >
-                    <option value="preventive">Preventive</option>
-                    <option value="corrective">Corrective</option>
-                    <option value="predictive">Predictive</option>
-                  </select>
+                  {/* Work planned ahead is preventive by definition.
+                      Corrective work is raised by a fault, from a ticket or
+                      from the asset going down, never scheduled here. */}
+                  <label className={labelClass}>Maintenance Type</label>
+                  <div className={`${inputClass} flex items-center justify-between gap-2`}>
+                    <span className="text-foreground">Preventive</span>
+                    <span className="text-2xs text-muted-foreground">scheduled work</span>
+                  </div>
                 </div>
                 <div className="space-y-1.5">
                   <label htmlFor="frequency" className={labelClass}>
@@ -767,11 +761,18 @@ export default function MaintenancePage() {
                   />
                 </div>
                 <div className="space-y-1.5">
+                  {/* Where the asset stands is recorded on the asset when it
+                      is installed. Asking again would only invite a second
+                      answer that disagrees with the first. */}
                   <label htmlFor="m-site" className={labelClass}>Site</label>
-                  <select id="m-site" name="site" defaultValue={selected?.site ?? ""} className={inputClass}>
-                    <option value="">None</option>
-                    {siteOptions.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
-                  </select>
+                  <div id="m-site" className={`${inputClass} flex items-center justify-between gap-2`}>
+                    <span className="truncate text-foreground">
+                      {formAssetInfo?.siteName ?? (formDevice ? "No site on this asset" : "Pick an asset first")}
+                    </span>
+                    {formAssetInfo?.siteName && (
+                      <span className="shrink-0 text-2xs text-muted-foreground">from the asset</span>
+                    )}
+                  </div>
                 </div>
                 <div className="space-y-1.5">
                   <label className={labelClass}>Assign To</label>
@@ -914,17 +915,6 @@ export default function MaintenancePage() {
                   className={`${inputClass} h-auto py-2`}
                   placeholder="Step-by-step maintenance instructions..."
                 />
-              </div>
-              <div className="space-y-1.5">
-                <label htmlFor="status" className={labelClass}>Status</label>
-                <select id="status" name="status" defaultValue={selected?.status ?? "active"} className={inputClass}>
-                  <option value="active">Active</option>
-                  <option value="pending">Pending</option>
-                  <option value="in_process">In Process</option>
-                  <option value="on_hold">On Hold</option>
-                  <option value="overdue">Over Due</option>
-                  <option value="completed">Completed</option>
-                </select>
               </div>
               <div className="flex justify-end gap-3 pt-2">
                 <button

@@ -470,7 +470,6 @@ const WARRANTY_COLORS: Record<string, string> = {
 const MAINT_TYPE_BADGE: Record<string, string> = {
   preventive: "bg-blue-500/10 text-blue-600",
   corrective: "bg-red-500/10 text-red-600",
-  predictive: "bg-purple-500/10 text-purple-600",
 };
 
 export default function AssetsPage() {
