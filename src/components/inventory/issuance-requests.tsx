@@ -274,7 +274,6 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                   <th className={thClass}>Issued</th>
                   <th className={thClass}>On Hand</th>
                   <th className={thClass}>Project / Asset</th>
-                  <th className={thClass}>Requested By</th>
                   <th className={thClass}>Status</th>
                   <th className={thClass}>Actions</th>
                 </tr>
@@ -288,10 +287,15 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                       <td className={`${tdClass} whitespace-nowrap font-mono text-foreground`}>
                         {row.request_number}
                         <span className="block text-2xs font-sans text-muted-foreground">
-                          {row.source_display}
+                          {row.source_display}{row.requested_by_name ? ` · ${row.requested_by_name}` : ""}
                         </span>
                       </td>
-                      <td className={`${tdClass} text-foreground`}>{row.what}</td>
+                      <td className={`${tdClass} text-foreground`}>
+                        {row.unit_type_name ?? row.what.replace(/\s*\(.*\)$/, "")}
+                        {row.item_sku && (
+                          <span className="block font-mono text-2xs text-muted-foreground">{row.item_sku}</span>
+                        )}
+                      </td>
                       <td className={tdClass}>
                         <span className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-2xs font-medium ${row.unit_type_name ? "bg-indigo-500/10 text-indigo-600" : "bg-secondary text-muted-foreground"}`}>{row.unit_type_name ? "Unique item" : "Generic stock"}</span>
                       </td>
@@ -306,7 +310,7 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                           </span>
                         )}
                         {row.outstanding_quantity > 0 && (
-                          <span className="block text-2xs text-amber-600">
+                          <span className="block whitespace-nowrap text-2xs text-amber-600">
                             balance <Qty value={row.outstanding_quantity} unit={row.unit} />
                           </span>
                         )}
@@ -326,10 +330,9 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                           </span>
                         )}
                       </td>
-                      <td className={`${tdClass} text-muted-foreground`}>{row.requested_by_name ?? "—"}</td>
                       <td className={tdClass}>
                         <span
-                          className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${
+                          className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${
                             STATUS_BADGES[row.status] ?? STATUS_BADGES.cancelled
                           }`}
                         >
@@ -346,14 +349,14 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                           </span>
                         )}
                       </td>
-                      <td className={tdClass}>
+                      <td className={`${tdClass} whitespace-nowrap`}>
                         <div className="flex items-center gap-1.5">
                           {canIssue && !settled && (
                             <button
                               onClick={() => openIssue(row)}
                               disabled={!!row.awaiting_procurement}
                               title={row.awaiting_procurement ? "On order — issue it once the delivery has been received and inspected" : "Issue from stock"}
-                              className="inline-flex items-center gap-1 rounded-lg bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
+                              className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-lg bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
                             >
                               <PackageCheck className="h-3.5 w-3.5" /> Issue
                             </button>
@@ -371,7 +374,7 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                             <button
                               onClick={() => { setBackFor(row); setBackNote(""); }}
                               title="Send this request back to whoever raised it"
-                              className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                              className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                             >
                               <Undo2 className="h-3.5 w-3.5" /> Send back
                             </button>

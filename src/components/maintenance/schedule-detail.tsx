@@ -89,6 +89,9 @@ export interface ScheduleSummary {
   next_due: string;
   instructions: string;
   is_active: boolean;
+  /** The fault that raised this job, when it came in as a ticket. */
+  ticket?: string | null;
+  ticket_number?: string | null;
   /** Changes whenever the job does — the visits list reads it as its cue. */
   updated_at?: string;
 }
@@ -299,12 +302,18 @@ export function ScheduleDetail({
   }
 
   const openVisit = visits.find((v) => v.status === "planned" || v.status === "in_progress") ?? null;
+  // A breakdown is one visit, not an arrangement that comes round: there is
+  // nothing to plan after it and no list of past rounds to keep.
+  const oneOff = schedule.maintenance_type === "corrective" || schedule.frequency === "one_time";
   // Newest first, and numbered in the order they happened.
   const pastVisits = visits
     .filter((v) => v.status === "completed" || v.status === "skipped")
     .sort((a, b) => (b.performed_at ?? b.due_date).localeCompare(a.performed_at ?? a.due_date));
   const visitNumber: Record<string, number> = {};
   pastVisits.forEach((v, i) => { visitNumber[v.id] = pastVisits.length - i; });
+  /** The visit this screen is about: the open one, or the one that was done. */
+  const shownVisit = openVisit ?? (oneOff ? pastVisits[0] ?? null : null);
+  const visitDone = shownVisit?.status === "completed";
 
   /** Move the open round: who is going, or which day. */
   async function plan(patch: { assigned_to?: string | null; due_date?: string }) {
@@ -341,7 +350,7 @@ export function ScheduleDetail({
   const started = state === "in_process";
   // An asset out of service, a site shut for the season: the rounds stop
   // falling due, but the job and everything recorded against it stay.
-  const paused = !schedule.is_active || state === "on_hold";
+  const paused = state !== "completed" && (!schedule.is_active || state === "on_hold");
 
   async function togglePaused() {
     if (!paused && !confirm(`Pause "${schedule.title}"? No further rounds fall due until it is resumed.`))
@@ -360,8 +369,8 @@ export function ScheduleDetail({
       setBusy(null);
     }
   }
-  /** What this round has asked for; earlier rounds keep their own lines. */
-  const visitParts = openVisit ? parts.filter((p) => p.visit === openVisit.id) : [];
+  /** What this visit has asked for; other rounds keep their own lines. */
+  const visitParts = shownVisit ? parts.filter((p) => p.visit === shownVisit.id) : [];
   const waiting = visitParts.filter((p) => p.status === "requested");
 
   return (
@@ -413,6 +422,14 @@ export function ScheduleDetail({
           <p className="text-xs text-muted-foreground">
             {schedule.maintenance_type === "preventive" ? "Preventive" : "Corrective"} ·{" "}
             {schedule.frequency.replace("_", " ")} · {schedule.priority} priority
+            {schedule.ticket_number && (
+              <>
+                {" · "}
+                <Link href={`/tickets?ticket=${schedule.ticket}`} className="font-medium text-primary hover:underline">
+                  {schedule.ticket_number}
+                </Link>
+              </>
+            )}
           </p>
         </div>
         <span className={`ml-auto inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${
@@ -475,7 +492,7 @@ export function ScheduleDetail({
           </Field>
           <Field name="Site">{schedule.site_name}</Field>
           <Field name="Client">{clientName}</Field>
-          <Field name="Usual technician">{schedule.assigned_to_name}</Field>
+          <Field name="Last assigned technician">{schedule.assigned_to_name}</Field>
           <Field name="Starts">{schedule.start_date ? formatDate(schedule.start_date) : null}</Field>
           <Field name="Next due">{schedule.next_due ? formatDate(schedule.next_due) : null}</Field>
           <Field name="Warranty">
@@ -505,21 +522,25 @@ export function ScheduleDetail({
         )}
       </div>
 
-      {openVisit && !paused && (
+      {shownVisit && (!paused || visitDone) && (
       <div className="rounded-xl border border-primary/30 bg-card p-5 ring-1 ring-primary/10">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <CalendarClock className="h-4 w-4 text-primary" />
             <h2 className="text-sm font-semibold text-foreground">
-              Next visit{pastVisits.length > 0 ? ` · round ${pastVisits.length + 1}` : ""}
+              {oneOff
+                ? "Visit details"
+                : `Next visit${pastVisits.length > 0 ? ` · round ${pastVisits.length + 1}` : ""}`}
             </h2>
           </div>
           <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${
-            openVisit.status === "in_progress"
+            shownVisit.status === "in_progress"
               ? "bg-amber-500/10 text-amber-600 ring-amber-500/20"
-              : "bg-secondary text-muted-foreground ring-border"
+              : visitDone
+                ? "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20"
+                : "bg-secondary text-muted-foreground ring-border"
           }`}>
-            {openVisit.status === "in_progress" ? "In progress" : "Planned"}
+            {shownVisit.status === "in_progress" ? "In progress" : visitDone ? "Done" : "Planned"}
           </span>
         </div>
 
@@ -528,25 +549,25 @@ export function ScheduleDetail({
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <div className="space-y-1">
             <label htmlFor="visit-due" className={label}>Due on</label>
-            {canDecide ? (
+            {canDecide && !visitDone ? (
               <input
                 id="visit-due"
                 type="date"
-                value={openVisit.due_date}
+                value={shownVisit.due_date}
                 disabled={planning}
                 onChange={(e) => e.target.value && plan({ due_date: e.target.value })}
                 className={inputClass}
               />
             ) : (
-              <p className="text-sm text-foreground">{formatDate(openVisit.due_date)}</p>
+              <p className="text-sm text-foreground">{formatDate(shownVisit.due_date)}</p>
             )}
           </div>
           <div className="space-y-1">
             <label htmlFor="visit-tech" className={label}>Assigned to</label>
-            {canDecide ? (
+            {canDecide && !visitDone ? (
               <select
                 id="visit-tech"
-                value={openVisit.assigned_to ?? ""}
+                value={shownVisit.assigned_to ?? ""}
                 disabled={planning}
                 onChange={(e) => plan({ assigned_to: e.target.value || null })}
                 className={inputClass}
@@ -557,38 +578,71 @@ export function ScheduleDetail({
                 ))}
               </select>
             ) : (
-              <p className="text-sm text-foreground">{openVisit.assigned_to_name ?? "Nobody yet"}</p>
+              <p className="text-sm text-foreground">{shownVisit.assigned_to_name ?? "Nobody yet"}</p>
             )}
           </div>
-          <div className="space-y-1 sm:col-span-2">
-            <p className={label}>This visit</p>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                // Only worth asking when nothing has been asked for yet:
-                // somebody who has already listed what they need has answered it.
-                onClick={() => (visitParts.length === 0 ? setAskingBeforeStart(true) : startVisit())}
-                disabled={openVisit.status === "in_progress" || planning}
-                title={openVisit.status === "in_progress" ? "This visit is already under way" : undefined}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-600 transition-colors hover:bg-amber-500/20 disabled:pointer-events-none disabled:bg-secondary disabled:text-muted-foreground"
-              >
-                <Play className="h-3.5 w-3.5" />
-                {openVisit.status === "in_progress" ? "Work started" : "Start work"}
-              </button>
-              <button
-                onClick={onComplete}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-emerald-700"
-              >
-                <Check className="h-3.5 w-3.5" /> Complete visit
-              </button>
+          {visitDone ? (
+            <>
+              <Field name="Carried out">
+                {shownVisit.started_at
+                  ? formatDateTime(shownVisit.started_at)
+                  : shownVisit.performed_at
+                    ? formatDateTime(shownVisit.performed_at)
+                    : null}
+                {shownVisit.performed_by_name && (
+                  <span className="block text-2xs text-muted-foreground">
+                    closed by {shownVisit.performed_by_name}
+                  </span>
+                )}
+              </Field>
+              <Field name="Cost">
+                {shownVisit.cost ? `PKR ${shownVisit.cost}` : null}
+                <span className={`block text-2xs ${
+                  shownVisit.is_billable ? "text-amber-600" : "text-emerald-600"
+                }`}>
+                  {shownVisit.is_billable
+                    ? `Billable${shownVisit.charge_to ? ` · ${shownVisit.charge_to}` : ""}`
+                    : "Under warranty"}
+                </span>
+              </Field>
+            </>
+          ) : (
+            <div className="space-y-1 sm:col-span-2">
+              <p className={label}>This visit</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  // Only worth asking when nothing has been asked for yet:
+                  // somebody who has already listed what they need has answered it.
+                  onClick={() => (visitParts.length === 0 ? setAskingBeforeStart(true) : startVisit())}
+                  disabled={shownVisit.status === "in_progress" || planning}
+                  title={shownVisit.status === "in_progress" ? "This visit is already under way" : undefined}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-600 transition-colors hover:bg-amber-500/20 disabled:pointer-events-none disabled:bg-secondary disabled:text-muted-foreground"
+                >
+                  <Play className="h-3.5 w-3.5" />
+                  {shownVisit.status === "in_progress" ? "Work started" : "Start work"}
+                </button>
+                <button
+                  onClick={onComplete}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-emerald-700"
+                >
+                  <Check className="h-3.5 w-3.5" /> Complete visit
+                </button>
+              </div>
             </div>
-          </div>
+          )}
         </div>
+        {visitDone && shownVisit.record_notes && (
+          <div className="mt-3 border-t border-border pt-3">
+            <p className={label}>Work done</p>
+            <p className="mt-0.5 whitespace-pre-line text-sm text-foreground">{shownVisit.record_notes}</p>
+          </div>
+        )}
 
         <div className="mt-4 border-t border-border pt-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <Package className="h-4 w-4 text-primary" />
-            <h2 className="text-sm font-semibold text-foreground">Parts for this visit</h2>
+            <h2 className="text-sm font-semibold text-foreground">Components for this visit</h2>
           </div>
           {waiting.length > 0 && (
             <span className="rounded-full bg-amber-500/10 px-2.5 py-0.5 text-2xs font-medium text-amber-600 ring-1 ring-amber-500/20">
@@ -597,21 +651,20 @@ export function ScheduleDetail({
           )}
         </div>
         <p className="mb-3 text-xs text-muted-foreground">
-          Whoever is on this visit says what it needs. A supervisor answers each line and can
-          release less than was asked for. An approved line goes to the store, which is the only
-          place material leaves from — and the store hands it to the technician on this visit.
+          The technician asks, a supervisor releases, the store issues.
         </p>
 
         {visitParts.length === 0 ? (
           <p className="rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
-            Nothing asked for yet.
+            Nothing asked for.
           </p>
         ) : (
           <div className="overflow-hidden rounded-lg border border-border">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-secondary/40 text-left">
-                  <th className="px-3 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Part</th>
+                  <th className="px-3 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Component</th>
+                  <th className="px-3 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Kind</th>
                   <th className="px-3 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Asked</th>
                   <th className="px-3 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Approved</th>
                   <th className="px-3 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Store</th>
@@ -625,6 +678,17 @@ export function ScheduleDetail({
                       {line.what}
                       <span className="block text-2xs text-muted-foreground">
                         asked by {line.requested_by_name ?? "—"} · {formatDate(line.created_at)}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2.5">
+                      {/* Counted stock and individually tracked units behave
+                          differently, so a line says which it is. */}
+                      <span className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-2xs font-medium ${
+                        line.unit_type
+                          ? "bg-indigo-500/10 text-indigo-600"
+                          : "bg-secondary text-muted-foreground"
+                      }`}>
+                        {line.unit_type ? "Unique item" : "Stock item"}
                       </span>
                     </td>
                     <td className="px-3 py-2.5 text-muted-foreground">
@@ -644,6 +708,13 @@ export function ScheduleDetail({
                           <span className="block text-2xs">
                             {line.quantity_issued ? `${line.quantity_issued} ${line.unit} issued` : "awaiting issue"}
                           </span>
+                          {/* A unique item is a particular one: the store hands
+                              over these serials and no others. */}
+                          {(line.issued_serials ?? []).length > 0 && (
+                            <span className="block font-mono text-2xs text-foreground">
+                              {line.issued_serials.join(", ")}
+                            </span>
+                          )}
                           {line.quantity_used !== null && (
                             <span className="block text-2xs">
                               {line.quantity_used} {line.unit} used
@@ -778,10 +849,11 @@ export function ScheduleDetail({
 
       {paused && (
         <p className="rounded-xl border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
-          This schedule is paused, so no round is falling due. Resume it to plan the next visit.
+          Paused — no rounds are falling due.
         </p>
       )}
 
+      {!oneOff && (
       <div className={card}>
         <div className="mb-2 flex items-center gap-2">
           <Wrench className="h-4 w-4 text-primary" />
@@ -793,92 +865,85 @@ export function ScheduleDetail({
           )}
         </div>
         <p className="mb-3 text-xs text-muted-foreground">
-          Every round that has been closed out: who attended, where, what was done, what it cost
-          and who bore it.
+          Rounds already closed out.
         </p>
         {pastVisits.length === 0 ? (
           <p className="rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
-            No visit closed out yet.
+            None yet.
           </p>
         ) : (
-          <ol className="space-y-2.5">
-            {pastVisits.map((v) => (
-              <li key={v.id} className="rounded-lg border border-border p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    {/* Newest first, so the highest number is the latest round. */}
-                    <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-secondary px-1.5 text-2xs font-semibold text-muted-foreground ring-1 ring-border">
-                      {visitNumber[v.id]}
-                    </span>
-                    <p className="text-sm font-medium text-foreground">
-                      {v.status === "completed" ? "Visit completed" : v.status_display}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {v.cost && (
-                      <span className="text-2xs font-medium text-foreground">PKR {v.cost}</span>
-                    )}
-                    <span className={`inline-flex rounded-full px-2 py-0.5 text-2xs font-medium ring-1 ${
-                      v.is_billable
-                        ? "bg-amber-500/10 text-amber-600 ring-amber-500/20"
-                        : "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20"
-                    }`}>
-                      {v.is_billable ? "Billable" : "Under warranty"}
-                      {v.charge_to ? ` · ${v.charge_to}` : ""}
-                    </span>
-                  </div>
-                </div>
-                {/* Who was there, where, and when — a visit read on its own
-                    should not need the job above it to make sense. */}
-                <div className="mt-2.5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                  <Field name="Date">
-                    {v.performed_at ? formatDateTime(v.performed_at) : formatDate(v.due_date)}
-                  </Field>
-                  <Field name="Completed by">{v.performed_by_name || null}</Field>
-                  <Field name="Technician">{v.assigned_to_name || null}</Field>
-                  <Field name="Location">
-                    {schedule.site_name || null}
-                    {schedule.device_code && (
-                      <span className="block font-mono text-2xs text-muted-foreground">
-                        {schedule.device_code}
-                      </span>
-                    )}
-                  </Field>
-                </div>
-                {v.record_notes && (
-                  <p className="mt-2 text-xs text-muted-foreground">{v.record_notes}</p>
-                )}
-                {parts.filter((p) => p.visit === v.id).length > 0 && (
-                  <div className="mt-2 space-y-0.5">
-                    <p className={label}>Parts on this visit</p>
-                    {parts.filter((p) => p.visit === v.id).map((p) => (
-                      <p key={p.id} className="text-xs text-foreground">
-                        {p.what}
-                        <span className="text-muted-foreground">
-                          {" · "}{p.quantity_used} {p.unit} used
-                          {p.quantity_returned > 0
-                            ? ` · ${p.quantity_returned} back to the store on ${p.return_reference}`
-                            : ""}
+          <div className="overflow-x-auto rounded-lg border border-border">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-secondary/40 text-left">
+                  {["#", "Due", "Carried out", "Technician", "Work done", "Components", "Cost"].map((h) => (
+                    <th key={h} className="whitespace-nowrap px-3 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {pastVisits.map((v) => {
+                  const used = parts.filter((p) => p.visit === v.id);
+                  return (
+                    <tr key={v.id} className="border-b border-border/60 last:border-0 align-top">
+                      <td className="px-3 py-2.5 text-muted-foreground">{visitNumber[v.id]}</td>
+                      <td className="whitespace-nowrap px-3 py-2.5 text-muted-foreground">
+                        {formatDate(v.due_date)}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2.5 text-foreground">
+                        {/* When somebody was on site, which is rarely the day
+                            it fell due. */}
+                        {v.started_at ? formatDate(v.started_at) : v.performed_at ? formatDate(v.performed_at) : "—"}
+                        {/* Only worth saying when it was closed out on a
+                            different day from the one it was worked. */}
+                        {v.performed_at && v.started_at
+                          && formatDate(v.performed_at) !== formatDate(v.started_at) && (
+                          <span className="block text-2xs text-muted-foreground">
+                            closed {formatDate(v.performed_at)}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5 text-foreground">
+                        {v.assigned_to_name || "—"}
+                        {v.performed_by_name && v.performed_by_name !== v.assigned_to_name && (
+                          <span className="block text-2xs text-muted-foreground">
+                            closed by {v.performed_by_name}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5 text-muted-foreground">
+                        {v.record_notes || (v.status === "completed" ? "—" : v.status_display)}
+                      </td>
+                      <td className="px-3 py-2.5 text-muted-foreground">
+                        {used.length === 0 ? "—" : used.map((p) => (
+                          <span key={p.id} className="block">
+                            {p.what} · {p.quantity_used} {p.unit}
+                            {p.quantity_returned > 0 && `, ${p.quantity_returned} back on ${p.return_reference}`}
+                            {(p.issued_serials ?? []).length > 0 && (
+                              <span className="block font-mono text-2xs">{p.issued_serials.join(", ")}</span>
+                            )}
+                          </span>
+                        ))}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2.5">
+                        {v.cost ? <span className="text-foreground">PKR {v.cost}</span> : "—"}
+                        <span className={`mt-0.5 block text-2xs ${
+                          v.is_billable ? "text-amber-600" : "text-emerald-600"
+                        }`}>
+                          {v.is_billable ? `Billable${v.charge_to ? ` · ${v.charge_to}` : ""}` : "Warranty"}
                         </span>
-                      </p>
-                    ))}
-                  </div>
-                )}
-                {(v.component_names ?? []).length > 0 && (
-                  <p className="mt-1 text-2xs text-muted-foreground">
-                    Serviced: {v.component_names.join(", ")}
-                  </p>
-                )}
-                {(v.photos ?? []).length > 0 && (
-                  <p className="mt-1 text-2xs text-muted-foreground">
-                    {v.photos.length} photo{v.photos.length > 1 ? "s" : ""} attached
-                  </p>
-                )}
-              </li>
-            ))}
-          </ol>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
+      )}
     </div>
   );
 }

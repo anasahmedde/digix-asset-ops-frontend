@@ -211,7 +211,7 @@ const CATEGORY_OPTIONS = [
   "inspection",
   "relocation",
   "warranty_claim",
-  "preventive_maintenance",
+  "predictive_maintenance",
   "other",
 ];
 
@@ -1916,7 +1916,7 @@ export default function TicketsPage() {
                 </div>
                 <div className="space-y-1.5">
                   <label htmlFor="due_date" className={labelClass}>
-                    Due Date{modalMode === "create" && <span className="font-normal text-muted-foreground/70"> (optional)</span>}
+                    Due Date
                   </label>
                   <input id="due_date" name="due_date" type="date" defaultValue={selected?.due_date ?? ""} className={inputClass} />
                   {modalMode === "create" && (

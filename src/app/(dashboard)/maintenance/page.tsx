@@ -43,6 +43,9 @@ interface MaintenanceSchedule {
   status_display: string;
   effective_status: string;
   is_active: boolean;
+  /** The fault that raised this job, when it came in as a ticket. */
+  ticket: string | null;
+  ticket_number: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -186,6 +189,11 @@ export default function MaintenancePage() {
   const [usedQty, setUsedQty] = useState<Record<string, number>>({});
   const [backSerials, setBackSerials] = useState<Record<string, string[]>>({});
   const [pastRecords, setPastRecords] = useState<MaintenanceRecordRow[]>([]);
+  // The round being closed out: a visit is recorded against the day it fell
+  // due and the day somebody was actually on site, which are rarely the same.
+  const [completeVisit, setCompleteVisit] = useState<{
+    id: string; due_date: string; started_at: string | null; assigned_to_name: string | null;
+  } | null>(null);
   // Guards openEdit's past-records fetch against out-of-order responses from
   // a previously opened schedule (null = no edit modal open).
   const openScheduleIdRef = useRef<string | null>(null);
@@ -271,6 +279,16 @@ export default function MaintenancePage() {
     setIssuedParts([]);
     setUsedQty({});
     setBackSerials({});
+    setCompleteVisit(null);
+    try {
+      const { data } = await api.get("/maintenance/visits/", {
+        params: { schedule: s.id, page_size: 20 },
+      });
+      const open = (data.results ?? data).find(
+        (v: { status: string }) => v.status === "planned" || v.status === "in_progress"
+      );
+      setCompleteVisit(open ?? null);
+    } catch { /* the dialog simply does not name the round */ }
     try {
       const { data } = await api.get("/maintenance/part-requests/", {
         params: { schedule: s.id, page_size: 200 },
@@ -679,6 +697,11 @@ export default function MaintenancePage() {
                     >
                       <td className={`${tdClass} font-medium text-foreground`}>
                         {s.title}
+                        {s.ticket_number && (
+                          <span className="block font-mono text-2xs font-normal text-muted-foreground">
+                            {s.ticket_number}
+                          </span>
+                        )}
                       </td>
                       <td className={tdClass}>
                         <span
@@ -1024,20 +1047,40 @@ export default function MaintenancePage() {
             <form onSubmit={submitComplete} className="space-y-4">
               {completeFor.maintenance_type === "preventive" && completeFor.device && (
                 <p className="rounded-lg border border-dashed border-border px-3 py-2 text-2xs text-muted-foreground">
-                  Found something this visit cannot fix?{" "}
+                  Something this visit cannot fix?{" "}
                   <Link href={`/tickets?create=1&device=${completeFor.device}&category=repair`} className="font-medium text-primary hover:underline">
-                    Raise a maintenance ticket
+                    Raise a ticket
                   </Link>
-                  {" "}— it follows the normal ticket workflow.
                 </p>
+              )}
+              {completeVisit && (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-3 py-2">
+                  <div>
+                    <p className={labelClass}>Due on</p>
+                    <p className="text-sm text-foreground">{formatDate(completeVisit.due_date)}</p>
+                  </div>
+                  <div>
+                    <p className={labelClass}>Carried out</p>
+                    <p className="text-sm text-foreground">
+                      {completeVisit.started_at
+                        ? new Date(completeVisit.started_at).toLocaleString()
+                        : "Today"}
+                    </p>
+                  </div>
+                  {completeVisit.assigned_to_name && (
+                    <div>
+                      <p className={labelClass}>Technician</p>
+                      <p className="text-sm text-foreground">{completeVisit.assigned_to_name}</p>
+                    </div>
+                  )}
+                </div>
               )}
               {issuedParts.length > 0 && (
                 <div className="space-y-3 rounded-lg border border-border p-3">
                   <div>
-                    <p className="text-xs font-semibold text-foreground">Parts the store issued for this job</p>
+                    <p className="text-xs font-semibold text-foreground">Components issued</p>
                     <p className="text-2xs text-muted-foreground">
-                      Say what the visit used. The rest goes back to the store, where receiving checks
-                      it in — it is not on the shelf again until they do.
+                      What was used? The rest goes back to the store for checking in.
                     </p>
                   </div>
                   {issuedParts.map((p) => {
@@ -1053,9 +1096,7 @@ export default function MaintenancePage() {
                             </span>
                           </p>
                           {p.unit_type ? (
-                            <span className="text-2xs text-muted-foreground">
-                              Tick the units coming back
-                            </span>
+                            <span className="text-2xs text-muted-foreground">Coming back</span>
                           ) : (
                             <label className="flex items-center gap-2 text-2xs text-muted-foreground">
                               Used
@@ -1080,35 +1121,34 @@ export default function MaintenancePage() {
                             {(p.issued_serials ?? []).map((sn) => {
                               const on = chosen.includes(sn);
                               return (
-                                <button
+                                <label
                                   key={sn}
-                                  type="button"
-                                  onClick={() =>
-                                    setBackSerials((cur) => ({
-                                      ...cur,
-                                      [p.id]: on ? chosen.filter((v) => v !== sn) : [...chosen, sn],
-                                    }))
-                                  }
-                                  className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 font-mono text-2xs transition-colors ${
-                                    on ? "border-primary/50 bg-primary/10 text-primary" : "border-border bg-card text-muted-foreground hover:text-foreground"
-                                  }`}
+                                  className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-2.5 py-1.5 font-mono text-2xs text-foreground transition-colors hover:bg-secondary"
                                 >
-                                  {on && <Check className="h-3 w-3" />}
+                                  <input
+                                    type="checkbox"
+                                    checked={on}
+                                    onChange={() =>
+                                      setBackSerials((cur) => ({
+                                        ...cur,
+                                        [p.id]: on ? chosen.filter((v) => v !== sn) : [...chosen, sn],
+                                      }))
+                                    }
+                                    className="h-3.5 w-3.5 accent-primary"
+                                  />
                                   {sn}
-                                </button>
+                                </label>
                               );
                             })}
                             {(p.issued_serials ?? []).length === 0 && (
                               <span className="text-2xs text-muted-foreground">
-                                No serials were recorded when this went out — nothing can be sent back by serial.
+                                No serials recorded.
                               </span>
                             )}
                           </div>
                         )}
                         <p className="text-2xs text-muted-foreground">
-                          {back > 0
-                            ? `Returning ${back} ${p.unit} to the store`
-                            : "Nothing going back"}
+                          {back > 0 ? `${back} ${p.unit} going back` : "Nothing going back"}
                         </p>
                       </div>
                     );
@@ -1189,7 +1229,7 @@ export default function MaintenancePage() {
                   <div className="space-y-0.5">
                     <p className="text-2xs uppercase tracking-wider text-muted-foreground">Warranty</p>
                     {completeCover === null ? (
-                      <p className="text-sm text-muted-foreground">Checking the asset&apos;s cover…</p>
+                      <p className="text-sm text-muted-foreground">Checking…</p>
                     ) : completeCover.covered ? (
                       <p className="text-sm font-medium text-emerald-600">
                         Under warranty
@@ -1201,9 +1241,7 @@ export default function MaintenancePage() {
                     ) : (
                       <p className="text-sm font-medium text-amber-600">
                         Not under warranty
-                        <span className="block text-2xs font-normal text-muted-foreground">
-                          No active client cover on this asset.
-                        </span>
+
                       </p>
                     )}
                   </div>
@@ -1218,14 +1256,16 @@ export default function MaintenancePage() {
                             ? "The vendor, under its warranty"
                             : "Us, under the client's warranty"}
                       <span className="block text-2xs font-normal text-muted-foreground">
-                        From the asset&apos;s cover — not entered here.
+                        From the asset&apos;s cover.
                       </span>
                     </p>
                   </div>
                 </div>
               </div>
               <p className="text-2xs text-muted-foreground">
-                Completing logs a maintenance record and rolls the schedule to its next {FREQ_LABEL[completeFor.frequency]?.toLowerCase() ?? ""} cycle{completeFor.frequency === "one_time" ? " (one-time schedules close out)" : ""}.
+                {completeFor.frequency === "one_time"
+                  ? "A one-time job closes out here."
+                  : `Opens the next ${FREQ_LABEL[completeFor.frequency]?.toLowerCase() ?? ""} round.`}
               </p>
               <div className="flex justify-end gap-3 pt-2">
                 <button type="button" onClick={() => setCompleteFor(null)} className="inline-flex h-10 items-center rounded-lg border border-border bg-transparent px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
