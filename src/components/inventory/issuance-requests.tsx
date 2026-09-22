@@ -30,6 +30,9 @@ interface RequestRow {
   asset_code: string | null;
   component_name: string | null;
   maintenance_title: string | null;
+  /** The technician the job is assigned to — the only person who collects
+   *  parts raised for it. */
+  maintenance_assignee?: string | null;
   requested_by_name: string | null;
   issued_by_name: string | null;
   received_by: string;
@@ -131,8 +134,12 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
   function openIssue(row: RequestRow) {
     // Default to what can actually be covered right now.
     const possible = Math.min(row.outstanding_quantity, row.available_quantity ?? row.outstanding_quantity);
-    setIssue({ quantity: String(Math.max(possible, 0)), received_by: "", notes: "" });
-    setReceiverPick("");
+    setIssue({
+      quantity: String(Math.max(possible, 0)),
+      received_by: row.maintenance_assignee ?? "",
+      notes: "",
+    });
+    setReceiverPick(row.maintenance_assignee ?? "");
     setIssueFor(row);
   }
 
@@ -495,6 +502,20 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
             )}
             <div className="space-y-1.5">
               <label htmlFor="issue-to" className={labelClass}>Received by</label>
+              {issueFor.maintenance_assignee ? (
+                // Parts for a job go to whoever is on that job: handing them to
+                // somebody else leaves the parts with one person and the work
+                // with another.
+                <>
+                  <p className={`${inputClass} flex items-center bg-secondary/40 text-muted-foreground`}>
+                    {issueFor.maintenance_assignee}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    The technician on {issueFor.maintenance_title ?? "this job"} collects its parts.
+                  </p>
+                </>
+              ) : (
+              <>
               <select
                 id="issue-to"
                 value={receiverPick}
@@ -520,6 +541,8 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                 />
               )}
               <p className="text-xs text-muted-foreground">The team as set up under Teams; pick “Someone else” for an outside collector.</p>
+              </>
+              )}
             </div>
             <div className="space-y-1.5">
               <label htmlFor="issue-notes" className={labelClass}>Notes</label>

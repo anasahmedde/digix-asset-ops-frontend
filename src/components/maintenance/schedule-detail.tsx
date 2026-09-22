@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Check, Package, Pause, Pencil, Play, Plus, Ticket as TicketIcon, Trash2, Wrench, X } from "lucide-react";
+import { ArrowLeft, CalendarClock, Check, Package, Pause, Pencil, Play, Plus, Ticket as TicketIcon, Trash2, Wrench, X } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -31,6 +31,8 @@ interface PartRequest {
   issue_status: string | null;
   quantity_issued: number | null;
   issued_serials: string[];
+  /** The round this line was asked for on. */
+  visit: string | null;
   /** Null until the visit that used them was closed out. */
   quantity_used: number | null;
   quantity_returned: number;
@@ -38,17 +40,22 @@ interface PartRequest {
   created_at: string;
 }
 
-/** A visit that has been closed out against this schedule. */
+/** One round of the schedule: planned, under way, or closed out. */
 interface Visit {
   id: string;
-  performed_at: string;
-  performed_by_name: string | null;
+  due_date: string;
+  assigned_to: string | null;
+  assigned_to_name: string | null;
   status: string;
   status_display: string;
-  notes: string;
+  started_at: string | null;
+  record: string | null;
+  performed_at: string | null;
+  performed_by_name: string | null;
   cost: string | null;
-  is_billable: boolean;
+  is_billable: boolean | null;
   charge_to: string;
+  record_notes: string;
   component_names: string[];
   photos: { id: string }[];
 }
@@ -111,21 +118,21 @@ export function ScheduleDetail({
   schedule,
   onBack,
   onChanged,
-  onStart,
   onComplete,
   onEdit,
 }: {
   schedule: ScheduleSummary;
   onBack: () => void;
   onChanged: () => void;
-  /** Starting, completing and editing belong to the job, not to a list row. */
-  onStart: () => void;
+  /** Completing and editing belong to the job, not to a list row. */
   onComplete: () => void;
   onEdit?: () => void;
 }) {
   const { user } = useUser();
   const [parts, setParts] = useState<PartRequest[]>([]);
   const [visits, setVisits] = useState<Visit[]>([]);
+  const [technicians, setTechnicians] = useState<{ id: string; label: string }[]>([]);
+  const [planning, setPlanning] = useState(false);
   const [stock, setStock] = useState<StockOption[]>([]);
   const [asking, setAsking] = useState(false);
   // The kind is settled first: counted stock and individually tracked units
@@ -155,18 +162,33 @@ export function ScheduleDetail({
     } catch { /* the panel shows nothing rather than a stale list */ }
   }, [schedule.id]);
 
-  // Re-read when the job itself changes: completing a visit rolls the
-  // schedule, so its updated_at is the cue that there is a new one to show.
+  const loadVisits = useCallback(async () => {
+    try {
+      const { data } = await api.get("/maintenance/visits/", {
+        params: { schedule: schedule.id, ordering: "due_date", page_size: 100 },
+      });
+      setVisits(data.results ?? data);
+    } catch { /* the rounds section says there are none rather than a stale list */ }
+  }, [schedule.id]);
+
+  // Re-read when the schedule itself changes: closing a round rolls it, and
+  // its updated_at is the cue that there is a new one to plan.
   useEffect(() => {
-    let live = true;
-    api.get("/maintenance/records/", {
-      params: { schedule: schedule.id, ordering: "-performed_at", page_size: 50 },
-    })
-      .then(({ data }) => { if (live) setVisits(data.results ?? data); })
-      .catch(() => { /* the section says there are none rather than a stale list */ });
+    loadVisits();
     loadParts();
-    return () => { live = false; };
-  }, [schedule.id, schedule.updated_at, loadParts]);
+  }, [schedule.updated_at, loadVisits, loadParts]);
+
+  // Who can be put on a round. A schedule comes round every month and whoever
+  // is free attends, so the list is the technicians, not one name.
+  useEffect(() => {
+    api.get("/accounts/users/", { params: { role: "technician", is_active: true, page_size: 200 } })
+      .then(({ data }) => setTechnicians(
+        (data.results ?? data).map((u: { id: string; full_name?: string; username: string }) => ({
+          id: u.id, label: (u.full_name || "").trim() || u.username,
+        })),
+      ))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     Promise.allSettled([
@@ -276,6 +298,45 @@ export function ScheduleDetail({
     }
   }
 
+  const openVisit = visits.find((v) => v.status === "planned" || v.status === "in_progress") ?? null;
+  // Newest first, and numbered in the order they happened.
+  const pastVisits = visits
+    .filter((v) => v.status === "completed" || v.status === "skipped")
+    .sort((a, b) => (b.performed_at ?? b.due_date).localeCompare(a.performed_at ?? a.due_date));
+  const visitNumber: Record<string, number> = {};
+  pastVisits.forEach((v, i) => { visitNumber[v.id] = pastVisits.length - i; });
+
+  /** Move the open round: who is going, or which day. */
+  async function plan(patch: { assigned_to?: string | null; due_date?: string }) {
+    if (!openVisit) return;
+    setPlanning(true);
+    try {
+      await api.patch(`/maintenance/visits/${openVisit.id}/`, patch);
+      await loadVisits();
+      onChanged();
+      toast.success(patch.due_date ? "Visit moved" : "Visit assigned");
+    } catch (err) {
+      toast.error(getApiError(err, "Could not plan this visit"));
+    } finally {
+      setPlanning(false);
+    }
+  }
+
+  async function startVisit() {
+    if (!openVisit) return;
+    setPlanning(true);
+    try {
+      await api.post(`/maintenance/visits/${openVisit.id}/start/`, {});
+      await loadVisits();
+      onChanged();
+      toast.success("Work started");
+    } catch (err) {
+      toast.error(getApiError(err, "Could not start this visit"));
+    } finally {
+      setPlanning(false);
+    }
+  }
+
   const state = schedule.effective_status || schedule.status;
   const started = state === "in_process";
   // An asset out of service, a site shut for the season: the rounds stop
@@ -299,7 +360,9 @@ export function ScheduleDetail({
       setBusy(null);
     }
   }
-  const waiting = parts.filter((p) => p.status === "requested");
+  /** What this round has asked for; earlier rounds keep their own lines. */
+  const visitParts = openVisit ? parts.filter((p) => p.visit === openVisit.id) : [];
+  const waiting = visitParts.filter((p) => p.status === "requested");
 
   return (
     <div className="space-y-5">
@@ -313,7 +376,7 @@ export function ScheduleDetail({
               <button
                 onClick={() => {
                   setAskingBeforeStart(false);
-                  onStart();
+                  startVisit();
                 }}
                 className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
               >
@@ -364,28 +427,6 @@ export function ScheduleDetail({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        {/* A visit already under way cannot be started again, so the button
-            stays visible and says so rather than disappearing. */}
-        {state !== "completed" && !paused && (
-          <button
-            // Only worth asking when nothing has been asked for yet: somebody
-            // who has already listed what they need has answered it.
-            onClick={() => (parts.length === 0 ? setAskingBeforeStart(true) : onStart())}
-            disabled={started}
-            title={started ? "This visit is already under way" : undefined}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-600 transition-colors hover:bg-amber-500/20 disabled:pointer-events-none disabled:bg-secondary disabled:text-muted-foreground"
-          >
-            <Play className="h-3.5 w-3.5" /> {started ? "Work started" : "Start work"}
-          </button>
-        )}
-        {state !== "completed" && !paused && (
-          <button
-            onClick={onComplete}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-emerald-700"
-          >
-            <Check className="h-3.5 w-3.5" /> Complete visit
-          </button>
-        )}
         {schedule.device && (
           <Link
             href={`/tickets?create=1&device=${schedule.device}&category=repair`}
@@ -434,7 +475,7 @@ export function ScheduleDetail({
           </Field>
           <Field name="Site">{schedule.site_name}</Field>
           <Field name="Client">{clientName}</Field>
-          <Field name="Technician">{schedule.assigned_to_name}</Field>
+          <Field name="Usual technician">{schedule.assigned_to_name}</Field>
           <Field name="Starts">{schedule.start_date ? formatDate(schedule.start_date) : null}</Field>
           <Field name="Next due">{schedule.next_due ? formatDate(schedule.next_due) : null}</Field>
           <Field name="Warranty">
@@ -464,11 +505,90 @@ export function ScheduleDetail({
         )}
       </div>
 
-      <div className={card}>
+      {openVisit && !paused && (
+      <div className="rounded-xl border border-primary/30 bg-card p-5 ring-1 ring-primary/10">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <CalendarClock className="h-4 w-4 text-primary" />
+            <h2 className="text-sm font-semibold text-foreground">
+              Next visit{pastVisits.length > 0 ? ` · round ${pastVisits.length + 1}` : ""}
+            </h2>
+          </div>
+          <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${
+            openVisit.status === "in_progress"
+              ? "bg-amber-500/10 text-amber-600 ring-amber-500/20"
+              : "bg-secondary text-muted-foreground ring-border"
+          }`}>
+            {openVisit.status === "in_progress" ? "In progress" : "Planned"}
+          </span>
+        </div>
+
+        {/* A schedule comes round again and again, so each round says when it
+            falls and who is going before anybody sets off. */}
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="space-y-1">
+            <label htmlFor="visit-due" className={label}>Due on</label>
+            {canDecide ? (
+              <input
+                id="visit-due"
+                type="date"
+                value={openVisit.due_date}
+                disabled={planning}
+                onChange={(e) => e.target.value && plan({ due_date: e.target.value })}
+                className={inputClass}
+              />
+            ) : (
+              <p className="text-sm text-foreground">{formatDate(openVisit.due_date)}</p>
+            )}
+          </div>
+          <div className="space-y-1">
+            <label htmlFor="visit-tech" className={label}>Assigned to</label>
+            {canDecide ? (
+              <select
+                id="visit-tech"
+                value={openVisit.assigned_to ?? ""}
+                disabled={planning}
+                onChange={(e) => plan({ assigned_to: e.target.value || null })}
+                className={inputClass}
+              >
+                <option value="">Nobody yet</option>
+                {technicians.map((t) => (
+                  <option key={t.id} value={t.id}>{t.label}</option>
+                ))}
+              </select>
+            ) : (
+              <p className="text-sm text-foreground">{openVisit.assigned_to_name ?? "Nobody yet"}</p>
+            )}
+          </div>
+          <div className="space-y-1 sm:col-span-2">
+            <p className={label}>This visit</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                // Only worth asking when nothing has been asked for yet:
+                // somebody who has already listed what they need has answered it.
+                onClick={() => (visitParts.length === 0 ? setAskingBeforeStart(true) : startVisit())}
+                disabled={openVisit.status === "in_progress" || planning}
+                title={openVisit.status === "in_progress" ? "This visit is already under way" : undefined}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-600 transition-colors hover:bg-amber-500/20 disabled:pointer-events-none disabled:bg-secondary disabled:text-muted-foreground"
+              >
+                <Play className="h-3.5 w-3.5" />
+                {openVisit.status === "in_progress" ? "Work started" : "Start work"}
+              </button>
+              <button
+                onClick={onComplete}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-emerald-700"
+              >
+                <Check className="h-3.5 w-3.5" /> Complete visit
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 border-t border-border pt-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <Package className="h-4 w-4 text-primary" />
-            <h2 className="text-sm font-semibold text-foreground">Parts for this job</h2>
+            <h2 className="text-sm font-semibold text-foreground">Parts for this visit</h2>
           </div>
           {waiting.length > 0 && (
             <span className="rounded-full bg-amber-500/10 px-2.5 py-0.5 text-2xs font-medium text-amber-600 ring-1 ring-amber-500/20">
@@ -477,12 +597,12 @@ export function ScheduleDetail({
           )}
         </div>
         <p className="mb-3 text-xs text-muted-foreground">
-          The technician on the job says what it needs. A supervisor answers each line and can
+          Whoever is on this visit says what it needs. A supervisor answers each line and can
           release less than was asked for. An approved line goes to the store, which is the only
-          place material leaves from.
+          place material leaves from — and the store hands it to the technician on this visit.
         </p>
 
-        {parts.length === 0 ? (
+        {visitParts.length === 0 ? (
           <p className="rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
             Nothing asked for yet.
           </p>
@@ -499,7 +619,7 @@ export function ScheduleDetail({
                 </tr>
               </thead>
               <tbody>
-                {parts.map((line) => (
+                {visitParts.map((line) => (
                   <tr key={line.id} className="border-b border-border/60 last:border-0">
                     <td className="px-3 py-2.5 text-foreground">
                       {line.what}
@@ -652,35 +772,43 @@ export function ScheduleDetail({
             </button>
           </form>
         )}
+        </div>
       </div>
+      )}
+
+      {paused && (
+        <p className="rounded-xl border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
+          This schedule is paused, so no round is falling due. Resume it to plan the next visit.
+        </p>
+      )}
 
       <div className={card}>
         <div className="mb-2 flex items-center gap-2">
           <Wrench className="h-4 w-4 text-primary" />
-          <h2 className="text-sm font-semibold text-foreground">Visits</h2>
-          {visits.length > 0 && (
+          <h2 className="text-sm font-semibold text-foreground">Past visits</h2>
+          {pastVisits.length > 0 && (
             <span className="rounded-full bg-secondary px-2 py-0.5 text-2xs font-medium text-muted-foreground ring-1 ring-border">
-              {visits.length}
+              {pastVisits.length}
             </span>
           )}
         </div>
         <p className="mb-3 text-xs text-muted-foreground">
-          Each completed visit is recorded against this schedule, with what was done, what it cost
+          Every round that has been closed out: who attended, where, what was done, what it cost
           and who bore it.
         </p>
-        {visits.length === 0 ? (
+        {pastVisits.length === 0 ? (
           <p className="rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
             No visit closed out yet.
           </p>
         ) : (
           <ol className="space-y-2.5">
-            {visits.map((v, i) => (
+            {pastVisits.map((v) => (
               <li key={v.id} className="rounded-lg border border-border p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     {/* Newest first, so the highest number is the latest round. */}
                     <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-secondary px-1.5 text-2xs font-semibold text-muted-foreground ring-1 ring-border">
-                      {visits.length - i}
+                      {visitNumber[v.id]}
                     </span>
                     <p className="text-sm font-medium text-foreground">
                       {v.status === "completed" ? "Visit completed" : v.status_display}
@@ -703,9 +831,11 @@ export function ScheduleDetail({
                 {/* Who was there, where, and when — a visit read on its own
                     should not need the job above it to make sense. */}
                 <div className="mt-2.5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                  <Field name="Date">{formatDateTime(v.performed_at)}</Field>
+                  <Field name="Date">
+                    {v.performed_at ? formatDateTime(v.performed_at) : formatDate(v.due_date)}
+                  </Field>
                   <Field name="Completed by">{v.performed_by_name || null}</Field>
-                  <Field name="Technician">{schedule.assigned_to_name || null}</Field>
+                  <Field name="Technician">{v.assigned_to_name || null}</Field>
                   <Field name="Location">
                     {schedule.site_name || null}
                     {schedule.device_code && (
@@ -715,7 +845,25 @@ export function ScheduleDetail({
                     )}
                   </Field>
                 </div>
-                {v.notes && <p className="mt-2 text-xs text-muted-foreground">{v.notes}</p>}
+                {v.record_notes && (
+                  <p className="mt-2 text-xs text-muted-foreground">{v.record_notes}</p>
+                )}
+                {parts.filter((p) => p.visit === v.id).length > 0 && (
+                  <div className="mt-2 space-y-0.5">
+                    <p className={label}>Parts on this visit</p>
+                    {parts.filter((p) => p.visit === v.id).map((p) => (
+                      <p key={p.id} className="text-xs text-foreground">
+                        {p.what}
+                        <span className="text-muted-foreground">
+                          {" · "}{p.quantity_used} {p.unit} used
+                          {p.quantity_returned > 0
+                            ? ` · ${p.quantity_returned} back to the store on ${p.return_reference}`
+                            : ""}
+                        </span>
+                      </p>
+                    ))}
+                  </div>
+                )}
                 {(v.component_names ?? []).length > 0 && (
                   <p className="mt-1 text-2xs text-muted-foreground">
                     Serviced: {v.component_names.join(", ")}

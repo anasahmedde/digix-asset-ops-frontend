@@ -30,6 +30,8 @@ interface MaintenanceSchedule {
   project_name: string | null;
   assigned_to: string | null;
   assigned_to_name: string | null;
+  /** Whoever is on the next round — rarely the same person every month. */
+  next_visit_assignee: string | null;
   vendors: string[];
   vendor_names: string[];
   required_components: ReqRow[];
@@ -258,16 +260,6 @@ export default function MaintenancePage() {
       const { data } = await api.get(`/assets/devices/${id}/`);
       setFormAssetSite(data.site_name ?? null);
     } catch { /* the site field says it could not be read */ }
-  }
-
-  async function startWork(s: MaintenanceSchedule) {
-    try {
-      await api.patch(`/maintenance/schedules/${s.id}/`, { status: "in_process" });
-      toast.success("Maintenance started");
-      fetchSchedules();
-    } catch (err) {
-      toast.error(getApiError(err, "Failed to start maintenance"));
-    }
   }
 
   async function openComplete(s: MaintenanceSchedule) {
@@ -511,7 +503,6 @@ export default function MaintenancePage() {
           schedule={detailFor}
           onBack={() => window.history.back()}
           onChanged={fetchSchedules}
-          onStart={() => startWork(detailFor)}
           onComplete={() => openComplete(detailFor)}
           onEdit={canEdit ? () => openEdit(detailFor) : undefined}
         />
@@ -724,7 +715,8 @@ export default function MaintenancePage() {
                         {s.site_name || "-"}
                       </td>
                       <td className={`${tdClass} text-muted-foreground`}>
-                        {s.assigned_to_name || "-"}
+                        {/* Who is going next, not who usually goes. */}
+                        {s.next_visit_assignee || s.assigned_to_name || "-"}
                         {(s.vendor_names ?? []).length > 0 && (
                           <span className="block text-xs">Vendors: {s.vendor_names.join(", ")}</span>
                         )}
