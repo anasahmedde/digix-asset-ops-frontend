@@ -494,7 +494,7 @@ export default function AssetsPage() {
   // Components and a production route only belong to an asset we build ourselves.
   const buildsInHouse = assetSource === "inhouse";
   const [formAssetType, setFormAssetType] = useState("");
-  const [compQty, setCompQty] = useState(1);
+  const [compQty, setCompQty] = useState("1");
   const [stockItems, setStockItems] = useState<StockItemRef[]>([]);
   const [stockProducts, setStockProducts] = useState<StockProductRef[]>([]);
 
@@ -737,19 +737,24 @@ export default function AssetsPage() {
     e.preventDefault();
     // Name, type, serial, supplier and warranty are all imported from the
     // inventory record by the backend — nothing to retype here.
-    if (!compSelected || compQty < 1) return;
+    if (!compSelected) return;
+    const quantity = Number(compQty.trim());
+    if (!compQty.trim() || !Number.isInteger(quantity) || quantity < 1) {
+      toast.error("Enter how many are needed — a whole number, 1 or more");
+      return;
+    }
     try {
       await api.post("/assets/components/", {
         device: deviceId,
         ...(compSource === "generic"
           ? { inventory_item: compItemId }
           : { inventory_unit_type: compUnitType }),
-        quantity: compQty,
+        quantity,
       });
       toast.success("Requirement added");
       setCompItemId("");
       setCompUnitType("");
-      setCompQty(1);
+      setCompQty("1");
       refreshDetail(deviceId);
       loadInventorySources();
     } catch (err: unknown) {
@@ -1729,7 +1734,7 @@ export default function AssetsPage() {
                             <div className="flex flex-wrap items-end gap-2">
                               <select
                                 value={compSource}
-                                onChange={(e) => { setCompSource(e.target.value as "generic" | "unique"); setCompItemId(""); setCompUnitType(""); setCompQty(1); }}
+                                onChange={(e) => { setCompSource(e.target.value as "generic" | "unique"); setCompItemId(""); setCompUnitType(""); setCompQty("1"); }}
                                 className="h-8 w-32 rounded-lg border border-border bg-background px-2 text-xs text-foreground"
                               >
                                 <option value="generic">Stock item</option>
@@ -1776,7 +1781,7 @@ export default function AssetsPage() {
                                   type="number"
                                   min={1}
                                   value={compQty}
-                                  onChange={(e) => setCompQty(Math.max(1, Number(e.target.value) || 1))}
+                                  onChange={(e) => setCompQty(e.target.value)}
                                   className="h-8 w-20 rounded-lg border border-border bg-background px-2 text-xs text-foreground"
                                 />
                                 {compSelected && <span className="text-2xs text-muted-foreground">{compUnit}</span>}
@@ -1784,14 +1789,14 @@ export default function AssetsPage() {
 
                               <button
                                 type="submit"
-                                disabled={!compSelected || compQty < 1}
+                                disabled={!compSelected}
                                 className="h-8 rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
                               >
                                 Add
                               </button>
                             </div>
 
-                            {compSelected && compQty > compAvailable && (
+                            {compSelected && Number(compQty) > compAvailable && (
                               <p className="text-2xs text-amber-600">
                                 Only {compAvailable} {compUnit} in stock — the shortfall can be procured from the project.
                               </p>
