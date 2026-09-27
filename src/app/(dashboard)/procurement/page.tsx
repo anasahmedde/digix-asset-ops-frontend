@@ -40,6 +40,10 @@ interface POItem {
   inventory_item?: string | null;
   /** Asset codes when the line buys complete assets (already in the registry). */
   procured_asset_codes?: string[];
+  /** The registered asset this line buys, when it buys one. */
+  procured_device?: string | null;
+  /** Money on the order that is not goods — nothing arrives for it. */
+  is_charge?: boolean;
   received_quantity: number;
   line_total: string;
 }
@@ -49,6 +53,8 @@ interface PurchaseOrder {
   po_number: string;
   supplier: string;
   supplier_name: string | null;
+  /** The supplier's particulars for this order, where they differ from the record. */
+  supplier_details?: string;
   status: POStatus;
   currency: string;
   order_date: string | null;
@@ -122,11 +128,16 @@ interface GoodsReceipt {
   created_at: string;
 }
 
-type ItemKind = "custom" | "asset" | "material";
+// What a line is, in the words the rest of the system uses. "custom" is
+// only ever an older order's free-text line, kept so it can still be edited.
+type ItemKind = "generic" | "unique" | "asset" | "charge" | "custom";
 
 interface ItemRow {
   id?: string;
   kind: ItemKind;
+  inventory_item: string;
+  inventory_unit_type: string;
+  device: string;
   device_model: string;
   material_type: string;
   description: string;
@@ -137,6 +148,8 @@ interface ItemRow {
 
 interface FormState {
   supplier: string;
+  /** The supplier's particulars for this order, where they differ from the record. */
+  supplier_details: string;
   currency: string;
   order_date: string;
   expected_delivery: string;
@@ -146,7 +159,10 @@ interface FormState {
 }
 
 const emptyItem: ItemRow = {
-  kind: "custom",
+  kind: "generic",
+  inventory_item: "",
+  inventory_unit_type: "",
+  device: "",
   device_model: "",
   material_type: "",
   description: "",
@@ -157,6 +173,7 @@ const emptyItem: ItemRow = {
 
 const emptyForm: FormState = {
   supplier: "",
+  supplier_details: "",
   currency: "PKR",
   order_date: "",
   expected_delivery: "",
@@ -260,6 +277,12 @@ export default function ProcurementPage() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [deviceModels, setDeviceModels] = useState<Option[]>([]);
   const [materialTypes, setMaterialTypes] = useState<Option[]>([]);
+  // The three things an order buys: counted stock, serialised units, and
+  // assets registered under Assets that are still to be bought.
+  const [genericOptions, setGenericOptions] = useState<Option[]>([]);
+  const [uniqueOptions, setUniqueOptions] = useState<Option[]>([]);
+  const [assetOptions, setAssetOptions] = useState<Option[]>([]);
+  const [showSupplierDetails, setShowSupplierDetails] = useState(false);
   const [loading, setLoading] = useState(true);
   const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
   const [selected, setSelected] = useState<PurchaseOrder | null>(null);
@@ -321,6 +344,37 @@ export default function ProcurementPage() {
         )
       )
       .catch(() => {});
+    api.get("/inventory/items/", { params: { page_size: 500 } })
+      .then((r) =>
+        setGenericOptions(
+          (r.data.results ?? r.data).map((i: { id: string; material_name?: string; sku: string }) => ({
+            id: i.id, label: `${i.material_name || i.sku} · ${i.sku}`,
+          }))
+        )
+      )
+      .catch(() => {});
+    api.get("/inventory/products/", { params: { page_size: 500 } })
+      .then((r) =>
+        setUniqueOptions(
+          (r.data.results ?? r.data).map((p: { id: string; name: string; model_name?: string; type_code?: string }) => ({
+            id: p.id, label: [p.name, p.model_name].filter(Boolean).join(" ") + (p.type_code ? ` · ${p.type_code}` : ""),
+          }))
+        )
+      )
+      .catch(() => {});
+    // An asset bought complete is registered first, then ordered by name:
+    // the ones still in procurement and not yet on an order.
+    api.get("/assets/devices/", { params: { status: "procured", page_size: 500 } })
+      .then((r) =>
+        setAssetOptions(
+          (r.data.results ?? r.data)
+            .filter((d: { procurement_item?: string | null }) => !d.procurement_item)
+            .map((d: { id: string; asset_code: string; display_name?: string; asset_type_name?: string }) => ({
+              id: d.id, label: `${d.asset_code} · ${d.display_name || d.asset_type_name || "asset"}`,
+            }))
+        )
+      )
+      .catch(() => {});
   }, [fetchOrders]);
 
   // Load goods receipts whenever a PO row is expanded (and after a new GRN).
@@ -378,6 +432,7 @@ export default function ProcurementPage() {
       setSelected(data);
       setForm({
         supplier: data.supplier,
+        supplier_details: data.supplier_details ?? "",
         currency: data.currency || "PKR",
         order_date: data.order_date ?? "",
         expected_delivery: data.expected_delivery ?? "",
@@ -386,7 +441,18 @@ export default function ProcurementPage() {
         items: data.items.length
           ? data.items.map((i) => ({
               id: i.id,
-              kind: (i.device_model ? "asset" : i.material_type ? "material" : "custom") as ItemKind,
+              kind: (i.is_charge
+                ? "charge"
+                : i.procured_device
+                  ? "asset"
+                  : i.inventory_unit_type
+                    ? "unique"
+                    : i.inventory_item
+                      ? "generic"
+                      : "custom") as ItemKind,
+              inventory_item: i.inventory_item ?? "",
+              inventory_unit_type: i.inventory_unit_type ?? "",
+              device: i.procured_device ?? "",
               device_model: i.device_model ?? "",
               material_type: i.material_type ?? "",
               description: i.description,
@@ -396,6 +462,7 @@ export default function ProcurementPage() {
             }))
           : [{ ...emptyItem }],
       });
+      setShowSupplierDetails(Boolean(data.supplier_details));
       setModalMode("edit");
     } catch (err: unknown) {
       toast.error(getApiError(err, "Failed to load purchase order"));
@@ -414,27 +481,20 @@ export default function ProcurementPage() {
     }));
   }
   function setItemKind(idx: number, kind: ItemKind) {
-    updateItem(idx, { kind, device_model: "", material_type: "" });
+    updateItem(idx, {
+      kind, inventory_item: "", inventory_unit_type: "", device: "", device_model: "", material_type: "",
+      // A charge is described in words; anything else is named from a list.
+      description: kind === "charge" ? "" : "",
+    });
   }
-  function pickDeviceModel(idx: number, id: string) {
-    const opt = deviceModels.find((m) => m.id === id);
+  /** Name the thing a line buys; the description follows unless typed already. */
+  function pickTarget(idx: number, field: "inventory_item" | "inventory_unit_type" | "device", id: string, options: Option[]) {
+    const opt = options.find((o) => o.id === id);
+    const label = opt?.label.split(" · ")[0] ?? "";
     setForm((f) => ({
       ...f,
       items: f.items.map((it, i) =>
-        i === idx
-          ? { ...it, device_model: id, description: it.description.trim() ? it.description : opt?.label ?? "" }
-          : it
-      ),
-    }));
-  }
-  function pickMaterialType(idx: number, id: string) {
-    const opt = materialTypes.find((m) => m.id === id);
-    setForm((f) => ({
-      ...f,
-      items: f.items.map((it, i) =>
-        i === idx
-          ? { ...it, material_type: id, description: it.description.trim() ? it.description : opt?.label ?? "" }
-          : it
+        i === idx ? { ...it, [field]: id, description: it.description.trim() ? it.description : label } : it
       ),
     }));
   }
@@ -449,6 +509,10 @@ export default function ProcurementPage() {
   const formTotal = form.items.reduce((sum, it) => sum + rowTotal(it), 0);
 
   function itemTypeLabel(item: POItem): string {
+    if (item.is_charge) return "Charge";
+    if ((item.procured_asset_codes ?? []).length > 0) return "Asset";
+    if (item.inventory_unit_type) return "Unique component";
+    if (item.inventory_item) return "Generic component";
     if (item.device_model) return deviceModels.find((m) => m.id === item.device_model)?.label ?? "Asset model";
     if (item.material_type) return materialTypes.find((m) => m.id === item.material_type)?.label ?? "Material";
     return "—";
@@ -459,6 +523,9 @@ export default function ProcurementPage() {
   // is a mistake and must block submit.
   const isRowEmpty = (it: ItemRow) =>
     !it.description.trim() &&
+    !it.inventory_item &&
+    !it.inventory_unit_type &&
+    !it.device &&
     !it.device_model &&
     !it.material_type &&
     (it.quantity === "" || it.quantity === emptyItem.quantity) &&
@@ -472,7 +539,18 @@ export default function ProcurementPage() {
     }
     const missingDescription = form.items.findIndex((it) => !isRowEmpty(it) && !it.description.trim());
     if (missingDescription !== -1) {
-      toast.error(`Line item ${missingDescription + 1} is missing a description`);
+      toast.error(`Line ${missingDescription + 1} is missing a description`);
+      return;
+    }
+    // A line that buys something has to say which thing.
+    const unnamed = form.items.findIndex((it) =>
+      !isRowEmpty(it) && (
+        (it.kind === "generic" && !it.inventory_item) ||
+        (it.kind === "unique" && !it.inventory_unit_type) ||
+        (it.kind === "asset" && !it.device)
+      ));
+    if (unnamed !== -1) {
+      toast.error(`Line ${unnamed + 1}: pick which ${form.items[unnamed].kind === "asset" ? "asset" : "component"} it buys`);
       return;
     }
     const items = form.items
@@ -482,8 +560,13 @@ export default function ProcurementPage() {
         description: it.description.trim(),
         quantity: Number(it.quantity) || 1,
         unit_price: Number(it.unit_price) || 0,
-        device_model: it.kind === "asset" && it.device_model ? it.device_model : null,
-        material_type: it.kind === "material" && it.material_type ? it.material_type : null,
+        inventory_item: it.kind === "generic" && it.inventory_item ? it.inventory_item : null,
+        inventory_unit_type: it.kind === "unique" && it.inventory_unit_type ? it.inventory_unit_type : null,
+        device: it.kind === "asset" && it.device ? it.device : null,
+        is_charge: it.kind === "charge",
+        // Older orders' lines keep what they pointed at.
+        device_model: it.kind === "custom" && it.device_model ? it.device_model : null,
+        material_type: it.kind === "custom" && it.material_type ? it.material_type : null,
       }));
     if (items.length === 0) {
       toast.error("Add at least one line item");
@@ -492,6 +575,7 @@ export default function ProcurementPage() {
     setSaving(true);
     const payload = {
       supplier: form.supplier,
+      supplier_details: form.supplier_details.trim(),
       currency: form.currency,
       expected_delivery: form.expected_delivery || null,
       notes: form.notes,
@@ -535,7 +619,7 @@ export default function ProcurementPage() {
       setReceivePO(data);
       setReceiveRows(
         (data.items ?? [])
-          .filter((i): i is POItem & { id: string } => Boolean(i.id))
+          .filter((i): i is POItem & { id: string } => Boolean(i.id) && !i.is_charge)
           .map((i) => {
             const received = i.received_quantity ?? 0;
             return {
@@ -968,6 +1052,22 @@ export default function ProcurementPage() {
                     <option value="">Select supplier…</option>
                     {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                   </select>
+                  {/* A contact, a quote reference, a delivery address for
+                      this order — printed under the supplier on the PO. */}
+                  {showSupplierDetails ? (
+                    <textarea
+                      id="supplier_details"
+                      rows={2}
+                      value={form.supplier_details}
+                      onChange={(e) => setForm({ ...form, supplier_details: e.target.value })}
+                      placeholder="Contact, quote reference, delivery address for this order"
+                      className={`${inputClass} h-auto py-2`}
+                    />
+                  ) : (
+                    <button type="button" onClick={() => setShowSupplierDetails(true)} className="text-xs font-medium text-primary">
+                      + Supplier details for this order
+                    </button>
+                  )}
                 </div>
                 <div className="space-y-1.5">
                   <label htmlFor="currency" className={labelClass}>Currency</label>
@@ -991,7 +1091,7 @@ export default function ProcurementPage() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <label className={labelClass}>Line Items</label>
-                  <button type="button" onClick={addItem} className="text-xs font-medium text-primary">+ Add item</button>
+                  <button type="button" onClick={addItem} className="text-xs font-medium text-primary">+ Add line</button>
                 </div>
                 {form.items.map((it, idx) => (
                   <div key={it.id ?? `new-${idx}`} className="space-y-2 rounded-lg border border-border p-3">
@@ -1002,21 +1102,36 @@ export default function ProcurementPage() {
                         className={`${rowInputClass} w-36 shrink-0`}
                         title="Item type"
                       >
-                        <option value="custom">Free text</option>
-                        <option value="asset">Asset model</option>
-                        <option value="material">Material</option>
+                        <option value="generic">Generic component</option>
+                        <option value="unique">Unique component</option>
+                        <option value="asset">Asset</option>
+                        <option value="charge">Charge (free text)</option>
+                        {it.kind === "custom" && <option value="custom">Other (older line)</option>}
                       </select>
-                      {it.kind === "asset" && (
-                        <select value={it.device_model} onChange={(e) => pickDeviceModel(idx, e.target.value)} className={`${inputClass} flex-1`}>
-                          <option value="">Select asset model…</option>
-                          {deviceModels.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+                      {it.kind === "generic" && (
+                        <select value={it.inventory_item} onChange={(e) => pickTarget(idx, "inventory_item", e.target.value, genericOptions)} className={`${inputClass} flex-1`}>
+                          <option value="">Select generic component…</option>
+                          {genericOptions.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
                         </select>
                       )}
-                      {it.kind === "material" && (
-                        <select value={it.material_type} onChange={(e) => pickMaterialType(idx, e.target.value)} className={`${inputClass} flex-1`}>
-                          <option value="">Select material type…</option>
-                          {materialTypes.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+                      {it.kind === "unique" && (
+                        <select value={it.inventory_unit_type} onChange={(e) => pickTarget(idx, "inventory_unit_type", e.target.value, uniqueOptions)} className={`${inputClass} flex-1`}>
+                          <option value="">Select unique component…</option>
+                          {uniqueOptions.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
                         </select>
+                      )}
+                      {it.kind === "asset" && (
+                        <select value={it.device} onChange={(e) => pickTarget(idx, "device", e.target.value, assetOptions)} className={`${inputClass} flex-1`}>
+                          <option value="">Select asset in procurement…</option>
+                          {assetOptions.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+                        </select>
+                      )}
+                      {it.kind === "custom" && (it.device_model || it.material_type) && (
+                        <span className="flex-1 truncate text-xs text-muted-foreground">
+                          {it.device_model
+                            ? deviceModels.find((m) => m.id === it.device_model)?.label
+                            : materialTypes.find((m) => m.id === it.material_type)?.label}
+                        </span>
                       )}
                       <div className="ml-auto shrink-0 whitespace-nowrap text-right text-xs text-muted-foreground">
                         Line total{" "}
@@ -1027,7 +1142,7 @@ export default function ProcurementPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <input value={it.description} onChange={(e) => updateItem(idx, { description: e.target.value })} placeholder="Description" className={`${inputClass} min-w-0 flex-1`} />
+                      <input value={it.description} onChange={(e) => updateItem(idx, { description: e.target.value })} placeholder={it.kind === "charge" ? "e.g. Delivery charges" : "Description"} className={`${inputClass} min-w-0 flex-1`} />
                       <input type="number" min="1" value={it.quantity} onChange={(e) => updateItem(idx, { quantity: e.target.value })} placeholder="Qty" className={`${rowInputClass} w-20`} />
                       <input type="number" min="0" step="0.01" value={it.unit_price} onChange={(e) => updateItem(idx, { unit_price: e.target.value })} placeholder="Unit price" className={`${rowInputClass} w-32`} />
                       <button type="button" onClick={() => removeItem(idx)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:text-destructive">
