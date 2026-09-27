@@ -123,8 +123,6 @@ export default function DashboardPage() {
   const [tickets, setTickets] = useState<TicketLite[]>([]);
   const [projects, setProjects] = useState<ProjectLite[]>([]);
   const [escalatedInstalls, setEscalatedInstalls] = useState<EscalatedInstallLite[]>([]);
-  const [stock, setStock] = useState<{ id: string; sku: string; material_name: string | null; category_name: string | null; quantity: number; unit: string | null; total_value: number | null; is_low_stock: boolean }[]>([]);
-  const [stockSummary, setStockSummary] = useState<{ total_value: number; total_quantity: number; items: number; low_stock: number; unpriced_items: number } | null>(null);
   // Item 1: the components the user has chosen to watch as in-hand stock —
   // unique products by their units, generic items by their quantity.
   const { canWrite } = useUser();
@@ -166,20 +164,17 @@ export default function DashboardPage() {
       /* the list simply stays as it was */
     }
   }
-  const [stockSortField, setStockSortField] = useState<"quantity" | "total_value" | "material_type__name">("quantity");
-  const [stockSortDesc, setStockSortDesc] = useState(true);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function fetchAll() {
       try {
-        const [statsRes, mapRes, alertsRes, maintRes, maintMapRes, stockSummaryRes, ticketsRes, projectsRes, escInstRes] = await Promise.allSettled([
+        const [statsRes, mapRes, alertsRes, maintRes, maintMapRes, ticketsRes, projectsRes, escInstRes] = await Promise.allSettled([
           api.get("/assets/devices/dashboard_stats/"),
           api.get("/assets/devices/map_data/"),
           api.get("/analytics/alerts/", { params: { page_size: 5, ordering: "-created_at", is_dismissed: false } }),
           api.get("/maintenance/schedules/", { params: { page_size: 1000 } }),
           api.get("/maintenance/schedules/map_data/"),
-          api.get("/inventory/items/summary/"),
           api.get("/tickets/", { params: { page_size: 1000 } }),
           api.get("/teams/projects/", { params: { page_size: 1000 } }),
           api.get("/sites/installations/", { params: { escalated: true, page_size: 5 } }),
@@ -189,7 +184,6 @@ export default function DashboardPage() {
         if (mapRes.status === "fulfilled") setMapDevices(mapRes.value.data);
         if (maintMapRes.status === "fulfilled") setMaintSites(maintMapRes.value.data);
         if (alertsRes.status === "fulfilled") setAlerts(alertsRes.value.data.results ?? []);
-        if (stockSummaryRes.status === "fulfilled") setStockSummary(stockSummaryRes.value.data);
         loadWatched();
         if (ticketsRes.status === "fulfilled") setTickets(ticketsRes.value.data.results ?? []);
         if (projectsRes.status === "fulfilled") setProjects(projectsRes.value.data.results ?? []);
@@ -211,14 +205,6 @@ export default function DashboardPage() {
     }
     fetchAll();
   }, [loadWatched]);
-
-  useEffect(() => {
-    const ordering = `${stockSortDesc ? "-" : ""}${stockSortField}`;
-    api
-      .get("/inventory/items/", { params: { page_size: 6, ordering } })
-      .then(({ data }) => setStock(data.results ?? []))
-      .catch(() => {});
-  }, [stockSortField, stockSortDesc]);
 
   const total = stats?.total ?? 0;
   const byStatus = stats?.by_status ?? {};
@@ -314,128 +300,6 @@ export default function DashboardPage() {
             icon={<Wrench className="h-5 w-5" />}
           />
         </Link>
-      </div>
-
-      {/* In-hand stock: the assets on the shelf, plus the components the user
-          has chosen to watch alongside them (item 1). */}
-      <div className="rounded-xl border border-border bg-card p-5">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <div>
-            <h2 className="text-base font-semibold text-foreground">In-Hand Stock</h2>
-            <p className="text-xs text-muted-foreground">
-              {inStock} asset{inStock === 1 ? "" : "s"} ready to install
-              {highValue.length + watchedItems.length > 0 ? ", plus the components you are watching" : ""}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            {canWatch && (
-              <select
-                value=""
-                onChange={(e) => {
-                  const [kind, id] = e.target.value.split(":");
-                  if (kind === "product" || kind === "item") setWatch(kind, id, true);
-                }}
-                aria-label="Add a component to in-hand stock"
-                className="h-8 rounded-lg border border-border bg-background px-2 text-xs text-foreground focus:border-primary/50 focus:outline-none"
-              >
-                <option value="">+ Watch a component…</option>
-                <optgroup label="Unique components">
-                  {watchOptions.products.filter((p) => !p.is_high_value).map((p) => (
-                    <option key={p.id} value={`product:${p.id}`}>{p.name} · {p.type_code}</option>
-                  ))}
-                </optgroup>
-                <optgroup label="Generic components">
-                  {watchOptions.items.filter((it) => !it.watch_on_dashboard).map((it) => (
-                    <option key={it.id} value={`item:${it.id}`}>{it.material_name ?? it.sku} · {it.sku}</option>
-                  ))}
-                </optgroup>
-              </select>
-            )}
-            <Link href="/inventory" className="text-xs font-medium text-primary hover:underline">
-              Open inventory
-            </Link>
-          </div>
-        </div>
-
-        {highValue.length + watchedItems.length === 0 ? (
-          <p className="mt-4 rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
-            No components on the watchlist yet. Pick one from &ldquo;Watch a component&rdquo; to see its
-            quantity and value here.
-          </p>
-        ) : (
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
-                  <th className="py-2 font-medium">Component</th>
-                  <th className="py-2 text-right font-medium">Qty Available</th>
-                  <th className="py-2 text-right font-medium">Unit Cost</th>
-                  <th className="py-2 text-right font-medium">Amount</th>
-                  {canWatch && <th className="py-2" />}
-                </tr>
-              </thead>
-              <tbody>
-                {highValue.map((p) => {
-                  const amount = Number(p.unit_cost ?? 0) * p.in_stock_count;
-                  return (
-                    <tr key={`p-${p.id}`} className="border-b border-border/60 last:border-0">
-                      <td className="py-2 text-foreground">
-                        {p.name}
-                        <span className="block font-mono text-2xs text-muted-foreground">{p.type_code} · unique</span>
-                      </td>
-                      <td className="py-2 text-right font-medium text-foreground"><Qty value={p.in_stock_count} unit="piece" /></td>
-                      <td className="py-2 text-right text-muted-foreground">
-                        {p.unit_cost ? Number(p.unit_cost).toLocaleString() : "—"}
-                      </td>
-                      <td className="py-2 text-right font-medium text-foreground">
-                        {p.unit_cost ? amount.toLocaleString() : "—"}
-                      </td>
-                      {canWatch && (
-                        <td className="py-2 text-right">
-                          <button onClick={() => setWatch("product", p.id, false)} title="Stop watching" className="text-xs text-muted-foreground hover:text-destructive">×</button>
-                        </td>
-                      )}
-                    </tr>
-                  );
-                })}
-                {watchedItems.map((it) => (
-                  <tr key={`i-${it.id}`} className="border-b border-border/60 last:border-0">
-                    <td className="py-2 text-foreground">
-                      {it.material_name ?? it.sku}
-                      <span className="block font-mono text-2xs text-muted-foreground">{it.sku} · generic</span>
-                    </td>
-                    <td className="py-2 text-right font-medium text-foreground"><Qty value={it.quantity} unit={it.unit} /></td>
-                    <td className="py-2 text-right text-muted-foreground">
-                      {it.unit_cost ? Number(it.unit_cost).toLocaleString() : "—"}
-                    </td>
-                    <td className="py-2 text-right font-medium text-foreground">
-                      {it.total_value != null ? Number(it.total_value).toLocaleString() : "—"}
-                    </td>
-                    {canWatch && (
-                      <td className="py-2 text-right">
-                        <button onClick={() => setWatch("item", it.id, false)} title="Stop watching" className="text-xs text-muted-foreground hover:text-destructive">×</button>
-                      </td>
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="border-t border-border">
-                  <td colSpan={3} className="py-2 text-right text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                    Total value in hand
-                  </td>
-                  <td className="py-2 text-right font-semibold text-foreground">
-                    {(
-                      highValue.reduce((sum, p) => sum + Number(p.unit_cost ?? 0) * p.in_stock_count, 0) +
-                      watchedItems.reduce((sum, it) => sum + Number(it.total_value ?? 0), 0)
-                    ).toLocaleString()}
-                  </td>
-                  {canWatch && <td />}
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        )}
       </div>
 
       {/* Map (squeezed to half) + summaries column */}
@@ -571,7 +435,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Project / Ticket summaries + In-Hand Stock */}
+      {/* Project and ticket summaries, and the stock being watched */}
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Project Summary */}
         <div className="rounded-xl border border-border bg-card p-5">
@@ -638,72 +502,125 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* In-Hand Stock */}
+          {/* In-hand stock: the components the user has chosen to watch,
+              with what they are worth on the shelf. */}
         <div className="rounded-xl border border-border bg-card p-5">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-foreground">In-Hand Stock</h3>
-            <Link href="/inventory" className="text-2xs font-medium text-primary hover:underline">
-              View All
-            </Link>
-          </div>
-          {stockSummary && (
-            <Link href="/inventory" className="mb-3 flex items-end justify-between rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5 transition-colors hover:bg-primary/10">
-              <div>
-                <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">Total Stock Value</p>
-                <p className="text-lg font-bold text-foreground">PKR {Number(stockSummary.total_value).toLocaleString()}</p>
-                {stockSummary.unpriced_items > 0 && (
-                  <p className="text-2xs text-muted-foreground">{stockSummary.unpriced_items} unpriced item{stockSummary.unpriced_items > 1 ? "s" : ""} excluded</p>
-                )}
-              </div>
-              <div className="text-right text-2xs text-muted-foreground">
-                <p>{stockSummary.total_quantity.toLocaleString()} units · {stockSummary.items} items</p>
-                {stockSummary.low_stock > 0 && <p className="font-semibold text-red-500">{stockSummary.low_stock} low stock</p>}
-              </div>
-            </Link>
-          )}
-          <div className="mb-2 flex items-center gap-1.5">
-            <select
-              value={stockSortField}
-              onChange={(e) => setStockSortField(e.target.value as typeof stockSortField)}
-              className="h-6 rounded-md border border-border bg-background px-1.5 text-2xs text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-              aria-label="Sort stock by"
-            >
-              <option value="quantity">Sort: Quantity</option>
-              <option value="total_value">Sort: Value</option>
-              <option value="material_type__name">Sort: Name</option>
-            </select>
-            <button
-              onClick={() => setStockSortDesc((v) => !v)}
-              className="flex h-6 items-center gap-1 rounded-md border border-border bg-background px-1.5 text-2xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
-              title={stockSortDesc ? "Descending — click for ascending" : "Ascending — click for descending"}
-            >
-              {stockSortDesc ? "↓ Desc" : "↑ Asc"}
-            </button>
-          </div>
-          {stock.length > 0 ? (
-            <div className="space-y-2">
-              {stock.map((item) => {
-                const low = item.is_low_stock;
-                return (
-                  <Link key={item.id} href="/inventory" className="flex items-center justify-between gap-2 rounded-lg border border-border/60 px-3 py-2 transition-colors hover:border-primary/40 hover:bg-primary/5">
-                    <div className="min-w-0">
-                      <p className="truncate text-xs font-medium text-foreground">{item.material_name || item.sku}</p>
-                      <p className="text-2xs text-muted-foreground">{item.sku}{item.category_name ? ` · ${item.category_name}` : ""}</p>
-                    </div>
-                    <div className="shrink-0 text-right">
-                      <span className={`inline-block rounded-full px-2 py-0.5 text-2xs font-semibold ${low ? "bg-red-500/10 text-red-600" : "bg-emerald-500/10 text-emerald-600"}`}>
-                        {item.quantity} {item.unit}
-                      </span>
-                      <p className="mt-0.5 text-2xs text-muted-foreground">
-                        {item.total_value != null ? `PKR ${Number(item.total_value).toLocaleString()}` : "unpriced"}
-                      </p>
-                    </div>
-                  </Link>
-                );
-              })}
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <div>
+              <h3 className="text-sm font-semibold text-foreground">In-Hand Stock</h3>
+              <p className="text-xs text-muted-foreground">
+                {inStock} asset{inStock === 1 ? "" : "s"} ready to install
+                {highValue.length + watchedItems.length > 0 ? ", plus the components you are watching" : ""}
+              </p>
             </div>
+            <div className="flex flex-wrap items-center gap-3">
+              {canWatch && (
+                <select
+                  value=""
+                  onChange={(e) => {
+                    const [kind, id] = e.target.value.split(":");
+                    if (kind === "product" || kind === "item") setWatch(kind, id, true);
+                  }}
+                  aria-label="Add a component to in-hand stock"
+                  className="h-8 rounded-lg border border-border bg-background px-2 text-xs text-foreground focus:border-primary/50 focus:outline-none"
+                >
+                  <option value="">+ Watch a component…</option>
+                  <optgroup label="Unique components">
+                    {watchOptions.products.filter((p) => !p.is_high_value).map((p) => (
+                      <option key={p.id} value={`product:${p.id}`}>{p.name} · {p.type_code}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Generic components">
+                    {watchOptions.items.filter((it) => !it.watch_on_dashboard).map((it) => (
+                      <option key={it.id} value={`item:${it.id}`}>{it.material_name ?? it.sku} · {it.sku}</option>
+                    ))}
+                  </optgroup>
+                </select>
+              )}
+              <Link href="/inventory" className="text-xs font-medium text-primary hover:underline">
+                Open inventory
+              </Link>
+            </div>
+          </div>
+
+          {highValue.length + watchedItems.length === 0 ? (
+            <p className="mt-4 rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
+              No components on the watchlist yet. Pick one from &ldquo;Watch a component&rdquo; to see its
+              quantity and value here.
+            </p>
           ) : (
-            <p className="py-4 text-center text-xs text-muted-foreground">No stock items</p>
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
+                    <th className="py-2 font-medium">Component</th>
+                    <th className="py-2 text-right font-medium">Qty Available</th>
+                    <th className="py-2 text-right font-medium">Unit Cost</th>
+                    <th className="py-2 text-right font-medium">Amount</th>
+                    {canWatch && <th className="py-2" />}
+                  </tr>
+                </thead>
+                <tbody>
+                  {highValue.map((p) => {
+                    const amount = Number(p.unit_cost ?? 0) * p.in_stock_count;
+                    return (
+                      <tr key={`p-${p.id}`} className="border-b border-border/60 last:border-0">
+                        <td className="py-2 text-foreground">
+                          {p.name}
+                          <span className="block font-mono text-2xs text-muted-foreground">{p.type_code} · unique</span>
+                        </td>
+                        <td className="py-2 text-right font-medium text-foreground"><Qty value={p.in_stock_count} unit="piece" /></td>
+                        <td className="py-2 text-right text-muted-foreground">
+                          {p.unit_cost ? Number(p.unit_cost).toLocaleString() : "—"}
+                        </td>
+                        <td className="py-2 text-right font-medium text-foreground">
+                          {p.unit_cost ? amount.toLocaleString() : "—"}
+                        </td>
+                        {canWatch && (
+                          <td className="py-2 text-right">
+                            <button onClick={() => setWatch("product", p.id, false)} title="Stop watching" className="text-xs text-muted-foreground hover:text-destructive">×</button>
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })}
+                  {watchedItems.map((it) => (
+                    <tr key={`i-${it.id}`} className="border-b border-border/60 last:border-0">
+                      <td className="py-2 text-foreground">
+                        {it.material_name ?? it.sku}
+                        <span className="block font-mono text-2xs text-muted-foreground">{it.sku} · generic</span>
+                      </td>
+                      <td className="py-2 text-right font-medium text-foreground"><Qty value={it.quantity} unit={it.unit} /></td>
+                      <td className="py-2 text-right text-muted-foreground">
+                        {it.unit_cost ? Number(it.unit_cost).toLocaleString() : "—"}
+                      </td>
+                      <td className="py-2 text-right font-medium text-foreground">
+                        {it.total_value != null ? Number(it.total_value).toLocaleString() : "—"}
+                      </td>
+                      {canWatch && (
+                        <td className="py-2 text-right">
+                          <button onClick={() => setWatch("item", it.id, false)} title="Stop watching" className="text-xs text-muted-foreground hover:text-destructive">×</button>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t border-border">
+                    <td colSpan={3} className="py-2 text-right text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                      Total value in hand
+                    </td>
+                    <td className="py-2 text-right font-semibold text-foreground">
+                      {(
+                        highValue.reduce((sum, p) => sum + Number(p.unit_cost ?? 0) * p.in_stock_count, 0) +
+                        watchedItems.reduce((sum, it) => sum + Number(it.total_value ?? 0), 0)
+                      ).toLocaleString()}
+                    </td>
+                    {canWatch && <td />}
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
           )}
         </div>
       </div>
