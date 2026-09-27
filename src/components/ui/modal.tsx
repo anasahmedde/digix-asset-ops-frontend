@@ -44,13 +44,13 @@ export function Modal({ open, onClose, title, size = "lg", children, className }
     <div className="fixed inset-0 z-50">
       {/* The dimming and the blur live on their own layer, which never
           scrolls, so the backdrop is painted for the full viewport. */}
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" aria-hidden />
+      <div className="veil-in absolute inset-0 bg-black/50 backdrop-blur-md" aria-hidden />
       <div className="absolute inset-0 flex items-center justify-center overflow-y-auto py-8">
         <div
           role="dialog"
           aria-modal="true"
           className={cn(
-            "relative w-full rounded-2xl border border-border bg-card p-6 shadow-2xl",
+            "glass glass-pop relative w-full rounded-2xl p-6",
             sizeClasses[size],
             className
           )}

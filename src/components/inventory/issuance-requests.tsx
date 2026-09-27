@@ -67,8 +67,8 @@ const STATUS_BADGES: Record<string, string> = {
 const inputClass =
   "flex h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors";
 const labelClass = "text-xs font-medium text-muted-foreground";
-const thClass = "px-5 py-3.5 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground";
-const tdClass = "px-5 py-3.5";
+const thClass = "px-3 py-3.5 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground";
+const tdClass = "px-3 py-3.5 align-top";
 
 export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
   const { user } = useUser();
@@ -327,7 +327,7 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                       <td className={tdClass}>
                         {/* The column asks for the project, so the project leads
                             and the asset it is for sits under it. */}
-                        <span className="block text-foreground">
+                        <span className="block max-w-[11rem] text-foreground">
                           {row.project_name ?? "Not on a project"}
                         </span>
                         {row.asset_code && (
@@ -342,14 +342,14 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                             maintenance job and the kind of work it is. */}
                         {row.maintenance_title ? (
                           <>
-                            <span className="block text-foreground">{row.maintenance_title}</span>
+                            <span className="block max-w-[11rem] text-foreground">{row.maintenance_title}</span>
                             <span className="block text-2xs text-muted-foreground">
                               {row.maintenance_type ?? "Maintenance"}
                             </span>
                           </>
                         ) : row.component_name ? (
                           <>
-                            <span className="block text-foreground">{row.component_name}</span>
+                            <span className="block max-w-[11rem] text-foreground">{row.component_name}</span>
                             <span className="block text-2xs text-muted-foreground">Build requirement</span>
                           </>
                         ) : row.purpose ? (

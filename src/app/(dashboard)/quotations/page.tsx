@@ -708,7 +708,7 @@ export default function QuotationsPage() {
 
       {modalMode && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 py-8 backdrop-blur-sm">
-          <div className="w-full max-w-3xl rounded-2xl border border-border bg-card p-6 shadow-2xl">
+          <div className="w-full max-w-3xl glass glass-pop rounded-2xl p-6">
             <div className="mb-5 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <h2 className="text-lg font-semibold text-foreground">
@@ -900,8 +900,8 @@ export default function QuotationsPage() {
       )}
 
       {pendingTransition && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-md veil-in">
+          <div className="w-full max-w-md glass glass-pop rounded-2xl p-6">
             <h3 className="text-base font-semibold text-foreground">
               {pendingTransition.label} — {pendingTransition.quotation.quote_number}?
             </h3>

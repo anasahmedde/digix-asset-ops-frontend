@@ -17,6 +17,7 @@ import {
   X,
   XCircle,
 } from "lucide-react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -37,6 +38,7 @@ import { Modal } from "@/components/ui/modal";
 import { SearchSelect } from "@/components/ui/search-select";
 import { DonutChart } from "@/components/charts/donut-chart";
 import { BarChart } from "@/components/charts/bar-chart";
+import type { ProjectMapDevice } from "@/components/map/projects-map";
 
 interface ClientOpt { id: string; name: string }
 interface Option { id: string; label: string }
@@ -266,10 +268,22 @@ interface Project {
   bottleneck_count: number;
 }
 
+// Leaflet reaches for window, so the map only loads in the browser.
+const ProjectsMap = dynamic(() => import("@/components/map/projects-map"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-[420px] items-center justify-center rounded-xl border border-border text-xs text-muted-foreground">
+      Loading map…
+    </div>
+  ),
+});
+
 export default function ProjectsPage() {
   const { canWrite } = useUser();
   const canEdit = canWrite("devices");
   const [stats, setStats] = useState<ProjectStats | null>(null);
+  // Every plottable asset, each carrying the project it belongs to.
+  const [mapDevices, setMapDevices] = useState<ProjectMapDevice[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   // Search by name, client or site. The server does the matching, so it finds
   // projects beyond the first page and in any status.
@@ -664,6 +678,9 @@ export default function ProjectsPage() {
       .catch(() => {});
     api.get("/sites/sites/", { params: { page_size: 1000 } })
       .then((r) => setSiteOptions(siteLabels(r.data.results ?? [])))
+      .catch(() => {});
+    api.get("/assets/devices/map_data/")
+      .then((r) => setMapDevices(r.data.results ?? r.data))
       .catch(() => {});
     api.get("/accounts/users/", { params: { is_active: true, page_size: 200 } })
       .then((r) => setManagerOptions((r.data.results ?? []).map((u: { id: string; first_name: string; last_name: string; username: string }) => ({
@@ -1704,7 +1721,7 @@ export default function ProjectsPage() {
       </div>
 
       {/* Bottom row */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div className="rounded-xl border border-border bg-card p-5">
           <h3 className="text-sm font-semibold text-foreground mb-4">Projects by Progress</h3>
           <DonutChart
@@ -1737,10 +1754,12 @@ export default function ProjectsPage() {
           </div>
         </div>
 
-        <div className="rounded-xl border border-border bg-card p-5">
-          <h3 className="text-sm font-semibold text-foreground mb-4">Projects on Map</h3>
-          <p className="text-xs text-muted-foreground">Map view coming soon</p>
-        </div>
+      </div>
+
+      {/* Where the work is. Pick a project and its assets light up. */}
+      <div className="rounded-xl border border-border bg-card p-5">
+        <h3 className="mb-4 text-sm font-semibold text-foreground">Projects on Map</h3>
+        <ProjectsMap devices={mapDevices} />
       </div>
 
       {/* Flagged Projects */}

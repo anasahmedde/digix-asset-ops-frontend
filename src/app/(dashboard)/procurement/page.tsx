@@ -6,6 +6,10 @@ import { toast } from "sonner";
 
 import { Requisitions } from "@/components/procurement/requisitions";
 import { FilterBar } from "@/components/ui/filter-bar";
+import {
+  PoLineItems, emptyPoLine, isPoLineEmpty, poLinePayload, poLineTotal, poLinesProblem, usePoOptions,
+  type PoLine, type PoLineKind,
+} from "@/components/procurement/po-line-items";
 import { Qty } from "@/components/ui/qty";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
@@ -128,23 +132,7 @@ interface GoodsReceipt {
   created_at: string;
 }
 
-// What a line is, in the words the rest of the system uses. "custom" is
-// only ever an older order's free-text line, kept so it can still be edited.
-type ItemKind = "generic" | "unique" | "asset" | "charge" | "custom";
-
-interface ItemRow {
-  id?: string;
-  kind: ItemKind;
-  inventory_item: string;
-  inventory_unit_type: string;
-  device: string;
-  device_model: string;
-  material_type: string;
-  description: string;
-  quantity: string;
-  unit_price: string;
-  received_quantity: number;
-}
+type ItemRow = PoLine;
 
 interface FormState {
   supplier: string;
@@ -158,18 +146,7 @@ interface FormState {
   items: ItemRow[];
 }
 
-const emptyItem: ItemRow = {
-  kind: "generic",
-  inventory_item: "",
-  inventory_unit_type: "",
-  device: "",
-  device_model: "",
-  material_type: "",
-  description: "",
-  quantity: "1",
-  unit_price: "0",
-  received_quantity: 0,
-};
+const emptyItem: ItemRow = emptyPoLine;
 
 const emptyForm: FormState = {
   supplier: "",
@@ -279,9 +256,7 @@ export default function ProcurementPage() {
   const [materialTypes, setMaterialTypes] = useState<Option[]>([]);
   // The three things an order buys: counted stock, serialised units, and
   // assets registered under Assets that are still to be bought.
-  const [genericOptions, setGenericOptions] = useState<Option[]>([]);
-  const [uniqueOptions, setUniqueOptions] = useState<Option[]>([]);
-  const [assetOptions, setAssetOptions] = useState<Option[]>([]);
+  const poOptions = usePoOptions();
   const [showSupplierDetails, setShowSupplierDetails] = useState(false);
   const [loading, setLoading] = useState(true);
   const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
@@ -341,37 +316,6 @@ export default function ProcurementPage() {
       .then((r) =>
         setMaterialTypes(
           (r.data.results ?? r.data).map((m: { id: string; name: string }) => ({ id: m.id, label: m.name }))
-        )
-      )
-      .catch(() => {});
-    api.get("/inventory/items/", { params: { page_size: 500 } })
-      .then((r) =>
-        setGenericOptions(
-          (r.data.results ?? r.data).map((i: { id: string; material_name?: string; sku: string }) => ({
-            id: i.id, label: `${i.material_name || i.sku} · ${i.sku}`,
-          }))
-        )
-      )
-      .catch(() => {});
-    api.get("/inventory/products/", { params: { page_size: 500 } })
-      .then((r) =>
-        setUniqueOptions(
-          (r.data.results ?? r.data).map((p: { id: string; name: string; model_name?: string; type_code?: string }) => ({
-            id: p.id, label: [p.name, p.model_name].filter(Boolean).join(" ") + (p.type_code ? ` · ${p.type_code}` : ""),
-          }))
-        )
-      )
-      .catch(() => {});
-    // An asset bought complete is registered first, then ordered by name:
-    // the ones still in procurement and not yet on an order.
-    api.get("/assets/devices/", { params: { status: "procured", page_size: 500 } })
-      .then((r) =>
-        setAssetOptions(
-          (r.data.results ?? r.data)
-            .filter((d: { procurement_item?: string | null }) => !d.procurement_item)
-            .map((d: { id: string; asset_code: string; display_name?: string; asset_type_name?: string }) => ({
-              id: d.id, label: `${d.asset_code} · ${d.display_name || d.asset_type_name || "asset"}`,
-            }))
         )
       )
       .catch(() => {});
@@ -449,7 +393,7 @@ export default function ProcurementPage() {
                     ? "unique"
                     : i.inventory_item
                       ? "generic"
-                      : "custom") as ItemKind,
+                      : "custom") as PoLineKind,
               inventory_item: i.inventory_item ?? "",
               inventory_unit_type: i.inventory_unit_type ?? "",
               device: i.procured_device ?? "",
@@ -474,39 +418,9 @@ export default function ProcurementPage() {
     setSelected(null);
   }
 
-  function updateItem(idx: number, patch: Partial<ItemRow>) {
-    setForm((f) => ({
-      ...f,
-      items: f.items.map((it, i) => (i === idx ? { ...it, ...patch } : it)),
-    }));
-  }
-  function setItemKind(idx: number, kind: ItemKind) {
-    updateItem(idx, {
-      kind, inventory_item: "", inventory_unit_type: "", device: "", device_model: "", material_type: "",
-      // A charge is described in words; anything else is named from a list.
-      description: kind === "charge" ? "" : "",
-    });
-  }
   /** Name the thing a line buys; the description follows unless typed already. */
-  function pickTarget(idx: number, field: "inventory_item" | "inventory_unit_type" | "device", id: string, options: Option[]) {
-    const opt = options.find((o) => o.id === id);
-    const label = opt?.label.split(" · ")[0] ?? "";
-    setForm((f) => ({
-      ...f,
-      items: f.items.map((it, i) =>
-        i === idx ? { ...it, [field]: id, description: it.description.trim() ? it.description : label } : it
-      ),
-    }));
-  }
-  function addItem() {
-    setForm((f) => ({ ...f, items: [...f.items, { ...emptyItem }] }));
-  }
-  function removeItem(idx: number) {
-    setForm((f) => ({ ...f, items: f.items.filter((_, i) => i !== idx) }));
-  }
 
-  const rowTotal = (it: ItemRow) => (Number(it.quantity) || 0) * (Number(it.unit_price) || 0);
-  const formTotal = form.items.reduce((sum, it) => sum + rowTotal(it), 0);
+  const formTotal = form.items.reduce((sum, it) => sum + poLineTotal(it), 0);
 
   function itemTypeLabel(item: POItem): string {
     if (item.is_charge) return "Charge";
@@ -518,18 +432,6 @@ export default function ProcurementPage() {
     return "—";
   }
 
-  // A row is fully empty when it still matches the pristine defaults —
-  // those may be dropped silently. Anything else with a blank description
-  // is a mistake and must block submit.
-  const isRowEmpty = (it: ItemRow) =>
-    !it.description.trim() &&
-    !it.inventory_item &&
-    !it.inventory_unit_type &&
-    !it.device &&
-    !it.device_model &&
-    !it.material_type &&
-    (it.quantity === "" || it.quantity === emptyItem.quantity) &&
-    (Number(it.unit_price) || 0) === 0;
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -541,37 +443,12 @@ export default function ProcurementPage() {
       toast.error("Say when the goods are needed by");
       return;
     }
-    const missingDescription = form.items.findIndex((it) => !isRowEmpty(it) && !it.description.trim());
-    if (missingDescription !== -1) {
-      toast.error(`Line ${missingDescription + 1} is missing a description`);
+    const problem = poLinesProblem(form.items);
+    if (problem) {
+      toast.error(problem);
       return;
     }
-    // A line that buys something has to say which thing.
-    const unnamed = form.items.findIndex((it) =>
-      !isRowEmpty(it) && (
-        (it.kind === "generic" && !it.inventory_item) ||
-        (it.kind === "unique" && !it.inventory_unit_type) ||
-        (it.kind === "asset" && !it.device)
-      ));
-    if (unnamed !== -1) {
-      toast.error(`Line ${unnamed + 1}: pick which ${form.items[unnamed].kind === "asset" ? "asset" : "component"} it buys`);
-      return;
-    }
-    const items = form.items
-      .filter((it) => !isRowEmpty(it))
-      .map((it) => ({
-        ...(it.id ? { id: it.id } : {}),
-        description: it.description.trim(),
-        quantity: Number(it.quantity) || 1,
-        unit_price: Number(it.unit_price) || 0,
-        inventory_item: it.kind === "generic" && it.inventory_item ? it.inventory_item : null,
-        inventory_unit_type: it.kind === "unique" && it.inventory_unit_type ? it.inventory_unit_type : null,
-        device: it.kind === "asset" && it.device ? it.device : null,
-        is_charge: it.kind === "charge",
-        // Older orders' lines keep what they pointed at.
-        device_model: it.kind === "custom" && it.device_model ? it.device_model : null,
-        material_type: it.kind === "custom" && it.material_type ? it.material_type : null,
-      }));
+    const items = form.items.filter((it) => !isPoLineEmpty(it)).map(poLinePayload);
     if (items.length === 0) {
       toast.error("Add at least one line item");
       return;
@@ -1023,7 +900,7 @@ export default function ProcurementPage() {
 
       {modalMode && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 py-8 backdrop-blur-sm">
-          <div className="w-full max-w-3xl rounded-2xl border border-border bg-card p-6 shadow-2xl">
+          <div className="w-full max-w-3xl glass glass-pop rounded-2xl p-6">
             <div className="mb-5 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <h2 className="text-lg font-semibold text-foreground">
@@ -1091,72 +968,20 @@ export default function ProcurementPage() {
                 </div>
               </div>
 
-              {/* Line items */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className={labelClass}>Line Items *</label>
-                  <button type="button" onClick={addItem} className="text-xs font-medium text-primary">+ Add line</button>
-                </div>
-                {form.items.map((it, idx) => (
-                  <div key={it.id ?? `new-${idx}`} className="space-y-2 rounded-lg border border-border p-3">
-                    <div className="flex items-center gap-2">
-                      <select
-                        value={it.kind}
-                        onChange={(e) => setItemKind(idx, e.target.value as ItemKind)}
-                        className={`${rowInputClass} w-44 shrink-0`}
-                        title="What this line buys"
-                      >
-                        <option value="generic">Generic component</option>
-                        <option value="unique">Unique component</option>
-                        <option value="asset">Asset</option>
-                        <option value="charge">Charge (free text)</option>
-                        {it.kind === "custom" && <option value="custom">Other (older line)</option>}
-                      </select>
-                      {it.kind === "generic" && (
-                        <select value={it.inventory_item} onChange={(e) => pickTarget(idx, "inventory_item", e.target.value, genericOptions)} className={`${inputClass} flex-1`}>
-                          <option value="">Select generic component…</option>
-                          {genericOptions.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-                        </select>
-                      )}
-                      {it.kind === "unique" && (
-                        <select value={it.inventory_unit_type} onChange={(e) => pickTarget(idx, "inventory_unit_type", e.target.value, uniqueOptions)} className={`${inputClass} flex-1`}>
-                          <option value="">Select unique component…</option>
-                          {uniqueOptions.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-                        </select>
-                      )}
-                      {it.kind === "asset" && (
-                        <select value={it.device} onChange={(e) => pickTarget(idx, "device", e.target.value, assetOptions)} className={`${inputClass} flex-1`}>
-                          <option value="">Select asset in procurement…</option>
-                          {assetOptions.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-                        </select>
-                      )}
-                      {it.kind === "custom" && (it.device_model || it.material_type) && (
-                        <span className="flex-1 truncate text-xs text-muted-foreground">
-                          {it.device_model
-                            ? deviceModels.find((m) => m.id === it.device_model)?.label
-                            : materialTypes.find((m) => m.id === it.material_type)?.label}
-                        </span>
-                      )}
-                      <div className="ml-auto shrink-0 whitespace-nowrap text-right text-xs text-muted-foreground">
-                        Line total{" "}
-                        <span className="font-medium text-foreground">{form.currency} {rowTotal(it).toLocaleString()}</span>
-                        {modalMode === "edit" && it.received_quantity > 0 && (
-                          <span className="ml-2">· Received {it.received_quantity}/{Number(it.quantity) || 0}</span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <input value={it.description} onChange={(e) => updateItem(idx, { description: e.target.value })} placeholder={it.kind === "charge" ? "e.g. Delivery charges" : "Description"} className={`${inputClass} min-w-0 flex-1`} />
-                      <input type="number" min="1" value={it.quantity} onChange={(e) => updateItem(idx, { quantity: e.target.value })} placeholder="Qty" className={`${rowInputClass} w-20`} />
-                      <input type="number" min="0" step="0.01" value={it.unit_price} onChange={(e) => updateItem(idx, { unit_price: e.target.value })} placeholder="Unit price" className={`${rowInputClass} w-32`} />
-                      <button type="button" onClick={() => removeItem(idx)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:text-destructive">
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-                <div className="text-right text-sm font-medium text-foreground">Grand Total: {form.currency} {formTotal.toLocaleString()}</div>
-              </div>
+              {/* Line items — the same editor the Procurement Requests
+                  dialog uses, so an order reads the same however it began. */}
+              <PoLineItems
+                lines={form.items}
+                onChange={(items) => setForm((f) => ({ ...f, items }))}
+                currency={form.currency}
+                options={poOptions}
+                total={formTotal}
+                legacyLabel={(line) =>
+                  line.device_model
+                    ? deviceModels.find((m) => m.id === line.device_model)?.label
+                    : materialTypes.find((m) => m.id === line.material_type)?.label
+                }
+              />
 
               <div className="space-y-1.5">
                 <label htmlFor="notes" className={labelClass}>Notes</label>
@@ -1191,7 +1016,7 @@ export default function ProcurementPage() {
 
       {receivePO && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 py-8 backdrop-blur-sm">
-          <div className="w-full max-w-3xl rounded-2xl border border-border bg-card p-6 shadow-2xl">
+          <div className="w-full max-w-3xl glass glass-pop rounded-2xl p-6">
             <div className="mb-5 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <h2 className="text-lg font-semibold text-foreground">Receive items — {receivePO.po_number}</h2>

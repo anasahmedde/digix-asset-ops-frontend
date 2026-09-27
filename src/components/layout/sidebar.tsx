@@ -123,7 +123,7 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        "fixed inset-y-0 left-0 z-50 flex flex-col border-r border-border bg-sidebar transition-transform duration-200",
+        "fixed inset-y-0 left-0 z-50 flex flex-col border-r border-border bg-sidebar/80 backdrop-blur-xl backdrop-saturate-150 transition-transform duration-200",
         // Always full-width (labels visible) as a drawer on phones; honour collapse on desktop.
         "max-lg:w-64",
         sidebarWidth,

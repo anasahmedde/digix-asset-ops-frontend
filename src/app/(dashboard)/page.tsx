@@ -14,6 +14,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Qty } from "@/components/ui/qty";
 import api from "@/lib/api";
 import { AssignedTicketsBanner } from "@/components/ui/assigned-tickets-banner";
+import { StickyNotes } from "@/components/dashboard/sticky-notes";
 import { StatCard } from "@/components/ui/stat-card";
 import { DonutChart } from "@/components/charts/donut-chart";
 import { BarChart } from "@/components/charts/bar-chart";
@@ -270,6 +271,9 @@ export default function DashboardPage() {
         <p className="text-sm text-muted-foreground">Asset Overview</p>
       </div>
 
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_19rem]">
+        <div className="order-1 min-w-0 space-y-6">
+
       {ticketSummary.escalated > 0 && (
         <Link href="/tickets" className="flex items-center gap-3 rounded-xl border border-red-500/30 bg-red-500/5 px-4 py-3 transition-colors hover:bg-red-500/10">
           <AlertCircle className="h-5 w-5 shrink-0 text-red-500" />
@@ -303,7 +307,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Map (squeezed to half) + summaries column */}
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-6 2xl:grid-cols-2 [&>*]:min-w-0">
         <div>
           <div className="rounded-xl border border-border bg-card overflow-hidden h-full flex flex-col">
             <div className="flex items-center justify-between px-5 py-4">
@@ -436,7 +440,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Project and ticket summaries, and the stock being watched */}
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid gap-6 md:grid-cols-2 2xl:grid-cols-3 [&>*]:min-w-0">
         {/* Project Summary */}
         <div className="rounded-xl border border-border bg-card p-5">
           <div className="flex items-center justify-between mb-3">
@@ -623,6 +627,15 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
+      </div>
+
+        </div>
+
+        {/* The board runs down the right, screen-tall, and comes with you
+            as the page scrolls. */}
+        <aside className="order-2 xl:sticky xl:top-[5.5rem] xl:h-[calc(100vh-7rem)] xl:self-start">
+          <StickyNotes />
+        </aside>
       </div>
 
     </div>

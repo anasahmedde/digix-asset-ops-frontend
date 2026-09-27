@@ -1,5 +1,7 @@
 "use client";
 
+import { usePathname } from "next/navigation";
+
 import { AuthGuard } from "@/components/layout/auth-guard";
 import { Header } from "@/components/layout/header";
 import { Sidebar } from "@/components/layout/sidebar";
@@ -10,6 +12,7 @@ import { UserProvider } from "@/lib/user-context";
 
 function DashboardShell({ children }: { children: React.ReactNode }) {
   const { collapsed, mobileOpen, closeMobile, homeKey } = useSidebar();
+  const pathname = usePathname();
 
   return (
     <div className="min-h-screen bg-background">
@@ -29,7 +32,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
         <Header />
         {/* A section's link, clicked from inside that section, lands on its
             list: the page is remounted rather than left where it was. */}
-        <main key={homeKey} className="p-4 sm:p-6">{children}</main>
+        <main key={`${homeKey}-${pathname}`} className="rise-in p-4 sm:p-6">{children}</main>
       </div>
     </div>
   );

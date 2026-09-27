@@ -17,13 +17,13 @@ interface TabsProps {
 
 export function Tabs({ tabs, active, onChange, className }: TabsProps) {
   return (
-    <div className={cn("flex border-b border-border", className)}>
+    <div className={cn("flex overflow-x-auto border-b border-border", className)}>
       {tabs.map((tab) => (
         <button
           key={tab.key}
           onClick={() => onChange(tab.key)}
           className={cn(
-            "relative px-4 py-3 text-sm font-medium transition-colors",
+            "relative shrink-0 whitespace-nowrap px-4 py-3 text-sm font-medium transition-colors",
             active === tab.key
               ? "text-primary"
               : "text-muted-foreground hover:text-foreground"

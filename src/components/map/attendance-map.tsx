@@ -56,9 +56,13 @@ export default function AttendanceMap({ points, height = "420px" }: { points: At
         style={{ height: "100%", width: "100%", background: "#f0f0f0" }}
       >
         <TileLayer
-          url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
-          attribution='&copy; <a href="https://carto.com">CARTO</a>'
-        />
+            url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}"
+            attribution='&copy; Esri, HERE, Garmin, &copy; OpenStreetMap contributors'
+          />
+          {/* Place names, in English, over the canvas. */}
+          <TileLayer
+            url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}"
+          />
         <ZoomControl position="topleft" />
         <FitBounds points={valid} />
         {valid.map((p) => (
