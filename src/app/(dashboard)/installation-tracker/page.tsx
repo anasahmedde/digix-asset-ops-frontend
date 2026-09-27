@@ -71,6 +71,8 @@ interface Installation {
   asset_type_name: string | null;
   device_image: string | null;
   device_status: string;
+  /** When the asset went live, from the registry. */
+  device_activated_at: string | null;
   /** How the asset is made — it decides who installs it. */
   device_source?: string | null;
   device_source_display?: string | null;
@@ -174,7 +176,6 @@ const STEP_TYPES = [
   { value: "structure", label: "Metal Structure" },
   { value: "programming", label: "Programming" },
   { value: "testing", label: "Testing & Commissioning" },
-  { value: "handover", label: "Handover" },
   { value: "other", label: "Other" },
 ];
 
@@ -837,12 +838,56 @@ export default function InstallationTrackerPage() {
       user != null &&
       (["super_admin", "group_head", "ops_manager", "supervisor"].includes(user.role) ||
         user.id === selected.installed_by);
+    // The last two steps of every installation, after whatever the
+    // technician laid out: the asset goes live, then it is handed over.
+    const customDone = selected.steps.length > 0 && stepsReadyForHandover;
+    const activeDone =
+      ["active", "under_maintenance", "client_property", "decommissioned"].includes(selected.device_status) ||
+      !!selected.handover;
+    const activeStatus = activeDone ? "completed" : customDone && selected.device_status === "installed" ? "in_progress" : "not_started";
+    const handoverDone = !!selected.handover;
+    const handoverStatus = handoverDone ? "completed" : activeDone ? "in_progress" : "not_started";
     const canHandover =
       !selected.handover &&
       stepsReadyForHandover &&
+      activeDone &&
       user != null &&
       (["super_admin", "group_head", "ops_manager", "supervisor"].includes(user.role) ||
         user.id === selected.installed_by);
+    const fixedSteps = [
+      {
+        key: "active",
+        number: selected.steps.length + 1,
+        label: "Active",
+        status: activeStatus,
+        statusLabel: activeDone ? "Completed" : activeStatus === "in_progress" ? "Ready" : "Pending",
+        date: activeDone ? selected.device_activated_at ?? selected.handover?.handover_date ?? null : null,
+        hint: activeDone
+          ? "The asset is live."
+          : activeStatus === "in_progress"
+            ? "Mark the asset live, with a photo of it running."
+            : "Available once every step above is complete.",
+        action: canActivate && !activeDone
+          ? { label: "Mark Active", onClick: () => { setActivatePhotos([]); setActivateOpen(true); } }
+          : null,
+      },
+      {
+        key: "handover",
+        number: selected.steps.length + 2,
+        label: "Handover",
+        status: handoverStatus,
+        statusLabel: handoverDone ? "Completed" : handoverStatus === "in_progress" ? "Ready" : "Pending",
+        date: selected.handover?.handover_date ?? null,
+        hint: handoverDone
+          ? `Accepted by ${selected.handover?.accepted_by_name ?? "the client"}.`
+          : handoverStatus === "in_progress"
+            ? "Upload the signed handover document."
+            : "Available once the asset is active.",
+        action: canHandover
+          ? { label: "Hand over", onClick: openHandover }
+          : null,
+      },
+    ];
 
     return (
       <div className="space-y-6">
@@ -858,29 +903,14 @@ export default function InstallationTrackerPage() {
             <p className="text-sm text-muted-foreground">Track installation progress in different stages</p>
           </div>
           <div className="ml-auto flex items-center gap-2">
-            {canActivate && (
-              <button
-                onClick={() => { setActivatePhotos([]); setActivateOpen(true); }}
-                className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary/90"
-              >
-                <Play className="h-4 w-4" /> Mark Active
-              </button>
-            )}
-            {/* Printed first, signed on site, then uploaded on the form. */}
+            {/* Printed first, signed on site, then uploaded on the Handover
+                step at the end of the checklist. */}
             <button
               onClick={downloadHandoverDocument}
               className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
             >
               <Download className="h-4 w-4" /> Handover Document
             </button>
-            {canHandover && (
-              <button
-                onClick={openHandover}
-                className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700"
-              >
-                <ClipboardCheck className="h-4 w-4" /> Handover
-              </button>
-            )}
             {isManager && (
               <button
                 onClick={openEdit}
@@ -1098,7 +1128,17 @@ export default function InstallationTrackerPage() {
           </div>
 
           {stepperSteps.length > 0 ? (
-            <ProgressStepper steps={stepperSteps} />
+            <ProgressStepper
+              steps={[
+                ...stepperSteps,
+                ...fixedSteps.map((f) => ({
+                  key: f.key,
+                  label: f.label,
+                  status: stepperStatus(f.status),
+                  meta: f.date ? formatDate(f.date) : undefined,
+                })),
+              ]}
+            />
           ) : (
             <p className="rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
               No steps yet — add the ones this installation involves below.
@@ -1261,6 +1301,47 @@ export default function InstallationTrackerPage() {
                   </div>
                 );
               })}
+              {/* Compulsory and last, in this order: the asset goes live, then
+                  it is handed over. Done from here, like any other step. */}
+              {fixedSteps.map((f) => (
+                <div
+                  key={f.key}
+                  className={`rounded-xl border p-4 ${
+                    f.status === "completed"
+                      ? "border-emerald-500/30 bg-emerald-500/5"
+                      : f.status === "in_progress"
+                        ? "border-primary/40 bg-primary/5"
+                        : "border-dashed border-border bg-card"
+                  }`}
+                >
+                  <div className="mb-2 flex items-center justify-between">
+                    <h4 className="text-sm font-semibold text-foreground">
+                      {f.number}. {f.label}
+                    </h4>
+                    <StatusBadge status={f.status} label={f.statusLabel} />
+                  </div>
+                  <div className="space-y-1.5 text-xs">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Date</span>
+                      <span className="text-foreground">{f.date ? formatDate(f.date) : "—"}</span>
+                    </div>
+                    <p className="text-muted-foreground">{f.hint}</p>
+                  </div>
+                  {f.action && (
+                    <div className="mt-3 border-t border-border pt-3">
+                      <button
+                        onClick={f.action.onClick}
+                        className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition-colors ${
+                          f.key === "active" ? "bg-primary hover:bg-primary/90" : "bg-emerald-600 hover:bg-emerald-700"
+                        }`}
+                      >
+                        {f.key === "active" ? <Play className="h-3.5 w-3.5" /> : <ClipboardCheck className="h-3.5 w-3.5" />}
+                        {f.action.label}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
 
             {/* Photos */}
