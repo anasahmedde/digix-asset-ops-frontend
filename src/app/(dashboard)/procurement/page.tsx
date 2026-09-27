@@ -1099,8 +1099,8 @@ export default function ProcurementPage() {
                       <select
                         value={it.kind}
                         onChange={(e) => setItemKind(idx, e.target.value as ItemKind)}
-                        className={`${rowInputClass} w-36 shrink-0`}
-                        title="Item type"
+                        className={`${rowInputClass} w-44 shrink-0`}
+                        title="What this line buys"
                       >
                         <option value="generic">Generic component</option>
                         <option value="unique">Unique component</option>
