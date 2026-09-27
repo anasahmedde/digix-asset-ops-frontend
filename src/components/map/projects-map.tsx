@@ -61,6 +61,9 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 const PAKISTAN: [number, number] = [30.3753, 69.3451];
+// The country's own extent. Fitting to it fills whatever shape the card is,
+// rather than leaving the estate in a corner of a fixed zoom.
+const PAKISTAN_BOUNDS: [[number, number], [number, number]] = [[23.6, 60.9], [37.1, 77.9]];
 const iconCache = new Map<string, L.DivIcon>();
 
 function pinFor(status: string, lit: boolean): L.DivIcon {
@@ -115,7 +118,7 @@ function FrameOn({ points }: { points: [number, number][] }) {
   const map = useMap();
   useEffect(() => {
     if (points.length === 0) {
-      map.flyTo(PAKISTAN, 5, { duration: 0.6 });
+      map.flyToBounds(PAKISTAN_BOUNDS, { padding: [16, 16], duration: 0.6 });
       return;
     }
     if (points.length === 1) {
@@ -130,9 +133,11 @@ function FrameOn({ points }: { points: [number, number][] }) {
 interface Props {
   devices: ProjectMapDevice[];
   height?: string;
+  /** Draw the map square, so it sits beside a column of cards. */
+  square?: boolean;
 }
 
-export default function ProjectsMap({ devices, height = "420px" }: Props) {
+export default function ProjectsMap({ devices, height = "420px", square = false }: Props) {
   const [project, setProject] = useState("");
   const [basemap, setBasemap] = useState<BasemapStyle>(DEFAULT_BASEMAP);
 
@@ -184,10 +189,14 @@ export default function ProjectsMap({ devices, height = "420px" }: Props) {
         <BasemapSwitcher style={basemap} onChange={setBasemap} className="ml-auto" />
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-border" style={{ height }}>
+      <div
+        className={`overflow-hidden rounded-xl border border-border ${square ? "aspect-square w-full" : ""}`}
+        style={square ? undefined : { height }}
+      >
         <MapContainer
+          bounds={PAKISTAN_BOUNDS}
+          boundsOptions={{ padding: [16, 16] }}
           center={PAKISTAN}
-          zoom={5}
           zoomControl={false}
           scrollWheelZoom
           style={{ height: "100%", width: "100%" }}

@@ -28,14 +28,14 @@ export function FilterBar({ filters, values, onChange, search, onSearchChange, s
   return (
     <div className="flex flex-wrap items-center gap-2">
       {onSearchChange !== undefined && (
-        <div className="relative">
+        <div className="relative min-w-56 flex-1 basis-64 sm:max-w-sm">
           <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <input
             type="text"
             value={search ?? ""}
             onChange={(e) => onSearchChange(e.target.value)}
             placeholder={searchPlaceholder || "Search..."}
-            className="h-9 w-52 rounded-lg border border-border bg-card pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors"
+            className="h-9 w-full rounded-lg border border-border bg-card pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors"
           />
         </div>
       )}

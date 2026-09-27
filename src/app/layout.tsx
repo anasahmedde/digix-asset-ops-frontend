@@ -6,7 +6,9 @@ import { QueryProvider } from "@/lib/query-provider";
 import { ThemeProvider } from "@/lib/theme-context";
 import "./globals.css";
 
-// Inter for the interface; JetBrains Mono for the codes that run through it
+// The interface asks the platform for San Francisco first (see the font
+// stack in tailwind.config.ts); Inter is the fallback that matches it,
+// and JetBrains Mono is behind SF Mono for the codes that run through it
 // (asset, PO, GRN and component numbers) — one face on every machine instead
 // of whatever monospace the OS has.
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans", display: "swap" });

@@ -1720,46 +1720,46 @@ export default function ProjectsPage() {
         )}
       </div>
 
-      {/* Bottom row */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <div className="rounded-xl border border-border bg-card p-5">
-          <h3 className="text-sm font-semibold text-foreground mb-4">Projects by Progress</h3>
-          <DonutChart
-            data={progressData.length > 0 ? progressData : [{ name: "No Data", value: 1, color: "#94a3b8" }]}
-            centerValue={total}
-            centerLabel="Total"
-            size={140}
-          />
+      {/* Where the work is, with the three summaries reading beside it. */}
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
+        <div className="min-w-0 rounded-xl border border-border bg-card p-5">
+          <h3 className="mb-4 text-sm font-semibold text-foreground">Projects on Map</h3>
+          <ProjectsMap devices={mapDevices} square />
         </div>
 
-        <div className="rounded-xl border border-border bg-card p-5">
-          <h3 className="text-sm font-semibold text-foreground mb-4">Projects by Health</h3>
-          <BarChart data={healthData} height={180} />
-        </div>
+        <div className="grid min-w-0 gap-4 sm:grid-cols-2 xl:grid-cols-1">
+          <div className="rounded-xl border border-border bg-card p-5">
+            <h3 className="mb-4 text-sm font-semibold text-foreground">Projects by Progress</h3>
+            <DonutChart
+              data={progressData.length > 0 ? progressData : [{ name: "No Data", value: 1, color: "#94a3b8" }]}
+              centerValue={total}
+              centerLabel="Total"
+              size={140}
+            />
+          </div>
 
-        <div className="rounded-xl border border-border bg-card p-5">
-          <h3 className="text-sm font-semibold text-foreground mb-4">Top Bottlenecks</h3>
-          <div className="space-y-3">
-            {(stats?.top_bottlenecks ?? []).map((b, i) => (
-              <div key={i} className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">{b.title}</span>
-                <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-2xs font-semibold text-amber-500">
-                  {b.project_count} Project{b.project_count !== 1 ? "s" : ""}
-                </span>
-              </div>
-            ))}
-            {(stats?.top_bottlenecks ?? []).length === 0 && (
-              <p className="text-xs text-muted-foreground">No bottlenecks</p>
-            )}
+          <div className="rounded-xl border border-border bg-card p-5">
+            <h3 className="mb-4 text-sm font-semibold text-foreground">Projects by Health</h3>
+            <BarChart data={healthData} height={180} />
+          </div>
+
+          <div className="rounded-xl border border-border bg-card p-5 sm:col-span-2 xl:col-span-1">
+            <h3 className="mb-4 text-sm font-semibold text-foreground">Top Bottlenecks</h3>
+            <div className="space-y-3">
+              {(stats?.top_bottlenecks ?? []).map((b, i) => (
+                <div key={i} className="flex items-center justify-between gap-2">
+                  <span className="min-w-0 text-xs text-muted-foreground">{b.title}</span>
+                  <span className="shrink-0 rounded-full bg-amber-500/10 px-2 py-0.5 text-2xs font-semibold text-amber-500">
+                    {b.project_count} Project{b.project_count !== 1 ? "s" : ""}
+                  </span>
+                </div>
+              ))}
+              {(stats?.top_bottlenecks ?? []).length === 0 && (
+                <p className="text-xs text-muted-foreground">No bottlenecks</p>
+              )}
+            </div>
           </div>
         </div>
-
-      </div>
-
-      {/* Where the work is. Pick a project and its assets light up. */}
-      <div className="rounded-xl border border-border bg-card p-5">
-        <h3 className="mb-4 text-sm font-semibold text-foreground">Projects on Map</h3>
-        <ProjectsMap devices={mapDevices} />
       </div>
 
       {/* Flagged Projects */}
