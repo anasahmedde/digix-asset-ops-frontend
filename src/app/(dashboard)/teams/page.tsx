@@ -6,6 +6,7 @@ import { toast } from "sonner";
 
 import { Organogram } from "@/components/teams/organogram";
 import { PermissionsDialog } from "@/components/teams/permissions-dialog";
+import { RolesMatrix } from "@/components/teams/roles-matrix";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { Tabs } from "@/components/ui/tabs";
 import api from "@/lib/api";
@@ -244,12 +245,17 @@ export default function TeamsPage() {
         tabs={[
           { key: "people", label: "Employees", count: users.length },
           { key: "chart", label: "Organogram" },
+          { key: "roles", label: "Roles & Rights" },
         ]}
         active={tab}
         onChange={setTab}
       />
 
-      {tab === "chart" ? (
+      {tab === "roles" ? (
+        <div className="rounded-xl border border-border bg-card p-5">
+          <RolesMatrix />
+        </div>
+      ) : tab === "chart" ? (
         <div className="rounded-xl border border-border bg-card p-5">
           <p className="mb-4 text-xs text-muted-foreground">
             Who reports to whom. A person&apos;s title is their place in the
