@@ -1498,6 +1498,26 @@ export default function InstallationTrackerPage() {
                       at: st.completed_at ?? st.started_at,
                       tone: STEP_TONE[st.status] ?? "primary",
                     })),
+                  ...(activeDone && selected.device_activated_at
+                    ? [{
+                        key: "active",
+                        title: <><span className="font-medium">Active</span> — the asset went live</>,
+                        description: null,
+                        actor: selected.installed_by_name,
+                        at: selected.device_activated_at,
+                        tone: "success" as TimelineItem["tone"],
+                      }]
+                    : []),
+                  ...(selected.handover
+                    ? [{
+                        key: "handover",
+                        title: <><span className="font-medium">Handover</span> — accepted by {selected.handover.accepted_by_name}</>,
+                        description: selected.handover.acceptance_notes || null,
+                        actor: selected.handover.performed_by_name,
+                        at: `${selected.handover.handover_date}T23:59:00`,
+                        tone: "success" as TimelineItem["tone"],
+                      }]
+                    : []),
                   ...selected.delays.map((dl) => ({
                     key: `delay-${dl.id}`,
                     title: (
@@ -1511,7 +1531,10 @@ export default function InstallationTrackerPage() {
                     at: dl.created_at,
                     tone: (dl.resolved_at ? "muted" : dl.cause === "client" ? "danger" : "warning") as TimelineItem["tone"],
                   })),
-                ].sort((a, b) => (b.at ?? "").localeCompare(a.at ?? ""));
+                  // Newest first, by the instant — the entries come in three
+                  // shapes (offset ISO, Z ISO, a bare date) and a text sort
+                  // would put a Z timestamp under a +05:00 one from the same day.
+                ].sort((a, b) => (b.at ? Date.parse(b.at) : 0) - (a.at ? Date.parse(a.at) : 0));
                 return <Timeline items={items} empty="Nothing has happened on this installation yet." />;
               })()}
             </div>

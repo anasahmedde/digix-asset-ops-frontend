@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, ChevronRight, Fingerprint, Pencil, Plus, Trash2, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Fingerprint, Pencil, Trash2, X } from "lucide-react";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -74,7 +74,7 @@ const WARRANTY_BADGES: Record<string, string> = {
   expired: "bg-red-500/10 text-red-600 ring-red-500/20",
   none: "bg-secondary text-muted-foreground ring-border",
 };
-export function UniqueItems() {
+export function UniqueItems({ openTick = 0 }: { openTick?: number }) {
   const { canWrite } = useUser();
   const canEdit = canWrite("inventory");
 
@@ -141,6 +141,12 @@ export function UniqueItems() {
       toast.error(getApiError(err, "Failed to load serials"));
     }
   }
+
+  // The page header's Add button ticks this; the dialog is the tab's own.
+  useEffect(() => {
+    if (openTick > 0) openNew();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openTick]);
 
   function openNew() {
     setSelected(null);
@@ -231,51 +237,20 @@ export function UniqueItems() {
     return true;
   }), [products, filterValues, search]);
 
-  const totalUnits = products.reduce((sum, p) => sum + p.in_stock_count, 0);
-  const awaitingStock = products.filter((p) => p.in_stock_count === 0).length;
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-muted-foreground">
-          Unique products are opened here with their technical details — empty, with serials arriving at
-          goods inspection, or with the stock already on the shelf and a serial typed for each unit.
-        </p>
-        {canEdit && (
-          <button
-            onClick={openNew}
-            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-all"
-          >
-            <Plus className="h-4 w-4" /> Open Unique Component
-          </button>
-        )}
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {[
-          { label: "Products Opened", value: products.length },
-          { label: "Units In Stock", value: totalUnits },
-          { label: "Awaiting Stock", value: awaitingStock },
-          { label: "Below Min Level", value: products.filter((p) => p.in_stock_count <= p.min_stock_level && p.min_stock_level > 0).length },
-        ].map((tile) => (
-          <div key={tile.label} className="rounded-xl border border-border bg-card p-4">
-            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{tile.label}</p>
-            <p className="mt-1 text-2xl font-bold text-foreground">{tile.value}</p>
-          </div>
-        ))}
-      </div>
-
       <FilterBar
         filters={[
+          { key: "category", label: "Category", options: categories.map((c) => ({ value: c.id, label: c.name })) },
           {
-            key: "stock", label: "Stock",
+            key: "stock", label: "Stock Level",
             options: [
-              { value: "in_stock", label: "Has stock" },
-              { value: "empty", label: "No stock yet" },
-              { value: "low", label: "At/below min" },
+              { value: "low", label: "Low Stock" },
+              { value: "in_stock", label: "OK" },
+              { value: "empty", label: "No Stock Yet" },
             ],
           },
-          { key: "category", label: "Category", options: categories.map((c) => ({ value: c.id, label: c.name })) },
         ]}
         values={filterValues}
         onChange={(k, v) => setFilterValues((prev) => ({ ...prev, [k]: v }))}
@@ -291,9 +266,9 @@ export function UniqueItems() {
       ) : filtered.length === 0 ? (
         <div className="rounded-xl border border-border bg-card p-12 text-center">
           <Fingerprint className="mx-auto h-12 w-12 text-muted-foreground/30" />
-          <h3 className="mt-4 text-lg font-semibold text-foreground">No unique products</h3>
+          <h3 className="mt-4 text-lg font-semibold text-foreground">No unique components</h3>
           <p className="mt-2 text-sm text-muted-foreground">
-            {products.length > 0 ? "Try adjusting your filters." : "Open a unique component to define what it is, before any stock arrives."}
+            {products.length > 0 ? "Try adjusting your filters." : "Add one to start tracking stock."}
           </p>
         </div>
       ) : (
@@ -456,19 +431,19 @@ export function UniqueItems() {
       <Modal
         open={modal !== null}
         onClose={() => setModal(null)}
-        title={modal === "open" ? "Open Unique Component" : "Edit Component"}
+        title={modal === "open" ? "Add Unique Component" : "Edit Unique Component"}
         size="lg"
       >
         <form onSubmit={handleSubmit} className="space-y-4">
           {modal === "open" && (
             <p className="rounded-lg border border-border bg-secondary/20 p-3 text-xs text-muted-foreground">
-              Define the product now. Open it empty and serial numbers come in at goods inspection —
-              or enter the stock already on the shelf and type each unit&apos;s serial here.
+              Add it empty and serial numbers arrive at goods inspection, or enter the stock on the
+              shelf with a serial for each unit.
             </p>
           )}
           {modal === "edit" && (
             <div className="space-y-1.5">
-              <label className={labelClass}>Product Code</label>
+              <label className={labelClass}>Component Code</label>
               <p className="flex h-10 items-center rounded-lg border border-border bg-secondary/40 px-3 font-mono text-sm text-foreground">
                 {selected?.type_code}
               </p>
@@ -644,7 +619,7 @@ export function UniqueItems() {
               title={openingBlocked ? "Type a serial number for every unit on the shelf" : undefined}
               className="inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-medium text-white transition-all disabled:opacity-50"
             >
-              {saving ? "Saving..." : modal === "open" ? "Open Item" : "Save Changes"}
+              {saving ? "Saving..." : modal === "open" ? "Add Component" : "Save Changes"}
             </button>
           </div>
         </form>

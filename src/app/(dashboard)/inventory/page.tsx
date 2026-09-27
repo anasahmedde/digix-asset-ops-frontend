@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, Info, Package, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Download, Info, Package, Pencil, Plus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -87,6 +87,9 @@ export default function InventoryPage() {
   const [filterValues, setFilterValues] = useState<Record<string, string>>({ location: "", category: "", lowStock: "" });
   const [search, setSearch] = useState("");
   const [exporting, setExporting] = useState(false);
+  // The Add button for the unique tab lives in the page header with the
+  // generic one; the tab opens its dialog when this ticks.
+  const [uniqueOpenTick, setUniqueOpenTick] = useState(0);
   // Two kinds of inventory: generic stock tracked by quantity, and unique
   // (serialized) units tracked one row per physical item.
   const [tab, setTab] = useState<
@@ -114,11 +117,12 @@ export default function InventoryPage() {
       if (filterValues.category) params.category = filterValues.category;
       if (filterValues.lowStock === "low") params.low_stock = "true";
       else if (filterValues.lowStock === "ok") params.low_stock = "false";
-      const res = await api.get("/inventory/items/export/", { params, responseType: "blob" });
+      const path = tab === "unique" ? "/inventory/units/export/" : "/inventory/items/export/";
+      const res = await api.get(path, { params: tab === "unique" ? {} : params, responseType: "blob" });
       const url = URL.createObjectURL(res.data as Blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `inventory-export-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.download = `${tab === "unique" ? "unique-components" : "generic-components"}-${new Date().toISOString().slice(0, 10)}.xlsx`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
@@ -280,14 +284,17 @@ export default function InventoryPage() {
             <p className="text-muted-foreground">Warehouse stock — receive against work orders, issue to sites</p>
           </div>
         </div>
-        {tab === "generic" && (
+        {(tab === "generic" || tab === "unique") && (
           <div className="flex items-center gap-2">
             <button onClick={exportExcel} disabled={exporting} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-60">
               <Download className="h-4 w-4" /> {exporting ? "Exporting…" : "Export Excel"}
             </button>
             {canEdit && (
-              <button onClick={() => openItemModal("create", null)} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-all">
-                <Plus className="h-4 w-4" /> Add Component
+              <button
+                onClick={() => (tab === "unique" ? setUniqueOpenTick((t) => t + 1) : openItemModal("create", null))}
+                className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-all"
+              >
+                <Plus className="h-4 w-4" /> {tab === "unique" ? "Add Unique Component" : "Add Generic Component"}
               </button>
             )}
           </div>
@@ -328,7 +335,7 @@ export default function InventoryPage() {
         ))}
       </div>
 
-      {tab === "unique" && <UniqueItems />}
+      {tab === "unique" && <UniqueItems openTick={uniqueOpenTick} />}
 
       {tab === "requests" && <IssuanceRequests onIssued={fetchItems} />}
 
@@ -354,7 +361,7 @@ export default function InventoryPage() {
         onChange={(k, v) => setFilterValues((prev) => ({ ...prev, [k]: v }))}
         search={search}
         onSearchChange={setSearch}
-        searchPlaceholder="Search by item code, material, category..."
+        searchPlaceholder="Search by code, name, category…"
       />
 
       {loading ? (
@@ -364,8 +371,8 @@ export default function InventoryPage() {
       ) : filtered.length === 0 ? (
         <div className="rounded-xl border border-border bg-card p-12 text-center">
           <Package className="mx-auto h-12 w-12 text-muted-foreground/30" />
-          <h3 className="mt-4 text-lg font-semibold text-foreground">No items found</h3>
-          <p className="mt-2 text-sm text-muted-foreground">{items.length > 0 ? "Try adjusting your filters." : "Add items to start tracking stock."}</p>
+          <h3 className="mt-4 text-lg font-semibold text-foreground">No generic components</h3>
+          <p className="mt-2 text-sm text-muted-foreground">{items.length > 0 ? "Try adjusting your filters." : "Add one to start tracking stock."}</p>
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-border bg-card">
@@ -389,7 +396,7 @@ export default function InventoryPage() {
                     <td className={`${tdClass} font-mono text-foreground`}>
                       <span className="inline-flex items-center gap-1">
                         {item.sku}
-                        <CopyButton text={item.sku} label="item code" />
+                        <CopyButton text={item.sku} label="component code" />
                       </span>
                     </td>
                     <td className={`${tdClass} text-muted-foreground`}>{item.material_name || "-"}</td>
@@ -431,17 +438,16 @@ export default function InventoryPage() {
       )}
 
       {/* Add / edit item */}
-      {itemModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="max-h-[88vh] overflow-y-auto w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl">
-            <div className="mb-5 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-foreground">{itemModal === "create" ? "Add Component" : "Edit Component"}</h2>
-              <button onClick={closeItemModal} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"><X className="h-5 w-5" /></button>
-            </div>
+      <Modal
+        open={itemModal !== null}
+        onClose={closeItemModal}
+        title={itemModal === "create" ? "Add Generic Component" : "Edit Generic Component"}
+        size="lg"
+      >
             <form onSubmit={handleItemSubmit} className="space-y-4">
               {itemModal === "edit" && (
                 <div className="space-y-1.5">
-                  <label className={labelClass}>Component Code (auto-generated)</label>
+                  <label className={labelClass}>Component Code</label>
                   <p className="flex h-10 items-center rounded-lg border border-border bg-secondary/40 px-3 font-mono text-sm text-foreground">{selected?.sku}</p>
                 </div>
               )}
@@ -517,12 +523,10 @@ export default function InventoryPage() {
               </div>
               <div className="flex justify-end gap-3 pt-2">
                 <button type="button" onClick={closeItemModal} className="inline-flex h-10 items-center rounded-lg border border-border bg-transparent px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">Cancel</button>
-                <button type="submit" disabled={saving} className="inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-medium text-white transition-all disabled:opacity-50">{saving ? "Saving..." : itemModal === "create" ? "Create Item" : "Save Changes"}</button>
+                <button type="submit" disabled={saving} className="inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-medium text-white transition-all disabled:opacity-50">{saving ? "Saving..." : itemModal === "create" ? "Add Component" : "Save Changes"}</button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+      </Modal>
 
       {/* Where the stock came from: every receipt and issue against this line */}
       <Modal
