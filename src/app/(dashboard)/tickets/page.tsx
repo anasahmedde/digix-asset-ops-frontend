@@ -210,14 +210,13 @@ const CATEGORY_OPTIONS = [
   "replacement",
   "inspection",
   "relocation",
-  "warranty_claim",
   "predictive_maintenance",
   "other",
 ];
 
 // Categories where the backend derives cost liability from the asset's
 // warranty (mirrors Ticket.WARRANTY_AWARE_CATEGORIES).
-const BILLING_CATEGORIES = ["repair", "replacement", "warranty_claim"];
+const BILLING_CATEGORIES = ["repair", "replacement"];
 
 // Supplier-side warranty types (mirrors backend derive_billability).
 const SUPPLIER_SIDE_TYPES = ["supplier", "manufacturer", "extended"];
@@ -1652,6 +1651,7 @@ export default function TicketsPage() {
                   <tr className="border-b border-border bg-secondary/50">
                     <th className={thClass}>Ticket #</th>
                     <th className={thClass}>Title</th>
+                    <th className={thClass}>Assets</th>
                     <th className={thClass}>Priority</th>
                     <th className={thClass}>Status</th>
                     <th className={thClass}>Category</th>
@@ -1680,6 +1680,19 @@ export default function TicketsPage() {
                             </span>
                           )}
                         </div>
+                      </td>
+                      <td className={`${tdClass} whitespace-nowrap font-mono text-xs text-muted-foreground`}>
+                        {/* One ticket can cover several assets; every one it
+                            is raised for is named, the primary first. */}
+                        {(() => {
+                          const codes = [
+                            t.device_code,
+                            ...(t.devices_info ?? []).map((d) => d.asset_code),
+                          ].filter((c, i, all): c is string => !!c && all.indexOf(c) === i);
+                          return codes.length === 0
+                            ? "-"
+                            : codes.map((c) => <span key={c} className="block">{c}</span>);
+                        })()}
                       </td>
                       <td className={tdClass}><span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${priorityBadge[t.priority] ?? priorityBadge.low}`}>{formatLabel(t.priority)}</span></td>
                       <td className={tdClass}><span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${statusBadge[t.status] ?? statusBadge.open}`}>{statusIcon[t.status]}{formatLabel(t.status)}</span></td>
