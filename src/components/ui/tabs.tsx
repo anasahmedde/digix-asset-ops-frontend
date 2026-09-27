@@ -17,7 +17,7 @@ interface TabsProps {
 
 export function Tabs({ tabs, active, onChange, className }: TabsProps) {
   return (
-    <div className={cn("flex overflow-x-auto border-b border-border", className)}>
+    <div className={cn("no-scrollbar flex overflow-x-auto overflow-y-hidden border-b border-border", className)}>
       {tabs.map((tab) => (
         <button
           key={tab.key}

@@ -376,8 +376,8 @@ export function ScheduleDetail({
   return (
     <div className="space-y-5">
       {askingBeforeStart && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-md veil-in">
+          <div className="w-full max-w-md glass glass-pop rounded-2xl p-6">
             <h2 className="text-base font-semibold text-foreground">
               Do you need additional components for maintenance of this asset?
             </h2>

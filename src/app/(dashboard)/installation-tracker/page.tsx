@@ -1575,8 +1575,8 @@ export default function InstallationTrackerPage() {
 
         {/* Flag Delay modal */}
         {delayFor && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-            <div className="max-h-[88vh] overflow-y-auto w-full max-w-sm rounded-xl border border-border bg-card p-5">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-md veil-in">
+            <div className="glass glass-pop max-h-[88vh] w-full max-w-sm overflow-y-auto rounded-xl p-5">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-semibold text-foreground">Flag Delay — {delayFor.label}</h3>
                 <button onClick={() => setDelayFor(null)} className="text-muted-foreground hover:text-foreground">

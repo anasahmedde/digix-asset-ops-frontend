@@ -303,7 +303,7 @@ const LIFECYCLE_SOURCE: Record<string, string> = {
   assigned: "Marked Installed when the technician completes the installation checklist.",
   installed: "Marked Active when the technician confirms on site with a photo.",
   active: "Transfer to the client or decommission below. All other stages follow the work.",
-  under_maintenance: "Returns to Active when the maintenance job is completed, or decommission it below.",
+  under_maintenance: "Returns to Active when the maintenance job is completed. Hand it to the client or decommission it below.",
 };
 
 function shortDate(iso: string | undefined) {
@@ -329,96 +329,118 @@ function LifecycleStepper({ status, stageDates, requiresProduction = true }: { s
   const mainIdx = inMaintenance || ended
     ? TRACK_MAIN.length - 1
     : (TRACK_MAIN as readonly string[]).indexOf(status);
-
-  const node = (reached: boolean, current: boolean, tone: "primary" | "amber" | "slate" = "primary") =>
-    current
-      ? tone === "amber"
-        ? "border-amber-500 bg-amber-500 text-white"
-        : "border-primary bg-primary text-primary-foreground"
-      : reached
-        ? tone === "slate"
-          ? "border-slate-500 bg-slate-500 text-white"
-          : "border-primary bg-primary/15 text-primary"
-        : "border-border bg-card text-muted-foreground";
-
   const detour = inMaintenance || !!stageDates.under_maintenance;
 
+  // One list, so the rail is laid out in one pass and the end states keep
+  // their place on it without a second row.
+  const stages = [
+    ...TRACK_MAIN.map((stage, i) => {
+      const reached = mainIdx >= 0 ? i <= mainIdx : !!stageDates[stage];
+      const current = !inMaintenance && !ended && status === stage;
+      return {
+        stage,
+        spur: false,
+        reached,
+        current,
+        // Solid up to where the asset has got; the rest of the line is grey.
+        filled: mainIdx >= 0 && i < mainIdx,
+        state: current ? "In Progress" : reached ? "Completed" : "Not Started",
+      };
+    }),
+    ...TRACK_END.map((stage) => {
+      const current = status === stage;
+      return {
+        stage,
+        spur: true,
+        reached: current || !!stageDates[stage],
+        current,
+        filled: false,
+        state: current ? "In Progress" : stageDates[stage] ? "Completed" : "Not Started",
+      };
+    }),
+  ];
+
   return (
-    <div className="overflow-x-auto pb-2">
+    <div className="pb-1">
       {/* Room under the rail for the maintenance detour, only when there is
           one to show. */}
-      <ol className={`flex min-w-max items-start ${detour ? "pb-12" : ""}`}>
-        {TRACK_MAIN.map((stage, i) => {
-          const reached = mainIdx >= 0 ? i <= mainIdx : !!stageDates[stage];
-          const current = !inMaintenance && !ended && status === stage;
-          const date = shortDate(stageDates[stage]);
-          const isLast = i === TRACK_MAIN.length - 1;
-          const filled = mainIdx >= 0 && i < mainIdx;
+      <ol className={`flex items-start ${detour ? "pb-14" : ""}`}>
+        {stages.map((s, i) => {
+          const date = shortDate(stageDates[s.stage]);
+          const isLast = i === stages.length - 1;
+          const next = stages[i + 1];
           return (
-            <li key={stage} className="relative flex min-w-[104px] flex-1 flex-col items-center px-2 text-center">
-              {/* The line runs between circle centres, behind them. */}
+            <li key={s.stage} className="relative flex min-w-0 flex-1 basis-0 flex-col items-center px-0.5 text-center">
+              {/* The line runs between node centres, behind them. An end
+                  state hangs off a dashed segment: it is not the next step
+                  for every asset, and nothing comes back from it. */}
               {!isLast && (
                 <span
                   aria-hidden
-                  className={`absolute left-1/2 top-[15px] h-0.5 w-full ${filled ? "bg-primary" : "bg-border"}`}
+                  className={
+                    next?.spur
+                      ? "absolute left-1/2 top-[17px] w-full border-t-2 border-dashed border-border"
+                      : `absolute left-1/2 top-[17px] h-0.5 w-full ${s.filled ? "bg-primary" : "bg-border"}`
+                  }
                 />
               )}
-              <span className="relative flex h-8 w-8 items-center justify-center">
-                {current && <span aria-hidden className="absolute inset-0 rounded-full bg-primary/25 motion-safe:animate-ping" />}
-                <span className={`relative flex h-8 w-8 items-center justify-center rounded-full border-2 text-2xs font-bold ${node(reached, current)}`}>
-                  {reached && !current ? <Check className="h-4 w-4" strokeWidth={3} /> : i + 1}
+              <span className="relative flex h-9 w-9 items-center justify-center">
+                {s.current && !s.spur && (
+                  <span aria-hidden className="absolute inset-0 rounded-full bg-primary/25 motion-safe:animate-ping" />
+                )}
+                <span
+                  className={`relative flex h-9 w-9 items-center justify-center rounded-full border-2 text-sm font-bold shadow-sm transition-colors ${
+                    s.current
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : s.reached
+                        ? s.spur
+                          ? "border-slate-400 bg-slate-500 text-white"
+                          : "border-primary bg-primary text-primary-foreground"
+                        : s.spur
+                          ? "border-dashed border-border bg-secondary text-muted-foreground/60"
+                          : "border-border bg-card text-muted-foreground"
+                  }`}
+                >
+                  {s.reached && !s.current ? <Check className="h-4 w-4" strokeWidth={3} /> : i + 1}
                 </span>
               </span>
-              <span className={`mt-2 whitespace-nowrap text-2xs leading-tight ${current ? "font-semibold text-primary" : reached ? "font-medium text-foreground" : "text-muted-foreground"}`}>
-                {label(stage)}
+              <span
+                lang="en"
+                className={`mt-2 hyphens-auto break-words [overflow-wrap:anywhere] max-w-full text-2xs font-medium leading-tight ${
+                  s.reached || s.current ? "text-foreground" : "text-muted-foreground"
+                }`}
+              >
+                {label(s.stage)}
               </span>
-              {reached && date && (
+              <span
+                className={`mt-0.5 max-w-full break-words text-2xs leading-tight ${
+                  s.current ? "font-semibold text-primary" : s.reached ? "text-primary" : "text-muted-foreground"
+                }`}
+              >
+                {s.state}
+              </span>
+              {s.reached && date && (
                 <span
-                  className="mt-0.5 whitespace-nowrap text-2xs tabular-nums text-muted-foreground"
-                  title={stageDates[stage] ? new Date(stageDates[stage]).toLocaleString() : undefined}
+                  className="mt-0.5 text-2xs tabular-nums text-muted-foreground"
+                  title={stageDates[s.stage] ? new Date(stageDates[s.stage]).toLocaleString() : undefined}
                 >
                   {date}
                 </span>
               )}
 
-              {/* Maintenance: a detour hanging below Active, clear of the rail. */}
-              {stage === "active" && detour && (
-                <span className="absolute left-1/2 top-full flex -translate-x-1/2 flex-col items-center">
+              {/* Maintenance: a detour hanging below Active, clear of the rail.
+                  The asset comes back from it, so it is not on the line. */}
+              {s.stage === "active" && detour && (
+                <span className="absolute left-1/2 top-full z-10 flex w-28 -translate-x-1/2 flex-col items-center">
                   <span aria-hidden className={`h-4 border-l-2 border-dashed ${inMaintenance ? "border-amber-500" : "border-border"}`} />
-                  <span className={`mt-1 whitespace-nowrap rounded-full px-2.5 py-1 text-2xs font-semibold ring-1 ${
+                  <span className={`mt-1 rounded-full px-2.5 py-1 text-2xs font-semibold leading-tight ring-1 ${
                     inMaintenance ? "bg-amber-500/10 text-amber-600 ring-amber-500/30" : "bg-secondary text-muted-foreground ring-border"
                   }`}>
                     {inMaintenance ? "Under maintenance" : "Last maintenance"}
                   </span>
-                  <span className="mt-0.5 whitespace-nowrap text-2xs tabular-nums text-muted-foreground">
+                  <span className="mt-0.5 text-2xs tabular-nums text-muted-foreground">
                     {inMaintenance ? `since ${shortDate(stageDates.under_maintenance) ?? "—"}` : shortDate(stageDates.under_maintenance)}
                   </span>
-                </span>
-              )}
-            </li>
-          );
-        })}
-
-        {/* End of life: a spur off the line. */}
-        {TRACK_END.map((stage, i) => {
-          const current = status === stage;
-          const reached = current || !!stageDates[stage];
-          return (
-            <li key={stage} className="relative flex min-w-[104px] flex-1 flex-col items-center px-2 text-center">
-              {/* Dashed from the last live stage: where the asset may end up. */}
-              <span
-                aria-hidden
-                className="absolute right-1/2 top-[15px] w-full border-t-2 border-dashed border-border"
-              />
-              <span className={`relative flex h-8 w-8 items-center justify-center rounded-full border-2 border-dashed text-2xs font-bold ${node(reached, false, "slate")}`}>
-                {reached ? <Check className="h-4 w-4" strokeWidth={3} /> : "•"}
-              </span>
-              <span className={`mt-2 whitespace-nowrap text-2xs leading-tight ${current ? "font-semibold text-foreground" : "text-muted-foreground"}`}>
-                {label(stage)}
-              </span>
-              {reached && shortDate(stageDates[stage]) && (
-                <span className="mt-0.5 whitespace-nowrap text-2xs tabular-nums text-muted-foreground">
-                  {shortDate(stageDates[stage])}
                 </span>
               )}
             </li>
@@ -2086,16 +2108,7 @@ export default function AssetsPage() {
                       </div>
                     </div>
                     <div>
-                      <h4 className="text-sm font-semibold text-foreground mb-3">Device Information</h4>
-                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                        <InfoCard label="Asset Code" value={d.asset_code} />
-                        <InfoCard label="Project" value={d.project_name} />
-                        <InfoCard label="Manufacturing Route" value={d.source_display} />
-                        <InfoCard label="Asset Type" value={d.asset_type_name} />
-                      </div>
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-semibold text-foreground mb-3">Assignment</h4>
+                      <h4 className="text-sm font-semibold text-foreground mb-3">Assignment for Installation</h4>
                       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                         <InfoCard label="Site" value={d.site_name} />
                         <InfoCard label="Client" value={(d.client_names ?? []).length > 0 ? d.client_names.join(", ") : d.client_name} />

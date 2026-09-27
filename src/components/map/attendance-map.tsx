@@ -2,7 +2,9 @@
 
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { MapContainer, Marker, Popup, TileLayer, ZoomControl, useMap } from "react-leaflet";
+import { MapContainer, Marker, Popup, ZoomControl, useMap } from "react-leaflet";
+
+import { Basemap } from "./basemaps";
 
 export interface AttendancePoint {
   id: string;
@@ -55,14 +57,7 @@ export default function AttendanceMap({ points, height = "420px" }: { points: At
         scrollWheelZoom={false}
         style={{ height: "100%", width: "100%", background: "#f0f0f0" }}
       >
-        <TileLayer
-            url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}"
-            attribution='&copy; Esri, HERE, Garmin, &copy; OpenStreetMap contributors'
-          />
-          {/* Place names, in English, over the canvas. */}
-          <TileLayer
-            url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}"
-          />
+        <Basemap />
         <ZoomControl position="topleft" />
         <FitBounds points={valid} />
         {valid.map((p) => (

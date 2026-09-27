@@ -187,6 +187,16 @@
   background-color: hsl(168 76% 42% / 0.08) !important;
 }
 
+/* A strip that scrolls sideways but should not advertise it. */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -452,6 +462,59 @@
   justify-content: flex-end;
   gap: 6px;
 }
+/* Pick the ground the map is drawn on: a small segmented control that
+   matches the layer chips beside it. */
+.map-basemap-switch {
+  display: inline-flex;
+  padding: 2px;
+  gap: 2px;
+  background: rgba(255,255,255,0.92);
+  backdrop-filter: blur(8px);
+  border: 1.5px solid #e2e8f0;
+  border-radius: 20px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+.map-basemap-corner {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 1000;
+}
+.map-basemap-option {
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #64748b;
+  background: transparent;
+  border: 0;
+  border-radius: 16px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.map-basemap-option:hover {
+  color: #0f172a;
+}
+.map-basemap-option--on {
+  color: #065f46;
+  background: #ecfdf5;
+  box-shadow: inset 0 0 0 1px #6ee7b7;
+}
+.dark .map-basemap-switch {
+  background: hsl(222 20% 12% / 0.92);
+  border-color: hsl(222 15% 24%);
+}
+.dark .map-basemap-option {
+  color: hsl(215 15% 60%);
+}
+.dark .map-basemap-option:hover {
+  color: hsl(210 20% 90%);
+}
+.dark .map-basemap-option--on {
+  color: hsl(168 76% 60%);
+  background: hsl(168 76% 42% / 0.15);
+  box-shadow: inset 0 0 0 1px hsl(168 76% 42% / 0.5);
+}
+
 .map-layer-chip {
   display: flex;
   align-items: center;
@@ -512,13 +575,61 @@
 }
 
 /* ── Map legend ── */
+/* The legend takes a row of its own under the controls, so it never covers
+   the chip that opens it. */
+.map-legend-slot {
+  width: 100%;
+  display: flex;
+  justify-content: flex-end;
+}
+.map-legend-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+.map-legend-heading {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+}
+.map-legend-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin: -2px -2px 0 0;
+  font-size: 17px;
+  line-height: 1;
+  color: #64748b;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.map-legend-close:hover {
+  color: #0f172a;
+  background: #f1f5f9;
+}
+.dark .map-legend-heading,
+.dark .map-legend-close {
+  color: hsl(215 15% 60%);
+}
+.dark .map-legend-close:hover {
+  color: hsl(210 20% 90%);
+  background: hsl(222 15% 20%);
+}
+
 .map-legend {
-  position: absolute;
-  top: 48px;
-  right: 12px;
+  position: relative;
   z-index: 1000;
   width: 290px;
-  max-height: calc(100% - 60px);
+  max-width: 100%;
+  max-height: 60vh;
   overflow-y: auto;
   padding: 12px;
   display: flex;
@@ -620,7 +731,7 @@
   --ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
 
   --glass-tint: 255 255 255;
-  --glass-alpha: 0.72;
+  --glass-alpha: 0.86;
   --glass-blur: 20px;
   --glass-edge: 255 255 255;
   --glass-edge-alpha: 0.65;
@@ -639,29 +750,17 @@
   --glass-shadow-lift: 0 2px 4px rgb(0 0 0 / 0.4), 0 16px 40px -12px rgb(0 0 0 / 0.65);
 }
 
-/* A frosted surface. The ::before carries the specular top edge so the
-   element's own background stays free for a tint. */
+/* A frosted surface. The specular edge is a one-pixel inset highlight
+   along the top — a line of light, never a wash over the content. */
 .glass {
   position: relative;
   background: rgb(var(--glass-tint) / var(--glass-alpha));
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(180%);
   backdrop-filter: blur(var(--glass-blur)) saturate(180%);
   border: 1px solid hsl(var(--glass-line));
-  box-shadow: var(--glass-shadow);
-}
-
-.glass::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  background: linear-gradient(
-    to bottom,
-    rgb(var(--glass-edge) / var(--glass-edge-alpha)) 0,
-    rgb(var(--glass-edge) / 0) 45%
-  );
-  mix-blend-mode: overlay;
+  box-shadow:
+    inset 0 1px 0 rgb(var(--glass-edge) / var(--glass-edge-alpha)),
+    var(--glass-shadow);
 }
 
 /* Where a browser cannot blur, fall back to an opaque card so nothing
@@ -696,12 +795,18 @@ button:disabled {
   transform: none;
 }
 
-/* The solid actions: Create, Save, Raise, Post. */
+/* The solid actions: Create, Save, Raise, Post. The sheen needs a
+   positioned box; a button positioned by its own classes already has one
+   and keeps it, and nothing changes shape when a button is disabled. */
+button.bg-primary:not(.absolute):not(.fixed):not(.sticky),
+a.bg-primary:not(.absolute):not(.fixed):not(.sticky),
+button.bg-destructive:not(.absolute):not(.fixed):not(.sticky) {
+  position: relative;
+}
+
 button.bg-primary:not(:disabled),
 a.bg-primary,
 button.bg-destructive:not(:disabled) {
-  position: relative;
-  overflow: hidden;
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.28),
     0 1px 2px rgb(16 24 40 / 0.1),
@@ -721,6 +826,7 @@ button.bg-destructive:not(:disabled)::after {
   content: "";
   position: absolute;
   inset: 0 0 50% 0;
+  border-radius: inherit;
   pointer-events: none;
   background: linear-gradient(to bottom, rgb(255 255 255 / 0.18), rgb(255 255 255 / 0));
 }
@@ -814,4 +920,54 @@ button.border-border:not(:disabled):hover {
   .card-lift:hover {
     transform: none;
   }
+}
+
+/* ---- Map controls, dark theme ------------------------------------------
+   The chips, the country picker and the legend were drawn for a light map
+   only. The picker's select also has to out-rank the base `.dark select`
+   rule, which paints every select a solid dark and drops the chevron. */
+.dark .map-country-select,
+.dark .map-layer-chip,
+.dark .map-legend {
+  background: hsl(222 20% 12% / 0.92);
+  border-color: hsl(222 15% 24%);
+  box-shadow: 0 1px 6px rgb(0 0 0 / 0.4);
+}
+.dark .map-country-select select.map-country-dropdown,
+.dark .map-country-select select.map-country-dropdown:focus {
+  background-color: transparent;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2394a3b8' d='M3 4.5L6 8l3-3.5H3z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0 center;
+  border: none;
+  color: hsl(210 20% 90%);
+}
+.dark .map-layer-chip {
+  color: hsl(215 15% 65%);
+}
+.dark .map-layer-chip:hover {
+  background: hsl(222 20% 16% / 0.95);
+}
+.dark .map-layer-chip--active {
+  color: hsl(168 76% 60%);
+  background: hsl(168 76% 42% / 0.15);
+  border-color: hsl(168 76% 42% / 0.5);
+}
+.dark .map-layer-chip--active:hover {
+  background: hsl(168 76% 42% / 0.22);
+}
+.dark .map-layer-chip--active-warn {
+  color: hsl(38 92% 65%);
+  background: hsl(38 92% 50% / 0.15);
+  border-color: hsl(38 92% 50% / 0.5);
+}
+.dark .map-layer-count {
+  background: rgb(255 255 255 / 0.08);
+}
+.dark .map-legend-title {
+  color: hsl(210 20% 90%);
+}
+.dark .map-legend-desc,
+.dark .map-legend-status {
+  color: hsl(215 15% 60%);
 }

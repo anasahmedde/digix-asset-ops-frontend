@@ -707,7 +707,7 @@ export default function QuotationsPage() {
       )}
 
       {modalMode && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 py-8 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 py-8 backdrop-blur-md veil-in">
           <div className="w-full max-w-3xl glass glass-pop rounded-2xl p-6">
             <div className="mb-5 flex items-center justify-between">
               <div className="flex items-center gap-3">

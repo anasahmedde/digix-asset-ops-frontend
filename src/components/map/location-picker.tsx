@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from "react-leaflet";
+import { MapContainer, Marker, useMapEvents, useMap } from "react-leaflet";
+
+import { Basemap } from "./basemaps";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { MapPin, Search, X } from "lucide-react";
@@ -181,14 +183,7 @@ export default function LocationPicker({ lat, lng, onChange }: LocationPickerPro
           style={{ height: "100%", width: "100%" }}
           className="dark-map"
         >
-          <TileLayer
-            url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}"
-            attribution='&copy; Esri, HERE, Garmin, &copy; OpenStreetMap contributors'
-          />
-          {/* Place names, in English, over the canvas. */}
-          <TileLayer
-            url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}"
-          />
+          <Basemap />
           <DraggableMarker position={position} onChange={handleMarkerMove} />
           {position && <FlyTo lat={position.lat} lng={position.lng} />}
         </MapContainer>

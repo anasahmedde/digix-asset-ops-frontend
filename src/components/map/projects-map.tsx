@@ -3,7 +3,10 @@
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { useEffect, useMemo, useState } from "react";
-import { MapContainer, Marker, Popup, TileLayer, ZoomControl, useMap } from "react-leaflet";
+import { MapContainer, Marker, Popup, ZoomControl, useMap } from "react-leaflet";
+
+import { Basemap, BasemapSwitcher, DEFAULT_BASEMAP, type BasemapStyle } from "./basemaps";
+import { CountryHighlight } from "./country-highlight";
 
 /**
  * Where a project's assets actually are.
@@ -131,6 +134,7 @@ interface Props {
 
 export default function ProjectsMap({ devices, height = "420px" }: Props) {
   const [project, setProject] = useState("");
+  const [basemap, setBasemap] = useState<BasemapStyle>(DEFAULT_BASEMAP);
 
   const plottable = useMemo(
     () => devices.filter((d) => !isNaN(num(d.current_site__latitude)) && !isNaN(num(d.current_site__longitude))),
@@ -177,6 +181,7 @@ export default function ProjectsMap({ devices, height = "420px" }: Props) {
         {projects.length === 0 && (
           <span className="text-xs text-muted-foreground">No project has an asset on site yet.</span>
         )}
+        <BasemapSwitcher style={basemap} onChange={setBasemap} className="ml-auto" />
       </div>
 
       <div className="overflow-hidden rounded-xl border border-border" style={{ height }}>
@@ -187,14 +192,8 @@ export default function ProjectsMap({ devices, height = "420px" }: Props) {
           scrollWheelZoom
           style={{ height: "100%", width: "100%" }}
         >
-          <TileLayer
-            url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}"
-            attribution='&copy; Esri, HERE, Garmin, &copy; OpenStreetMap contributors'
-          />
-          {/* Place names, in English, over the canvas. */}
-          <TileLayer
-            url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}"
-          />
+          <Basemap style={basemap} />
+          <CountryHighlight />
           <ZoomControl position="topright" />
           <FrameOn points={frame} />
           {plottable.map((d) => {

@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import {
-  PoLineItems, emptyPoLine, isPoLineEmpty, poLinePayload, poLineTotal, poLinesProblem, usePoOptions,
+  PoLineItems, isPoLineEmpty, poLinePayload, poLineTotal, poLinesProblem, usePoOptions,
   type PoLine,
 } from "@/components/procurement/po-line-items";
 import { Modal } from "@/components/ui/modal";

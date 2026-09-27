@@ -307,7 +307,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Map (squeezed to half) + summaries column */}
-      <div className="grid gap-6 2xl:grid-cols-2 [&>*]:min-w-0">
+      <div className="grid gap-6 2xl:grid-cols-[3fr_2fr] [&>*]:min-w-0">
         <div>
           <div className="rounded-xl border border-border bg-card overflow-hidden h-full flex flex-col">
             <div className="flex items-center justify-between px-5 py-4">

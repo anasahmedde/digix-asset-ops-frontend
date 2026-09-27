@@ -4,7 +4,9 @@ import "leaflet/dist/leaflet.css";
 
 import L from "leaflet";
 import { useEffect, useRef, useState, useCallback } from "react";
-import { MapContainer, Marker, Popup, TileLayer, useMap, ZoomControl } from "react-leaflet";
+import { MapContainer, Marker, Popup, useMap, ZoomControl } from "react-leaflet";
+
+import { Basemap } from "./basemaps";
 import { pakistanBorder, worldMaskExceptPakistan } from "@/data/pakistan-geo";
 
 interface SitePin {
@@ -208,14 +210,7 @@ export default function SiteMap({ sites }: SiteMapProps) {
         className="dark-map"
         whenReady={() => {}}
       >
-        <TileLayer
-            url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}"
-            attribution='&copy; Esri, HERE, Garmin, &copy; OpenStreetMap contributors'
-          />
-          {/* Place names, in English, over the canvas. */}
-          <TileLayer
-            url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}"
-          />
+        <Basemap />
         <PakistanOverlay />
         <ZoomControl position="topleft" />
         <MapSetup sites={validSites} />

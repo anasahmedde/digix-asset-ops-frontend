@@ -181,7 +181,8 @@ const STATUS_BADGES: Record<string, string> = {
 };
 
 // Guarded transitions per current status (mirrors backend VALID_TRANSITIONS).
-// Receiving (ordered → partially_received → received) happens via goods receipts (GRN) — no manual button.
+// Approval places the order, so receiving (approved → partially_received →
+// received) follows straight from it, through goods receipts — no button.
 const TRANSITIONS: Record<POStatus, Array<{ status: POStatus; label: string }>> = {
   draft: [
     { status: "pending_approval", label: "Submit for Approval" },
@@ -192,18 +193,15 @@ const TRANSITIONS: Record<POStatus, Array<{ status: POStatus; label: string }>> 
     { status: "draft", label: "Back to Draft" },
     { status: "cancelled", label: "Cancel PO" },
   ],
-  approved: [
-    { status: "ordered", label: "Mark Ordered" },
-    { status: "cancelled", label: "Cancel PO" },
-  ],
+  approved: [{ status: "cancelled", label: "Cancel PO" }],
   ordered: [{ status: "cancelled", label: "Cancel PO" }],
   partially_received: [{ status: "cancelled", label: "Cancel PO" }],
   received: [],
   cancelled: [],
 };
 
-const RECEIVABLE_STATUSES: POStatus[] = ["ordered", "partially_received"];
-const RECEIPT_HISTORY_STATUSES: POStatus[] = ["ordered", "partially_received", "received"];
+const RECEIVABLE_STATUSES: POStatus[] = ["approved", "ordered", "partially_received"];
+const RECEIPT_HISTORY_STATUSES: POStatus[] = ["approved", "ordered", "partially_received", "received"];
 
 function statusLabel(status: string): string {
   return status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -258,6 +256,10 @@ export default function ProcurementPage() {
   // assets registered under Assets that are still to be bought.
   const poOptions = usePoOptions();
   const [showSupplierDetails, setShowSupplierDetails] = useState(false);
+  // A draft leaving for approval has to say when the goods are needed by.
+  // Asked for right there in the bar, not thrown back as an error.
+  const [deliveryAsk, setDeliveryAsk] = useState<{ poId: string; status: POStatus } | null>(null);
+  const [deliveryDate, setDeliveryDate] = useState("");
   const [loading, setLoading] = useState(true);
   const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
   const [selected, setSelected] = useState<PurchaseOrder | null>(null);
@@ -480,10 +482,21 @@ export default function ProcurementPage() {
     }
   }
 
-  async function handleTransition(po: PurchaseOrder, status: POStatus) {
+  async function handleTransition(po: PurchaseOrder, status: POStatus, expectedDelivery?: string) {
     if (status === "cancelled" && !confirm(`Cancel PO ${po.po_number}? This cannot be undone.`)) return;
+    // Leaving Draft without a delivery date: ask for it, then go.
+    const leavingDraft = po.status === "draft" && status !== "draft" && status !== "cancelled";
+    if (leavingDraft && !po.expected_delivery && !expectedDelivery) {
+      setDeliveryAsk({ poId: po.id, status });
+      setDeliveryDate("");
+      return;
+    }
     try {
-      await api.post(`/procurement/purchase-orders/${po.id}/transition/`, { status });
+      await api.post(`/procurement/purchase-orders/${po.id}/transition/`, {
+        status,
+        ...(expectedDelivery ? { expected_delivery: expectedDelivery } : {}),
+      });
+      setDeliveryAsk(null);
       toast.success(`Moved to ${statusLabel(status)}`);
       closeModal();
       fetchOrders();
@@ -662,6 +675,32 @@ export default function ProcurementPage() {
               </button>
             ))}
           </>
+        )}
+        {deliveryAsk?.poId === po.id && (
+          <div className="flex w-full flex-wrap items-center gap-2 border-t border-border pt-2">
+            <label htmlFor={`delivery-${po.id}`} className="text-xs font-medium text-foreground">
+              Required delivery *
+            </label>
+            <input
+              id={`delivery-${po.id}`}
+              type="date"
+              autoFocus
+              value={deliveryDate}
+              onChange={(e) => setDeliveryDate(e.target.value)}
+              className="h-8 rounded-lg border border-border bg-card px-2 text-xs text-foreground focus:border-primary/50 focus:outline-none"
+            />
+            <button
+              type="button"
+              disabled={!deliveryDate}
+              onClick={() => handleTransition(po, deliveryAsk.status, deliveryDate)}
+              className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+            >
+              Set date and continue
+            </button>
+            <button type="button" onClick={() => setDeliveryAsk(null)} className="text-xs text-muted-foreground hover:text-foreground">
+              Cancel
+            </button>
+          </div>
         )}
       </div>
     );
@@ -899,7 +938,7 @@ export default function ProcurementPage() {
       )}
 
       {modalMode && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 py-8 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 py-8 backdrop-blur-md veil-in">
           <div className="w-full max-w-3xl glass glass-pop rounded-2xl p-6">
             <div className="mb-5 flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -1015,7 +1054,7 @@ export default function ProcurementPage() {
       )}
 
       {receivePO && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 py-8 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 py-8 backdrop-blur-md veil-in">
           <div className="w-full max-w-3xl glass glass-pop rounded-2xl p-6">
             <div className="mb-5 flex items-center justify-between">
               <div className="flex items-center gap-3">
