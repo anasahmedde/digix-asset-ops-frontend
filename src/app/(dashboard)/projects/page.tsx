@@ -139,6 +139,8 @@ interface ProjectDetail {
   status: string;
   status_display: string;
   phase: string;
+  /** Where the work stands if an off-ramp is lifted. */
+  resume_phase?: string;
   phase_display: string;
   progress: number;
   start_date: string | null;
@@ -359,13 +361,22 @@ export default function ProjectsPage() {
     }
   }
 
+  /** Park the project on an off-ramp, or take it off the one it is on. */
   async function setPhase(phase: string) {
     if (!detail) return;
+    // Clicking the off-ramp it is already on lifts it: the project goes back
+    // to wherever the work actually stands.
+    const lifting = detail.phase === phase;
+    const next = lifting ? detail.resume_phase || "planning" : phase;
     try {
-      await api.patch(`/teams/projects/${detail.id}/`, { phase });
+      await api.patch(`/teams/projects/${detail.id}/`, { phase: next });
       await loadDetail(detail.id);
       fetchAll();
-      toast.success("Project phase updated");
+      toast.success(
+        lifting
+          ? `Back on the work — ${PHASES.find((p) => p.value === next)?.label ?? next}`
+          : "Project phase updated",
+      );
     } catch (err) {
       toast.error(getApiError(err, "Failed to update phase"));
     }
@@ -942,6 +953,11 @@ export default function ProjectsPage() {
                 key={ph.value}
                 onClick={() => canEdit && setPhase(ph.value)}
                 disabled={!canEdit}
+                title={
+                  d.phase === ph.value
+                    ? `Click to lift this and go back to ${PHASES.find((p) => p.value === d.resume_phase)?.label ?? "the work"}`
+                    : undefined
+                }
                 className={`inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
                   d.phase === ph.value
                     ? ph.value === "lost" ? "border-red-500 bg-red-500 text-white" : "border-amber-500 bg-amber-500 text-white"

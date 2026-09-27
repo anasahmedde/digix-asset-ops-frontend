@@ -812,7 +812,7 @@ export default function ProcurementPage() {
       <div className="flex gap-1 border-b border-border">
         {([
           { key: "orders", label: "Purchase Orders" },
-          { key: "requisitions", label: "To Procure" },
+          { key: "requisitions", label: "Procurement Requests" },
         ] as const).map((t) => (
           <button
             key={t.key}

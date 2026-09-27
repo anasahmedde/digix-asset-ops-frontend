@@ -8,6 +8,7 @@ import { Modal } from "@/components/ui/modal";
 import { Qty } from "@/components/ui/qty";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
+import { formatDate } from "@/lib/utils";
 import { useUser } from "@/lib/user-context";
 
 /** A stock item or unique product at or below its reorder level. */
@@ -22,6 +23,8 @@ interface LowStockRow {
   shortfall: number;
   unit_cost: string | null;
   open_request: { id: string; request_number: string; status: string; status_display: string; quantity: number; po_number: string | null } | null;
+  /** Procurement's last answer, when it sent a request back. */
+  last_decline?: { reason: string; at: string; by: string | null } | null;
 }
 
 const thClass = "px-5 py-3.5 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground";
@@ -73,7 +76,7 @@ export function LowStock({ onChanged }: { onChanged?: () => void }) {
         quantity: qty,
         reason: reason.trim(),
       });
-      toast.success(`Purchase requisition raised — ${qty} ${target.unit} of ${target.name} is now under Procurement › To Procure`);
+      toast.success(`Purchase requisition raised — ${qty} ${target.unit} of ${target.name} is now under Procurement › Procurement Requests`);
       setTarget(null);
       fetchRows();
       onChanged?.();
@@ -101,7 +104,7 @@ export function LowStock({ onChanged }: { onChanged?: () => void }) {
     <div className="space-y-5">
       <p className="text-sm text-muted-foreground">
         Stock items and unique products at or below their reorder level. Raise a reorder request here and it
-        goes to Procurement › To Procure to be put on a purchase order; it closes when the goods are received
+        goes to Procurement › Procurement Requests to be put on a purchase order; it closes when the goods are received
         into stock. Reorder levels are set on each component.
       </p>
 
@@ -135,7 +138,20 @@ export function LowStock({ onChanged }: { onChanged?: () => void }) {
                 {rows.map((r) => (
                   <tr key={`${r.kind}:${r.id}`} className="border-b border-border transition-colors hover:bg-secondary/30">
                     <td className={`${tdClass} whitespace-nowrap font-mono text-muted-foreground`}>{r.code}</td>
-                    <td className={`${tdClass} font-medium text-foreground`}>{r.name}</td>
+                    <td className={`${tdClass} font-medium text-foreground`}>
+                      {r.name}
+                      {/* Procurement refused the last request for this line;
+                          raising another without knowing why helps nobody. */}
+                      {r.last_decline && !r.open_request && (
+                        <span className="mt-0.5 block text-2xs font-normal text-amber-600">
+                          Sent back by Procurement: {r.last_decline.reason}
+                          <span className="text-muted-foreground">
+                            {r.last_decline.by ? ` · ${r.last_decline.by}` : ""}
+                            {r.last_decline.at ? ` · ${formatDate(r.last_decline.at)}` : ""}
+                          </span>
+                        </span>
+                      )}
+                    </td>
                     <td className={tdClass}>
                       <span className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-2xs font-medium ${r.kind === "unique" ? "bg-indigo-500/10 text-indigo-600" : "bg-secondary text-muted-foreground"}`}>
                         {r.kind === "unique" ? "Unique item" : "Generic stock"}
@@ -194,7 +210,7 @@ export function LowStock({ onChanged }: { onChanged?: () => void }) {
             <p className="text-xs text-muted-foreground">
               <span className="font-semibold text-foreground"><Qty value={target.on_hand} unit={target.unit} /></span> on hand against a
               reorder level of <span className="font-semibold text-foreground"><Qty value={target.reorder_level} unit={target.unit} /></span>.
-              The request goes to Procurement › To Procure to be put on a purchase order.
+              The request goes to Procurement › Procurement Requests to be put on a purchase order.
             </p>
             <div className="space-y-1.5">
               <label htmlFor="reorder_qty" className={labelClass}>Reorder quantity ({target.unit})</label>

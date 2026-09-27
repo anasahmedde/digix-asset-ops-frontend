@@ -1657,7 +1657,7 @@ export default function AssetsPage() {
                               ? "On order — it comes into stock when the delivery is received against the PO."
                               : d.project_name
                                 ? "Awaiting the project's Execution decision to procure it, then the PO in Procurement."
-                                : "Awaiting its purchase order in Procurement → To Procure."
+                                : "Awaiting its purchase order in Procurement → Procurement Requests."
                             : d.status === "in_stock"
                               ? "In stock — assign it to a site above to open its installation."
                               : ""}

@@ -31,6 +31,9 @@ interface RequestRow {
   asset_code: string | null;
   component_name: string | null;
   maintenance_title: string | null;
+  /** Preventive or corrective — what kind of work the parts are for. */
+  maintenance_type?: string | null;
+  asset_name?: string | null;
   /** The technician the job is assigned to — the only person who collects
    *  parts raised for it. */
   maintenance_assignee?: string | null;
@@ -276,6 +279,7 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                   <th className={thClass}>Issued</th>
                   <th className={thClass}>On Hand</th>
                   <th className={thClass}>Project / Asset</th>
+                  <th className={thClass}>For</th>
                   <th className={thClass}>Status</th>
                   <th className={thClass}>Actions</th>
                 </tr>
@@ -324,12 +328,32 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                         {/* The column asks for the project, so the project leads
                             and the asset it is for sits under it. */}
                         <span className="block text-foreground">
-                          {row.project_name ?? row.maintenance_title ?? "Not on a project"}
+                          {row.project_name ?? "Not on a project"}
                         </span>
                         {row.asset_code && (
                           <span className="block font-mono text-2xs text-muted-foreground">
-                            {row.asset_code}{row.component_name ? ` · ${row.component_name}` : ""}
+                            {row.asset_code}
+                            {row.asset_name ? <span className="font-sans"> · {row.asset_name}</span> : null}
                           </span>
+                        )}
+                      </td>
+                      <td className={tdClass}>
+                        {/* What the material is wanted for: a build line, or a
+                            maintenance job and the kind of work it is. */}
+                        {row.maintenance_title ? (
+                          <>
+                            <span className="block text-foreground">{row.maintenance_title}</span>
+                            <span className="block text-2xs text-muted-foreground">
+                              {row.maintenance_type ?? "Maintenance"}
+                            </span>
+                          </>
+                        ) : row.component_name ? (
+                          <>
+                            <span className="block text-foreground">{row.component_name}</span>
+                            <span className="block text-2xs text-muted-foreground">Build requirement</span>
+                          </>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
                         )}
                       </td>
                       <td className={tdClass}>
