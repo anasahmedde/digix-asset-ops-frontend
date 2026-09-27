@@ -292,13 +292,13 @@ const MANUAL_STATUSES = ["client_property", "decommissioned"];
 
 // What is actually moving the asset on, said plainly where the old dropdown was.
 const LIFECYCLE_SOURCE: Record<string, string> = {
-  procured: "It moves on its own: In Production when its parts are issued, In Stock when the build is finished.",
-  in_production: "It becomes In Stock on its own once every component is issued and every operation is finished.",
-  in_stock: "Assign it under Installation & Activation below — that opens the job on the Installation Tracker.",
-  assigned: "Installed is recorded by the technician finishing the checklist on the Installation Tracker.",
-  installed: "Active is recorded by the technician on site, with a photo, in the Installation Tracker.",
-  active: "Hand it to the client or retire it here — everything else follows the work.",
-  under_maintenance: "It returns to Active on its own when its maintenance job is completed.",
+  procured: "Moves to In Production when components are issued, and to In Stock when the build is complete.",
+  in_production: "Moves to In Stock once all components are issued and all operations are complete.",
+  in_stock: "Assign it under Installation & Activation below to open the installation job.",
+  assigned: "Marked Installed when the technician completes the installation checklist.",
+  installed: "Marked Active when the technician confirms on site with a photo.",
+  active: "Transfer to the client or decommission below. All other stages follow the work.",
+  under_maintenance: "Returns to Active when the maintenance job is completed, or decommission it below.",
 };
 
 function shortDate(iso: string | undefined) {
@@ -1317,14 +1317,14 @@ export default function AssetsPage() {
                       {canEdit && (
                         <div className="mt-4 rounded-lg border border-border bg-secondary/20 p-3">
                           <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                            Record manually
+                            Next stage
                           </p>
                           {/* The lifecycle follows the work: the build moves it
                               into stock, the tracker moves it through
                               installation, maintenance brings it back. Only the
                               two end states below are somebody's decision. */}
                           <p className="mb-2 text-2xs text-muted-foreground">
-                            {LIFECYCLE_SOURCE[d.status] ?? "The lifecycle follows the work — these two end states are the only ones anybody sets by hand."}
+                            {LIFECYCLE_SOURCE[d.status] ?? "Stages advance with the work. Client Property and Decommissioned are set here."}
                           </p>
                           {(d.allowed_transitions ?? []).filter((s) => MANUAL_STATUSES.includes(s)).length > 0 ? (
                             <>
@@ -1571,7 +1571,7 @@ export default function AssetsPage() {
                             </>
                           ) : (
                             <p className="text-xs text-muted-foreground">
-                              Nothing to record by hand from “{statusLabel(d.status)}”.
+                              No action required at this stage.
                             </p>
                           )}
                         </div>
