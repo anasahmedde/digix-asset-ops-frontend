@@ -487,7 +487,8 @@ export default function AssetsPage() {
   const [compSource, setCompSource] = useState<"generic" | "unique">("generic");
   const [compItemId, setCompItemId] = useState("");
   const [compUnitType, setCompUnitType] = useState("");
-  const [assetSource, setAssetSource] = useState("inhouse");
+  // Empty until chosen: registering an asset means saying how it is made.
+  const [assetSource, setAssetSource] = useState("");
   const [compEdit, setCompEdit] = useState<{ id: string; quantity: number } | null>(null);
   // Item 8: a new asset can start as a copy of an existing one.
   const [copyFrom, setCopyFrom] = useState("");
@@ -687,7 +688,7 @@ export default function AssetsPage() {
   }
 
   function openCreate() {
-    setAssetSource("inhouse");
+    setAssetSource("");
     setFormAssetType("");
     setAssignTechnician("");
     setAssignDue("");
@@ -1024,8 +1025,17 @@ export default function AssetsPage() {
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setSaving(true);
     const fd = new FormData(e.currentTarget);
+    const missing = [
+      !formAssetType && "an asset type",
+      !String(fd.get("display_name") ?? "").trim() && "a name",
+      !assetSource && "a manufacturing route",
+    ].filter(Boolean);
+    if (missing.length) {
+      toast.error(`Give the asset ${missing.join(", ")}`);
+      return;
+    }
+    setSaving(true);
     const payload: Record<string, unknown> = {
       // No serial here: the platform generates the asset code (and its
       // QR/barcode label), and the serial defaults to it.
@@ -2472,7 +2482,7 @@ export default function AssetsPage() {
                 { key: "operational", label: "Operational", value: devices.filter((d) => ["active", "installed"].includes(d.status)).length, tone: "emerald", active: filterValues.flag === "operational", onClick: () => toggleFlag("operational") },
                 { key: "in_stock", label: "In Stock", value: devices.filter((d) => d.status === "in_stock").length, tone: "default", active: filterValues.status === "in_stock", onClick: () => pickStatus("in_stock") },
                 { key: "maint", label: "Under Maintenance", value: devices.filter((d) => d.status === "under_maintenance").length, tone: "amber", active: filterValues.status === "under_maintenance", onClick: () => pickStatus("under_maintenance") },
-                { key: "warranty_expired", label: "Warranty Expired", value: devices.filter((d) => d.warranty_status === "expired").length, tone: "red", active: filterValues.flag === "warranty_expired", onClick: () => toggleFlag("warranty_expired") },
+                { key: "warranty_expired", label: "Warranty Expired", value: devices.filter((d) => d.warranty_status === "expired").length, tone: "red", active: filterValues.flag === "warranty_expired" || filterValues.warranty === "expired", onClick: () => toggleFlag("warranty_expired") },
               ]}
             />
             <SegmentBar
@@ -2662,11 +2672,12 @@ export default function AssetsPage() {
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <label htmlFor="asset_type" className={labelClass}>Asset Type</label>
+              <label htmlFor="asset_type" className={labelClass}>Asset Type *</label>
               {/* The list of types is maintained in Setup › Asset Types, so it
                   is chosen here, never invented on the registration form. */}
               <select
                 id="asset_type"
+                required
                 value={formAssetType}
                 onChange={(e) => setFormAssetType(e.target.value)}
                 className={inputClass}
@@ -2678,8 +2689,8 @@ export default function AssetsPage() {
               </select>
             </div>
             <div className="space-y-1.5">
-              <label htmlFor="display_name" className={labelClass}>Asset Name</label>
-              <input id="display_name" name="display_name" defaultValue={selected?.display_name ?? ""} className={inputClass} placeholder="e.g. Main entrance SMD wall" />
+              <label htmlFor="display_name" className={labelClass}>Asset Name *</label>
+              <input id="display_name" name="display_name" required defaultValue={selected?.display_name ?? ""} className={inputClass} placeholder="e.g. Main entrance SMD wall" />
             </div>
           </div>
 
@@ -2711,10 +2722,14 @@ export default function AssetsPage() {
               <select
                 id="source"
                 name="source"
+                required
                 value={assetSource}
                 onChange={(e) => setAssetSource(e.target.value)}
                 className={inputClass}
               >
+                {/* Chosen, not assumed: the route decides what the asset
+                    needs, so registering one means saying which. */}
+                <option value="">Select…</option>
                 <option value="inhouse">In-house Production — built from inventory components</option>
                 <option value="vendor_supplied">Vendor Supplied — installed by our technician</option>
                 <option value="vendor_turnkey">Vendor Supplied &amp; Installed — our technician oversees</option>
