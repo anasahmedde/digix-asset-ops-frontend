@@ -336,9 +336,13 @@ function LifecycleStepper({ status, stageDates, requiresProduction = true }: { s
           : "border-primary bg-primary/15 text-primary"
         : "border-border bg-card text-muted-foreground";
 
+  const detour = inMaintenance || !!stageDates.under_maintenance;
+
   return (
-    <div className="overflow-x-auto pb-1">
-      <ol className="flex min-w-max items-start">
+    <div className="overflow-x-auto pb-2">
+      {/* Room under the rail for the maintenance detour, only when there is
+          one to show. */}
+      <ol className={`flex min-w-max items-start ${detour ? "pb-12" : ""}`}>
         {TRACK_MAIN.map((stage, i) => {
           const reached = mainIdx >= 0 ? i <= mainIdx : !!stageDates[stage];
           const current = !inMaintenance && !ended && status === stage;
@@ -346,36 +350,42 @@ function LifecycleStepper({ status, stageDates, requiresProduction = true }: { s
           const isLast = i === TRACK_MAIN.length - 1;
           const filled = mainIdx >= 0 && i < mainIdx;
           return (
-            <li key={stage} className="relative flex w-[92px] flex-col items-center text-center">
-              <span
-                aria-hidden
-                className={`absolute left-1/2 top-[13px] w-full ${
-                  isLast ? "border-t-2 border-dashed border-border" : `h-0.5 ${filled ? "bg-primary" : "bg-border"}`
-                }`}
-              />
-              <span className="relative flex h-7 w-7 items-center justify-center">
+            <li key={stage} className="relative flex min-w-[104px] flex-1 flex-col items-center px-2 text-center">
+              {/* The line runs between circle centres, behind them. */}
+              {!isLast && (
+                <span
+                  aria-hidden
+                  className={`absolute left-1/2 top-[15px] -z-10 h-0.5 w-full ${filled ? "bg-primary" : "bg-border"}`}
+                />
+              )}
+              <span className="relative flex h-8 w-8 items-center justify-center">
                 {current && <span aria-hidden className="absolute inset-0 rounded-full bg-primary/25 motion-safe:animate-ping" />}
-                <span className={`relative flex h-7 w-7 items-center justify-center rounded-full border-2 text-2xs font-bold ${node(reached, current)}`}>
-                  {reached && !current ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : i + 1}
+                <span className={`relative flex h-8 w-8 items-center justify-center rounded-full border-2 text-2xs font-bold ${node(reached, current)}`}>
+                  {reached && !current ? <Check className="h-4 w-4" strokeWidth={3} /> : i + 1}
                 </span>
               </span>
-              <span className={`mt-1.5 text-2xs leading-tight ${current ? "font-semibold text-primary" : reached ? "font-medium text-foreground" : "text-muted-foreground"}`}>
+              <span className={`mt-2 whitespace-nowrap text-2xs leading-tight ${current ? "font-semibold text-primary" : reached ? "font-medium text-foreground" : "text-muted-foreground"}`}>
                 {label(stage)}
               </span>
-              <span className="text-2xs tabular-nums text-muted-foreground" title={stageDates[stage] ? new Date(stageDates[stage]).toLocaleString() : undefined}>
-                {reached && date ? date : " "}
-              </span>
+              {reached && date && (
+                <span
+                  className="mt-0.5 whitespace-nowrap text-2xs tabular-nums text-muted-foreground"
+                  title={stageDates[stage] ? new Date(stageDates[stage]).toLocaleString() : undefined}
+                >
+                  {date}
+                </span>
+              )}
 
-              {/* Maintenance: a detour hanging off Active. */}
-              {stage === "active" && (inMaintenance || stageDates.under_maintenance) && (
-                <span className="mt-1 flex flex-col items-center">
-                  <span aria-hidden className={`h-3 border-l-2 border-dashed ${inMaintenance ? "border-amber-500" : "border-border"}`} />
-                  <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-2xs font-semibold ring-1 ${
+              {/* Maintenance: a detour hanging below Active, clear of the rail. */}
+              {stage === "active" && detour && (
+                <span className="absolute left-1/2 top-9 flex -translate-x-1/2 flex-col items-center">
+                  <span aria-hidden className={`h-4 border-l-2 border-dashed ${inMaintenance ? "border-amber-500" : "border-border"}`} />
+                  <span className={`mt-1 whitespace-nowrap rounded-full px-2.5 py-1 text-2xs font-semibold ring-1 ${
                     inMaintenance ? "bg-amber-500/10 text-amber-600 ring-amber-500/30" : "bg-secondary text-muted-foreground ring-border"
                   }`}>
                     {inMaintenance ? "Under maintenance" : "Last maintenance"}
                   </span>
-                  <span className="mt-0.5 text-2xs tabular-nums text-muted-foreground">
+                  <span className="mt-0.5 whitespace-nowrap text-2xs tabular-nums text-muted-foreground">
                     {inMaintenance ? `since ${shortDate(stageDates.under_maintenance) ?? "—"}` : shortDate(stageDates.under_maintenance)}
                   </span>
                 </span>
@@ -389,17 +399,23 @@ function LifecycleStepper({ status, stageDates, requiresProduction = true }: { s
           const current = status === stage;
           const reached = current || !!stageDates[stage];
           return (
-            <li key={stage} className="relative flex w-[92px] flex-col items-center text-center">
-              {i === 0 && <span aria-hidden className="absolute left-1/2 top-[13px] w-full border-t-2 border-dashed border-border" />}
-              <span className={`relative flex h-7 w-7 items-center justify-center rounded-full border-2 border-dashed text-2xs font-bold ${node(reached, false, "slate")}`}>
-                {reached ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : "•"}
+            <li key={stage} className="relative flex min-w-[104px] flex-1 flex-col items-center px-2 text-center">
+              {/* Dashed from the last live stage: where the asset may end up. */}
+              <span
+                aria-hidden
+                className="absolute right-1/2 top-[15px] -z-10 w-full border-t-2 border-dashed border-border"
+              />
+              <span className={`relative flex h-8 w-8 items-center justify-center rounded-full border-2 border-dashed text-2xs font-bold ${node(reached, false, "slate")}`}>
+                {reached ? <Check className="h-4 w-4" strokeWidth={3} /> : "•"}
               </span>
-              <span className={`mt-1.5 text-2xs leading-tight ${current ? "font-semibold text-foreground" : "text-muted-foreground"}`}>
+              <span className={`mt-2 whitespace-nowrap text-2xs leading-tight ${current ? "font-semibold text-foreground" : "text-muted-foreground"}`}>
                 {label(stage)}
               </span>
-              <span className="text-2xs tabular-nums text-muted-foreground">
-                {reached ? shortDate(stageDates[stage]) ?? " " : " "}
-              </span>
+              {reached && shortDate(stageDates[stage]) && (
+                <span className="mt-0.5 whitespace-nowrap text-2xs tabular-nums text-muted-foreground">
+                  {shortDate(stageDates[stage])}
+                </span>
+              )}
             </li>
           );
         })}
