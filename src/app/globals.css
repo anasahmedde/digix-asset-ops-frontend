@@ -254,6 +254,42 @@
 .org-level:not(.org-root) > .org-node:last-child:not(:only-child)::after {
   border-top-color: transparent;
 }
+/* A team of operatives under one supervisor: a list hanging off the stem,
+   each row tied to it by its own short elbow. */
+.org-stack {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 28px;
+  margin-left: 14px;
+  padding-left: 18px;
+  border-left: 1.5px solid hsl(var(--border));
+  list-style: none;
+}
+.org-stack > li {
+  position: relative;
+}
+.org-stack > li::before {
+  content: "";
+  position: absolute;
+  left: -18px;
+  top: 50%;
+  width: 18px;
+  height: 0;
+  border-top: 1.5px solid hsl(var(--border));
+}
+/* The stack hangs from the card above it, like a row would. */
+.org-stack::before {
+  content: "";
+  position: absolute;
+  top: -28px;
+  left: -1.5px;
+  height: 28px;
+  border-left: 1.5px solid hsl(var(--border));
+}
+
 /* The stem leaving a card on its way down to that bar. */
 .org-children::before {
   content: "";

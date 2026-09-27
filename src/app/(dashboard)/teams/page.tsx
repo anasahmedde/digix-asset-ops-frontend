@@ -1,10 +1,11 @@
 "use client";
 
-import { Pencil, Plus, RotateCcw, Users, X } from "lucide-react";
+import { Pencil, Plus, RotateCcw, ShieldCheck, Users, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Organogram } from "@/components/teams/organogram";
+import { PermissionsDialog } from "@/components/teams/permissions-dialog";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { Tabs } from "@/components/ui/tabs";
 import api from "@/lib/api";
@@ -73,6 +74,8 @@ export default function TeamsPage() {
   const [filterValues, setFilterValues] = useState<Record<string, string>>({ role: "", status: "" });
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState("people");
+  // Whose rights are being looked at, if anyone's.
+  const [permissionsFor, setPermissionsFor] = useState<User | null>(null);
   const [cnicInvalid, setCnicInvalid] = useState(false);
 
   const fetchUsers = useCallback(async () => {
@@ -335,8 +338,16 @@ export default function TeamsPage() {
                       </div>
                     </td>
                     <td className={tdClass} onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => setPermissionsFor(user)}
+                          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-primary"
+                          title={`What ${user.full_name || user.username} may do`}
+                        >
+                          <ShieldCheck className="h-3.5 w-3.5" />
+                        </button>
                       {isAdmin ? (
-                        <div className="flex items-center gap-1">
+                        <>
                           <button onClick={() => openEdit(user)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground" title="Edit user">
                             <Pencil className="h-3.5 w-3.5" />
                           </button>
@@ -346,10 +357,9 @@ export default function TeamsPage() {
                           <button onClick={() => toggleActive(user)} className={`text-xs font-medium transition-colors ${user.is_active ? "text-red-400/70 hover:text-red-400" : "text-emerald-400/70 hover:text-emerald-400"}`}>
                             {user.is_active ? "Deactivate" : "Activate"}
                           </button>
-                        </div>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      )}
+                        </>
+                      ) : null}
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -505,6 +515,16 @@ export default function TeamsPage() {
             )}
           </div>
         </div>
+      )}
+
+      {permissionsFor && (
+        <PermissionsDialog
+          userId={permissionsFor.id}
+          userName={permissionsFor.full_name || permissionsFor.username}
+          roleLabel={ROLES.find((r) => r.value === permissionsFor.role)?.label ?? permissionsFor.role}
+          onClose={() => setPermissionsFor(null)}
+          onSaved={fetchUsers}
+        />
       )}
     </div>
   );
