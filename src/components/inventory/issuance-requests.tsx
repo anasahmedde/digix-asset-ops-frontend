@@ -352,6 +352,10 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                             <span className="block text-foreground">{row.component_name}</span>
                             <span className="block text-2xs text-muted-foreground">Build requirement</span>
                           </>
+                        ) : row.purpose ? (
+                          // A job that has since been closed out or deleted
+                          // still said what its material was for.
+                          <span className="block text-muted-foreground">{row.purpose}</span>
                         ) : (
                           <span className="text-muted-foreground">—</span>
                         )}
