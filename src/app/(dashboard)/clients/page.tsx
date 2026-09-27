@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { CopyButton } from "@/components/ui/copy-button";
+import { Pagination, pageSlice } from "@/components/ui/pagination";
 import { FilterBar } from "@/components/ui/filter-bar";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
@@ -33,6 +34,7 @@ export default function ClientsPage() {
   const canEdit = canWrite("clients");
 
   const [clients, setClients] = useState<Client[]>([]);
+  const [clientPage, setClientPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
   const [selected, setSelected] = useState<Client | null>(null);
@@ -166,7 +168,7 @@ export default function ClientsPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((c) => (
+                {pageSlice(filtered, clientPage).map((c) => (
                   <tr key={c.id} onClick={() => { setSelected(c); setModalMode("edit"); }} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
                     <td className={`${tdClass} font-medium text-foreground`}>
                       <span className="inline-flex items-center gap-1">
@@ -201,6 +203,7 @@ export default function ClientsPage() {
                 ))}
               </tbody>
             </table>
+            <Pagination page={clientPage} total={filtered.length} onPage={setClientPage} noun="clients" />
           </div>
         </div>
       );

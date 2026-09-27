@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { ComponentWarranties } from "@/components/warranties/component-warranties";
 import { WarrantyClaims } from "@/components/warranties/warranty-claims";
 import { CopyButton } from "@/components/ui/copy-button";
+import { Pagination, pageSlice } from "@/components/ui/pagination";
 import { Modal } from "@/components/ui/modal";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { SearchSelect } from "@/components/ui/search-select";
@@ -148,6 +149,7 @@ export default function WarrantiesPage() {
   const seesBoth = !clientSideOnly && !supplierSideOnly;
   const router = useRouter();
   const [warrantySide, setWarrantySide] = useState<WarrantySide>(clientSideOnly ? "client" : "supplier");
+  const [warrantyPage, setWarrantyPage] = useState(1);
   // The warranty being extended, if the Extend dialog is open.
   const [extendFor, setExtendFor] = useState<Warranty | null>(null);
   const [extending, setExtending] = useState(false);
@@ -465,7 +467,7 @@ export default function WarrantiesPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((w) => (
+                {pageSlice(filtered, warrantyPage).map((w) => (
                   <tr
                     key={w.id}
                     onClick={() => { setSelected(w); setModalMode("edit"); }}
@@ -553,6 +555,7 @@ export default function WarrantiesPage() {
                 ))}
               </tbody>
             </table>
+            <Pagination page={warrantyPage} total={filtered.length} onPage={setWarrantyPage} noun="warranties" />
           </div>
         </div>
       );

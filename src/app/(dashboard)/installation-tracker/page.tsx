@@ -24,6 +24,7 @@ import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
 import { SegmentBar, StatTiles } from "@/components/ui/analytics-strip";
+import { Pagination, pageSlice } from "@/components/ui/pagination";
 import { CopyButton } from "@/components/ui/copy-button";
 import { DeviceImage } from "@/components/ui/device-image";
 import { Modal } from "@/components/ui/modal";
@@ -305,6 +306,7 @@ function exportCsv(rows: InstallationListItem[]) {
 export default function InstallationTrackerPage() {
   const { user, canWrite } = useUser();
   const [installations, setInstallations] = useState<InstallationListItem[]>([]);
+  const [installPage, setInstallPage] = useState(1);
   const [selected, setSelected] = useState<Installation | null>(null);
   const [documents, setDocuments] = useState<RelatedDocument[]>([]);
   const [loading, setLoading] = useState(true);
@@ -2036,7 +2038,7 @@ export default function InstallationTrackerPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((inst) => {
+                {pageSlice(filtered, installPage).map((inst) => {
                   const rowOverdue = inst.due_date && !inst.completed_at && new Date(inst.due_date) < new Date();
                   return (
                     <tr
@@ -2122,6 +2124,7 @@ export default function InstallationTrackerPage() {
                 })}
               </tbody>
             </table>
+            <Pagination page={installPage} total={filtered.length} onPage={setInstallPage} noun="installations" />
           </div>
         </div>
       )}

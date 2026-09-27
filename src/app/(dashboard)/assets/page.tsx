@@ -7,6 +7,7 @@ import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import { SegmentBar, StatTiles } from "@/components/ui/analytics-strip";
+import { Pagination, pageSlice } from "@/components/ui/pagination";
 import { ProductionRoute, type ProductionStep } from "@/components/assets/production-route";
 import { Timeline, type TimelineItem, type TimelineTone } from "@/components/ui/timeline";
 import { CopyButton } from "@/components/ui/copy-button";
@@ -187,6 +188,8 @@ function vendorContact(v?: VendorOption, full = false): string {
 }
 
 interface AssetComponent {
+  /** The units actually fitted, by serial — a line for three takes three. */
+  fitted_serials?: string[];
   id: string;
   device: string;
   name: string;
@@ -355,7 +358,7 @@ function LifecycleStepper({ status, stageDates, requiresProduction = true }: { s
               {!isLast && (
                 <span
                   aria-hidden
-                  className={`absolute left-1/2 top-[15px] -z-10 h-0.5 w-full ${filled ? "bg-primary" : "bg-border"}`}
+                  className={`absolute left-1/2 top-[15px] h-0.5 w-full ${filled ? "bg-primary" : "bg-border"}`}
                 />
               )}
               <span className="relative flex h-8 w-8 items-center justify-center">
@@ -378,7 +381,7 @@ function LifecycleStepper({ status, stageDates, requiresProduction = true }: { s
 
               {/* Maintenance: a detour hanging below Active, clear of the rail. */}
               {stage === "active" && detour && (
-                <span className="absolute left-1/2 top-9 flex -translate-x-1/2 flex-col items-center">
+                <span className="absolute left-1/2 top-full flex -translate-x-1/2 flex-col items-center">
                   <span aria-hidden className={`h-4 border-l-2 border-dashed ${inMaintenance ? "border-amber-500" : "border-border"}`} />
                   <span className={`mt-1 whitespace-nowrap rounded-full px-2.5 py-1 text-2xs font-semibold ring-1 ${
                     inMaintenance ? "bg-amber-500/10 text-amber-600 ring-amber-500/30" : "bg-secondary text-muted-foreground ring-border"
@@ -403,7 +406,7 @@ function LifecycleStepper({ status, stageDates, requiresProduction = true }: { s
               {/* Dashed from the last live stage: where the asset may end up. */}
               <span
                 aria-hidden
-                className="absolute right-1/2 top-[15px] -z-10 w-full border-t-2 border-dashed border-border"
+                className="absolute right-1/2 top-[15px] w-full border-t-2 border-dashed border-border"
               />
               <span className={`relative flex h-8 w-8 items-center justify-center rounded-full border-2 border-dashed text-2xs font-bold ${node(reached, false, "slate")}`}>
                 {reached ? <Check className="h-4 w-4" strokeWidth={3} /> : "•"}
@@ -493,6 +496,7 @@ export default function AssetsPage() {
   const canEdit = canWrite("devices");
 
   const [devices, setDevices] = useState<Device[]>([]);
+  const [assetPage, setAssetPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
   const [selected, setSelected] = useState<DeviceDetail | null>(null);
@@ -1685,7 +1689,14 @@ export default function AssetsPage() {
                                 <tr key={cmp.id} className="border-b border-border/60 last:border-0">
                                   <td className="px-3 py-2 font-medium text-foreground">{cmp.name}</td>
                                   <td className="px-3 py-2 text-muted-foreground">{cmp.component_type || "—"}</td>
-                                  <td className="px-3 py-2 font-mono text-muted-foreground">{cmp.serial_number || "—"}</td>
+                                  <td className="px-3 py-2 font-mono text-muted-foreground">
+                                    {/* The particular units in this asset. */}
+                                    {(cmp.fitted_serials ?? []).length > 0
+                                      ? cmp.fitted_serials!.map((sn) => (
+                                          <span key={sn} className="block text-foreground">{sn}</span>
+                                        ))
+                                      : cmp.serial_number || "—"}
+                                  </td>
                                   <td className="px-3 py-2 text-foreground">
                                     {compEdit?.id === cmp.id ? (
                                       <input
@@ -2585,7 +2596,7 @@ export default function AssetsPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((d) => (
+                {pageSlice(filtered, assetPage).map((d) => (
                   <tr key={d.id} onClick={() => openDetail(d)} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
                     {canEdit && (
                       <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
@@ -2645,6 +2656,7 @@ export default function AssetsPage() {
                 ))}
               </tbody>
             </table>
+            <Pagination page={assetPage} total={filtered.length} onPage={setAssetPage} noun="assets" />
           </div>
         </div>
       )}

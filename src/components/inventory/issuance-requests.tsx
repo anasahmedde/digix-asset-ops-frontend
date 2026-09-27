@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { Modal } from "@/components/ui/modal";
+import { Pagination, pageSlice } from "@/components/ui/pagination";
 import { Qty } from "@/components/ui/qty";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
@@ -71,6 +72,7 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
   const canIssue = user != null && STORE_ROLES.includes(user.role);
 
   const [rows, setRows] = useState<RequestRow[]>([]);
+  const [requestPage, setRequestPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
@@ -279,7 +281,7 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((row) => {
+                {pageSlice(filtered, requestPage).map((row) => {
                   const short = (row.available_quantity ?? 0) < row.outstanding_quantity;
                   const settled = row.status === "fulfilled" || row.status === "cancelled";
                   return (
@@ -386,6 +388,7 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                 })}
               </tbody>
             </table>
+            <Pagination page={requestPage} total={filtered.length} onPage={setRequestPage} noun="requests" />
           </div>
         </div>
       )}

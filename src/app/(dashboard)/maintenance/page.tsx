@@ -7,6 +7,7 @@ import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import { FilterBar } from "@/components/ui/filter-bar";
+import { Pagination, pageSlice } from "@/components/ui/pagination";
 import { MultiSelect } from "@/components/ui/multi-select";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
@@ -144,6 +145,7 @@ export default function MaintenancePage() {
   const { canWrite } = useUser();
   const canEdit = canWrite("maintenance");
   const [schedules, setSchedules] = useState<MaintenanceSchedule[]>([]);
+  const [jobPage, setJobPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
   const [selected, setSelected] = useState<MaintenanceSchedule | null>(null);
@@ -688,7 +690,7 @@ export default function MaintenancePage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((s) => (
+                  {pageSlice(filtered, jobPage).map((s) => (
                     <tr
                       key={s.id}
                       onClick={() => openDetail(s.id)}
@@ -800,6 +802,7 @@ export default function MaintenancePage() {
                   ))}
                 </tbody>
               </table>
+              <Pagination page={jobPage} total={filtered.length} onPage={setJobPage} noun="jobs" />
             </div>
           </div>
         );

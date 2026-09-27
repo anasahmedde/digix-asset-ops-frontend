@@ -36,6 +36,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import { SegmentBar, StatTiles } from "@/components/ui/analytics-strip";
+import { Pagination, pageSlice } from "@/components/ui/pagination";
 import { CopyButton } from "@/components/ui/copy-button";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { ProgressStepper } from "@/components/ui/progress-stepper";
@@ -1299,6 +1300,7 @@ export default function TicketsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [tickets, setTickets] = useState<TicketItem[]>([]);
+  const [ticketPage, setTicketPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
   const [selected, setSelected] = useState<TicketItem | null>(null);
@@ -1662,7 +1664,7 @@ export default function TicketsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((t) => (
+                  {pageSlice(filtered, ticketPage).map((t) => (
                     <tr key={t.id} onClick={() => openDetail(t)} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
                       <td className={`${tdClass} whitespace-nowrap font-medium text-primary`}>
                         <span className="inline-flex items-center gap-1">
@@ -1712,6 +1714,7 @@ export default function TicketsPage() {
                   ))}
                 </tbody>
               </table>
+              <Pagination page={ticketPage} total={filtered.length} onPage={setTicketPage} noun="tickets" />
             </div>
           </div>
         );

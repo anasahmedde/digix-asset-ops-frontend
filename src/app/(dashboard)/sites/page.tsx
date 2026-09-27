@@ -7,6 +7,7 @@ import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import { ContactsEditor } from "@/components/ui/contacts-editor";
+import { Pagination, pageSlice } from "@/components/ui/pagination";
 import { CopyButton } from "@/components/ui/copy-button";
 import { FilterBar } from "@/components/ui/filter-bar";
 import api from "@/lib/api";
@@ -52,6 +53,7 @@ export default function SitesPage() {
   const canEdit = canWrite("sites");
 
   const [sites, setSites] = useState<Site[]>([]);
+  const [sitePage, setSitePage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
   const [selected, setSelected] = useState<SiteDetail | null>(null);
@@ -260,7 +262,7 @@ export default function SitesPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((s) => (
+                {pageSlice(filtered, sitePage).map((s) => (
                   <tr key={s.id} onClick={() => openEdit(s)} className="border-b border-border/30 cursor-pointer transition-colors hover:bg-secondary/30">
                     <td className={`${tdClass} font-medium text-foreground`}>
                       <span className="inline-flex items-center gap-1">
@@ -299,6 +301,7 @@ export default function SitesPage() {
                 ))}
               </tbody>
             </table>
+            <Pagination page={sitePage} total={filtered.length} onPage={setSitePage} noun="sites" />
           </div>
         </div>
       );

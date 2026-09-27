@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { ContactsEditor } from "@/components/ui/contacts-editor";
+import { Pagination, pageSlice } from "@/components/ui/pagination";
 import { FilterBar } from "@/components/ui/filter-bar";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
@@ -34,6 +35,7 @@ export default function SuppliersPage() {
   const { canWrite } = useUser();
   const canEdit = canWrite("suppliers");
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [vendorPage, setVendorPage] = useState(1);
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
@@ -171,7 +173,7 @@ export default function SuppliersPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((s) => (
+                {pageSlice(filtered, vendorPage).map((s) => (
                   <tr key={s.id} onClick={() => { setSelected(s); setModalMode("edit"); }} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
                     <td className={`${tdClass} font-medium text-foreground`}>{s.name}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{s.code}</td>
@@ -201,6 +203,7 @@ export default function SuppliersPage() {
                 ))}
               </tbody>
             </table>
+            <Pagination page={vendorPage} total={filtered.length} onPage={setVendorPage} noun="vendors" />
           </div>
         </div>
       );

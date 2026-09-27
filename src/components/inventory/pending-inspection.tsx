@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Modal } from "@/components/ui/modal";
+import { Pagination, pageSlice } from "@/components/ui/pagination";
 import { Qty } from "@/components/ui/qty";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
@@ -64,6 +65,7 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
   const router = useRouter();
 
   const [lines, setLines] = useState<ReceiptLine[]>([]);
+  const [receivingPage, setReceivingPage] = useState(1);
   const [materialTypes, setMaterialTypes] = useState<Ref[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -282,7 +284,7 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
                 </tr>
               </thead>
               <tbody>
-                {lines.map((line) => (
+                {pageSlice(lines, receivingPage).map((line) => (
                   <tr key={line.id} className="border-b border-border transition-colors hover:bg-secondary/30">
                     <td className={`${tdClass} whitespace-nowrap font-mono text-foreground`}>{line.grn_number ?? "—"}</td>
                     <td className={tdClass}>
@@ -344,6 +346,7 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
                 ))}
               </tbody>
             </table>
+            <Pagination page={receivingPage} total={lines.length} onPage={setReceivingPage} noun="lines" />
           </div>
         </div>
       )}

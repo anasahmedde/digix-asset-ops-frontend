@@ -5,6 +5,7 @@ import { Clock, Fingerprint, LogOut, MapPin, Users } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { Pagination, pageSlice } from "@/components/ui/pagination";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { formatDateTime } from "@/lib/utils";
@@ -40,6 +41,7 @@ const selectClass = "h-9 rounded-lg border border-border bg-card px-3 pr-8 text-
 
 export default function AttendancePage() {
   const [records, setRecords] = useState<AttendanceRow[]>([]);
+  const [recordPage, setRecordPage] = useState(1);
   const [users, setUsers] = useState<UserOpt[]>([]);
   const [summary, setSummary] = useState({ count: 0, currently_in: 0 });
   const [loading, setLoading] = useState(true);
@@ -148,7 +150,7 @@ export default function AttendancePage() {
                 </tr>
               </thead>
               <tbody>
-                {records.map((r) => (
+                {pageSlice(records, recordPage).map((r) => (
                   <tr key={r.id} className="border-b border-border transition-colors hover:bg-secondary/30">
                     <td className={`${tdClass} font-medium text-foreground`}>{r.user_name}</td>
                     <td className={tdClass}>
@@ -170,6 +172,7 @@ export default function AttendancePage() {
                 ))}
               </tbody>
             </table>
+            <Pagination page={recordPage} total={records.length} onPage={setRecordPage} noun="records" />
           </div>
         </div>
       )}

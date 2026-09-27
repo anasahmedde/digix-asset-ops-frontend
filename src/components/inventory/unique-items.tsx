@@ -1,11 +1,13 @@
 "use client";
 
 import { ChevronDown, ChevronRight, Fingerprint, Pencil, Trash2, X } from "lucide-react";
+import Link from "next/link";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { CopyButton } from "@/components/ui/copy-button";
 import { FilterBar } from "@/components/ui/filter-bar";
+import { Pagination, pageSlice } from "@/components/ui/pagination";
 import { Modal } from "@/components/ui/modal";
 import { Qty } from "@/components/ui/qty";
 import api from "@/lib/api";
@@ -51,6 +53,8 @@ interface UnitRow {
   supplier_name: string | null;
   warranty_state: "none" | "active" | "expired";
   warranty_end: string | null;
+  /** Where the unit ended up, once it was fitted into an asset's build. */
+  fitted_to_asset?: { device: string; asset_code: string; asset_name: string; component: string } | null;
   /** Free text on the unit; opening-stock units carry "Opening stock." */
   notes?: string;
 }
@@ -79,6 +83,7 @@ export function UniqueItems({ openTick = 0 }: { openTick?: number }) {
   const canEdit = canWrite("inventory");
 
   const [products, setProducts] = useState<UniqueProduct[]>([]);
+  const [uniquePage, setUniquePage] = useState(1);
   const [categories, setCategories] = useState<Ref[]>([]);
   const [brands, setBrands] = useState<Ref[]>([]);
   const [uoms, setUoms] = useState<UnitRef[]>([]);
@@ -287,7 +292,7 @@ export function UniqueItems({ openTick = 0 }: { openTick?: number }) {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((p) => (
+                {pageSlice(filtered, uniquePage).map((p) => (
                   <Fragment key={p.id}>
                     <tr
                       onClick={() => toggleUnits(p.id)}
@@ -359,6 +364,7 @@ export function UniqueItems({ openTick = 0 }: { openTick?: number }) {
                                   <th className="py-1.5 font-medium">Batch</th>
                                   <th className="py-1.5 font-medium">Source</th>
                                   <th className="py-1.5 font-medium">Warranty</th>
+                                  <th className="py-1.5 font-medium">Where</th>
                                 </tr>
                               </thead>
                               <tbody>
@@ -406,6 +412,20 @@ export function UniqueItems({ openTick = 0 }: { openTick?: number }) {
                                         {u.warranty_state === "active" ? `till ${u.warranty_end}` : u.warranty_state === "expired" ? "Expired" : "None"}
                                       </span>
                                     </td>
+                                    <td className="py-1.5 text-muted-foreground">
+                                      {/* A unit that left the shelf says where it went. */}
+                                      {u.fitted_to_asset ? (
+                                        <Link
+                                          href={`/assets?device=${u.fitted_to_asset.device}`}
+                                          className="font-mono text-primary hover:underline"
+                                        >
+                                          {u.fitted_to_asset.asset_code}
+                                          <span className="block font-sans text-2xs text-muted-foreground">
+                                            {u.fitted_to_asset.component}
+                                          </span>
+                                        </Link>
+                                      ) : u.status === "in_stock" ? "On the shelf" : "—"}
+                                    </td>
                                   </tr>
                                 ))}
                               </tbody>
@@ -424,6 +444,7 @@ export function UniqueItems({ openTick = 0 }: { openTick?: number }) {
                 ))}
               </tbody>
             </table>
+            <Pagination page={uniquePage} total={filtered.length} onPage={setUniquePage} noun="components" />
           </div>
         </div>
       )}
