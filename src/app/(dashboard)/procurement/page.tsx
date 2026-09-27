@@ -534,7 +534,11 @@ export default function ProcurementPage() {
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!form.supplier) {
-      toast.error("Please select a supplier");
+      toast.error("Choose the supplier to buy from");
+      return;
+    }
+    if (!form.expected_delivery) {
+      toast.error("Say when the goods are needed by");
       return;
     }
     const missingDescription = form.items.findIndex((it) => !isRowEmpty(it) && !it.description.trim());
@@ -1047,7 +1051,7 @@ export default function ProcurementPage() {
                   </div>
                 </div>
                 <div className="space-y-1.5">
-                  <label htmlFor="supplier" className={labelClass}>Supplier</label>
+                  <label htmlFor="supplier" className={labelClass}>Supplier *</label>
                   <select id="supplier" required value={form.supplier} onChange={(e) => setForm({ ...form, supplier: e.target.value })} className={inputClass}>
                     <option value="">Select supplier…</option>
                     {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
@@ -1081,8 +1085,8 @@ export default function ProcurementPage() {
                     <input id="order_date" type="text" value={form.order_date || "Set when the Group Head approves the order"} disabled className={`${inputClass} bg-secondary/40 text-muted-foreground`} />
                   </div>
                   <div className="space-y-1.5">
-                    <label htmlFor="expected_delivery" className={labelClass}>Required Delivery</label>
-                    <input id="expected_delivery" type="date" value={form.expected_delivery} onChange={(e) => setForm({ ...form, expected_delivery: e.target.value })} className={inputClass} />
+                    <label htmlFor="expected_delivery" className={labelClass}>Required Delivery *</label>
+                    <input id="expected_delivery" type="date" required value={form.expected_delivery} onChange={(e) => setForm({ ...form, expected_delivery: e.target.value })} className={inputClass} />
                   </div>
                 </div>
               </div>
@@ -1090,7 +1094,7 @@ export default function ProcurementPage() {
               {/* Line items */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <label className={labelClass}>Line Items</label>
+                  <label className={labelClass}>Line Items *</label>
                   <button type="button" onClick={addItem} className="text-xs font-medium text-primary">+ Add line</button>
                 </div>
                 {form.items.map((it, idx) => (

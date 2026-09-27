@@ -68,7 +68,8 @@ export default function ClientsPage() {
     const fd = new FormData(e.currentTarget);
     const payload = {
       name: fd.get("name"),
-      code: fd.get("code"),
+      // The code is the platform's to issue; an edit keeps the one it has.
+      ...(modalMode === "edit" && selected ? { code: selected.code } : {}),
       contact_person: fd.get("contact_person"),
       contact_email: fd.get("contact_email"),
       contact_phone: fd.get("contact_phone"),
@@ -226,7 +227,15 @@ export default function ClientsPage() {
                 </div>
                 <div className="space-y-1.5">
                   <label htmlFor="code" className={labelClass}>Client Code</label>
-                  <input id="code" name="code" required defaultValue={selected?.code ?? ""} className={inputClass} placeholder="e.g. ACME-001" />
+                  {modalMode === "create" ? (
+                    <p className={`${inputClass} flex items-center bg-secondary/30 text-muted-foreground`}>
+                      Generated on save
+                    </p>
+                  ) : (
+                    <p className={`${inputClass} flex items-center bg-secondary/40 font-mono text-foreground`}>
+                      {selected?.code}
+                    </p>
+                  )}
                 </div>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">

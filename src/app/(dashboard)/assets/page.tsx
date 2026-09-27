@@ -80,6 +80,8 @@ interface DeviceDetail extends Device {
   width_in: string | null;
   depth_in: string | null;
   diagonal_inches: string | null;
+  /** What the four sizes above were measured in. */
+  dimension_unit?: string;
   specifications: Record<string, unknown>;
   hardware_revision: string;
   purchase_date: string | null;
@@ -509,6 +511,9 @@ export default function AssetsPage() {
   const [compUnitType, setCompUnitType] = useState("");
   // Empty until chosen: registering an asset means saying how it is made.
   const [assetSource, setAssetSource] = useState("");
+  // A joiner works in feet, a screen is quoted in inches: the sizes are
+  // stored as entered and carry the unit they were measured in.
+  const [dimensionUnit, setDimensionUnit] = useState("in");
   const [compEdit, setCompEdit] = useState<{ id: string; quantity: number } | null>(null);
   // Item 8: a new asset can start as a copy of an existing one.
   const [copyFrom, setCopyFrom] = useState("");
@@ -709,6 +714,7 @@ export default function AssetsPage() {
 
   function openCreate() {
     setAssetSource("");
+    setDimensionUnit("in");
     setFormAssetType("");
     setAssignTechnician("");
     setAssignDue("");
@@ -730,6 +736,7 @@ export default function AssetsPage() {
       setAdditionalClients(data.clients ?? []);
       // Seed the assignment controls from whichever assignee the asset has.
       setAssetSource(data.source ?? "inhouse");
+      setDimensionUnit(data.dimension_unit ?? "in");
       setFormAssetType(data.asset_type ?? "");
       setAssignTechnician(data.assigned_technician ?? "");
       setAssignVendorId(data.assigned_vendor ?? "");
@@ -1067,6 +1074,7 @@ export default function AssetsPage() {
       width_in: fd.get("width_in") || null,
       depth_in: fd.get("depth_in") || null,
       diagonal_inches: fd.get("diagonal_inches") || null,
+      dimension_unit: dimensionUnit,
       notes: fd.get("notes"),
       // Only a turnkey job has an installing vendor; both vendor routes have a
       // supplying one, and an in-house build has neither.
@@ -1298,7 +1306,16 @@ export default function AssetsPage() {
                     <MetaField label="Installation Date" value={d.installation_date ? formatDate(d.installation_date) : null} />
                     <MetaField label="Location" value={d.site_name} highlight />
                     <MetaField label="Status" value={d.status_display ?? statusLabel(d.status)} />
-                    <MetaField label="Dimensions" value={d.length_in && d.width_in ? `${d.length_in} × ${d.width_in}${d.depth_in ? ` × ${d.depth_in}` : ""} in` : d.diagonal_inches ? `${d.diagonal_inches}"` : null} />
+                    <MetaField
+                      label="Dimensions"
+                      value={
+                        d.length_in && d.width_in
+                          ? `${d.length_in} × ${d.width_in}${d.depth_in ? ` × ${d.depth_in}` : ""} ${d.dimension_unit ?? "in"}`
+                          : d.diagonal_inches
+                            ? `${d.diagonal_inches} ${d.dimension_unit ?? "in"} diagonal`
+                            : null
+                      }
+                    />
                   </div>
                 </div>
               </div>
@@ -2725,19 +2742,34 @@ export default function AssetsPage() {
 
           <div className="grid gap-4 sm:grid-cols-4">
             <div className="space-y-1.5">
-              <label htmlFor="length_in" className={labelClass}>Length (in)</label>
+              <label htmlFor="dimension_unit" className={labelClass}>Measured in</label>
+              <select
+                id="dimension_unit"
+                value={dimensionUnit}
+                onChange={(e) => setDimensionUnit(e.target.value)}
+                className={inputClass}
+              >
+                <option value="in">Inches (in)</option>
+                <option value="cm">Centimetres (cm)</option>
+                <option value="mm">Millimetres (mm)</option>
+                <option value="ft">Feet (ft)</option>
+                <option value="m">Metres (m)</option>
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="length_in" className={labelClass}>Length ({dimensionUnit})</label>
               <input id="length_in" name="length_in" type="number" step="0.01" defaultValue={selected?.length_in ?? ""} className={inputClass} />
             </div>
             <div className="space-y-1.5">
-              <label htmlFor="width_in" className={labelClass}>Width (in)</label>
+              <label htmlFor="width_in" className={labelClass}>Width ({dimensionUnit})</label>
               <input id="width_in" name="width_in" type="number" step="0.01" defaultValue={selected?.width_in ?? ""} className={inputClass} />
             </div>
             <div className="space-y-1.5">
-              <label htmlFor="depth_in" className={labelClass}>Depth (in)</label>
+              <label htmlFor="depth_in" className={labelClass}>Depth ({dimensionUnit})</label>
               <input id="depth_in" name="depth_in" type="number" step="0.01" defaultValue={selected?.depth_in ?? ""} className={inputClass} />
             </div>
             <div className="space-y-1.5">
-              <label htmlFor="diagonal_inches" className={labelClass}>Diagonal (in)</label>
+              <label htmlFor="diagonal_inches" className={labelClass}>Diagonal ({dimensionUnit})</label>
               <input id="diagonal_inches" name="diagonal_inches" type="number" step="0.1" defaultValue={selected?.diagonal_inches ?? ""} className={inputClass} />
             </div>
           </div>

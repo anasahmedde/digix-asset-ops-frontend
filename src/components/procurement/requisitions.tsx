@@ -356,8 +356,8 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
               </select>
             </div>
             <div className="space-y-1.5">
-              <label htmlFor="req_delivery" className={labelClass}>Required delivery</label>
-              <input id="req_delivery" type="date" value={expectedDelivery} onChange={(e) => setExpectedDelivery(e.target.value)} className={inputClass} />
+              <label htmlFor="req_delivery" className={labelClass}>Required delivery *</label>
+              <input id="req_delivery" type="date" required value={expectedDelivery} onChange={(e) => setExpectedDelivery(e.target.value)} className={inputClass} />
               <p className="text-2xs text-muted-foreground">
                 {chosen.some((r) => r.project_target_date)
                   ? "Taken from the date the project is due. Change it if the supplier is held to another."
