@@ -1507,7 +1507,11 @@ export default function ProjectsPage() {
     );
   }
 
-  const total = stats?.total ?? 0;
+  // The tile counts what the list below shows — the projects still being
+  // worked — not everything ever raised, or the two disagree the moment a
+  // project completes or goes on hold.
+  const parked = projects.filter((p) => ["completed", "on_hold"].includes(p.status)).length;
+  const total = Math.max((stats?.total ?? projects.length) - parked, 0);
   const onTrack = stats?.on_track ?? 0;
   const atRisk = stats?.at_risk ?? 0;
   const delayed = stats?.delayed ?? 0;
@@ -1573,7 +1577,12 @@ export default function ProjectsPage() {
 
       {/* Top stat cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <StatCard label="Total Projects" value={total} subtitle="Ongoing Projects" icon={<ClipboardList className="h-5 w-5" />} />
+        <StatCard
+          label="Total Projects"
+          value={total}
+          subtitle={parked > 0 ? `ongoing · ${parked} completed or on hold` : "ongoing"}
+          icon={<ClipboardList className="h-5 w-5" />}
+        />
         <StatCard label="On Track" value={onTrack} subtitle={total > 0 ? `${((onTrack / total) * 100).toFixed(1)}%` : "0%"} icon={<CheckCircle className="h-5 w-5" />} />
         <StatCard label="At Risk" value={atRisk} subtitle={total > 0 ? `${((atRisk / total) * 100).toFixed(1)}%` : "0%"} icon={<AlertTriangle className="h-5 w-5" />} />
         <StatCard label="Delayed" value={delayed} subtitle={total > 0 ? `${((delayed / total) * 100).toFixed(1)}%` : "0%"} icon={<XCircle className="h-5 w-5" />} />

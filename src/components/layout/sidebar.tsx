@@ -86,7 +86,7 @@ const navigation: NavItem[] = [
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { collapsed, mobileOpen, closeMobile } = useSidebar();
+  const { collapsed, mobileOpen, closeMobile, goHome } = useSidebar();
   const { user } = useUser();
   const { theme, setTheme } = useTheme();
   const { totalUnread } = useChatUnread();
@@ -206,7 +206,11 @@ export function Sidebar() {
                 ) : (
                   <Link
                     href={item.href}
-                    onClick={closeMobile}
+                    onClick={() => {
+                      closeMobile();
+                      // Already in this section: go back to its list.
+                      if (isActive) goHome();
+                    }}
                     className={cn(
                       "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-150",
                       isActive

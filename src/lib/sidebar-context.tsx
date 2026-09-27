@@ -8,6 +8,10 @@ interface SidebarContextValue {
   mobileOpen: boolean;
   openMobile: () => void;
   closeMobile: () => void;
+  /** Bumped when a section's own link is clicked from inside that section:
+   *  the page remounts, so it opens on its list rather than where you were. */
+  homeKey: number;
+  goHome: () => void;
 }
 
 const SidebarContext = createContext<SidebarContextValue>({
@@ -16,11 +20,14 @@ const SidebarContext = createContext<SidebarContextValue>({
   mobileOpen: false,
   openMobile: () => {},
   closeMobile: () => {},
+  homeKey: 0,
+  goHome: () => {},
 });
 
 export function SidebarProvider({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [homeKey, setHomeKey] = useState(0);
   return (
     <SidebarContext.Provider
       value={{
@@ -29,6 +36,8 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
         mobileOpen,
         openMobile: () => setMobileOpen(true),
         closeMobile: () => setMobileOpen(false),
+        homeKey,
+        goHome: () => setHomeKey((k) => k + 1),
       }}
     >
       {children}
