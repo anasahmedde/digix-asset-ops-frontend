@@ -1,14 +1,15 @@
 "use client";
 
-import { ChevronDown, ChevronRight } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Minus, Plus } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 /**
  * The organisation, drawn from who reports to whom.
  *
- * Each person keeps their organogram title; their system role is what the
- * platform lets them do. The chart shows both, because the two answer
- * different questions and are easy to confuse.
+ * A classic chart: one person at the top, their reports side by side
+ * beneath them, joined by the line that says so. Each card carries both the
+ * organogram title and the badge for what the system lets them do — the two
+ * answer different questions and are easy to confuse.
  */
 export interface OrgPerson {
   id: string;
@@ -79,68 +80,66 @@ function buildTree(people: OrgPerson[]): { roots: Node[]; orphans: Node[] } {
   return { roots, orphans };
 }
 
-function Card({ person, reports }: { person: Node; reports: number }) {
+function Card({
+  person, reports, open, onToggle,
+}: {
+  person: Node;
+  reports: number;
+  open: boolean;
+  onToggle: () => void;
+}) {
   return (
-    <div
-      className={`inline-flex min-w-56 max-w-72 items-center gap-3 rounded-xl border bg-card px-3 py-2.5 text-left shadow-sm ${
-        person.is_active ? "border-border" : "border-dashed border-border opacity-60"
-      }`}
-    >
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-secondary text-xs font-semibold text-foreground">
-        {initials(person.full_name || person.username)}
-      </span>
-      <span className="min-w-0">
-        <span className="block truncate text-sm font-semibold text-foreground">
+    <div className="relative inline-flex flex-col items-center">
+      <div
+        className={`flex w-40 flex-col items-center gap-1.5 rounded-xl border bg-card px-2.5 py-3 text-center shadow-sm ${
+          person.is_active ? "border-border" : "border-dashed border-border opacity-60"
+        }`}
+      >
+        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-secondary text-xs font-semibold text-foreground">
+          {initials(person.full_name || person.username)}
+        </span>
+        <span className="w-full truncate text-sm font-semibold text-foreground" title={person.full_name || person.username}>
           {person.full_name || person.username}
         </span>
-        <span className="block truncate text-xs text-muted-foreground">
+        <span className="w-full text-xs leading-tight text-muted-foreground" title={person.job_title || undefined}>
           {person.job_title || "—"}
         </span>
-        <span className="mt-1 flex flex-wrap items-center gap-1">
-          <span className={`inline-flex rounded-full px-2 py-0.5 text-2xs font-medium ring-1 ${ROLE_TONE[person.role] ?? "bg-secondary text-muted-foreground ring-border"}`}>
-            {ROLE_LABEL[person.role] ?? person.role}
-          </span>
-          {reports > 0 && (
-            <span className="text-2xs text-muted-foreground">{reports} report{reports === 1 ? "" : "s"}</span>
-          )}
-          {!person.is_active && <span className="text-2xs text-muted-foreground">inactive</span>}
+        <span className={`inline-flex rounded-full px-2 py-0.5 text-2xs font-medium ring-1 ${ROLE_TONE[person.role] ?? "bg-secondary text-muted-foreground ring-border"}`}>
+          {ROLE_LABEL[person.role] ?? person.role}
         </span>
-      </span>
+        {!person.is_active && <span className="text-2xs text-muted-foreground">inactive</span>}
+      </div>
+
+      {/* Fold a branch away at its parent, so a wide chart can be read a
+          section at a time. */}
+      {reports > 0 && (
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={open}
+          aria-label={`${open ? "Hide" : "Show"} ${person.full_name || person.username}'s ${reports} report${reports === 1 ? "" : "s"}`}
+          className="absolute -bottom-3 z-10 flex h-6 items-center gap-1 rounded-full border border-border bg-card px-2 text-2xs font-medium text-muted-foreground shadow-sm hover:text-foreground"
+        >
+          {open ? <Minus className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
+          {reports}
+        </button>
+      )}
     </div>
   );
 }
 
-/** One person and everyone under them, as an indented branch of the chart. */
-function Branch({ node, depth }: { node: Node; depth: number }) {
+/** One person, with everyone under them spread out beneath. */
+function Branch({ node }: { node: Node }) {
   const [open, setOpen] = useState(true);
   const kids = node.children;
+  const show = open && kids.length > 0;
 
   return (
-    <li className="relative">
-      {/* The elbow joining this card to its manager's spine. */}
-      {depth > 0 && (
-        <span aria-hidden className="absolute -left-5 top-6 h-px w-5 bg-border" />
-      )}
-      <div className="flex items-center gap-2 py-1.5">
-        {kids.length > 0 ? (
-          <button
-            type="button"
-            onClick={() => setOpen((v) => !v)}
-            aria-expanded={open}
-            aria-label={open ? `Hide ${node.full_name}'s reports` : `Show ${node.full_name}'s reports`}
-            className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-secondary hover:text-foreground"
-          >
-            {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-          </button>
-        ) : (
-          <span className="h-5 w-5 shrink-0" />
-        )}
-        <Card person={node} reports={kids.length} />
-      </div>
-      {kids.length > 0 && open && (
-        // The spine every child's elbow hangs off.
-        <ul className="relative ml-[2.55rem] border-l border-border pl-5">
-          {kids.map((child) => <Branch key={child.id} node={child} depth={depth + 1} />)}
+    <li className="org-node">
+      <Card person={node} reports={kids.length} open={open} onToggle={() => setOpen((v) => !v)} />
+      {show && (
+        <ul className="org-level org-children">
+          {kids.map((child) => <Branch key={child.id} node={child} />)}
         </ul>
       )}
     </li>
@@ -149,6 +148,27 @@ function Branch({ node, depth }: { node: Node; depth: number }) {
 
 export function Organogram({ people }: { people: OrgPerson[] }) {
   const { roots, orphans } = useMemo(() => buildTree(people), [people]);
+  const scroller = useRef<HTMLDivElement>(null);
+
+  // A chart is centred on its apex, and wider than the screen by nature, so
+  // it opens on the person at the top rather than on whatever happens to
+  // fall at scroll zero.
+  const centreOnApex = useCallback(() => {
+    const box = scroller.current;
+    const apex = box?.querySelector<HTMLElement>(".org-root > .org-node");
+    if (!box || !apex) return;
+    // Measured against the scroller itself: offsetLeft answers to whichever
+    // ancestor happens to be positioned, which is not this one.
+    const here = box.getBoundingClientRect();
+    const top = apex.getBoundingClientRect();
+    box.scrollLeft += (top.left + top.width / 2) - (here.left + here.width / 2);
+  }, []);
+
+  useEffect(() => {
+    // After layout, so the row has its real width.
+    const id = requestAnimationFrame(centreOnApex);
+    return () => cancelAnimationFrame(id);
+  }, [centreOnApex, people]);
 
   if (people.length === 0) {
     return <p className="py-10 text-center text-sm text-muted-foreground">Nobody on the chart yet.</p>;
@@ -156,18 +176,24 @@ export function Organogram({ people }: { people: OrgPerson[] }) {
 
   return (
     <div className="space-y-6">
-      <ul className="space-y-1">
-        {roots.map((r) => <Branch key={r.id} node={r} depth={0} />)}
-      </ul>
+      {/* The chart is wider than most screens by nature, so it scrolls
+          sideways rather than being squeezed. */}
+      <div ref={scroller} className="overflow-x-auto overflow-y-hidden pb-4">
+        <ul className="org-level org-root">
+          {roots.map((r) => <Branch key={r.id} node={r} />)}
+        </ul>
+      </div>
 
       {orphans.length > 0 && (
-        <div className="space-y-2 rounded-xl border border-dashed border-border p-4">
+        <div className="space-y-3 rounded-xl border border-dashed border-border p-4">
           <p className="text-xs font-medium text-muted-foreground">
-            Reporting line not set — pick a manager on the person&apos;s record to place them.
+            Reporting line not set — pick a manager on the person&apos;s record to place them on the chart.
           </p>
-          <ul className="space-y-1">
-            {orphans.map((o) => <Branch key={o.id} node={o} depth={0} />)}
-          </ul>
+          <div className="overflow-x-auto overflow-y-hidden pb-2">
+            <ul className="org-level org-root">
+              {orphans.map((o) => <Branch key={o.id} node={o} />)}
+            </ul>
+          </div>
         </div>
       )}
     </div>

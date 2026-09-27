@@ -187,6 +187,87 @@
   background-color: hsl(168 76% 42% / 0.08) !important;
 }
 
+/* ---- Organogram ---------------------------------------------------------
+   A top-down chart: each person sits above their reports, joined by a stem
+   down from the card, a bar across the row, and a stem down to each one.
+   The corners of the bar are drawn by the first and last sibling, so a
+   single child gets a straight line and nothing overhangs the row. */
+.org-level {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 28px;
+  /* The row never wraps: a wide chart scrolls instead of folding, which
+     would break the lines it is made of. */
+  flex-wrap: nowrap;
+}
+.org-root {
+  padding-top: 0;
+  /* Room for the collapse pill hanging under the last row of cards. */
+  padding-bottom: 12px;
+  width: max-content;
+  min-width: 100%;
+  margin: 0 auto;
+}
+.org-node {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0 7px;
+  list-style: none;
+}
+/* The two halves of the bar above a card. */
+.org-level:not(.org-root) > .org-node::before,
+.org-level:not(.org-root) > .org-node::after {
+  content: "";
+  position: absolute;
+  top: -28px;
+  width: 50%;
+  height: 28px;
+  border-top: 1.5px solid hsl(var(--border));
+}
+.org-level:not(.org-root) > .org-node::before {
+  right: 50%;
+  border-right: 1.5px solid hsl(var(--border));
+  border-top-right-radius: 8px;
+}
+.org-level:not(.org-root) > .org-node::after {
+  left: 50%;
+}
+/* An only child needs a plain stem, not a bar with corners. */
+.org-level:not(.org-root) > .org-node:only-child::before {
+  border-top-right-radius: 0;
+}
+.org-level:not(.org-root) > .org-node:only-child::after {
+  display: none;
+}
+/* The ends of the bar stop at the outermost siblings. */
+.org-level:not(.org-root) > .org-node:first-child:not(:only-child)::before {
+  border-top-color: transparent;
+  border-right-color: transparent;
+}
+.org-level:not(.org-root) > .org-node:first-child:not(:only-child)::after {
+  border-left: 1.5px solid hsl(var(--border));
+  border-top-left-radius: 8px;
+}
+.org-level:not(.org-root) > .org-node:last-child:not(:only-child)::after {
+  border-top-color: transparent;
+}
+/* The stem leaving a card on its way down to that bar. */
+.org-children::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 0;
+  height: 28px;
+  border-left: 1.5px solid hsl(var(--border));
+}
+.org-children {
+  position: relative;
+}
+
 /* A strip that scrolls sideways but should not advertise it. */
 .no-scrollbar {
   scrollbar-width: none;
