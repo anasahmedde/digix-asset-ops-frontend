@@ -1735,7 +1735,7 @@ export default function AssetsPage() {
                         <p className="text-xs text-muted-foreground">No components recorded — single-unit asset.</p>
                       )}
                       {canEdit && (
-                        <form onSubmit={(e) => handleAddComponent(e, d.id)} className="mt-2">
+                        <form onSubmit={(e) => handleAddComponent(e, d.id)} noValidate className="mt-2">
                           <fieldset disabled={!d.requires_production || d.is_locked} className="space-y-2">
                             <p className="text-2xs text-muted-foreground">
                               What this asset is built from. Stock is not reduced here — the project decides

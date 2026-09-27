@@ -815,8 +815,13 @@ export default function InstallationTrackerPage() {
           ? `Started ${formatDate(s.started_at)}`
           : undefined,
     }));
+    // Once the asset is live or handed over the installation is history, and
+    // history is not edited: no step is added, moved, reset or re-done.
+    const closedOut =
+      !!selected.handover ||
+      ["active", "under_maintenance", "client_property", "decommissioned"].includes(selected.device_status);
     // Once a step has been started the checklist is a record, not a draft.
-    const editableChecklist = selected.steps.every((st) => st.status === "not_started");
+    const editableChecklist = !closedOut && selected.steps.every((st) => st.status === "not_started");
     const delaysByStep = new Map<string, Delay[]>();
     selected.delays.forEach((d) => {
       if (!d.step) return;
@@ -1271,7 +1276,7 @@ export default function InstallationTrackerPage() {
                       )}
                     </div>
                     {/* Advance actions — desktop: super admin only (installer works via mobile) */}
-                    {isSuperAdmin && (
+                    {isSuperAdmin && !closedOut && (
                       <div className="mt-3 flex flex-wrap gap-1.5 border-t border-border pt-3">
                         {step.status !== "in_progress" && step.status !== "completed" && (
                           <button disabled={updatingStep === step.id} onClick={() => updateStep(step.id, "in_progress")} className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 px-2 py-1 text-2xs font-medium text-amber-600 transition-colors hover:bg-amber-500/20 disabled:opacity-50">
