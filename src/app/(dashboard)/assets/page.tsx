@@ -2442,7 +2442,18 @@ export default function AssetsPage() {
       </div>
 
       {(() => {
-        const toggleFlag = (f: string) => setFilterValues((prev) => ({ ...prev, flag: prev.flag === f ? "" : f }));
+        // One tile, one answer. The tiles and the status bar are ways of
+        // asking for one slice of the registry, so choosing one lets go of
+        // the others: "In Stock" on top of "Operational" is an empty table,
+        // not a filter.
+        const toggleFlag = (f: string) => setFilterValues((prev) => ({
+          ...prev, status: "", flag: prev.flag === f ? "" : f,
+          // The expired tile and the warranty dropdown ask the same question.
+          warranty: f === "warranty_expired" && prev.flag !== f ? "" : prev.warranty,
+        }));
+        const pickStatus = (st: string) => setFilterValues((prev) => ({
+          ...prev, flag: "", status: prev.status === st ? "" : st,
+        }));
         const STATUS_HEX: Record<string, string> = {
           procured: "#8b5cf6", in_transit: "#ec4899", in_production: "#eab308", in_stock: "#6366f1", assigned: "#3b82f6",
           installed: "#06b6d4", active: "#22c55e", under_maintenance: "#f59e0b",
@@ -2454,8 +2465,8 @@ export default function AssetsPage() {
               tiles={[
                 { key: "total", label: "Total Assets", value: devices.length, tone: "primary", active: !filterValues.flag && !filterValues.status, onClick: () => setFilterValues((prev) => ({ ...prev, status: "", flag: "" })) },
                 { key: "operational", label: "Operational", value: devices.filter((d) => ["active", "installed"].includes(d.status)).length, tone: "emerald", active: filterValues.flag === "operational", onClick: () => toggleFlag("operational") },
-                { key: "in_stock", label: "In Stock", value: devices.filter((d) => d.status === "in_stock").length, tone: "default", active: filterValues.status === "in_stock", onClick: () => setFilterValues((prev) => ({ ...prev, status: prev.status === "in_stock" ? "" : "in_stock" })) },
-                { key: "maint", label: "Under Maintenance", value: devices.filter((d) => d.status === "under_maintenance").length, tone: "amber", active: filterValues.status === "under_maintenance", onClick: () => setFilterValues((prev) => ({ ...prev, status: prev.status === "under_maintenance" ? "" : "under_maintenance" })) },
+                { key: "in_stock", label: "In Stock", value: devices.filter((d) => d.status === "in_stock").length, tone: "default", active: filterValues.status === "in_stock", onClick: () => pickStatus("in_stock") },
+                { key: "maint", label: "Under Maintenance", value: devices.filter((d) => d.status === "under_maintenance").length, tone: "amber", active: filterValues.status === "under_maintenance", onClick: () => pickStatus("under_maintenance") },
                 { key: "warranty_expired", label: "Warranty Expired", value: devices.filter((d) => d.warranty_status === "expired").length, tone: "red", active: filterValues.flag === "warranty_expired", onClick: () => toggleFlag("warranty_expired") },
               ]}
             />
@@ -2465,7 +2476,7 @@ export default function AssetsPage() {
                 count: devices.filter((d) => d.status === s.value).length,
               }))}
               active={filterValues.status || undefined}
-              onSelect={(s) => setFilterValues((prev) => ({ ...prev, status: prev.status === s ? "" : s }))}
+              onSelect={pickStatus}
             />
           </div>
         );
@@ -2480,7 +2491,13 @@ export default function AssetsPage() {
           { key: "warranty", label: "Warranty", options: [{ value: "active", label: "Under Warranty" }, { value: "expired", label: "Expired" }, { value: "none", label: "No Warranty" }] },
         ]}
         values={filterValues}
-        onChange={(k, v) => setFilterValues((prev) => ({ ...prev, [k]: v }))}
+        onChange={(k, v) => setFilterValues((prev) => ({
+          ...prev, [k]: v,
+          // A status picked here replaces a tile's flag; an expired warranty
+          // picked here is the Warranty Expired tile, and vice versa.
+          ...(k === "status" && v ? { flag: "" } : {}),
+          ...(k === "warranty" ? { flag: "" } : {}),
+        }))}
         search={search}
         onSearchChange={setSearch}
         searchPlaceholder="Search by code, name, serial #..."
