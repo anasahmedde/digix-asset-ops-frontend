@@ -444,7 +444,7 @@ export function ScheduleDetail({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        {schedule.device && (
+        {schedule.device && schedule.maintenance_type !== "corrective" && (
           <Link
             href={`/tickets?create=1&device=${schedule.device}&category=repair`}
             title="Found something this visit cannot fix? Raise a ticket"
@@ -453,7 +453,7 @@ export function ScheduleDetail({
             <TicketIcon className="h-3.5 w-3.5" /> Raise a ticket
           </Link>
         )}
-        {onEdit && (
+        {onEdit && schedule.maintenance_type !== "corrective" && (
           <button
             onClick={onEdit}
             className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
@@ -791,7 +791,8 @@ export function ScheduleDetail({
           </div>
         )}
 
-        {canAsk && (
+        {/* A visit that is over cannot need anything more. */}
+        {canAsk && !visitDone && (
           <form id="ask-for-a-part" onSubmit={ask} className="mt-3 flex flex-wrap items-end gap-2">
             <div className="w-36 space-y-1">
               <label htmlFor="ask-kind" className={label}>Kind</label>
