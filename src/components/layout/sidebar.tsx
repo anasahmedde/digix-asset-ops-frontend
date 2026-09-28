@@ -45,6 +45,8 @@ interface NavItem {
   href: string;
   icon: React.ComponentType<{ className?: string }>;
   roles?: string[];
+  /** Shown to anyone holding this capability, whatever their role. */
+  capability?: string;
   badge?: number;
   children?: NavItem[];
 }
@@ -54,7 +56,7 @@ const navigation: NavItem[] = [
   { name: "Assets", href: "/assets", icon: HardDrive, roles: ["super_admin", "group_head", "ops_manager", "technician"] },
   { name: "Installation Tracker", href: "/installation-tracker", icon: Layers, roles: ["super_admin", "group_head", "ops_manager", "technician"] },
   { name: "Maintenance", href: "/maintenance", icon: Wrench, roles: ["super_admin", "group_head", "ops_manager", "technician"] },
-  { name: "Warranties", href: "/warranties", icon: ShieldCheck, roles: ["super_admin", "group_head", "ops_manager"] },
+  { name: "Warranties", href: "/warranties", icon: ShieldCheck, capability: "view_warranties" },
   { name: "Projects", href: "/projects", icon: ClipboardList, roles: ["super_admin", "group_head", "ops_manager"] },
   {
     name: "Sites", href: "/sites", icon: MapPin, roles: ["super_admin", "group_head", "ops_manager", "technician"],
@@ -75,8 +77,8 @@ const navigation: NavItem[] = [
   },
   { name: "Alerts", href: "/alerts", icon: AlertCircle, roles: ["super_admin", "group_head", "ops_manager"] },
   { name: "Documents", href: "/documents", icon: FileText, roles: ["super_admin", "group_head", "ops_manager"] },
-  { name: "Attendance", href: "/attendance", icon: Fingerprint, roles: ["super_admin", "group_head", "ops_manager", "supervisor"] },
-  { name: "Teams", href: "/teams", icon: Users, roles: ["super_admin"] },
+  { name: "Attendance", href: "/attendance", icon: Fingerprint, capability: "view_attendance" },
+  { name: "Teams", href: "/teams", icon: Users, capability: "view_team" },
   { name: "Vendors", href: "/suppliers", icon: Truck, roles: ["super_admin", "group_head", "ops_manager"] },
   { name: "Clients", href: "/clients", icon: Building2, roles: ["super_admin", "group_head", "ops_manager", "client_viewer"] },
   { name: "Chat", href: "/chat", icon: MessageSquare },
@@ -93,9 +95,13 @@ export function Sidebar() {
   const [expandedMenus, setExpandedMenus] = useState<Set<string>>(new Set());
 
   const role = user?.role ?? "";
+  const capabilities = user?.capabilities ?? [];
 
   const visibleNav = navigation
     .filter((item) => {
+      // A capability decides on its own: roles are editable now, so a list
+      // of role names here would go stale the moment somebody changes one.
+      if (item.capability) return capabilities.includes(item.capability);
       if (!item.roles) return true;
       if (!role) return false;
       return item.roles.includes(role);
