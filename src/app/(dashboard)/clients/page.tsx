@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { CopyButton } from "@/components/ui/copy-button";
+import { Pagination, pageSlice } from "@/components/ui/pagination";
 import { FilterBar } from "@/components/ui/filter-bar";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
@@ -33,6 +34,7 @@ export default function ClientsPage() {
   const canEdit = canWrite("clients");
 
   const [clients, setClients] = useState<Client[]>([]);
+  const [clientPage, setClientPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
   const [selected, setSelected] = useState<Client | null>(null);
@@ -66,7 +68,8 @@ export default function ClientsPage() {
     const fd = new FormData(e.currentTarget);
     const payload = {
       name: fd.get("name"),
-      code: fd.get("code"),
+      // The code is the platform's to issue; an edit keeps the one it has.
+      ...(modalMode === "edit" && selected ? { code: selected.code } : {}),
       contact_person: fd.get("contact_person"),
       contact_email: fd.get("contact_email"),
       contact_phone: fd.get("contact_phone"),
@@ -166,7 +169,7 @@ export default function ClientsPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((c) => (
+                {pageSlice(filtered, clientPage).map((c) => (
                   <tr key={c.id} onClick={() => { setSelected(c); setModalMode("edit"); }} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
                     <td className={`${tdClass} font-medium text-foreground`}>
                       <span className="inline-flex items-center gap-1">
@@ -201,14 +204,15 @@ export default function ClientsPage() {
                 ))}
               </tbody>
             </table>
+            <Pagination page={clientPage} total={filtered.length} onPage={setClientPage} noun="clients" />
           </div>
         </div>
       );
       })()}
 
       {modalMode && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="max-h-[88vh] overflow-y-auto w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-md veil-in">
+          <div className="max-h-[88vh] overflow-y-auto w-full max-w-lg glass glass-pop rounded-2xl p-6">
             <div className="mb-5 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-foreground">{modalMode === "create" ? "Add New Client" : "Edit Client"}</h2>
               <button onClick={closeModal} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
@@ -223,7 +227,15 @@ export default function ClientsPage() {
                 </div>
                 <div className="space-y-1.5">
                   <label htmlFor="code" className={labelClass}>Client Code</label>
-                  <input id="code" name="code" required defaultValue={selected?.code ?? ""} className={inputClass} placeholder="e.g. ACME-001" />
+                  {modalMode === "create" ? (
+                    <p className={`${inputClass} flex items-center bg-secondary/30 text-muted-foreground`}>
+                      Generated on save
+                    </p>
+                  ) : (
+                    <p className={`${inputClass} flex items-center bg-secondary/40 font-mono text-foreground`}>
+                      {selected?.code}
+                    </p>
+                  )}
                 </div>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">

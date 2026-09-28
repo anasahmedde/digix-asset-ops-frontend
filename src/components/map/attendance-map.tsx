@@ -2,7 +2,9 @@
 
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { MapContainer, Marker, Popup, TileLayer, ZoomControl, useMap } from "react-leaflet";
+import { MapContainer, Marker, Popup, ZoomControl, useMap } from "react-leaflet";
+
+import { Basemap } from "./basemaps";
 
 export interface AttendancePoint {
   id: string;
@@ -55,10 +57,7 @@ export default function AttendanceMap({ points, height = "420px" }: { points: At
         scrollWheelZoom={false}
         style={{ height: "100%", width: "100%", background: "#f0f0f0" }}
       >
-        <TileLayer
-          url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
-          attribution='&copy; <a href="https://carto.com">CARTO</a>'
-        />
+        <Basemap />
         <ZoomControl position="topleft" />
         <FitBounds points={valid} />
         {valid.map((p) => (

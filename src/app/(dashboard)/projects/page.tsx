@@ -17,6 +17,7 @@ import {
   X,
   XCircle,
 } from "lucide-react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -37,6 +38,7 @@ import { Modal } from "@/components/ui/modal";
 import { SearchSelect } from "@/components/ui/search-select";
 import { DonutChart } from "@/components/charts/donut-chart";
 import { BarChart } from "@/components/charts/bar-chart";
+import type { ProjectMapDevice } from "@/components/map/projects-map";
 
 interface ClientOpt { id: string; name: string }
 interface Option { id: string; label: string }
@@ -139,6 +141,8 @@ interface ProjectDetail {
   status: string;
   status_display: string;
   phase: string;
+  /** Where the work stands if an off-ramp is lifted. */
+  resume_phase?: string;
   phase_display: string;
   progress: number;
   start_date: string | null;
@@ -264,10 +268,22 @@ interface Project {
   bottleneck_count: number;
 }
 
+// Leaflet reaches for window, so the map only loads in the browser.
+const ProjectsMap = dynamic(() => import("@/components/map/projects-map"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-[420px] items-center justify-center rounded-xl border border-border text-xs text-muted-foreground">
+      Loading map…
+    </div>
+  ),
+});
+
 export default function ProjectsPage() {
   const { canWrite } = useUser();
   const canEdit = canWrite("devices");
   const [stats, setStats] = useState<ProjectStats | null>(null);
+  // Every plottable asset, each carrying the project it belongs to.
+  const [mapDevices, setMapDevices] = useState<ProjectMapDevice[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   // Search by name, client or site. The server does the matching, so it finds
   // projects beyond the first page and in any status.
@@ -359,13 +375,22 @@ export default function ProjectsPage() {
     }
   }
 
+  /** Park the project on an off-ramp, or take it off the one it is on. */
   async function setPhase(phase: string) {
     if (!detail) return;
+    // Clicking the off-ramp it is already on lifts it: the project goes back
+    // to wherever the work actually stands.
+    const lifting = detail.phase === phase;
+    const next = lifting ? detail.resume_phase || "planning" : phase;
     try {
-      await api.patch(`/teams/projects/${detail.id}/`, { phase });
+      await api.patch(`/teams/projects/${detail.id}/`, { phase: next });
       await loadDetail(detail.id);
       fetchAll();
-      toast.success("Project phase updated");
+      toast.success(
+        lifting
+          ? `Back on the work — ${PHASES.find((p) => p.value === next)?.label ?? next}`
+          : "Project phase updated",
+      );
     } catch (err) {
       toast.error(getApiError(err, "Failed to update phase"));
     }
@@ -653,6 +678,9 @@ export default function ProjectsPage() {
       .catch(() => {});
     api.get("/sites/sites/", { params: { page_size: 1000 } })
       .then((r) => setSiteOptions(siteLabels(r.data.results ?? [])))
+      .catch(() => {});
+    api.get("/assets/devices/map_data/")
+      .then((r) => setMapDevices(r.data.results ?? r.data))
       .catch(() => {});
     api.get("/accounts/users/", { params: { is_active: true, page_size: 200 } })
       .then((r) => setManagerOptions((r.data.results ?? []).map((u: { id: string; first_name: string; last_name: string; username: string }) => ({
@@ -942,6 +970,11 @@ export default function ProjectsPage() {
                 key={ph.value}
                 onClick={() => canEdit && setPhase(ph.value)}
                 disabled={!canEdit}
+                title={
+                  d.phase === ph.value
+                    ? `Click to lift this and go back to ${PHASES.find((p) => p.value === d.resume_phase)?.label ?? "the work"}`
+                    : undefined
+                }
                 className={`inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
                   d.phase === ph.value
                     ? ph.value === "lost" ? "border-red-500 bg-red-500 text-white" : "border-amber-500 bg-amber-500 text-white"
@@ -1507,7 +1540,11 @@ export default function ProjectsPage() {
     );
   }
 
-  const total = stats?.total ?? 0;
+  // The tile counts what the list below shows — the projects still being
+  // worked — not everything ever raised, or the two disagree the moment a
+  // project completes or goes on hold.
+  const parked = projects.filter((p) => ["completed", "on_hold"].includes(p.status)).length;
+  const total = Math.max((stats?.total ?? projects.length) - parked, 0);
   const onTrack = stats?.on_track ?? 0;
   const atRisk = stats?.at_risk ?? 0;
   const delayed = stats?.delayed ?? 0;
@@ -1573,7 +1610,12 @@ export default function ProjectsPage() {
 
       {/* Top stat cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <StatCard label="Total Projects" value={total} subtitle="Ongoing Projects" icon={<ClipboardList className="h-5 w-5" />} />
+        <StatCard
+          label="Total Projects"
+          value={total}
+          subtitle={parked > 0 ? `ongoing · ${parked} completed or on hold` : "ongoing"}
+          icon={<ClipboardList className="h-5 w-5" />}
+        />
         <StatCard label="On Track" value={onTrack} subtitle={total > 0 ? `${((onTrack / total) * 100).toFixed(1)}%` : "0%"} icon={<CheckCircle className="h-5 w-5" />} />
         <StatCard label="At Risk" value={atRisk} subtitle={total > 0 ? `${((atRisk / total) * 100).toFixed(1)}%` : "0%"} icon={<AlertTriangle className="h-5 w-5" />} />
         <StatCard label="Delayed" value={delayed} subtitle={total > 0 ? `${((delayed / total) * 100).toFixed(1)}%` : "0%"} icon={<XCircle className="h-5 w-5" />} />
@@ -1678,43 +1720,45 @@ export default function ProjectsPage() {
         )}
       </div>
 
-      {/* Bottom row */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-xl border border-border bg-card p-5">
-          <h3 className="text-sm font-semibold text-foreground mb-4">Projects by Progress</h3>
-          <DonutChart
-            data={progressData.length > 0 ? progressData : [{ name: "No Data", value: 1, color: "#94a3b8" }]}
-            centerValue={total}
-            centerLabel="Total"
-            size={140}
-          />
+      {/* Where the work is, with the three summaries reading beside it. */}
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
+        <div className="min-w-0 rounded-xl border border-border bg-card p-5">
+          <h3 className="mb-4 text-sm font-semibold text-foreground">Projects on Map</h3>
+          <ProjectsMap devices={mapDevices} square />
         </div>
 
-        <div className="rounded-xl border border-border bg-card p-5">
-          <h3 className="text-sm font-semibold text-foreground mb-4">Projects by Health</h3>
-          <BarChart data={healthData} height={180} />
-        </div>
-
-        <div className="rounded-xl border border-border bg-card p-5">
-          <h3 className="text-sm font-semibold text-foreground mb-4">Top Bottlenecks</h3>
-          <div className="space-y-3">
-            {(stats?.top_bottlenecks ?? []).map((b, i) => (
-              <div key={i} className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">{b.title}</span>
-                <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-2xs font-semibold text-amber-500">
-                  {b.project_count} Project{b.project_count !== 1 ? "s" : ""}
-                </span>
-              </div>
-            ))}
-            {(stats?.top_bottlenecks ?? []).length === 0 && (
-              <p className="text-xs text-muted-foreground">No bottlenecks</p>
-            )}
+        <div className="grid min-w-0 gap-4 sm:grid-cols-2 xl:grid-cols-1">
+          <div className="rounded-xl border border-border bg-card p-5">
+            <h3 className="mb-4 text-sm font-semibold text-foreground">Projects by Progress</h3>
+            <DonutChart
+              data={progressData.length > 0 ? progressData : [{ name: "No Data", value: 1, color: "#94a3b8" }]}
+              centerValue={total}
+              centerLabel="Total"
+              size={140}
+            />
           </div>
-        </div>
 
-        <div className="rounded-xl border border-border bg-card p-5">
-          <h3 className="text-sm font-semibold text-foreground mb-4">Projects on Map</h3>
-          <p className="text-xs text-muted-foreground">Map view coming soon</p>
+          <div className="rounded-xl border border-border bg-card p-5">
+            <h3 className="mb-4 text-sm font-semibold text-foreground">Projects by Health</h3>
+            <BarChart data={healthData} height={180} />
+          </div>
+
+          <div className="rounded-xl border border-border bg-card p-5 sm:col-span-2 xl:col-span-1">
+            <h3 className="mb-4 text-sm font-semibold text-foreground">Top Bottlenecks</h3>
+            <div className="space-y-3">
+              {(stats?.top_bottlenecks ?? []).map((b, i) => (
+                <div key={i} className="flex items-center justify-between gap-2">
+                  <span className="min-w-0 text-xs text-muted-foreground">{b.title}</span>
+                  <span className="shrink-0 rounded-full bg-amber-500/10 px-2 py-0.5 text-2xs font-semibold text-amber-500">
+                    {b.project_count} Project{b.project_count !== 1 ? "s" : ""}
+                  </span>
+                </div>
+              ))}
+              {(stats?.top_bottlenecks ?? []).length === 0 && (
+                <p className="text-xs text-muted-foreground">No bottlenecks</p>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 

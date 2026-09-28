@@ -8,8 +8,20 @@ const config: Config = {
   theme: {
     extend: {
       fontFamily: {
-        sans: ["var(--font-sans)", ...defaultTheme.fontFamily.sans],
-        mono: ["var(--font-mono)", ...defaultTheme.fontFamily.mono],
+        // San Francisco is Apple's own and is not licensed for the web, so
+        // the stack asks the platform for it first — on a Mac, iPhone or iPad
+        // this *is* SF. Inter follows: it was drawn as an SF-alike and keeps
+        // the same proportions everywhere else.
+        sans: [
+          "-apple-system",
+          "BlinkMacSystemFont",
+          "SF Pro Text",
+          "SF Pro Display",
+          "var(--font-sans)",
+          ...defaultTheme.fontFamily.sans,
+        ],
+        // SF Mono where the platform has it, then the loaded face.
+        mono: ["ui-monospace", "SF Mono", "SFMono-Regular", "var(--font-mono)", ...defaultTheme.fontFamily.mono],
       },
       fontSize: {
         // The smallest size the interface uses: labels, badges, helper text.

@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Modal } from "@/components/ui/modal";
+import { Pagination, pageSlice } from "@/components/ui/pagination";
 import { Qty } from "@/components/ui/qty";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
@@ -25,6 +26,11 @@ interface ReceiptLine {
   kind?: "generic" | "unique" | "asset" | null;
   /** The inventory item or unique product the goods will be filed under. */
   known_component?: string | null;
+  /** Its code in the store — where the line lands once it passes. */
+  component_code?: string | null;
+  /** Where the line came from: a delivery, a project, a maintenance job. */
+  source_display?: string | null;
+  reference?: string | null;
   quantity: number;
   /** Unit of measure of the delivered line. */
   unit?: string;
@@ -59,6 +65,7 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
   const router = useRouter();
 
   const [lines, setLines] = useState<ReceiptLine[]>([]);
+  const [receivingPage, setReceivingPage] = useState(1);
   const [materialTypes, setMaterialTypes] = useState<Ref[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -268,6 +275,7 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
                   <th className={thClass}>GRN</th>
                   <th className={thClass}>Source</th>
                   <th className={thClass}>Component</th>
+                  <th className={thClass}>Item Code</th>
                   <th className={thClass}>Kind</th>
                   <th className={thClass}>Received</th>
                   <th className={thClass}>Batch</th>
@@ -276,7 +284,7 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
                 </tr>
               </thead>
               <tbody>
-                {lines.map((line) => (
+                {pageSlice(lines, receivingPage).map((line) => (
                   <tr key={line.id} className="border-b border-border transition-colors hover:bg-secondary/30">
                     <td className={`${tdClass} whitespace-nowrap font-mono text-foreground`}>{line.grn_number ?? "—"}</td>
                     <td className={tdClass}>
@@ -286,11 +294,22 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
                           {line.supplier_name && <span className="block text-2xs text-muted-foreground">{line.supplier_name}</span>}
                         </span>
                       ) : (
-                        <span className="text-muted-foreground">Return</span>
+                        <span>
+                          {/* A return says where it came back from: leftovers
+                              from a build and parts off a job are not the
+                              same thing to whoever inspects them. */}
+                          <span className="text-foreground">{line.source_display ?? "Return"}</span>
+                          {line.reference && (
+                            <span className="block text-2xs text-muted-foreground">{line.reference}</span>
+                          )}
+                        </span>
                       )}
                     </td>
                     <td className={`${tdClass} text-foreground`}>
                       {line.known_component ?? line.po_item_description ?? line.material_name ?? line.device_model_name ?? "—"}
+                    </td>
+                    <td className={`${tdClass} whitespace-nowrap font-mono text-muted-foreground`}>
+                      {line.component_code || "—"}
                     </td>
                     <td className={tdClass}>
                       {line.kind === "unique" || line.kind === "generic" ? (
@@ -302,7 +321,16 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
                     <td className={`${tdClass} font-medium text-foreground`}><Qty value={line.quantity} unit={line.unit} /></td>
                     <td className={`${tdClass} font-mono text-muted-foreground`}>{line.batch_number || "—"}</td>
                     <td className={`${tdClass} text-muted-foreground`}>
-                      {line.kind === "generic" ? "—" : line.serial_numbers.length > 0 ? `${line.serial_numbers.length} captured` : "—"}
+                      {/* The serials themselves: a unit is traced by its own
+                          number, and a count traces nothing. */}
+                      {line.kind === "generic" || line.serial_numbers.length === 0 ? (
+                        "—"
+                      ) : (
+                        <span className="font-mono text-2xs">
+                          {line.serial_numbers.slice(0, 3).join(", ")}
+                          {line.serial_numbers.length > 3 && ` +${line.serial_numbers.length - 3} more`}
+                        </span>
+                      )}
                     </td>
                     {canInspect && (
                       <td className={tdClass}>
@@ -318,6 +346,7 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
                 ))}
               </tbody>
             </table>
+            <Pagination page={receivingPage} total={lines.length} onPage={setReceivingPage} noun="lines" />
           </div>
         </div>
       )}

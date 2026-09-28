@@ -3,7 +3,6 @@
 import { useEffect, useRef, useCallback, useState, useMemo } from "react";
 import {
   MapContainer,
-  TileLayer,
   Marker,
   Popup,
   useMap,
@@ -11,7 +10,8 @@ import {
 } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { pakistanBorder, worldMaskExceptPakistan } from "@/data/pakistan-geo";
+import { Basemap, BasemapSwitcher, DEFAULT_BASEMAP, type BasemapStyle } from "./basemaps";
+import { CountryHighlight } from "./country-highlight";
 
 const STATUS_META: Record<string, { color: string; label: string; pulse?: boolean }> = {
   active:             { color: "#22c55e", label: "Active",             pulse: true },
@@ -30,7 +30,6 @@ const STATUS_META: Record<string, { color: string; label: string; pulse?: boolea
 const MAINT_TYPE_META: Record<string, { color: string; label: string }> = {
   preventive: { color: "#f59e0b", label: "Preventive" },
   corrective: { color: "#ef4444", label: "Corrective" },
-  predictive: { color: "#a855f7", label: "Predictive" },
 };
 
 const iconCache = new Map<string, L.DivIcon>();
@@ -157,41 +156,6 @@ interface StatusMapProps {
   className?: string;
 }
 
-function CountryOverlay({ country }: { country: string }) {
-  const map = useMap();
-  const layersRef = useRef<L.Layer[]>([]);
-
-  useEffect(() => {
-    layersRef.current.forEach((l) => { try { map.removeLayer(l); } catch { /* noop */ } });
-    layersRef.current = [];
-
-    if (country !== "Pakistan") return;
-
-    try {
-      const mask = L.geoJSON(worldMaskExceptPakistan as never, {
-        style: () => ({ color: "transparent", weight: 0, fillColor: "#080d18", fillOpacity: 0.35, interactive: false }),
-      }).addTo(map);
-
-      const glow = L.geoJSON(pakistanBorder as never, {
-        style: () => ({ color: "#00ffd0", weight: 6, opacity: 0.12, fillColor: "transparent", fillOpacity: 0, interactive: false }),
-      }).addTo(map);
-
-      const border = L.geoJSON(pakistanBorder as never, {
-        style: () => ({ color: "#00ffcc", weight: 1.5, opacity: 0.6, fillColor: "#00ffcc", fillOpacity: 0.02, interactive: false }),
-      }).addTo(map);
-
-      layersRef.current = [mask, glow, border];
-    } catch { /* map not ready */ }
-
-    return () => {
-      layersRef.current.forEach((l) => { try { map.removeLayer(l); } catch { /* noop */ } });
-      layersRef.current = [];
-    };
-  }, [map, country]);
-
-  return null;
-}
-
 function CountryLock({ country }: { country: string }) {
   const map = useMap();
   const prevCountryRef = useRef(country);
@@ -256,7 +220,7 @@ function HomeButton({ country }: { country: string }) {
   }, [map, country]);
 
   return (
-    <div className="leaflet-top leaflet-left" style={{ top: 80, left: 10 }}>
+    <div className="leaflet-bottom leaflet-right" style={{ bottom: 92, right: 10 }}>
       <div className="leaflet-control">
         <button
           onClick={handleHome}
@@ -429,6 +393,14 @@ export default function StatusMap({ devices, maintenanceSites = [], height = "50
   const [activeLayer, setActiveLayer] = useState<ActiveLayer>("devices");
   const [selectedCountry, setSelectedCountry] = useState(DEFAULT_COUNTRY);
   const [showLegend, setShowLegend] = useState(false);
+  const [basemap, setBasemap] = useState<BasemapStyle>(DEFAULT_BASEMAP);
+
+  useEffect(() => {
+    if (!showLegend) return;
+    const shut = (e: KeyboardEvent) => { if (e.key === "Escape") setShowLegend(false); };
+    window.addEventListener("keydown", shut);
+    return () => window.removeEventListener("keydown", shut);
+  }, [showLegend]);
 
   const countries = useMemo(() => {
     const set = new Set<string>();
@@ -502,12 +474,9 @@ export default function StatusMap({ devices, maintenanceSites = [], height = "50
         className="dark-map"
         whenReady={() => {}}
       >
-        <TileLayer
-          url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
-          attribution='&copy; <a href="https://carto.com">CARTO</a>'
-        />
-        <CountryOverlay country={selectedCountry} />
-        <ZoomControl position="topleft" />
+        <Basemap style={basemap} />
+        <CountryHighlight country={selectedCountry} />
+        <ZoomControl position="bottomright" />
         <MapInit country={selectedCountry} />
         <CountryLock country={selectedCountry} />
         <HomeButton country={selectedCountry} />
@@ -522,7 +491,9 @@ export default function StatusMap({ devices, maintenanceSites = [], height = "50
         ))}
       </MapContainer>
 
-      {/* Country dropdown — top-left outside zoom controls */}
+      {/* The controls share one row across the top: country on the left,
+          layers on the right, wrapping together when the map is narrow. */}
+      <div className="map-top-bar">
       <div className="map-country-select">
         <svg className="map-country-icon" viewBox="0 0 20 20" fill="currentColor">
           <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM4.332 8.027a6.012 6.012 0 011.912-2.706C6.512 5.73 6.974 6 7.5 6A1.5 1.5 0 019 7.5V8a2 2 0 004 0 2 2 0 011.523-1.943A5.977 5.977 0 0116 10c0 .34-.028.675-.083 1H15a2 2 0 00-2 2v2.197A5.973 5.973 0 0110 16v-2a2 2 0 00-2-2 2 2 0 01-2-2 2 2 0 00-1.668-1.973z" clipRule="evenodd"/>
@@ -578,40 +549,58 @@ export default function StatusMap({ devices, maintenanceSites = [], height = "50
           Legend
         </button>
       </div>
+        {showLegend && (
+          <div className="map-legend-slot">
+            <div className="map-legend">
+              <div className="map-legend-head">
+                <span className="map-legend-heading">What the markers mean</span>
+                <button
+                  type="button"
+                  onClick={() => setShowLegend(false)}
+                  aria-label="Close the legend"
+                  className="map-legend-close"
+                >
+                  ×
+                </button>
+              </div>
 
-      {showLegend && (
-        <div className="map-legend">
-          <div className="map-legend-row">
-            <span className="map-legend-marker" style={{ background: "#ef4444" }}>!</span>
-            <div>
-              <p className="map-legend-title">Issue</p>
-              <p className="map-legend-desc">Asset has one or more open tickets. Overrides everything else.</p>
-            </div>
-          </div>
-          <div className="map-legend-row">
-            <span className="map-legend-marker" style={{ background: "#f59e0b" }}>🔧</span>
-            <div>
-              <p className="map-legend-title">Maintenance</p>
-              <p className="map-legend-desc">Active maintenance scheduled for this asset (or its site), or status is Under Maintenance. Shown only when there is no open ticket.</p>
-            </div>
-          </div>
-          <div className="map-legend-row">
-            <span className="map-legend-marker map-legend-marker--dot" style={{ background: "#22c55e" }} />
-            <div>
-              <p className="map-legend-title">Status dot</p>
-              <p className="map-legend-desc">No open tickets or maintenance — color shows the asset&apos;s lifecycle status:</p>
-              <div className="map-legend-statuses">
-                {Object.entries(STATUS_META).map(([key, m]) => (
-                  <span key={key} className="map-legend-status">
-                    <span className="map-layer-dot" style={{ background: m.color }} />
-                    {m.label}
-                  </span>
-                ))}
+              <div className="map-legend-row">
+                <span className="map-legend-marker" style={{ background: "#ef4444" }}>!</span>
+                <div>
+                  <p className="map-legend-title">Issue</p>
+                  <p className="map-legend-desc">Asset has one or more open tickets. Overrides everything else.</p>
+                </div>
+              </div>
+              <div className="map-legend-row">
+                <span className="map-legend-marker" style={{ background: "#f59e0b" }}>🔧</span>
+                <div>
+                  <p className="map-legend-title">Maintenance</p>
+                  <p className="map-legend-desc">Active maintenance scheduled for this asset (or its site), or status is Under Maintenance. Shown only when there is no open ticket.</p>
+                </div>
+              </div>
+              <div className="map-legend-row">
+                <span className="map-legend-marker map-legend-marker--dot" style={{ background: "#22c55e" }} />
+                <div>
+                  <p className="map-legend-title">Status dot</p>
+                  <p className="map-legend-desc">No open tickets or maintenance — color shows the asset&apos;s lifecycle status:</p>
+                  <div className="map-legend-statuses">
+                    {Object.entries(STATUS_META).map(([key, m]) => (
+                      <span key={key} className="map-legend-status">
+                        <span className="map-layer-dot" style={{ background: m.color }} />
+                        {m.label}
+                      </span>
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
+
+      {/* The ground, offered from the corner the way maps usually do. */}
+      <BasemapSwitcher style={basemap} onChange={setBasemap} className="map-basemap-corner" />
+
     </div>
   );
 }

@@ -4,9 +4,14 @@ import { ClipboardList, ShoppingCart, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import {
+  PoLineItems, isPoLineEmpty, poLinePayload, poLineTotal, poLinesProblem, usePoOptions,
+  type PoLine,
+} from "@/components/procurement/po-line-items";
 import { Modal } from "@/components/ui/modal";
 import { Qty } from "@/components/ui/qty";
 import api from "@/lib/api";
+import { CURRENCIES } from "@/lib/currency";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
 
@@ -73,10 +78,17 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
 
   // The order's own details — asked for up front so the draft is complete.
   const [supplier, setSupplier] = useState("");
+  const [supplierDetails, setSupplierDetails] = useState("");
+  const [showSupplierDetails, setShowSupplierDetails] = useState(false);
+  const [currency, setCurrency] = useState("PKR");
   const [expectedDelivery, setExpectedDelivery] = useState("");
   const [terms, setTerms] = useState("");
   const [notes, setNotes] = useState("");
   const [prices, setPrices] = useState<Record<string, string>>({});
+  // Anything else the order needs that no request asked for — freight, a
+  // spare, a charge. Written with the editor the new-order form uses.
+  const [extraLines, setExtraLines] = useState<PoLine[]>([]);
+  const poOptions = usePoOptions();
   // Handing a request back to where it came from, with the reason on record.
   const [sendBack, setSendBack] = useState<Requisition | null>(null);
   const [reason, setReason] = useState("");
@@ -130,14 +142,23 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
   function resetModal() {
     setPoModal(false);
     setSupplier("");
+    setSupplierDetails("");
+    setShowSupplierDetails(false);
+    setCurrency("PKR");
     setExpectedDelivery("");
     setTerms("");
     setNotes("");
     setPrices({});
+    setExtraLines([]);
   }
 
   async function raisePo() {
     if (!supplier || chosen.length === 0) return;
+    const problem = poLinesProblem(extraLines);
+    if (problem) {
+      toast.error(problem);
+      return;
+    }
     setSaving(true);
     try {
       const priceById: Record<string, string> = {};
@@ -152,6 +173,9 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
         devices: chosen.filter((r) => r.kind === "asset").map((r) => r.device),
         reorders: chosen.filter((r) => r.kind === "reorder").map((r) => r.reorder),
         prices: priceById,
+        extra_items: extraLines.filter((l) => !isPoLineEmpty(l)).map(poLinePayload),
+        currency,
+        supplier_details: supplierDetails.trim(),
         expected_delivery: expectedDelivery || null,
         terms: terms.trim(),
         notes: notes.trim(),
@@ -187,10 +211,11 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
     }
   }
 
-  const draftTotal = chosen.reduce((sum, r) => {
+  const requisitionTotal = chosen.reduce((sum, r) => {
     const p = Number(prices[keyOf(r)] ?? 0);
     return sum + (Number.isFinite(p) ? p * r.outstanding_quantity : 0);
   }, 0);
+  const draftTotal = requisitionTotal + extraLines.reduce((sum, l) => sum + poLineTotal(l), 0);
 
   return (
     <div className="space-y-5">
@@ -343,106 +368,153 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
       <Modal open={poModal} onClose={resetModal} title="Raise Purchase Order" size="lg">
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            {chosen.length} line{chosen.length === 1 ? " goes" : "s go"} on one draft order. Prices can
-            still be changed on the draft; once the Group Head approves it, they are fixed.
+            {chosen.length} requested line{chosen.length === 1 ? " goes" : "s go"} on one draft order.
+            Add more below if the order needs them. Prices are fixed once the Group Head approves.
           </p>
 
+          {/* The same questions, in the same order, as a new purchase order. */}
           <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <label className={labelClass}>PO Number</label>
+              <div className={`${inputClass} items-center bg-secondary/30 text-muted-foreground`}>
+                Auto-generated on save
+              </div>
+            </div>
             <div className="space-y-1.5">
               <label htmlFor="req_supplier" className={labelClass}>Supplier *</label>
               <select id="req_supplier" value={supplier} onChange={(e) => setSupplier(e.target.value)} className={inputClass}>
                 <option value="">Select supplier…</option>
                 {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
+              {showSupplierDetails ? (
+                <textarea
+                  id="req_supplier_details"
+                  rows={2}
+                  value={supplierDetails}
+                  onChange={(e) => setSupplierDetails(e.target.value)}
+                  placeholder="Contact, quote reference, delivery address for this order"
+                  className={`${inputClass} h-auto py-2`}
+                />
+              ) : (
+                <button type="button" onClick={() => setShowSupplierDetails(true)} className="text-xs font-medium text-primary">
+                  + Supplier details for this order
+                </button>
+              )}
             </div>
             <div className="space-y-1.5">
-              <label htmlFor="req_delivery" className={labelClass}>Required delivery</label>
-              <input id="req_delivery" type="date" value={expectedDelivery} onChange={(e) => setExpectedDelivery(e.target.value)} className={inputClass} />
-              <p className="text-2xs text-muted-foreground">
-                {chosen.some((r) => r.project_target_date)
-                  ? "Taken from the date the project is due. Change it if the supplier is held to another."
-                  : "No project date to take it from — set the date the supplier is held to."}
-              </p>
+              <label htmlFor="req_currency" className={labelClass}>Currency</label>
+              <select id="req_currency" value={currency} onChange={(e) => setCurrency(e.target.value)} className={inputClass}>
+                {CURRENCIES.map((c) => <option key={c.code} value={c.code}>{c.code} — {c.name}</option>)}
+              </select>
             </div>
-          </div>
-
-          <div className="overflow-x-auto rounded-xl border border-border">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-border bg-secondary/50 text-left text-muted-foreground">
-                  <th className="px-3 py-2 font-medium">Line</th>
-                  <th className="px-3 py-2 font-medium">For</th>
-                  <th className="px-3 py-2 text-right font-medium">Qty</th>
-                  <th className="px-3 py-2 text-right font-medium">Unit price</th>
-                  <th className="px-3 py-2 text-right font-medium">Line total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {chosen.map((r) => {
-                  const key = keyOf(r);
-                  const price = Number(prices[key] ?? 0);
-                  return (
-                    <tr key={key} className="border-b border-border/60 last:border-0">
-                      <td className="px-3 py-2 font-medium text-foreground">{r.name}</td>
-                      <td className="px-3 py-2 font-mono text-muted-foreground">{r.asset_code}</td>
-                      <td className="px-3 py-2 text-right text-foreground"><Qty value={r.outstanding_quantity} unit={r.unit} /></td>
-                      <td className="px-3 py-2 text-right">
-                        <input
-                          type="number"
-                          min={0}
-                          step="0.01"
-                          value={prices[key] ?? ""}
-                          onChange={(e) => setPrices((prev) => ({ ...prev, [key]: e.target.value }))}
-                          placeholder="last paid"
-                          aria-label={`Unit price for ${r.name}`}
-                          className="h-8 w-28 rounded-lg border border-border bg-background px-2 text-right text-xs text-foreground focus:border-primary/50 focus:outline-none"
-                        />
-                      </td>
-                      <td className="px-3 py-2 text-right text-muted-foreground">
-                        {prices[key] ? (price * r.outstanding_quantity).toLocaleString() : "—"}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-              <tfoot>
-                <tr className="border-t border-border bg-secondary/30">
-                  <td colSpan={4} className="px-3 py-2 text-right font-medium text-muted-foreground">Draft total</td>
-                  <td className="px-3 py-2 text-right font-semibold text-foreground">{draftTotal.toLocaleString()}</td>
-                </tr>
-              </tfoot>
-            </table>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label htmlFor="req_order_date" className={labelClass}>Order Date</label>
+                <input id="req_order_date" type="text" value="Set when the Group Head approves the order" disabled className={`${inputClass} bg-secondary/40 text-muted-foreground`} />
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="req_delivery" className={labelClass}>Required Delivery *</label>
+                <input id="req_delivery" type="date" required value={expectedDelivery} onChange={(e) => setExpectedDelivery(e.target.value)} className={inputClass} />
+              </div>
+            </div>
           </div>
           <p className="text-2xs text-muted-foreground">
-            A blank price falls back to what we last paid for that line, or zero if we never have.
+            {chosen.some((r) => r.project_target_date)
+              ? "Delivery is taken from the date the project is due. Change it if the supplier is held to another."
+              : "No project date to take the delivery from — set the date the supplier is held to."}
           </p>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <label htmlFor="req_terms" className={labelClass}>Terms</label>
-              <textarea
-                id="req_terms"
-                rows={3}
-                value={terms}
-                onChange={(e) => setTerms(e.target.value)}
-                placeholder="Blank uses the standard terms"
-                className={`${inputClass} h-auto py-2`}
-              />
+          {/* What the requests asked for. The line is fixed; the price is not. */}
+          <div className="space-y-2">
+            <label className={labelClass}>Requested Lines</label>
+            <div className="overflow-x-auto rounded-xl border border-border">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border bg-secondary/50 text-left text-muted-foreground">
+                    <th className="px-3 py-2 font-medium">Line</th>
+                    <th className="px-3 py-2 font-medium">For</th>
+                    <th className="px-3 py-2 text-right font-medium">Qty</th>
+                    <th className="px-3 py-2 text-right font-medium">Unit price</th>
+                    <th className="px-3 py-2 text-right font-medium">Line total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {chosen.map((r) => {
+                    const key = keyOf(r);
+                    const price = Number(prices[key] ?? 0);
+                    return (
+                      <tr key={key} className="border-b border-border/60 last:border-0">
+                        <td className="px-3 py-2 font-medium text-foreground">{r.name}</td>
+                        <td className="px-3 py-2 font-mono text-muted-foreground">{r.asset_code}</td>
+                        <td className="px-3 py-2 text-right text-foreground"><Qty value={r.outstanding_quantity} unit={r.unit} /></td>
+                        <td className="px-3 py-2 text-right">
+                          <input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            value={prices[key] ?? ""}
+                            onChange={(e) => setPrices((prev) => ({ ...prev, [key]: e.target.value }))}
+                            placeholder="last paid"
+                            aria-label={`Unit price for ${r.name}`}
+                            className="h-8 w-28 rounded-lg border border-border bg-background px-2 text-right text-xs text-foreground focus:border-primary/50 focus:outline-none"
+                          />
+                        </td>
+                        <td className="px-3 py-2 text-right text-muted-foreground">
+                          {prices[key] ? (price * r.outstanding_quantity).toLocaleString() : "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
-            <div className="space-y-1.5">
-              <label htmlFor="req_notes" className={labelClass}>Notes</label>
-              <textarea
-                id="req_notes"
-                rows={3}
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="Anything the supplier or approver should know"
-                className={`${inputClass} h-auto py-2`}
-              />
-            </div>
+            <p className="text-2xs text-muted-foreground">
+              A blank price falls back to what we last paid for that line, or zero if we never have.
+            </p>
           </div>
 
-          <div className="flex justify-end gap-3">
+          {/* Anything the order needs beyond the requests — same editor as a
+              new purchase order, so both forms write a line the same way. */}
+          <PoLineItems
+            lines={extraLines}
+            onChange={setExtraLines}
+            currency={currency}
+            options={poOptions}
+            label="Additional Line Items"
+          />
+
+          <div className="text-right text-sm font-medium text-foreground">
+            Grand Total: {currency} {draftTotal.toLocaleString()}
+          </div>
+
+          <div className="space-y-1.5">
+            <label htmlFor="req_notes" className={labelClass}>Notes</label>
+            <textarea
+              id="req_notes"
+              rows={3}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Anything the supplier or approver should know"
+              className={`${inputClass} h-auto py-2`}
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label htmlFor="req_terms" className={labelClass}>Terms &amp; Conditions</label>
+            <textarea
+              id="req_terms"
+              rows={7}
+              value={terms}
+              onChange={(e) => setTerms(e.target.value)}
+              placeholder="The standard terms are used unless you change them here."
+              className={`${inputClass} h-auto py-2 font-mono text-xs leading-relaxed`}
+            />
+            <p className="text-xs text-muted-foreground">
+              Printed on the order the supplier receives. Edit for a deal agreed on different terms.
+            </p>
+          </div>
+
+          <div className="flex justify-end gap-3 pt-2">
             <button
               type="button"
               onClick={resetModal}
@@ -453,7 +525,7 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
             <button
               type="button"
               onClick={raisePo}
-              disabled={saving || !supplier || chosen.length === 0}
+              disabled={saving || !supplier || !expectedDelivery || chosen.length === 0}
               className="inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-medium text-white transition-all disabled:opacity-50"
             >
               {saving ? "Raising…" : "Raise draft PO"}

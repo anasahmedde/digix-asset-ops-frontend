@@ -620,8 +620,8 @@ export default function WorkOrdersPage() {
       ))}
 
       {modalMode && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 py-8 backdrop-blur-sm">
-          <div className="w-full max-w-3xl rounded-2xl border border-border bg-card p-6 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 py-8 backdrop-blur-md veil-in">
+          <div className="w-full max-w-3xl glass glass-pop rounded-2xl p-6">
             <div className="mb-5 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-foreground">
                 {modalMode === "create" ? "New Work Order" : `Edit ${selected?.wo_number}`}

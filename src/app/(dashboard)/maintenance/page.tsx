@@ -1,17 +1,19 @@
 "use client";
 
-import { AlertTriangle, CalendarClock, Check, Pencil, Play, Plus, Ticket, Trash2, Wrench, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { AlertTriangle, CalendarClock, Check, Pencil, Plus, Trash2, Wrench, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import { FilterBar } from "@/components/ui/filter-bar";
+import { Pagination, pageSlice } from "@/components/ui/pagination";
 import { MultiSelect } from "@/components/ui/multi-select";
-import { SearchSelect } from "@/components/ui/search-select";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
+import { ScheduleDetail } from "@/components/maintenance/schedule-detail";
 import { useUser } from "@/lib/user-context";
+import { formatDate } from "@/lib/utils";
 
 interface MaintenanceSchedule {
   id: string;
@@ -25,18 +27,28 @@ interface MaintenanceSchedule {
   device_status: string | null;
   site: string | null;
   site_name: string | null;
+  /** The order the asset belongs to, where it is on one. */
+  project_name: string | null;
   assigned_to: string | null;
   assigned_to_name: string | null;
+  /** Whoever is on the next round — rarely the same person every month. */
+  next_visit_assignee: string | null;
   vendors: string[];
   vendor_names: string[];
   required_components: ReqRow[];
+  /** The day the rounds begin, which stays put as next_due moves on. */
+  start_date: string | null;
   next_due: string;
   instructions: string;
   status: string;
   status_display: string;
   effective_status: string;
   is_active: boolean;
+  /** The fault that raised this job, when it came in as a ticket. */
+  ticket: string | null;
+  ticket_number: string | null;
   created_at: string;
+  updated_at: string;
 }
 
 interface Option { id: string; label: string }
@@ -45,7 +57,17 @@ interface Option { id: string; label: string }
  *  schedules) a name typed by hand. */
 type ReqRow = { name: string; quantity: number; inventory_item?: string; inventory_unit_type?: string };
 
-interface StockOption { value: string; id: string; kind: "item" | "product"; name: string; label: string }
+/** A part the store issued for this job, waiting to be accounted for. */
+interface IssuedPart {
+  id: string;
+  what: string;
+  unit: string;
+  item: string | null;
+  unit_type: string | null;
+  quantity_issued: number;
+  issued_serials: string[];
+  quantity_used: number | null;
+}
 
 interface BillingDefaults {
   is_billable: boolean;
@@ -76,10 +98,18 @@ const thClass =
   "px-5 py-3.5 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground";
 const tdClass = "px-5 py-3.5";
 
+/** How far on the next round is, said the way somebody would say it. */
+const CYCLE_LABELS: Record<string, string> = {
+  daily: "a day on",
+  weekly: "a week on",
+  monthly: "a month on",
+  quarterly: "a quarter on",
+  yearly: "a year on",
+};
+
 const TYPE_BADGES: Record<string, string> = {
   preventive: "bg-blue-500/10 text-blue-600 ring-blue-500/20",
   corrective: "bg-red-500/10 text-red-600 ring-red-500/20",
-  predictive: "bg-purple-500/10 text-purple-600 ring-purple-500/20",
 };
 
 const FREQ_LABEL: Record<string, string> = {
@@ -112,30 +142,41 @@ function BillingChip({ billable, chargeTo }: { billable: boolean; chargeTo: stri
 }
 
 export default function MaintenancePage() {
-  const { user, canWrite } = useUser();
+  const { canWrite } = useUser();
   const canEdit = canWrite("maintenance");
   const [schedules, setSchedules] = useState<MaintenanceSchedule[]>([]);
+  const [jobPage, setJobPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
   const [selected, setSelected] = useState<MaintenanceSchedule | null>(null);
+  // The job opened in full. Editing is a form; this is where the work happens.
+  // Held by id, not by value: the job is read back out of the refreshed list
+  // so starting or completing it is reflected without reopening the row.
+  const [detailForId, setDetailForId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [filterValues, setFilterValues] = useState<Record<string, string>>({ type: "", frequency: "", active: "" });
   const [search, setSearch] = useState("");
   const [deviceOptions, setDeviceOptions] = useState<Option[]>([]);
-  const [siteOptions, setSiteOptions] = useState<Option[]>([]);
   const [userOptions, setUserOptions] = useState<Option[]>([]);
   const [formDevice, setFormDevice] = useState("");
   const [formAssignee, setFormAssignee] = useState("");
+  // Start date and frequency decide when the next round falls, so the form
+  // holds both and shows the answer rather than asking for a third date.
+  const [formStart, setFormStart] = useState("");
+  const [formFrequency, setFormFrequency] = useState("monthly");
   const [formVendors, setFormVendors] = useState<string[]>([]);
-  const [reqComponents, setReqComponents] = useState<ReqRow[]>([]);
-  const [stockOptions, setStockOptions] = useState<StockOption[]>([]);
   const [supplierOptions, setSupplierOptions] = useState<Option[]>([]);
-  const [formAssetInfo, setFormAssetInfo] = useState<{
-    components: { name: string; quantity: number }[];
-    dims: string | null;
-  } | null>(null);
+  /** Where the chosen asset stands — the schedule's site follows it. */
+  const [formAssetSite, setFormAssetSite] = useState<string | null>(null);
   const [completeFor, setCompleteFor] = useState<MaintenanceSchedule | null>(null);
   const [completeComponents, setCompleteComponents] = useState<{ id: string; name: string }[]>([]);
+  // The cover the billing answer turns on, and who would be billed without it.
+  const [completeCover, setCompleteCover] = useState<{
+    covered: boolean;
+    label: string;
+    until: string | null;
+    clientName: string | null;
+  } | null>(null);
   const [usedComponents, setUsedComponents] = useState<string[]>([]);
   const [completePhotos, setCompletePhotos] = useState<File[]>([]);
   const [completing, setCompleting] = useState(false);
@@ -143,36 +184,23 @@ export default function MaintenancePage() {
   // (null = unknown → server derives on save) and the user's explicit edits
   // (null = untouched → omitted from the payload).
   const [completeBilling, setCompleteBilling] = useState<BillingDefaults | null>(null);
-  const [billingEdit, setBillingEdit] = useState<BillingDefaults | null>(null);
+  // Parts the store issued for the job, and what the visit did with them.
+  // Generic stock is counted; unique units are named, because the store puts
+  // them back one serial at a time.
+  const [issuedParts, setIssuedParts] = useState<IssuedPart[]>([]);
+  const [usedQty, setUsedQty] = useState<Record<string, number>>({});
+  const [backSerials, setBackSerials] = useState<Record<string, string[]>>({});
   const [pastRecords, setPastRecords] = useState<MaintenanceRecordRow[]>([]);
+  // The round being closed out: a visit is recorded against the day it fell
+  // due and the day somebody was actually on site, which are rarely the same.
+  const [completeVisit, setCompleteVisit] = useState<{
+    id: string; due_date: string; started_at: string | null; assigned_to_name: string | null;
+  } | null>(null);
   // Guards openEdit's past-records fetch against out-of-order responses from
   // a previously opened schedule (null = no edit modal open).
   const openScheduleIdRef = useRef<string | null>(null);
   const searchParams = useSearchParams();
   const autoOpenedRef = useRef(false);
-
-  // What a visit can take along: generic stock and opened unique products.
-  useEffect(() => {
-    Promise.allSettled([
-      api.get("/inventory/items/", { params: { page_size: 500 } }),
-      api.get("/inventory/products/", { params: { page_size: 500 } }),
-    ]).then(([items, products]) => {
-      const opts: StockOption[] = [];
-      if (items.status === "fulfilled") {
-        for (const it of items.value.data.results ?? items.value.data) {
-          const name = it.material_name ?? it.sku;
-          opts.push({ value: `item:${it.id}`, id: it.id, kind: "item", name, label: `${name} · ${it.quantity} in stock` });
-        }
-      }
-      if (products.status === "fulfilled") {
-        for (const p of products.value.data.results ?? products.value.data) {
-          const name = [p.name, p.model_name].filter(Boolean).join(" ");
-          opts.push({ value: `product:${p.id}`, id: p.id, kind: "product", name, label: `${name} · ${p.in_stock_count} in stock` });
-        }
-      }
-      setStockOptions(opts);
-    });
-  }, []);
 
   const fetchSchedules = useCallback(async () => {
     try {
@@ -186,10 +214,11 @@ export default function MaintenancePage() {
   }, []);
 
   const loadOptions = useCallback(async () => {
-    const [dev, sites, users, sups] = await Promise.allSettled([
-      api.get("/assets/devices/", { params: { page_size: 1000 } }),
-      api.get("/sites/sites/", { params: { page_size: 1000 } }),
-      api.get("/accounts/users/", { params: { is_field_staff: true, is_active: true, page_size: 200 } }),
+    const [dev, users, sups] = await Promise.allSettled([
+      // Only a live asset can be serviced, and only a technician attends. The
+      // site is not fetched: it comes from whichever asset is chosen.
+      api.get("/assets/devices/", { params: { status: "active", page_size: 1000 } }),
+      api.get("/accounts/users/", { params: { role: "technician", is_active: true, page_size: 200 } }),
       api.get("/suppliers/", { params: { page_size: 1000 } }),
     ]);
     if (dev.status === "fulfilled")
@@ -197,8 +226,6 @@ export default function MaintenancePage() {
         id: d.id,
         label: d.display_name ? `${d.asset_code} — ${d.display_name}` : d.asset_code,
       })));
-    if (sites.status === "fulfilled")
-      setSiteOptions((sites.value.data.results ?? []).map((s: { id: string; name: string }) => ({ id: s.id, label: s.name })));
     if (users.status === "fulfilled")
       setUserOptions((users.value.data.results ?? []).map((u: { id: string; first_name: string; last_name: string; username: string }) => ({
         id: u.id,
@@ -213,32 +240,36 @@ export default function MaintenancePage() {
     loadOptions();
   }, [fetchSchedules, loadOptions]);
 
+  // Opening a job looks like going somewhere, so it goes somewhere: the id
+  // lives in the address, and Back closes the job instead of leaving
+  // Maintenance for whatever page came before it.
+  useEffect(() => {
+    const readHash = () => {
+      const match = window.location.hash.match(/^#job-(.+)$/);
+      setDetailForId(match ? match[1] : null);
+    };
+    readHash();
+    window.addEventListener("popstate", readHash);
+    window.addEventListener("hashchange", readHash);
+    return () => {
+      window.removeEventListener("popstate", readHash);
+      window.removeEventListener("hashchange", readHash);
+    };
+  }, []);
+
+  function openDetail(id: string) {
+    window.history.pushState(null, "", `#job-${id}`);
+    setDetailForId(id);
+  }
+
   async function handleFormDeviceChange(id: string) {
     setFormDevice(id);
-    setFormAssetInfo(null);
+    setFormAssetSite(null);
     if (!id) return;
     try {
       const { data } = await api.get(`/assets/devices/${id}/`);
-      const dims = data.length_in && data.width_in
-        ? `${data.length_in} × ${data.width_in}${data.depth_in ? ` × ${data.depth_in}` : ""} in`
-        : data.diagonal_inches
-          ? `${data.diagonal_inches}"`
-          : null;
-      setFormAssetInfo({
-        components: (data.components ?? []).map((c: { name: string; quantity: number }) => ({ name: c.name, quantity: c.quantity })),
-        dims,
-      });
-    } catch { /* card stays hidden */ }
-  }
-
-  async function startWork(s: MaintenanceSchedule) {
-    try {
-      await api.patch(`/maintenance/schedules/${s.id}/`, { status: "in_process" });
-      toast.success("Maintenance started");
-      fetchSchedules();
-    } catch (err) {
-      toast.error(getApiError(err, "Failed to start maintenance"));
-    }
+      setFormAssetSite(data.site_name ?? null);
+    } catch { /* the site field says it could not be read */ }
   }
 
   async function openComplete(s: MaintenanceSchedule) {
@@ -247,11 +278,42 @@ export default function MaintenancePage() {
     setCompletePhotos([]);
     setCompleteComponents([]);
     setCompleteBilling(null);
-    setBillingEdit(null);
+    setIssuedParts([]);
+    setUsedQty({});
+    setBackSerials({});
+    setCompleteVisit(null);
+    try {
+      const { data } = await api.get("/maintenance/visits/", {
+        params: { schedule: s.id, page_size: 20 },
+      });
+      const open = (data.results ?? data).find(
+        (v: { status: string }) => v.status === "planned" || v.status === "in_progress"
+      );
+      setCompleteVisit(open ?? null);
+    } catch { /* the dialog simply does not name the round */ }
+    try {
+      const { data } = await api.get("/maintenance/part-requests/", {
+        params: { schedule: s.id, page_size: 200 },
+      });
+      // Only what the store actually handed over and nobody has accounted
+      // for yet: the rest of the list is asking and answering.
+      const open: IssuedPart[] = (data.results ?? data).filter(
+        (p: IssuedPart) => (p.quantity_issued ?? 0) > 0 && p.quantity_used === null
+      );
+      setIssuedParts(open);
+      setUsedQty(Object.fromEntries(open.map((p) => [p.id, p.quantity_issued])));
+      setBackSerials(Object.fromEntries(open.map((p) => [p.id, []])));
+    } catch { /* the dialog asks about nothing rather than the wrong thing */ }
     if (s.device) {
       try {
         const { data } = await api.get(`/assets/devices/${s.device}/`);
         setCompleteComponents((data.components ?? []).map((c: { id: string; name: string }) => ({ id: c.id, name: c.name })));
+        setCompleteCover((prev) => ({
+          covered: prev?.covered ?? false,
+          label: prev?.label ?? "",
+          until: prev?.until ?? null,
+          clientName: data.client_name ?? null,
+        }));
       } catch { /* components stay empty */ }
       try {
         // Mirror the backend default: active client warranty → company (or
@@ -259,12 +321,20 @@ export default function MaintenancePage() {
         const { data } = await api.get("/warranties/", {
           params: { device: s.device, status: "active", page_size: 100 },
         });
-        const list: { warranty_type: string }[] = data.results ?? data;
-        const hasClient = list.some((w) => w.warranty_type === "client");
-        const hasSupplierSide = list.some((w) => SUPPLIER_SIDE_TYPES.includes(w.warranty_type));
+        const list: { warranty_type: string; warranty_type_display?: string; end_date?: string }[] =
+          data.results ?? data;
+        const client = list.find((w) => w.warranty_type === "client");
+        const supplierSide = list.find((w) => SUPPLIER_SIDE_TYPES.includes(w.warranty_type));
+        const cover = client ?? supplierSide;
+        setCompleteCover((prev) => ({
+          covered: Boolean(client),
+          label: cover?.warranty_type_display ?? (cover ? cover.warranty_type : ""),
+          until: cover?.end_date ?? null,
+          clientName: prev?.clientName ?? null,
+        }));
         setCompleteBilling(
-          hasClient
-            ? { is_billable: false, charge_to: hasSupplierSide ? "vendor" : "company" }
+          client
+            ? { is_billable: false, charge_to: supplierSide ? "vendor" : "company" }
             : { is_billable: true, charge_to: "client" }
         );
       } catch { /* unknown — billing derived server-side, shown after submit */ }
@@ -284,8 +354,19 @@ export default function MaintenancePage() {
         notes: fd.get("notes") || "",
         cost: fd.get("cost") || null,
         components_used: usedComponents,
-        // Omit billing when untouched so the warranty-derived server defaults apply.
-        ...(billingEdit ? { is_billable: billingEdit.is_billable, charge_to: billingEdit.charge_to } : {}),
+        // Billing is not sent: the server reads the asset's cover, which is
+        // the same thing this dialog is showing.
+        ...(issuedParts.length > 0
+          ? {
+              parts_settlement: issuedParts.map((p) => ({
+                part_request: p.id,
+                used: p.unit_type
+                  ? p.quantity_issued - (backSerials[p.id]?.length ?? 0)
+                  : usedQty[p.id] ?? p.quantity_issued,
+                serials: p.unit_type ? backSerials[p.id] ?? [] : [],
+              })),
+            }
+          : {}),
       });
       for (const photo of completePhotos) {
         const photoForm = new FormData();
@@ -300,6 +381,11 @@ export default function MaintenancePage() {
           ? `Billable${record.charge_to ? ` to ${record.charge_to}` : ""}`
           : `Covered by warranty${record.charge_to ? ` — charged to ${record.charge_to}` : ""}`,
       });
+      if (record.return_grn) {
+        toast.success(`Returned parts are with receiving on ${record.return_grn}`, {
+          description: "They are back in stock once inspection passes them.",
+        });
+      }
       setCompleteFor(null);
       fetchSchedules();
     } catch (err) {
@@ -313,8 +399,9 @@ export default function MaintenancePage() {
     setSelected(s);
     handleFormDeviceChange(s.device ?? "");
     setFormAssignee(s.assigned_to ?? "");
+    setFormStart(s.start_date?.split("T")[0] ?? "");
+    setFormFrequency(s.frequency ?? "monthly");
     setFormVendors(s.vendors ?? []);
-    setReqComponents(s.required_components ?? []);
     setPastRecords([]);
     setModalMode("edit");
     const scheduleId = s.id;
@@ -345,26 +432,57 @@ export default function MaintenancePage() {
     setPastRecords([]);
   }
 
+  /** Assets free to be scheduled: everything live, less what is already on a
+   *  round. The schedule being edited keeps its own asset, or the field it is
+   *  bound to would open empty. */
+  const assetChoices = useMemo(() => {
+    const taken = new Set(
+      schedules
+        .filter((s) => s.device && s.is_active && (s.effective_status || s.status) !== "completed")
+        .filter((s) => s.id !== selected?.id)
+        .map((s) => s.device as string),
+    );
+    return deviceOptions.filter((d: Option) => !taken.has(d.id));
+  }, [schedules, deviceOptions, selected]);
+
+  /** When the round after `start` falls, one cycle on. A one-time job has none. */
+  function dueAfter(start: string, frequency: string): string {
+    if (!start || frequency === "one_time") return start;
+    const d = new Date(`${start}T00:00:00`);
+    if (frequency === "daily") d.setDate(d.getDate() + 1);
+    else if (frequency === "weekly") d.setDate(d.getDate() + 7);
+    else if (frequency === "monthly") d.setMonth(d.getMonth() + 1);
+    else if (frequency === "quarterly") d.setMonth(d.getMonth() + 3);
+    else if (frequency === "yearly") d.setFullYear(d.getFullYear() + 1);
+    // Built by hand, not through toISOString: the date is local and that
+    // converts to UTC, which rolls it back a day everywhere east of London.
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }
+
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setSaving(true);
     const fd = new FormData(e.currentTarget);
     const payload = {
       title: fd.get("title"),
-      maintenance_type: fd.get("maintenance_type"),
+      // Scheduled ahead, so preventive. The site follows the asset, which the
+      // server reads off the asset itself rather than trusting this form.
+      maintenance_type: "preventive",
       frequency: fd.get("frequency"),
       priority: fd.get("priority"),
       device: fd.get("device") || null,
-      site: fd.get("site") || null,
       assigned_to: fd.get("assigned_to") || null,
       vendors: fd.getAll("vendors"),
-      required_components: reqComponents.filter((r) => r.inventory_item || r.inventory_unit_type || r.name.trim()),
-      next_due: fd.get("next_due"),
+      // Parts are asked for on the job by whoever is doing it, so this form
+      // sends none — and does not send an empty list either, which would wipe
+      // what an older schedule already has.
+      // The server works the next round out from these two, so it is not sent:
+      // a date from here could only disagree with the ones it comes from.
+      start_date: fd.get("start_date"),
       instructions: fd.get("instructions"),
-      // Status is sent only when the user changed it: the form holds the copy
-      // it was opened with, and a stale copy must not overwrite what happened
-      // since (a job completed elsewhere in the meantime).
-      ...(modalMode === "create" || fd.get("status") !== selected?.status ? { status: fd.get("status") } : {}),
+      // Status is not asked for: a schedule being written has not started, and
+      // what happens to it afterwards is recorded by the work, not typed here.
     };
     try {
       if (modalMode === "create") {
@@ -395,304 +513,306 @@ export default function MaintenancePage() {
     }
   }
 
+  const detailFor = detailForId ? schedules.find((s) => s.id === detailForId) ?? null : null;
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-orange-500 to-red-600">
-            <Wrench className="h-5 w-5 text-white" />
+      {/* The job is the page while it is open, but the dialogs below stay
+          mounted: completing a visit is started from inside the job. */}
+      {detailFor ? (
+        <ScheduleDetail
+          schedule={detailFor}
+          onBack={() => window.history.back()}
+          onChanged={fetchSchedules}
+          onComplete={() => openComplete(detailFor)}
+          onEdit={canEdit ? () => openEdit(detailFor) : undefined}
+        />
+      ) : (
+        <>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-orange-500 to-red-600">
+              <Wrench className="h-5 w-5 text-white" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-foreground">Maintenance</h1>
+              <p className="text-muted-foreground">
+                Manage preventive and corrective maintenance schedules
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-2xl font-bold text-foreground">Maintenance</h1>
-            <p className="text-muted-foreground">
-              Manage preventive and corrective maintenance schedules
-            </p>
-          </div>
+          {canEdit && (
+            <button
+              onClick={() => {
+                setSelected(null);
+                setFormDevice("");
+                setFormAssetSite(null);
+                setFormAssignee("");
+                setFormStart("");
+                setFormFrequency("monthly");
+                setFormVendors([]);
+                setModalMode("create");
+              }}
+              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-all"
+            >
+              <Plus className="h-4 w-4" /> Add Schedule
+            </button>
+          )}
         </div>
-        {canEdit && (
-          <button
-            onClick={() => {
-              setSelected(null);
-              setFormDevice("");
-              setFormAssetInfo(null);
-              setFormAssignee("");
-              setFormVendors([]);
-              setReqComponents([]);
-              setModalMode("create");
-            }}
-            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-all"
-          >
-            <Plus className="h-4 w-4" /> Add Schedule
-          </button>
-        )}
-      </div>
 
-      {/* What needs attention, before the full list: planned visits in the
-          next week, and corrective jobs already past the date promised when
-          the asset was taken out of service. */}
-      {!loading && (() => {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const weekOut = new Date(today);
-        weekOut.setDate(weekOut.getDate() + 7);
-        const state = (s: MaintenanceSchedule) => s.effective_status || s.status;
-        const upcoming = schedules
-          .filter((s) => s.maintenance_type === "preventive" && state(s) !== "completed" && s.next_due)
-          .filter((s) => { const d = new Date(s.next_due); return d >= today && d <= weekOut; })
-          .sort((a, b) => a.next_due.localeCompare(b.next_due));
-        const late = schedules
-          .filter((s) => s.maintenance_type === "corrective" && state(s) === "overdue")
-          .sort((a, b) => a.next_due.localeCompare(b.next_due));
-        const daysLate = (due: string) => Math.max(1, Math.round((today.getTime() - new Date(due).getTime()) / 86400000));
+        {/* What needs attention, before the full list: planned visits in the
+            next week, and corrective jobs already past the date promised when
+            the asset was taken out of service. */}
+        {!loading && (() => {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const weekOut = new Date(today);
+          weekOut.setDate(weekOut.getDate() + 7);
+          const state = (s: MaintenanceSchedule) => s.effective_status || s.status;
+          const upcoming = schedules
+            .filter((s) => s.maintenance_type === "preventive" && state(s) !== "completed" && s.next_due)
+            .filter((s) => { const d = new Date(s.next_due); return d >= today && d <= weekOut; })
+            .sort((a, b) => a.next_due.localeCompare(b.next_due));
+          const late = schedules
+            .filter((s) => s.maintenance_type === "corrective" && state(s) === "overdue")
+            .sort((a, b) => a.next_due.localeCompare(b.next_due));
+          const daysLate = (due: string) => Math.max(1, Math.round((today.getTime() - new Date(due).getTime()) / 86400000));
 
-        if (upcoming.length === 0 && late.length === 0) {
+          if (upcoming.length === 0 && late.length === 0) {
+            return (
+              <div className="flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3 text-xs text-emerald-700">
+                <Check className="h-4 w-4" />
+                Nothing planned in the next 7 days, and no corrective job is past its due date.
+              </div>
+            );
+          }
           return (
-            <div className="flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3 text-xs text-emerald-700">
-              <Check className="h-4 w-4" />
-              Nothing planned in the next 7 days, and no corrective job is past its due date.
+            <div className="grid gap-3 lg:grid-cols-2">
+              <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-4">
+                <div className="mb-2 flex items-center gap-2">
+                  <CalendarClock className="h-4 w-4 text-blue-600" />
+                  <p className="text-sm font-semibold text-foreground">Upcoming planned maintenance</p>
+                  <span className="ml-auto rounded-full bg-blue-500/10 px-2 py-0.5 text-2xs font-semibold text-blue-600">{upcoming.length} in 7 days</span>
+                </div>
+                {upcoming.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No preventive visits due this week.</p>
+                ) : (
+                  <ul className="space-y-1.5">
+                    {upcoming.slice(0, 4).map((s) => (
+                      <li key={s.id}>
+                        <button onClick={() => openEdit(s)} className="flex w-full items-center justify-between gap-3 rounded-md px-2 py-1 text-left text-xs transition-colors hover:bg-blue-500/10">
+                          <span className="min-w-0 truncate text-foreground">{s.title} <span className="font-mono text-muted-foreground">{s.device_code ?? ""}</span></span>
+                          <span className="shrink-0 font-medium text-blue-600">{new Date(s.next_due).toLocaleDateString()}</span>
+                        </button>
+                      </li>
+                    ))}
+                    {upcoming.length > 4 && <li className="px-2 text-2xs text-muted-foreground">+{upcoming.length - 4} more</li>}
+                  </ul>
+                )}
+              </div>
+              <div className={`rounded-xl border p-4 ${late.length ? "border-red-500/25 bg-red-500/5" : "border-border bg-card"}`}>
+                <div className="mb-2 flex items-center gap-2">
+                  <AlertTriangle className={`h-4 w-4 ${late.length ? "text-red-600" : "text-muted-foreground"}`} />
+                  <p className="text-sm font-semibold text-foreground">Corrective maintenance past due</p>
+                  <span className={`ml-auto rounded-full px-2 py-0.5 text-2xs font-semibold ${late.length ? "bg-red-500/10 text-red-600" : "bg-secondary text-muted-foreground"}`}>{late.length} overdue</span>
+                </div>
+                {late.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">Every repair is within the date it was promised by.</p>
+                ) : (
+                  <ul className="space-y-1.5">
+                    {late.slice(0, 4).map((s) => (
+                      <li key={s.id}>
+                        <button onClick={() => openEdit(s)} className="flex w-full items-center justify-between gap-3 rounded-md px-2 py-1 text-left text-xs transition-colors hover:bg-red-500/10">
+                          <span className="min-w-0 truncate text-foreground">{s.title} <span className="font-mono text-muted-foreground">{s.device_code ?? ""}</span></span>
+                          <span className="shrink-0 font-medium text-red-600">{daysLate(s.next_due)}d late</span>
+                        </button>
+                      </li>
+                    ))}
+                    {late.length > 4 && <li className="px-2 text-2xs text-muted-foreground">+{late.length - 4} more</li>}
+                  </ul>
+                )}
+              </div>
             </div>
           );
-        }
-        return (
-          <div className="grid gap-3 lg:grid-cols-2">
-            <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-4">
-              <div className="mb-2 flex items-center gap-2">
-                <CalendarClock className="h-4 w-4 text-blue-600" />
-                <p className="text-sm font-semibold text-foreground">Upcoming planned maintenance</p>
-                <span className="ml-auto rounded-full bg-blue-500/10 px-2 py-0.5 text-2xs font-semibold text-blue-600">{upcoming.length} in 7 days</span>
-              </div>
-              {upcoming.length === 0 ? (
-                <p className="text-xs text-muted-foreground">No preventive visits due this week.</p>
-              ) : (
-                <ul className="space-y-1.5">
-                  {upcoming.slice(0, 4).map((s) => (
-                    <li key={s.id}>
-                      <button onClick={() => openEdit(s)} className="flex w-full items-center justify-between gap-3 rounded-md px-2 py-1 text-left text-xs transition-colors hover:bg-blue-500/10">
-                        <span className="min-w-0 truncate text-foreground">{s.title} <span className="font-mono text-muted-foreground">{s.device_code ?? ""}</span></span>
-                        <span className="shrink-0 font-medium text-blue-600">{new Date(s.next_due).toLocaleDateString()}</span>
-                      </button>
-                    </li>
+        })()}
+
+        <FilterBar
+          filters={[
+            { key: "type", label: "Type", options: Object.keys(TYPE_BADGES).map((t) => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) })) },
+            { key: "frequency", label: "Frequency", options: Object.entries(FREQ_LABEL).map(([v, l]) => ({ value: v, label: l })) },
+            { key: "status", label: "Status", options: [["active", "Active"], ["pending", "Pending"], ["in_process", "In progress"], ["on_hold", "Paused"], ["overdue", "Over Due"], ["completed", "Completed"]].map(([v, l]) => ({ value: v, label: l })) },
+          ]}
+          values={filterValues}
+          onChange={(k, v) => setFilterValues((prev) => ({ ...prev, [k]: v }))}
+          search={search}
+          onSearchChange={setSearch}
+          searchPlaceholder="Search by title, site, device..."
+        />
+
+        {(() => {
+          const filtered = schedules.filter((s) => {
+            if (filterValues.type && s.maintenance_type !== filterValues.type) return false;
+            if (filterValues.frequency && s.frequency !== filterValues.frequency) return false;
+            if (filterValues.status && (s.effective_status || s.status) !== filterValues.status) return false;
+            if (search) {
+              const q = search.toLowerCase();
+              if (!s.title.toLowerCase().includes(q) && !(s.site_name || "").toLowerCase().includes(q) && !(s.device_code || "").toLowerCase().includes(q) && !(s.assigned_to_name || "").toLowerCase().includes(q)) return false;
+            }
+            return true;
+          });
+          return loading ? (
+          <div className="flex items-center justify-center py-20">
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="rounded-xl border border-border bg-card p-12 text-center">
+            <Wrench className="mx-auto h-12 w-12 text-muted-foreground/30" />
+            <h3 className="mt-4 text-lg font-semibold text-foreground">No schedules found</h3>
+            <p className="mt-2 text-sm text-muted-foreground">{schedules.length > 0 ? "Try adjusting your filters." : "Add a schedule to start tracking maintenance activities."}</p>
+          </div>
+        ) : (
+          <div className="overflow-hidden rounded-xl border border-border bg-card">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-secondary/50">
+                    <th className={thClass}>Title</th>
+                    <th className={thClass}>Type</th>
+                    <th className={thClass}>Frequency</th>
+                    <th className={thClass}>Priority</th>
+                    <th className={thClass}>Next Due</th>
+                    <th className={thClass}>Asset ID</th>
+                    <th className={thClass}>Asset Name</th>
+                    <th className={thClass}>Project</th>
+                    <th className={thClass}>Site</th>
+                    <th className={thClass}>Assigned To</th>
+                    <th className={thClass}>Status</th>
+                    <th className={thClass}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pageSlice(filtered, jobPage).map((s) => (
+                    <tr
+                      key={s.id}
+                      onClick={() => openDetail(s.id)}
+                      title="Open this job"
+                      className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30"
+                    >
+                      <td className={`${tdClass} font-medium text-foreground`}>
+                        {s.title}
+                        {s.ticket_number && (
+                          <span className="block font-mono text-2xs font-normal text-muted-foreground">
+                            {s.ticket_number}
+                          </span>
+                        )}
+                      </td>
+                      <td className={tdClass}>
+                        <span
+                          className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${TYPE_BADGES[s.maintenance_type] ?? "bg-secondary/500/10 text-muted-foreground ring-gray-500/20"}`}
+                        >
+                          {s.maintenance_type}
+                        </span>
+                      </td>
+                      <td className={tdClass}>
+                        <span className="inline-flex rounded-full bg-secondary/500/10 px-2.5 py-0.5 text-xs font-medium text-muted-foreground ring-1 ring-gray-500/20">
+                          {FREQ_LABEL[s.frequency] ?? s.frequency}
+                        </span>
+                      </td>
+                      <td className={tdClass}>
+                        <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ring-1 ${PRIORITY_BADGES[s.priority] ?? PRIORITY_BADGES.medium}`}>
+                          {s.priority || "medium"}
+                        </span>
+                      </td>
+                      <td className={`${tdClass} text-muted-foreground`}>
+                        {s.next_due
+                          ? new Date(s.next_due).toLocaleDateString()
+                          : "-"}
+                      </td>
+                      <td className={`${tdClass} font-mono text-muted-foreground`}>
+                        {s.device_code || "-"}
+                      </td>
+                      <td className={`${tdClass} text-muted-foreground`}>
+                        {s.device_name || "-"}
+                      </td>
+                      <td className={`${tdClass} text-foreground`}>
+                        {s.project_name || <span className="text-muted-foreground">Not on a project</span>}
+                      </td>
+                      <td className={`${tdClass} text-muted-foreground`}>
+                        {s.site_name || "-"}
+                      </td>
+                      <td className={`${tdClass} text-muted-foreground`}>
+                        {/* Who is going next, not who usually goes. */}
+                        {s.next_visit_assignee || s.assigned_to_name || "-"}
+                        {(s.vendor_names ?? []).length > 0 && (
+                          <span className="block text-xs">Vendors: {s.vendor_names.join(", ")}</span>
+                        )}
+                      </td>
+                      <td className={tdClass}>
+                        {(() => {
+                          const st = s.effective_status || s.status || "active";
+                          const styles: Record<string, string> = {
+                            active: "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20",
+                            pending: "bg-blue-500/10 text-blue-600 ring-blue-500/20",
+                            in_process: "bg-cyan-500/10 text-cyan-600 ring-cyan-500/20",
+                            on_hold: "bg-slate-500/10 text-slate-600 ring-slate-500/20",
+                            overdue: "bg-red-500/10 text-red-600 ring-red-500/20",
+                            completed: "bg-gray-500/10 text-gray-600 ring-gray-500/20",
+                          };
+                          const labels: Record<string, string> = { in_process: "In progress", on_hold: "Paused", overdue: "Over Due" };
+                          const text = labels[st] || st.charAt(0).toUpperCase() + st.slice(1);
+                          return <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${styles[st] || styles.active}`}>{text}</span>;
+                        })()}
+                      </td>
+                      <td className={tdClass} onClick={(e) => e.stopPropagation()}>
+                        {/* Starting, completing and ticketing are things you do
+                            to a job, so they live inside it. Editing and deleting
+                            are what you do to a line on a list. */}
+                        {canEdit ? (
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => openEdit(s)}
+                              className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                              title="Edit"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </button>
+                            {canEdit && (() => {
+                              // A fault is closed, not deleted: deleting the open
+                              // job would strand the asset out of service.
+                              const stranding =
+                                s.maintenance_type === "corrective" &&
+                                (s.effective_status || s.status) !== "completed" &&
+                                s.device_status === "under_maintenance";
+                              return (
+                            <button
+                              onClick={() => handleDelete(s)}
+                              disabled={stranding}
+                              className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-destructive disabled:pointer-events-none disabled:opacity-40"
+                              title={stranding ? "The asset is out of service on this job — complete it instead" : "Delete"}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                              );
+                            })()}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                      </td>
+                    </tr>
                   ))}
-                  {upcoming.length > 4 && <li className="px-2 text-2xs text-muted-foreground">+{upcoming.length - 4} more</li>}
-                </ul>
-              )}
-            </div>
-            <div className={`rounded-xl border p-4 ${late.length ? "border-red-500/25 bg-red-500/5" : "border-border bg-card"}`}>
-              <div className="mb-2 flex items-center gap-2">
-                <AlertTriangle className={`h-4 w-4 ${late.length ? "text-red-600" : "text-muted-foreground"}`} />
-                <p className="text-sm font-semibold text-foreground">Corrective maintenance past due</p>
-                <span className={`ml-auto rounded-full px-2 py-0.5 text-2xs font-semibold ${late.length ? "bg-red-500/10 text-red-600" : "bg-secondary text-muted-foreground"}`}>{late.length} overdue</span>
-              </div>
-              {late.length === 0 ? (
-                <p className="text-xs text-muted-foreground">Every repair is within the date it was promised by.</p>
-              ) : (
-                <ul className="space-y-1.5">
-                  {late.slice(0, 4).map((s) => (
-                    <li key={s.id}>
-                      <button onClick={() => openEdit(s)} className="flex w-full items-center justify-between gap-3 rounded-md px-2 py-1 text-left text-xs transition-colors hover:bg-red-500/10">
-                        <span className="min-w-0 truncate text-foreground">{s.title} <span className="font-mono text-muted-foreground">{s.device_code ?? ""}</span></span>
-                        <span className="shrink-0 font-medium text-red-600">{daysLate(s.next_due)}d late</span>
-                      </button>
-                    </li>
-                  ))}
-                  {late.length > 4 && <li className="px-2 text-2xs text-muted-foreground">+{late.length - 4} more</li>}
-                </ul>
-              )}
+                </tbody>
+              </table>
+              <Pagination page={jobPage} total={filtered.length} onPage={setJobPage} noun="jobs" />
             </div>
           </div>
         );
-      })()}
+        })()}
 
-      <FilterBar
-        filters={[
-          { key: "type", label: "Type", options: Object.keys(TYPE_BADGES).map((t) => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) })) },
-          { key: "frequency", label: "Frequency", options: Object.entries(FREQ_LABEL).map(([v, l]) => ({ value: v, label: l })) },
-          { key: "status", label: "Status", options: [["active", "Active"], ["pending", "Pending"], ["in_process", "In Process"], ["on_hold", "On Hold"], ["overdue", "Over Due"], ["completed", "Completed"]].map(([v, l]) => ({ value: v, label: l })) },
-        ]}
-        values={filterValues}
-        onChange={(k, v) => setFilterValues((prev) => ({ ...prev, [k]: v }))}
-        search={search}
-        onSearchChange={setSearch}
-        searchPlaceholder="Search by title, site, device..."
-      />
-
-      {(() => {
-        const filtered = schedules.filter((s) => {
-          if (filterValues.type && s.maintenance_type !== filterValues.type) return false;
-          if (filterValues.frequency && s.frequency !== filterValues.frequency) return false;
-          if (filterValues.status && (s.effective_status || s.status) !== filterValues.status) return false;
-          if (search) {
-            const q = search.toLowerCase();
-            if (!s.title.toLowerCase().includes(q) && !(s.site_name || "").toLowerCase().includes(q) && !(s.device_code || "").toLowerCase().includes(q) && !(s.assigned_to_name || "").toLowerCase().includes(q)) return false;
-          }
-          return true;
-        });
-        return loading ? (
-        <div className="flex items-center justify-center py-20">
-          <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="rounded-xl border border-border bg-card p-12 text-center">
-          <Wrench className="mx-auto h-12 w-12 text-muted-foreground/30" />
-          <h3 className="mt-4 text-lg font-semibold text-foreground">No schedules found</h3>
-          <p className="mt-2 text-sm text-muted-foreground">{schedules.length > 0 ? "Try adjusting your filters." : "Add a schedule to start tracking maintenance activities."}</p>
-        </div>
-      ) : (
-        <div className="overflow-hidden rounded-xl border border-border bg-card">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border bg-secondary/50">
-                  <th className={thClass}>Title</th>
-                  <th className={thClass}>Type</th>
-                  <th className={thClass}>Frequency</th>
-                  <th className={thClass}>Priority</th>
-                  <th className={thClass}>Next Due</th>
-                  <th className={thClass}>Asset ID</th>
-                  <th className={thClass}>Asset Name</th>
-                  <th className={thClass}>Site</th>
-                  <th className={thClass}>Assigned To</th>
-                  <th className={thClass}>Status</th>
-                  <th className={thClass}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((s) => (
-                  <tr
-                    key={s.id}
-                    onClick={() => openEdit(s)}
-                    className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30"
-                  >
-                    <td className={`${tdClass} font-medium text-foreground`}>
-                      {s.title}
-                    </td>
-                    <td className={tdClass}>
-                      <span
-                        className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${TYPE_BADGES[s.maintenance_type] ?? "bg-secondary/500/10 text-muted-foreground ring-gray-500/20"}`}
-                      >
-                        {s.maintenance_type}
-                      </span>
-                    </td>
-                    <td className={tdClass}>
-                      <span className="inline-flex rounded-full bg-secondary/500/10 px-2.5 py-0.5 text-xs font-medium text-muted-foreground ring-1 ring-gray-500/20">
-                        {FREQ_LABEL[s.frequency] ?? s.frequency}
-                      </span>
-                    </td>
-                    <td className={tdClass}>
-                      <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ring-1 ${PRIORITY_BADGES[s.priority] ?? PRIORITY_BADGES.medium}`}>
-                        {s.priority || "medium"}
-                      </span>
-                    </td>
-                    <td className={`${tdClass} text-muted-foreground`}>
-                      {s.next_due
-                        ? new Date(s.next_due).toLocaleDateString()
-                        : "-"}
-                    </td>
-                    <td className={`${tdClass} font-mono text-muted-foreground`}>
-                      {s.device_code || "-"}
-                    </td>
-                    <td className={`${tdClass} text-muted-foreground`}>
-                      {s.device_name || "-"}
-                    </td>
-                    <td className={`${tdClass} text-muted-foreground`}>
-                      {s.site_name || "-"}
-                    </td>
-                    <td className={`${tdClass} text-muted-foreground`}>
-                      {s.assigned_to_name || "-"}
-                      {(s.vendor_names ?? []).length > 0 && (
-                        <span className="block text-xs">Vendors: {s.vendor_names.join(", ")}</span>
-                      )}
-                    </td>
-                    <td className={tdClass}>
-                      {(() => {
-                        const st = s.effective_status || s.status || "active";
-                        const styles: Record<string, string> = {
-                          active: "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20",
-                          pending: "bg-blue-500/10 text-blue-600 ring-blue-500/20",
-                          in_process: "bg-cyan-500/10 text-cyan-600 ring-cyan-500/20",
-                          on_hold: "bg-slate-500/10 text-slate-600 ring-slate-500/20",
-                          overdue: "bg-red-500/10 text-red-600 ring-red-500/20",
-                          completed: "bg-gray-500/10 text-gray-600 ring-gray-500/20",
-                        };
-                        const labels: Record<string, string> = { in_process: "In Process", on_hold: "On Hold", overdue: "Over Due" };
-                        const text = labels[st] || st.charAt(0).toUpperCase() + st.slice(1);
-                        return <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${styles[st] || styles.active}`}>{text}</span>;
-                      })()}
-                    </td>
-                    <td className={tdClass} onClick={(e) => e.stopPropagation()}>
-                      {(canEdit || user?.id === s.assigned_to) ? (
-                        <div className="flex items-center gap-1">
-                          {["active", "pending", "overdue"].includes(s.effective_status || s.status) && (
-                            <button
-                              onClick={() => startWork(s)}
-                              className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 px-2 py-1 text-2xs font-medium text-amber-600 transition-colors hover:bg-amber-500/20"
-                              title="Start maintenance"
-                            >
-                              <Play className="h-3 w-3" /> Start
-                            </button>
-                          )}
-                          {s.maintenance_type === "preventive" && s.device && (
-                            <Link
-                              href={`/tickets?create=1&device=${s.device}&category=repair`}
-                              className="inline-flex items-center gap-1 rounded-md bg-red-500/10 px-2 py-1 text-2xs font-medium text-red-600 transition-colors hover:bg-red-500/20"
-                              title="Found a major fault? Raise a maintenance ticket"
-                            >
-                              <Ticket className="h-3 w-3" /> Ticket
-                            </Link>
-                          )}
-                          {(s.effective_status || s.status) !== "completed" && (
-                            <button
-                              onClick={() => openComplete(s)}
-                              className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-1 text-2xs font-medium text-emerald-600 transition-colors hover:bg-emerald-500/20"
-                              title="Complete this cycle"
-                            >
-                              <Check className="h-3 w-3" /> Complete
-                            </button>
-                          )}
-                          {canEdit && (
-                          <button
-                            onClick={() => openEdit(s)}
-                            className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                            title="Edit"
-                          >
-                            <Pencil className="h-3.5 w-3.5" />
-                          </button>
-                          )}
-                          {canEdit && (() => {
-                            // A fault is closed, not deleted: deleting the open
-                            // job would strand the asset out of service.
-                            const stranding =
-                              s.maintenance_type === "corrective" &&
-                              (s.effective_status || s.status) !== "completed" &&
-                              s.device_status === "under_maintenance";
-                            return (
-                          <button
-                            onClick={() => handleDelete(s)}
-                            disabled={stranding}
-                            className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-destructive disabled:pointer-events-none disabled:opacity-40"
-                            title={stranding ? "The asset is out of service on this job — complete it instead" : "Delete"}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                            );
-                          })()}
-                        </div>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      );
-      })()}
-
+        </>
+      )}
       {modalMode && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 py-8 backdrop-blur-sm">
-          <div className="my-auto max-h-none w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl sm:max-h-[90vh] sm:overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 py-8 backdrop-blur-md veil-in">
+          <div className="my-auto max-h-none w-full max-w-lg glass glass-pop rounded-2xl p-6 sm:max-h-[90vh] sm:overflow-y-auto">
             <div className="mb-5 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-foreground">
                 {modalMode === "create"
@@ -722,19 +842,14 @@ export default function MaintenancePage() {
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
-                  <label htmlFor="maintenance_type" className={labelClass}>
-                    Maintenance Type
-                  </label>
-                  <select
-                    id="maintenance_type"
-                    name="maintenance_type"
-                    defaultValue={selected?.maintenance_type ?? "preventive"}
-                    className={inputClass}
-                  >
-                    <option value="preventive">Preventive</option>
-                    <option value="corrective">Corrective</option>
-                    <option value="predictive">Predictive</option>
-                  </select>
+                  {/* Work planned ahead is preventive by definition.
+                      Corrective work is raised by a fault, from a ticket or
+                      from the asset going down, never scheduled here. */}
+                  <label className={labelClass}>Maintenance Type</label>
+                  <div className={`${inputClass} flex items-center justify-between gap-2`}>
+                    <span className="text-foreground">Preventive</span>
+                    <span className="text-2xs text-muted-foreground">scheduled work</span>
+                  </div>
                 </div>
                 <div className="space-y-1.5">
                   <label htmlFor="frequency" className={labelClass}>
@@ -743,7 +858,8 @@ export default function MaintenancePage() {
                   <select
                     id="frequency"
                     name="frequency"
-                    defaultValue={selected?.frequency ?? "monthly"}
+                    value={formFrequency}
+                    onChange={(e) => setFormFrequency(e.target.value)}
                     className={inputClass}
                   >
                     <option value="daily">Daily</option>
@@ -757,31 +873,52 @@ export default function MaintenancePage() {
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
-                  <label className={labelClass}>Asset</label>
-                  <SearchSelect
-                    options={deviceOptions}
-                    value={formDevice}
-                    onChange={handleFormDeviceChange}
+                  {/* Only live assets are serviceable, so the list is short
+                      enough to read rather than search. */}
+                  <label htmlFor="device" className={labelClass}>Asset</label>
+                  <select
+                    id="device"
                     name="device"
-                    placeholder="Search asset…"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label htmlFor="m-site" className={labelClass}>Site</label>
-                  <select id="m-site" name="site" defaultValue={selected?.site ?? ""} className={inputClass}>
-                    <option value="">None</option>
-                    {siteOptions.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+                    value={formDevice}
+                    onChange={(e) => handleFormDeviceChange(e.target.value)}
+                    className={inputClass}
+                  >
+                    <option value="">Select asset…</option>
+                    {assetChoices.map((d) => (
+                      <option key={d.id} value={d.id}>{d.label}</option>
+                    ))}
                   </select>
                 </div>
                 <div className="space-y-1.5">
-                  <label className={labelClass}>Assign To</label>
-                  <SearchSelect
-                    options={userOptions}
-                    value={formAssignee}
-                    onChange={setFormAssignee}
+                  {/* Where the asset stands is recorded on the asset when it
+                      is installed. Asking again would only invite a second
+                      answer that disagrees with the first. */}
+                  <label htmlFor="m-site" className={labelClass}>Site</label>
+                  <div id="m-site" className={`${inputClass} flex items-center justify-between gap-2`}>
+                    <span className="truncate text-foreground">
+                      {formAssetSite ?? (formDevice ? "No site on this asset" : "Pick an asset first")}
+                    </span>
+                    {formAssetSite && (
+                      <span className="shrink-0 text-2xs text-muted-foreground">from the asset</span>
+                    )}
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  {/* Few enough technicians to read at a glance, so a list
+                      rather than a type-ahead nobody can guess into. */}
+                  <label htmlFor="assigned_to" className={labelClass}>Assign To</label>
+                  <select
+                    id="assigned_to"
                     name="assigned_to"
-                    placeholder="Search person…"
-                  />
+                    value={formAssignee}
+                    onChange={(e) => setFormAssignee(e.target.value)}
+                    className={inputClass}
+                  >
+                    <option value="">Unassigned</option>
+                    {userOptions.map((u) => (
+                      <option key={u.id} value={u.id}>{u.label}</option>
+                    ))}
+                  </select>
                 </div>
                 <div className="space-y-1.5 sm:col-span-2">
                   <label className={labelClass}>Vendors (can be multiple)</label>
@@ -802,105 +939,40 @@ export default function MaintenancePage() {
                   </select>
                 </div>
               </div>
-              {formAssetInfo && (
-                <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-xs">
-                  <p className="mb-1 font-semibold text-foreground">
-                    Asset components: {formAssetInfo.components.length}
-                    {formAssetInfo.dims ? ` · dimensions ${formAssetInfo.dims}` : ""}
-                  </p>
-                  {formAssetInfo.components.length > 0 ? (
-                    <div className="flex flex-wrap gap-1.5">
-                      {formAssetInfo.components.map((c, i) => (
-                        <span key={i} className="rounded-full bg-card px-2 py-0.5 text-2xs text-muted-foreground ring-1 ring-border">
-                          {c.name} ×{c.quantity}
-                        </span>
-                      ))}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <label htmlFor="start_date" className={labelClass}>
+                    Start Date
+                  </label>
+                  <input
+                    id="start_date"
+                    name="start_date"
+                    type="date"
+                    required
+                    value={formStart}
+                    onChange={(e) => setFormStart(e.target.value)}
+                    className={inputClass}
+                  />
+                  <p className="text-2xs text-muted-foreground">The day these rounds begin.</p>
+                </div>
+                {/* A one-time job happens once, on its start date, so there is
+                    no next round to report. */}
+                {formFrequency !== "one_time" && (
+                  <div className="space-y-1.5">
+                    <label htmlFor="next_due" className={labelClass}>Next Due Date</label>
+                    <div id="next_due" className={`${inputClass} flex items-center justify-between gap-2`}>
+                      <span className="text-foreground">
+                        {formStart ? formatDate(dueAfter(formStart, formFrequency)) : "Pick a start date"}
+                      </span>
+                      {formStart && (
+                        <span className="shrink-0 text-2xs text-muted-foreground">{CYCLE_LABELS[formFrequency] ?? ""}</span>
+                      )}
                     </div>
-                  ) : (
-                    <p className="text-muted-foreground">Single-unit asset — no components recorded.</p>
-                  )}
-                </div>
-              )}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label className={labelClass}>Components required for this maintenance</label>
-                  <button
-                    type="button"
-                    onClick={() => setReqComponents((rows) => [...rows, { name: "", quantity: 1 }])}
-                    className="inline-flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-2xs font-medium text-primary transition-colors hover:bg-primary/5"
-                  >
-                    <Plus className="h-3 w-3" /> Add
-                  </button>
-                </div>
-                {reqComponents.length === 0 ? (
-                  <p className="text-2xs text-muted-foreground">None added — pick what the technician takes along from inventory.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {reqComponents.map((row, i) => (
-                      <div key={i} className="flex gap-2">
-                        <select
-                          value={row.inventory_item ? `item:${row.inventory_item}` : row.inventory_unit_type ? `product:${row.inventory_unit_type}` : ""}
-                          onChange={(e) => {
-                            const opt = stockOptions.find((o) => o.value === e.target.value);
-                            setReqComponents((rows) => rows.map((r, j) => (j === i
-                              ? {
-                                  quantity: r.quantity,
-                                  name: opt?.name ?? "",
-                                  ...(opt?.kind === "item" ? { inventory_item: opt.id } : {}),
-                                  ...(opt?.kind === "product" ? { inventory_unit_type: opt.id } : {}),
-                                }
-                              : r)));
-                          }}
-                          className="h-9 min-w-0 flex-1 rounded-lg border border-border bg-card px-2 text-sm text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                        >
-                          <option value="">
-                            {row.name && !row.inventory_item && !row.inventory_unit_type ? `${row.name} (typed by hand)` : "Select from inventory…"}
-                          </option>
-                          <optgroup label="Stock items">
-                            {stockOptions.filter((o) => o.kind === "item").map((o) => (
-                              <option key={o.value} value={o.value}>{o.label}</option>
-                            ))}
-                          </optgroup>
-                          <optgroup label="Unique items">
-                            {stockOptions.filter((o) => o.kind === "product").map((o) => (
-                              <option key={o.value} value={o.value}>{o.label}</option>
-                            ))}
-                          </optgroup>
-                        </select>
-                        <input
-                          type="number"
-                          min={1}
-                          value={row.quantity}
-                          onChange={(e) => setReqComponents((rows) => rows.map((r, j) => (j === i ? { ...r, quantity: Number(e.target.value) || 1 } : r)))}
-                          title="Quantity"
-                          placeholder="Qty"
-                          className="h-9 w-20 shrink-0 rounded-lg border border-border bg-card px-3 text-sm text-foreground focus:border-primary/50 focus:outline-none"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setReqComponents((rows) => rows.filter((_, j) => j !== i))}
-                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:text-destructive"
-                          title="Remove"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    ))}
+                    <p className="text-2xs text-muted-foreground">
+                      Worked out from the start date and how often the round repeats.
+                    </p>
                   </div>
                 )}
-              </div>
-              <div className="space-y-1.5">
-                <label htmlFor="next_due" className={labelClass}>
-                  Next Due Date
-                </label>
-                <input
-                  id="next_due"
-                  name="next_due"
-                  type="date"
-                  required
-                  defaultValue={selected?.next_due?.split("T")[0] ?? ""}
-                  className={inputClass}
-                />
               </div>
               <div className="space-y-1.5">
                 <label htmlFor="instructions" className={labelClass}>
@@ -914,17 +986,6 @@ export default function MaintenancePage() {
                   className={`${inputClass} h-auto py-2`}
                   placeholder="Step-by-step maintenance instructions..."
                 />
-              </div>
-              <div className="space-y-1.5">
-                <label htmlFor="status" className={labelClass}>Status</label>
-                <select id="status" name="status" defaultValue={selected?.status ?? "active"} className={inputClass}>
-                  <option value="active">Active</option>
-                  <option value="pending">Pending</option>
-                  <option value="in_process">In Process</option>
-                  <option value="on_hold">On Hold</option>
-                  <option value="overdue">Over Due</option>
-                  <option value="completed">Completed</option>
-                </select>
               </div>
               <div className="flex justify-end gap-3 pt-2">
                 <button
@@ -978,8 +1039,8 @@ export default function MaintenancePage() {
 
       {/* Complete-maintenance modal */}
       {completeFor && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 py-8 backdrop-blur-sm">
-          <div className="my-auto max-h-none w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl sm:max-h-[90vh] sm:overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 py-8 backdrop-blur-md veil-in">
+          <div className="my-auto max-h-none w-full max-w-lg glass glass-pop rounded-2xl p-6 sm:max-h-[90vh] sm:overflow-y-auto">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-foreground">Complete — {completeFor.title}</h2>
               <button onClick={() => setCompleteFor(null)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
@@ -989,12 +1050,113 @@ export default function MaintenancePage() {
             <form onSubmit={submitComplete} className="space-y-4">
               {completeFor.maintenance_type === "preventive" && completeFor.device && (
                 <p className="rounded-lg border border-dashed border-border px-3 py-2 text-2xs text-muted-foreground">
-                  Found something this visit cannot fix?{" "}
+                  Something this visit cannot fix?{" "}
                   <Link href={`/tickets?create=1&device=${completeFor.device}&category=repair`} className="font-medium text-primary hover:underline">
-                    Raise a maintenance ticket
+                    Raise a ticket
                   </Link>
-                  {" "}— it follows the normal ticket workflow.
                 </p>
+              )}
+              {completeVisit && (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-3 py-2">
+                  <div>
+                    <p className={labelClass}>Due on</p>
+                    <p className="text-sm text-foreground">{formatDate(completeVisit.due_date)}</p>
+                  </div>
+                  <div>
+                    <p className={labelClass}>Carried out</p>
+                    <p className="text-sm text-foreground">
+                      {completeVisit.started_at
+                        ? new Date(completeVisit.started_at).toLocaleString()
+                        : "Today"}
+                    </p>
+                  </div>
+                  {completeVisit.assigned_to_name && (
+                    <div>
+                      <p className={labelClass}>Technician</p>
+                      <p className="text-sm text-foreground">{completeVisit.assigned_to_name}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+              {issuedParts.length > 0 && (
+                <div className="space-y-3 rounded-lg border border-border p-3">
+                  <div>
+                    <p className="text-xs font-semibold text-foreground">Components issued</p>
+                    <p className="text-2xs text-muted-foreground">
+                      What was used? The rest goes back to the store for checking in.
+                    </p>
+                  </div>
+                  {issuedParts.map((p) => {
+                    const chosen = backSerials[p.id] ?? [];
+                    const back = p.unit_type ? chosen.length : Math.max(0, p.quantity_issued - (usedQty[p.id] ?? p.quantity_issued));
+                    return (
+                      <div key={p.id} className="space-y-2 border-t border-border pt-2.5 first:border-0 first:pt-0">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-sm font-medium text-foreground">
+                            {p.what}
+                            <span className="ml-2 text-2xs font-normal text-muted-foreground">
+                              {p.quantity_issued} {p.unit} issued
+                            </span>
+                          </p>
+                          {p.unit_type ? (
+                            <span className="text-2xs text-muted-foreground">Coming back</span>
+                          ) : (
+                            <label className="flex items-center gap-2 text-2xs text-muted-foreground">
+                              Used
+                              <input
+                                type="number"
+                                min={0}
+                                max={p.quantity_issued}
+                                value={usedQty[p.id] ?? p.quantity_issued}
+                                onChange={(e) => {
+                                  const n = Math.max(0, Math.min(p.quantity_issued, Number(e.target.value) || 0));
+                                  setUsedQty((cur) => ({ ...cur, [p.id]: n }));
+                                }}
+                                className="h-8 w-20 rounded-lg border border-border bg-card px-2 text-sm text-foreground focus:border-primary/50 focus:outline-none"
+                              />
+                            </label>
+                          )}
+                        </div>
+                        {p.unit_type && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {/* A unit is known by its serial: without one, the
+                                store cannot say which of them is back. */}
+                            {(p.issued_serials ?? []).map((sn) => {
+                              const on = chosen.includes(sn);
+                              return (
+                                <label
+                                  key={sn}
+                                  className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-2.5 py-1.5 font-mono text-2xs text-foreground transition-colors hover:bg-secondary"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={on}
+                                    onChange={() =>
+                                      setBackSerials((cur) => ({
+                                        ...cur,
+                                        [p.id]: on ? chosen.filter((v) => v !== sn) : [...chosen, sn],
+                                      }))
+                                    }
+                                    className="h-3.5 w-3.5 accent-primary"
+                                  />
+                                  {sn}
+                                </label>
+                              );
+                            })}
+                            {(p.issued_serials ?? []).length === 0 && (
+                              <span className="text-2xs text-muted-foreground">
+                                No serials recorded.
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        <p className="text-2xs text-muted-foreground">
+                          {back > 0 ? `${back} ${p.unit} going back` : "Nothing going back"}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
               )}
               {(completeFor.required_components ?? []).length > 0 && (
                 <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
@@ -1064,46 +1226,49 @@ export default function MaintenancePage() {
                     <span className="text-2xs text-muted-foreground">Derived from the asset&apos;s warranty on save</span>
                   )}
                 </div>
+                {/* Cover decides who pays, so it is stated rather than asked
+                    for — a tick box here could only contradict the warranty. */}
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="flex h-10 cursor-pointer items-center gap-2 rounded-lg border border-border bg-card px-3 text-sm text-foreground">
-                    <input
-                      type="checkbox"
-                      checked={(billingEdit ?? completeBilling)?.is_billable ?? false}
-                      onChange={(e) =>
-                        setBillingEdit({
-                          charge_to: (billingEdit ?? completeBilling)?.charge_to ?? "",
-                          is_billable: e.target.checked,
-                        })
-                      }
-                      className="h-4 w-4 accent-primary"
-                    />
-                    Billable
-                  </label>
-                  <select
-                    value={(billingEdit ?? completeBilling)?.charge_to ?? ""}
-                    onChange={(e) =>
-                      setBillingEdit({
-                        is_billable: (billingEdit ?? completeBilling)?.is_billable ?? false,
-                        charge_to: e.target.value,
-                      })
-                    }
-                    title="Charge to"
-                    className={inputClass}
-                  >
-                    <option value="">Charge to — auto</option>
-                    <option value="company">Company</option>
-                    <option value="client">Client</option>
-                    <option value="vendor">Vendor</option>
-                  </select>
+                  <div className="space-y-0.5">
+                    <p className="text-2xs uppercase tracking-wider text-muted-foreground">Warranty</p>
+                    {completeCover === null ? (
+                      <p className="text-sm text-muted-foreground">Checking…</p>
+                    ) : completeCover.covered ? (
+                      <p className="text-sm font-medium text-emerald-600">
+                        Under warranty
+                        <span className="block text-2xs font-normal text-muted-foreground">
+                          {[completeCover.label, completeCover.until ? `to ${formatDate(completeCover.until)}` : null]
+                            .filter(Boolean).join(" · ")}
+                        </span>
+                      </p>
+                    ) : (
+                      <p className="text-sm font-medium text-amber-600">
+                        Not under warranty
+
+                      </p>
+                    )}
+                  </div>
+                  <div className="space-y-0.5">
+                    <p className="text-2xs uppercase tracking-wider text-muted-foreground">Charged to</p>
+                    <p className="text-sm font-medium text-foreground">
+                      {completeBilling === null
+                        ? "Worked out on save"
+                        : completeBilling.charge_to === "client"
+                          ? completeCover?.clientName ?? "The client"
+                          : completeBilling.charge_to === "vendor"
+                            ? "The vendor, under its warranty"
+                            : "Us, under the client's warranty"}
+                      <span className="block text-2xs font-normal text-muted-foreground">
+                        From the asset&apos;s cover.
+                      </span>
+                    </p>
+                  </div>
                 </div>
-                {!billingEdit && (
-                  <p className="text-2xs text-muted-foreground">
-                    Left untouched, billing is derived from the asset&apos;s warranty automatically.
-                  </p>
-                )}
               </div>
               <p className="text-2xs text-muted-foreground">
-                Completing logs a maintenance record and rolls the schedule to its next {FREQ_LABEL[completeFor.frequency]?.toLowerCase() ?? ""} cycle{completeFor.frequency === "one_time" ? " (one-time schedules close out)" : ""}.
+                {completeFor.frequency === "one_time"
+                  ? "A one-time job closes out here."
+                  : `Opens the next ${FREQ_LABEL[completeFor.frequency]?.toLowerCase() ?? ""} round.`}
               </p>
               <div className="flex justify-end gap-3 pt-2">
                 <button type="button" onClick={() => setCompleteFor(null)} className="inline-flex h-10 items-center rounded-lg border border-border bg-transparent px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">

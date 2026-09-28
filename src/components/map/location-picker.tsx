@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from "react-leaflet";
+import { MapContainer, Marker, useMapEvents, useMap } from "react-leaflet";
+
+import { Basemap } from "./basemaps";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { MapPin, Search, X } from "lucide-react";
@@ -181,10 +183,7 @@ export default function LocationPicker({ lat, lng, onChange }: LocationPickerPro
           style={{ height: "100%", width: "100%" }}
           className="dark-map"
         >
-          <TileLayer
-            url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
-            attribution='&copy; <a href="https://carto.com">CARTO</a>'
-          />
+          <Basemap />
           <DraggableMarker position={position} onChange={handleMarkerMove} />
           {position && <FlyTo lat={position.lat} lng={position.lng} />}
         </MapContainer>

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { ContactsEditor } from "@/components/ui/contacts-editor";
+import { Pagination, pageSlice } from "@/components/ui/pagination";
 import { FilterBar } from "@/components/ui/filter-bar";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
@@ -34,6 +35,7 @@ export default function SuppliersPage() {
   const { canWrite } = useUser();
   const canEdit = canWrite("suppliers");
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [vendorPage, setVendorPage] = useState(1);
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
@@ -171,7 +173,7 @@ export default function SuppliersPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((s) => (
+                {pageSlice(filtered, vendorPage).map((s) => (
                   <tr key={s.id} onClick={() => { setSelected(s); setModalMode("edit"); }} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
                     <td className={`${tdClass} font-medium text-foreground`}>{s.name}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{s.code}</td>
@@ -201,14 +203,15 @@ export default function SuppliersPage() {
                 ))}
               </tbody>
             </table>
+            <Pagination page={vendorPage} total={filtered.length} onPage={setVendorPage} noun="vendors" />
           </div>
         </div>
       );
       })()}
 
       {modalMode && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="max-h-[88vh] overflow-y-auto w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-md veil-in">
+          <div className="max-h-[88vh] overflow-y-auto w-full max-w-lg glass glass-pop rounded-2xl p-6">
             <div className="mb-5 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-foreground">{modalMode === "create" ? "Add New Supplier" : "Edit Supplier"}</h2>
               <button onClick={closeModal} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
