@@ -28,8 +28,8 @@ export function StatCard({
     <div
       onClick={onClick}
       className={cn(
-        "group rounded-xl border border-border bg-card p-5 transition-all duration-200 shadow-sm",
-        onClick && "cursor-pointer hover:shadow-md hover:-translate-y-0.5",
+        "group card-lift rounded-xl border border-border bg-card p-5 shadow-sm",
+        onClick && "cursor-pointer",
         variant === "highlighted" && "border-primary/30 bg-primary/5",
         className
       )}
@@ -53,7 +53,7 @@ export function StatCard({
             </div>
           )}
         </div>
-        <div className="ml-3 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-secondary text-muted-foreground">
+        <div className="ml-3 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-secondary text-muted-foreground transition-colors duration-200 group-hover:bg-primary/10 group-hover:text-primary">
           {icon}
         </div>
       </div>

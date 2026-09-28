@@ -24,6 +24,7 @@ import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
 import { SegmentBar, StatTiles } from "@/components/ui/analytics-strip";
+import { Pagination, pageSlice } from "@/components/ui/pagination";
 import { CopyButton } from "@/components/ui/copy-button";
 import { DeviceImage } from "@/components/ui/device-image";
 import { Modal } from "@/components/ui/modal";
@@ -71,6 +72,8 @@ interface Installation {
   asset_type_name: string | null;
   device_image: string | null;
   device_status: string;
+  /** When the asset went live, from the registry. */
+  device_activated_at: string | null;
   /** How the asset is made — it decides who installs it. */
   device_source?: string | null;
   device_source_display?: string | null;
@@ -174,7 +177,6 @@ const STEP_TYPES = [
   { value: "structure", label: "Metal Structure" },
   { value: "programming", label: "Programming" },
   { value: "testing", label: "Testing & Commissioning" },
-  { value: "handover", label: "Handover" },
   { value: "other", label: "Other" },
 ];
 
@@ -304,6 +306,7 @@ function exportCsv(rows: InstallationListItem[]) {
 export default function InstallationTrackerPage() {
   const { user, canWrite } = useUser();
   const [installations, setInstallations] = useState<InstallationListItem[]>([]);
+  const [installPage, setInstallPage] = useState(1);
   const [selected, setSelected] = useState<Installation | null>(null);
   const [documents, setDocuments] = useState<RelatedDocument[]>([]);
   const [loading, setLoading] = useState(true);
@@ -814,8 +817,13 @@ export default function InstallationTrackerPage() {
           ? `Started ${formatDate(s.started_at)}`
           : undefined,
     }));
+    // Once the asset is live or handed over the installation is history, and
+    // history is not edited: no step is added, moved, reset or re-done.
+    const closedOut =
+      !!selected.handover ||
+      ["active", "under_maintenance", "client_property", "decommissioned"].includes(selected.device_status);
     // Once a step has been started the checklist is a record, not a draft.
-    const editableChecklist = selected.steps.every((st) => st.status === "not_started");
+    const editableChecklist = !closedOut && selected.steps.every((st) => st.status === "not_started");
     const delaysByStep = new Map<string, Delay[]>();
     selected.delays.forEach((d) => {
       if (!d.step) return;
@@ -837,12 +845,56 @@ export default function InstallationTrackerPage() {
       user != null &&
       (["super_admin", "group_head", "ops_manager", "supervisor"].includes(user.role) ||
         user.id === selected.installed_by);
+    // The last two steps of every installation, after whatever the
+    // technician laid out: the asset goes live, then it is handed over.
+    const customDone = selected.steps.length > 0 && stepsReadyForHandover;
+    const activeDone =
+      ["active", "under_maintenance", "client_property", "decommissioned"].includes(selected.device_status) ||
+      !!selected.handover;
+    const activeStatus = activeDone ? "completed" : customDone && selected.device_status === "installed" ? "in_progress" : "not_started";
+    const handoverDone = !!selected.handover;
+    const handoverStatus = handoverDone ? "completed" : activeDone ? "in_progress" : "not_started";
     const canHandover =
       !selected.handover &&
       stepsReadyForHandover &&
+      activeDone &&
       user != null &&
       (["super_admin", "group_head", "ops_manager", "supervisor"].includes(user.role) ||
         user.id === selected.installed_by);
+    const fixedSteps = [
+      {
+        key: "active",
+        number: selected.steps.length + 1,
+        label: "Active",
+        status: activeStatus,
+        statusLabel: activeDone ? "Completed" : activeStatus === "in_progress" ? "Ready" : "Pending",
+        date: activeDone ? selected.device_activated_at ?? selected.handover?.handover_date ?? null : null,
+        hint: activeDone
+          ? "The asset is live."
+          : activeStatus === "in_progress"
+            ? "Mark the asset live, with a photo of it running."
+            : "Available once every step above is complete.",
+        action: canActivate && !activeDone
+          ? { label: "Mark Active", onClick: () => { setActivatePhotos([]); setActivateOpen(true); } }
+          : null,
+      },
+      {
+        key: "handover",
+        number: selected.steps.length + 2,
+        label: "Handover",
+        status: handoverStatus,
+        statusLabel: handoverDone ? "Completed" : handoverStatus === "in_progress" ? "Ready" : "Pending",
+        date: selected.handover?.handover_date ?? null,
+        hint: handoverDone
+          ? `Accepted by ${selected.handover?.accepted_by_name ?? "the client"}.`
+          : handoverStatus === "in_progress"
+            ? "Upload the signed handover document."
+            : "Available once the asset is active.",
+        action: canHandover
+          ? { label: "Hand over", onClick: openHandover }
+          : null,
+      },
+    ];
 
     return (
       <div className="space-y-6">
@@ -858,29 +910,14 @@ export default function InstallationTrackerPage() {
             <p className="text-sm text-muted-foreground">Track installation progress in different stages</p>
           </div>
           <div className="ml-auto flex items-center gap-2">
-            {canActivate && (
-              <button
-                onClick={() => { setActivatePhotos([]); setActivateOpen(true); }}
-                className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary/90"
-              >
-                <Play className="h-4 w-4" /> Mark Active
-              </button>
-            )}
-            {/* Printed first, signed on site, then uploaded on the form. */}
+            {/* Printed first, signed on site, then uploaded on the Handover
+                step at the end of the checklist. */}
             <button
               onClick={downloadHandoverDocument}
               className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
             >
               <Download className="h-4 w-4" /> Handover Document
             </button>
-            {canHandover && (
-              <button
-                onClick={openHandover}
-                className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700"
-              >
-                <ClipboardCheck className="h-4 w-4" /> Handover
-              </button>
-            )}
             {isManager && (
               <button
                 onClick={openEdit}
@@ -1098,7 +1135,17 @@ export default function InstallationTrackerPage() {
           </div>
 
           {stepperSteps.length > 0 ? (
-            <ProgressStepper steps={stepperSteps} />
+            <ProgressStepper
+              steps={[
+                ...stepperSteps,
+                ...fixedSteps.map((f) => ({
+                  key: f.key,
+                  label: f.label,
+                  status: stepperStatus(f.status),
+                  meta: f.date ? formatDate(f.date) : undefined,
+                })),
+              ]}
+            />
           ) : (
             <p className="rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
               No steps yet — add the ones this installation involves below.
@@ -1231,7 +1278,7 @@ export default function InstallationTrackerPage() {
                       )}
                     </div>
                     {/* Advance actions — desktop: super admin only (installer works via mobile) */}
-                    {isSuperAdmin && (
+                    {isSuperAdmin && !closedOut && (
                       <div className="mt-3 flex flex-wrap gap-1.5 border-t border-border pt-3">
                         {step.status !== "in_progress" && step.status !== "completed" && (
                           <button disabled={updatingStep === step.id} onClick={() => updateStep(step.id, "in_progress")} className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 px-2 py-1 text-2xs font-medium text-amber-600 transition-colors hover:bg-amber-500/20 disabled:opacity-50">
@@ -1261,6 +1308,47 @@ export default function InstallationTrackerPage() {
                   </div>
                 );
               })}
+              {/* Compulsory and last, in this order: the asset goes live, then
+                  it is handed over. Done from here, like any other step. */}
+              {fixedSteps.map((f) => (
+                <div
+                  key={f.key}
+                  className={`rounded-xl border p-4 ${
+                    f.status === "completed"
+                      ? "border-emerald-500/30 bg-emerald-500/5"
+                      : f.status === "in_progress"
+                        ? "border-primary/40 bg-primary/5"
+                        : "border-dashed border-border bg-card"
+                  }`}
+                >
+                  <div className="mb-2 flex items-center justify-between">
+                    <h4 className="text-sm font-semibold text-foreground">
+                      {f.number}. {f.label}
+                    </h4>
+                    <StatusBadge status={f.status} label={f.statusLabel} />
+                  </div>
+                  <div className="space-y-1.5 text-xs">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Date</span>
+                      <span className="text-foreground">{f.date ? formatDate(f.date) : "—"}</span>
+                    </div>
+                    <p className="text-muted-foreground">{f.hint}</p>
+                  </div>
+                  {f.action && (
+                    <div className="mt-3 border-t border-border pt-3">
+                      <button
+                        onClick={f.action.onClick}
+                        className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition-colors ${
+                          f.key === "active" ? "bg-primary hover:bg-primary/90" : "bg-emerald-600 hover:bg-emerald-700"
+                        }`}
+                      >
+                        {f.key === "active" ? <Play className="h-3.5 w-3.5" /> : <ClipboardCheck className="h-3.5 w-3.5" />}
+                        {f.action.label}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
 
             {/* Photos */}
@@ -1417,6 +1505,26 @@ export default function InstallationTrackerPage() {
                       at: st.completed_at ?? st.started_at,
                       tone: STEP_TONE[st.status] ?? "primary",
                     })),
+                  ...(activeDone && selected.device_activated_at
+                    ? [{
+                        key: "active",
+                        title: <><span className="font-medium">Active</span> — the asset went live</>,
+                        description: null,
+                        actor: selected.installed_by_name,
+                        at: selected.device_activated_at,
+                        tone: "success" as TimelineItem["tone"],
+                      }]
+                    : []),
+                  ...(selected.handover
+                    ? [{
+                        key: "handover",
+                        title: <><span className="font-medium">Handover</span> — accepted by {selected.handover.accepted_by_name}</>,
+                        description: selected.handover.acceptance_notes || null,
+                        actor: selected.handover.performed_by_name,
+                        at: `${selected.handover.handover_date}T23:59:00`,
+                        tone: "success" as TimelineItem["tone"],
+                      }]
+                    : []),
                   ...selected.delays.map((dl) => ({
                     key: `delay-${dl.id}`,
                     title: (
@@ -1430,7 +1538,10 @@ export default function InstallationTrackerPage() {
                     at: dl.created_at,
                     tone: (dl.resolved_at ? "muted" : dl.cause === "client" ? "danger" : "warning") as TimelineItem["tone"],
                   })),
-                ].sort((a, b) => (b.at ?? "").localeCompare(a.at ?? ""));
+                  // Newest first, by the instant — the entries come in three
+                  // shapes (offset ISO, Z ISO, a bare date) and a text sort
+                  // would put a Z timestamp under a +05:00 one from the same day.
+                ].sort((a, b) => (b.at ? Date.parse(b.at) : 0) - (a.at ? Date.parse(a.at) : 0));
                 return <Timeline items={items} empty="Nothing has happened on this installation yet." />;
               })()}
             </div>
@@ -1464,8 +1575,8 @@ export default function InstallationTrackerPage() {
 
         {/* Flag Delay modal */}
         {delayFor && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-            <div className="max-h-[88vh] overflow-y-auto w-full max-w-sm rounded-xl border border-border bg-card p-5">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-md veil-in">
+            <div className="glass glass-pop max-h-[88vh] w-full max-w-sm overflow-y-auto rounded-xl p-5">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-semibold text-foreground">Flag Delay — {delayFor.label}</h3>
                 <button onClick={() => setDelayFor(null)} className="text-muted-foreground hover:text-foreground">
@@ -1927,7 +2038,7 @@ export default function InstallationTrackerPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((inst) => {
+                {pageSlice(filtered, installPage).map((inst) => {
                   const rowOverdue = inst.due_date && !inst.completed_at && new Date(inst.due_date) < new Date();
                   return (
                     <tr
@@ -2013,6 +2124,7 @@ export default function InstallationTrackerPage() {
                 })}
               </tbody>
             </table>
+            <Pagination page={installPage} total={filtered.length} onPage={setInstallPage} noun="installations" />
           </div>
         </div>
       )}

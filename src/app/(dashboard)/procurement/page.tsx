@@ -6,6 +6,10 @@ import { toast } from "sonner";
 
 import { Requisitions } from "@/components/procurement/requisitions";
 import { FilterBar } from "@/components/ui/filter-bar";
+import {
+  PoLineItems, emptyPoLine, isPoLineEmpty, poLinePayload, poLineTotal, poLinesProblem, usePoOptions,
+  type PoLine, type PoLineKind,
+} from "@/components/procurement/po-line-items";
 import { Qty } from "@/components/ui/qty";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
@@ -40,6 +44,10 @@ interface POItem {
   inventory_item?: string | null;
   /** Asset codes when the line buys complete assets (already in the registry). */
   procured_asset_codes?: string[];
+  /** The registered asset this line buys, when it buys one. */
+  procured_device?: string | null;
+  /** Money on the order that is not goods — nothing arrives for it. */
+  is_charge?: boolean;
   received_quantity: number;
   line_total: string;
 }
@@ -49,6 +57,8 @@ interface PurchaseOrder {
   po_number: string;
   supplier: string;
   supplier_name: string | null;
+  /** The supplier's particulars for this order, where they differ from the record. */
+  supplier_details?: string;
   status: POStatus;
   currency: string;
   order_date: string | null;
@@ -122,21 +132,12 @@ interface GoodsReceipt {
   created_at: string;
 }
 
-type ItemKind = "custom" | "asset" | "material";
-
-interface ItemRow {
-  id?: string;
-  kind: ItemKind;
-  device_model: string;
-  material_type: string;
-  description: string;
-  quantity: string;
-  unit_price: string;
-  received_quantity: number;
-}
+type ItemRow = PoLine;
 
 interface FormState {
   supplier: string;
+  /** The supplier's particulars for this order, where they differ from the record. */
+  supplier_details: string;
   currency: string;
   order_date: string;
   expected_delivery: string;
@@ -145,18 +146,11 @@ interface FormState {
   items: ItemRow[];
 }
 
-const emptyItem: ItemRow = {
-  kind: "custom",
-  device_model: "",
-  material_type: "",
-  description: "",
-  quantity: "1",
-  unit_price: "0",
-  received_quantity: 0,
-};
+const emptyItem: ItemRow = emptyPoLine;
 
 const emptyForm: FormState = {
   supplier: "",
+  supplier_details: "",
   currency: "PKR",
   order_date: "",
   expected_delivery: "",
@@ -187,7 +181,8 @@ const STATUS_BADGES: Record<string, string> = {
 };
 
 // Guarded transitions per current status (mirrors backend VALID_TRANSITIONS).
-// Receiving (ordered → partially_received → received) happens via goods receipts (GRN) — no manual button.
+// Approval places the order, so receiving (approved → partially_received →
+// received) follows straight from it, through goods receipts — no button.
 const TRANSITIONS: Record<POStatus, Array<{ status: POStatus; label: string }>> = {
   draft: [
     { status: "pending_approval", label: "Submit for Approval" },
@@ -198,18 +193,15 @@ const TRANSITIONS: Record<POStatus, Array<{ status: POStatus; label: string }>> 
     { status: "draft", label: "Back to Draft" },
     { status: "cancelled", label: "Cancel PO" },
   ],
-  approved: [
-    { status: "ordered", label: "Mark Ordered" },
-    { status: "cancelled", label: "Cancel PO" },
-  ],
+  approved: [{ status: "cancelled", label: "Cancel PO" }],
   ordered: [{ status: "cancelled", label: "Cancel PO" }],
   partially_received: [{ status: "cancelled", label: "Cancel PO" }],
   received: [],
   cancelled: [],
 };
 
-const RECEIVABLE_STATUSES: POStatus[] = ["ordered", "partially_received"];
-const RECEIPT_HISTORY_STATUSES: POStatus[] = ["ordered", "partially_received", "received"];
+const RECEIVABLE_STATUSES: POStatus[] = ["approved", "ordered", "partially_received"];
+const RECEIPT_HISTORY_STATUSES: POStatus[] = ["approved", "ordered", "partially_received", "received"];
 
 function statusLabel(status: string): string {
   return status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -260,6 +252,14 @@ export default function ProcurementPage() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [deviceModels, setDeviceModels] = useState<Option[]>([]);
   const [materialTypes, setMaterialTypes] = useState<Option[]>([]);
+  // The three things an order buys: counted stock, serialised units, and
+  // assets registered under Assets that are still to be bought.
+  const poOptions = usePoOptions();
+  const [showSupplierDetails, setShowSupplierDetails] = useState(false);
+  // A draft leaving for approval has to say when the goods are needed by.
+  // Asked for right there in the bar, not thrown back as an error.
+  const [deliveryAsk, setDeliveryAsk] = useState<{ poId: string; status: POStatus } | null>(null);
+  const [deliveryDate, setDeliveryDate] = useState("");
   const [loading, setLoading] = useState(true);
   const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
   const [selected, setSelected] = useState<PurchaseOrder | null>(null);
@@ -378,6 +378,7 @@ export default function ProcurementPage() {
       setSelected(data);
       setForm({
         supplier: data.supplier,
+        supplier_details: data.supplier_details ?? "",
         currency: data.currency || "PKR",
         order_date: data.order_date ?? "",
         expected_delivery: data.expected_delivery ?? "",
@@ -386,7 +387,18 @@ export default function ProcurementPage() {
         items: data.items.length
           ? data.items.map((i) => ({
               id: i.id,
-              kind: (i.device_model ? "asset" : i.material_type ? "material" : "custom") as ItemKind,
+              kind: (i.is_charge
+                ? "charge"
+                : i.procured_device
+                  ? "asset"
+                  : i.inventory_unit_type
+                    ? "unique"
+                    : i.inventory_item
+                      ? "generic"
+                      : "custom") as PoLineKind,
+              inventory_item: i.inventory_item ?? "",
+              inventory_unit_type: i.inventory_unit_type ?? "",
+              device: i.procured_device ?? "",
               device_model: i.device_model ?? "",
               material_type: i.material_type ?? "",
               description: i.description,
@@ -396,6 +408,7 @@ export default function ProcurementPage() {
             }))
           : [{ ...emptyItem }],
       });
+      setShowSupplierDetails(Boolean(data.supplier_details));
       setModalMode("edit");
     } catch (err: unknown) {
       toast.error(getApiError(err, "Failed to load purchase order"));
@@ -407,84 +420,37 @@ export default function ProcurementPage() {
     setSelected(null);
   }
 
-  function updateItem(idx: number, patch: Partial<ItemRow>) {
-    setForm((f) => ({
-      ...f,
-      items: f.items.map((it, i) => (i === idx ? { ...it, ...patch } : it)),
-    }));
-  }
-  function setItemKind(idx: number, kind: ItemKind) {
-    updateItem(idx, { kind, device_model: "", material_type: "" });
-  }
-  function pickDeviceModel(idx: number, id: string) {
-    const opt = deviceModels.find((m) => m.id === id);
-    setForm((f) => ({
-      ...f,
-      items: f.items.map((it, i) =>
-        i === idx
-          ? { ...it, device_model: id, description: it.description.trim() ? it.description : opt?.label ?? "" }
-          : it
-      ),
-    }));
-  }
-  function pickMaterialType(idx: number, id: string) {
-    const opt = materialTypes.find((m) => m.id === id);
-    setForm((f) => ({
-      ...f,
-      items: f.items.map((it, i) =>
-        i === idx
-          ? { ...it, material_type: id, description: it.description.trim() ? it.description : opt?.label ?? "" }
-          : it
-      ),
-    }));
-  }
-  function addItem() {
-    setForm((f) => ({ ...f, items: [...f.items, { ...emptyItem }] }));
-  }
-  function removeItem(idx: number) {
-    setForm((f) => ({ ...f, items: f.items.filter((_, i) => i !== idx) }));
-  }
+  /** Name the thing a line buys; the description follows unless typed already. */
 
-  const rowTotal = (it: ItemRow) => (Number(it.quantity) || 0) * (Number(it.unit_price) || 0);
-  const formTotal = form.items.reduce((sum, it) => sum + rowTotal(it), 0);
+  const formTotal = form.items.reduce((sum, it) => sum + poLineTotal(it), 0);
 
   function itemTypeLabel(item: POItem): string {
+    if (item.is_charge) return "Charge";
+    if ((item.procured_asset_codes ?? []).length > 0) return "Asset";
+    if (item.inventory_unit_type) return "Unique component";
+    if (item.inventory_item) return "Generic component";
     if (item.device_model) return deviceModels.find((m) => m.id === item.device_model)?.label ?? "Asset model";
     if (item.material_type) return materialTypes.find((m) => m.id === item.material_type)?.label ?? "Material";
     return "—";
   }
 
-  // A row is fully empty when it still matches the pristine defaults —
-  // those may be dropped silently. Anything else with a blank description
-  // is a mistake and must block submit.
-  const isRowEmpty = (it: ItemRow) =>
-    !it.description.trim() &&
-    !it.device_model &&
-    !it.material_type &&
-    (it.quantity === "" || it.quantity === emptyItem.quantity) &&
-    (Number(it.unit_price) || 0) === 0;
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!form.supplier) {
-      toast.error("Please select a supplier");
+      toast.error("Choose the supplier to buy from");
       return;
     }
-    const missingDescription = form.items.findIndex((it) => !isRowEmpty(it) && !it.description.trim());
-    if (missingDescription !== -1) {
-      toast.error(`Line item ${missingDescription + 1} is missing a description`);
+    if (!form.expected_delivery) {
+      toast.error("Say when the goods are needed by");
       return;
     }
-    const items = form.items
-      .filter((it) => !isRowEmpty(it))
-      .map((it) => ({
-        ...(it.id ? { id: it.id } : {}),
-        description: it.description.trim(),
-        quantity: Number(it.quantity) || 1,
-        unit_price: Number(it.unit_price) || 0,
-        device_model: it.kind === "asset" && it.device_model ? it.device_model : null,
-        material_type: it.kind === "material" && it.material_type ? it.material_type : null,
-      }));
+    const problem = poLinesProblem(form.items);
+    if (problem) {
+      toast.error(problem);
+      return;
+    }
+    const items = form.items.filter((it) => !isPoLineEmpty(it)).map(poLinePayload);
     if (items.length === 0) {
       toast.error("Add at least one line item");
       return;
@@ -492,6 +458,7 @@ export default function ProcurementPage() {
     setSaving(true);
     const payload = {
       supplier: form.supplier,
+      supplier_details: form.supplier_details.trim(),
       currency: form.currency,
       expected_delivery: form.expected_delivery || null,
       notes: form.notes,
@@ -515,10 +482,21 @@ export default function ProcurementPage() {
     }
   }
 
-  async function handleTransition(po: PurchaseOrder, status: POStatus) {
+  async function handleTransition(po: PurchaseOrder, status: POStatus, expectedDelivery?: string) {
     if (status === "cancelled" && !confirm(`Cancel PO ${po.po_number}? This cannot be undone.`)) return;
+    // Leaving Draft without a delivery date: ask for it, then go.
+    const leavingDraft = po.status === "draft" && status !== "draft" && status !== "cancelled";
+    if (leavingDraft && !po.expected_delivery && !expectedDelivery) {
+      setDeliveryAsk({ poId: po.id, status });
+      setDeliveryDate("");
+      return;
+    }
     try {
-      await api.post(`/procurement/purchase-orders/${po.id}/transition/`, { status });
+      await api.post(`/procurement/purchase-orders/${po.id}/transition/`, {
+        status,
+        ...(expectedDelivery ? { expected_delivery: expectedDelivery } : {}),
+      });
+      setDeliveryAsk(null);
       toast.success(`Moved to ${statusLabel(status)}`);
       closeModal();
       fetchOrders();
@@ -535,7 +513,7 @@ export default function ProcurementPage() {
       setReceivePO(data);
       setReceiveRows(
         (data.items ?? [])
-          .filter((i): i is POItem & { id: string } => Boolean(i.id))
+          .filter((i): i is POItem & { id: string } => Boolean(i.id) && !i.is_charge)
           .map((i) => {
             const received = i.received_quantity ?? 0;
             return {
@@ -698,6 +676,32 @@ export default function ProcurementPage() {
             ))}
           </>
         )}
+        {deliveryAsk?.poId === po.id && (
+          <div className="flex w-full flex-wrap items-center gap-2 border-t border-border pt-2">
+            <label htmlFor={`delivery-${po.id}`} className="text-xs font-medium text-foreground">
+              Required delivery *
+            </label>
+            <input
+              id={`delivery-${po.id}`}
+              type="date"
+              autoFocus
+              value={deliveryDate}
+              onChange={(e) => setDeliveryDate(e.target.value)}
+              className="h-8 rounded-lg border border-border bg-card px-2 text-xs text-foreground focus:border-primary/50 focus:outline-none"
+            />
+            <button
+              type="button"
+              disabled={!deliveryDate}
+              onClick={() => handleTransition(po, deliveryAsk.status, deliveryDate)}
+              className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+            >
+              Set date and continue
+            </button>
+            <button type="button" onClick={() => setDeliveryAsk(null)} className="text-xs text-muted-foreground hover:text-foreground">
+              Cancel
+            </button>
+          </div>
+        )}
       </div>
     );
   }
@@ -724,7 +728,7 @@ export default function ProcurementPage() {
       <div className="flex gap-1 border-b border-border">
         {([
           { key: "orders", label: "Purchase Orders" },
-          { key: "requisitions", label: "To Procure" },
+          { key: "requisitions", label: "Procurement Requests" },
         ] as const).map((t) => (
           <button
             key={t.key}
@@ -934,8 +938,8 @@ export default function ProcurementPage() {
       )}
 
       {modalMode && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 py-8 backdrop-blur-sm">
-          <div className="w-full max-w-3xl rounded-2xl border border-border bg-card p-6 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 py-8 backdrop-blur-md veil-in">
+          <div className="w-full max-w-3xl glass glass-pop rounded-2xl p-6">
             <div className="mb-5 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <h2 className="text-lg font-semibold text-foreground">
@@ -963,11 +967,27 @@ export default function ProcurementPage() {
                   </div>
                 </div>
                 <div className="space-y-1.5">
-                  <label htmlFor="supplier" className={labelClass}>Supplier</label>
+                  <label htmlFor="supplier" className={labelClass}>Supplier *</label>
                   <select id="supplier" required value={form.supplier} onChange={(e) => setForm({ ...form, supplier: e.target.value })} className={inputClass}>
                     <option value="">Select supplier…</option>
                     {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                   </select>
+                  {/* A contact, a quote reference, a delivery address for
+                      this order — printed under the supplier on the PO. */}
+                  {showSupplierDetails ? (
+                    <textarea
+                      id="supplier_details"
+                      rows={2}
+                      value={form.supplier_details}
+                      onChange={(e) => setForm({ ...form, supplier_details: e.target.value })}
+                      placeholder="Contact, quote reference, delivery address for this order"
+                      className={`${inputClass} h-auto py-2`}
+                    />
+                  ) : (
+                    <button type="button" onClick={() => setShowSupplierDetails(true)} className="text-xs font-medium text-primary">
+                      + Supplier details for this order
+                    </button>
+                  )}
                 </div>
                 <div className="space-y-1.5">
                   <label htmlFor="currency" className={labelClass}>Currency</label>
@@ -981,63 +1001,26 @@ export default function ProcurementPage() {
                     <input id="order_date" type="text" value={form.order_date || "Set when the Group Head approves the order"} disabled className={`${inputClass} bg-secondary/40 text-muted-foreground`} />
                   </div>
                   <div className="space-y-1.5">
-                    <label htmlFor="expected_delivery" className={labelClass}>Required Delivery</label>
-                    <input id="expected_delivery" type="date" value={form.expected_delivery} onChange={(e) => setForm({ ...form, expected_delivery: e.target.value })} className={inputClass} />
+                    <label htmlFor="expected_delivery" className={labelClass}>Required Delivery *</label>
+                    <input id="expected_delivery" type="date" required value={form.expected_delivery} onChange={(e) => setForm({ ...form, expected_delivery: e.target.value })} className={inputClass} />
                   </div>
                 </div>
               </div>
 
-              {/* Line items */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className={labelClass}>Line Items</label>
-                  <button type="button" onClick={addItem} className="text-xs font-medium text-primary">+ Add item</button>
-                </div>
-                {form.items.map((it, idx) => (
-                  <div key={it.id ?? `new-${idx}`} className="space-y-2 rounded-lg border border-border p-3">
-                    <div className="flex items-center gap-2">
-                      <select
-                        value={it.kind}
-                        onChange={(e) => setItemKind(idx, e.target.value as ItemKind)}
-                        className={`${rowInputClass} w-36 shrink-0`}
-                        title="Item type"
-                      >
-                        <option value="custom">Free text</option>
-                        <option value="asset">Asset model</option>
-                        <option value="material">Material</option>
-                      </select>
-                      {it.kind === "asset" && (
-                        <select value={it.device_model} onChange={(e) => pickDeviceModel(idx, e.target.value)} className={`${inputClass} flex-1`}>
-                          <option value="">Select asset model…</option>
-                          {deviceModels.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-                        </select>
-                      )}
-                      {it.kind === "material" && (
-                        <select value={it.material_type} onChange={(e) => pickMaterialType(idx, e.target.value)} className={`${inputClass} flex-1`}>
-                          <option value="">Select material type…</option>
-                          {materialTypes.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-                        </select>
-                      )}
-                      <div className="ml-auto shrink-0 whitespace-nowrap text-right text-xs text-muted-foreground">
-                        Line total{" "}
-                        <span className="font-medium text-foreground">{form.currency} {rowTotal(it).toLocaleString()}</span>
-                        {modalMode === "edit" && it.received_quantity > 0 && (
-                          <span className="ml-2">· Received {it.received_quantity}/{Number(it.quantity) || 0}</span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <input value={it.description} onChange={(e) => updateItem(idx, { description: e.target.value })} placeholder="Description" className={`${inputClass} min-w-0 flex-1`} />
-                      <input type="number" min="1" value={it.quantity} onChange={(e) => updateItem(idx, { quantity: e.target.value })} placeholder="Qty" className={`${rowInputClass} w-20`} />
-                      <input type="number" min="0" step="0.01" value={it.unit_price} onChange={(e) => updateItem(idx, { unit_price: e.target.value })} placeholder="Unit price" className={`${rowInputClass} w-32`} />
-                      <button type="button" onClick={() => removeItem(idx)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:text-destructive">
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-                <div className="text-right text-sm font-medium text-foreground">Grand Total: {form.currency} {formTotal.toLocaleString()}</div>
-              </div>
+              {/* Line items — the same editor the Procurement Requests
+                  dialog uses, so an order reads the same however it began. */}
+              <PoLineItems
+                lines={form.items}
+                onChange={(items) => setForm((f) => ({ ...f, items }))}
+                currency={form.currency}
+                options={poOptions}
+                total={formTotal}
+                legacyLabel={(line) =>
+                  line.device_model
+                    ? deviceModels.find((m) => m.id === line.device_model)?.label
+                    : materialTypes.find((m) => m.id === line.material_type)?.label
+                }
+              />
 
               <div className="space-y-1.5">
                 <label htmlFor="notes" className={labelClass}>Notes</label>
@@ -1071,8 +1054,8 @@ export default function ProcurementPage() {
       )}
 
       {receivePO && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 py-8 backdrop-blur-sm">
-          <div className="w-full max-w-3xl rounded-2xl border border-border bg-card p-6 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 py-8 backdrop-blur-md veil-in">
+          <div className="w-full max-w-3xl glass glass-pop rounded-2xl p-6">
             <div className="mb-5 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <h2 className="text-lg font-semibold text-foreground">Receive items — {receivePO.po_number}</h2>

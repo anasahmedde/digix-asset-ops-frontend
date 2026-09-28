@@ -7,6 +7,7 @@ import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import { ContactsEditor } from "@/components/ui/contacts-editor";
+import { Pagination, pageSlice } from "@/components/ui/pagination";
 import { CopyButton } from "@/components/ui/copy-button";
 import { FilterBar } from "@/components/ui/filter-bar";
 import api from "@/lib/api";
@@ -52,6 +53,7 @@ export default function SitesPage() {
   const canEdit = canWrite("sites");
 
   const [sites, setSites] = useState<Site[]>([]);
+  const [sitePage, setSitePage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
   const [selected, setSelected] = useState<SiteDetail | null>(null);
@@ -260,7 +262,7 @@ export default function SitesPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((s) => (
+                {pageSlice(filtered, sitePage).map((s) => (
                   <tr key={s.id} onClick={() => openEdit(s)} className="border-b border-border/30 cursor-pointer transition-colors hover:bg-secondary/30">
                     <td className={`${tdClass} font-medium text-foreground`}>
                       <span className="inline-flex items-center gap-1">
@@ -299,14 +301,15 @@ export default function SitesPage() {
                 ))}
               </tbody>
             </table>
+            <Pagination page={sitePage} total={filtered.length} onPage={setSitePage} noun="sites" />
           </div>
         </div>
       );
       })()}
 
       {modalMode && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 py-8 backdrop-blur-sm">
-          <div className="w-full max-w-2xl rounded-2xl border border-border bg-card p-6 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 py-8 backdrop-blur-md veil-in">
+          <div className="w-full max-w-2xl glass glass-pop rounded-2xl p-6">
             <div className="mb-5 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-foreground">{modalMode === "create" ? "Add New Site" : "Edit Site"}</h2>
               <button onClick={closeModal} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">

@@ -1,10 +1,11 @@
 "use client";
 
-import { Download, PackageCheck, Search, X } from "lucide-react";
+import { Download, PackageCheck, Search, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { Modal } from "@/components/ui/modal";
+import { Pagination, pageSlice } from "@/components/ui/pagination";
 import { Qty } from "@/components/ui/qty";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
@@ -30,6 +31,12 @@ interface RequestRow {
   asset_code: string | null;
   component_name: string | null;
   maintenance_title: string | null;
+  /** Preventive or corrective — what kind of work the parts are for. */
+  maintenance_type?: string | null;
+  asset_name?: string | null;
+  /** The technician the job is assigned to — the only person who collects
+   *  parts raised for it. */
+  maintenance_assignee?: string | null;
   requested_by_name: string | null;
   issued_by_name: string | null;
   received_by: string;
@@ -60,17 +67,22 @@ const STATUS_BADGES: Record<string, string> = {
 const inputClass =
   "flex h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors";
 const labelClass = "text-xs font-medium text-muted-foreground";
-const thClass = "px-5 py-3.5 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground";
-const tdClass = "px-5 py-3.5";
+const thClass = "px-3 py-3.5 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground";
+const tdClass = "px-3 py-3.5 align-top";
 
 export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
   const { user } = useUser();
   const canIssue = user != null && STORE_ROLES.includes(user.role);
 
   const [rows, setRows] = useState<RequestRow[]>([]);
+  const [requestPage, setRequestPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
+  // Handing a request back to whoever raised it, with a reason they can read.
+  const [backFor, setBackFor] = useState<RequestRow | null>(null);
+  const [backNote, setBackNote] = useState("");
+  const [sendingBack, setSendingBack] = useState(false);
   const [showDone, setShowDone] = useState(false);
   const [issueFor, setIssueFor] = useState<RequestRow | null>(null);
   const [issue, setIssue] = useState({ quantity: "", received_by: "", notes: "" });
@@ -127,8 +139,12 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
   function openIssue(row: RequestRow) {
     // Default to what can actually be covered right now.
     const possible = Math.min(row.outstanding_quantity, row.available_quantity ?? row.outstanding_quantity);
-    setIssue({ quantity: String(Math.max(possible, 0)), received_by: "", notes: "" });
-    setReceiverPick("");
+    setIssue({
+      quantity: String(Math.max(possible, 0)),
+      received_by: row.maintenance_assignee ?? "",
+      notes: "",
+    });
+    setReceiverPick(row.maintenance_assignee ?? "");
     setIssueFor(row);
   }
 
@@ -161,14 +177,25 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
     }
   }
 
-  async function cancelRequest(row: RequestRow) {
-    if (!confirm(`Cancel ${row.request_number}? Anything already issued stays issued.`)) return;
+  async function sendBack(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!backFor) return;
+    setSendingBack(true);
     try {
-      await api.post(`/inventory/issuance-requests/${row.id}/cancel/`, {});
-      toast.success("Request cancelled");
+      const { data } = await api.post(
+        `/inventory/issuance-requests/${backFor.id}/send-back/`,
+        { note: backNote },
+      );
+      toast.success(`Sent back to ${data.sent_back_to}`, {
+        description: "Whoever raised it decides again; nothing is issued against it now.",
+      });
+      setBackFor(null);
+      setBackNote("");
       fetchRows();
     } catch (err) {
-      toast.error(getApiError(err, "Could not cancel the request"));
+      toast.error(getApiError(err, "Could not send the request back"));
+    } finally {
+      setSendingBack(false);
     }
   }
 
@@ -252,13 +279,13 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                   <th className={thClass}>Issued</th>
                   <th className={thClass}>On Hand</th>
                   <th className={thClass}>Project / Asset</th>
-                  <th className={thClass}>Requested By</th>
+                  <th className={thClass}>For</th>
                   <th className={thClass}>Status</th>
                   <th className={thClass}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((row) => {
+                {pageSlice(filtered, requestPage).map((row) => {
                   const short = (row.available_quantity ?? 0) < row.outstanding_quantity;
                   const settled = row.status === "fulfilled" || row.status === "cancelled";
                   return (
@@ -266,10 +293,15 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                       <td className={`${tdClass} whitespace-nowrap font-mono text-foreground`}>
                         {row.request_number}
                         <span className="block text-2xs font-sans text-muted-foreground">
-                          {row.source_display}
+                          {row.source_display}{row.requested_by_name ? ` · ${row.requested_by_name}` : ""}
                         </span>
                       </td>
-                      <td className={`${tdClass} text-foreground`}>{row.what}</td>
+                      <td className={`${tdClass} text-foreground`}>
+                        {row.unit_type_name ?? row.what.replace(/\s*\(.*\)$/, "")}
+                        {row.item_sku && (
+                          <span className="block font-mono text-2xs text-muted-foreground">{row.item_sku}</span>
+                        )}
+                      </td>
                       <td className={tdClass}>
                         <span className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-2xs font-medium ${row.unit_type_name ? "bg-indigo-500/10 text-indigo-600" : "bg-secondary text-muted-foreground"}`}>{row.unit_type_name ? "Unique item" : "Generic stock"}</span>
                       </td>
@@ -284,7 +316,7 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                           </span>
                         )}
                         {row.outstanding_quantity > 0 && (
-                          <span className="block text-2xs text-amber-600">
+                          <span className="block whitespace-nowrap text-2xs text-amber-600">
                             balance <Qty value={row.outstanding_quantity} unit={row.unit} />
                           </span>
                         )}
@@ -295,19 +327,42 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                       <td className={tdClass}>
                         {/* The column asks for the project, so the project leads
                             and the asset it is for sits under it. */}
-                        <span className="block text-foreground">
-                          {row.project_name ?? row.maintenance_title ?? "Not on a project"}
+                        <span className="block max-w-[11rem] text-foreground">
+                          {row.project_name ?? "Not on a project"}
                         </span>
                         {row.asset_code && (
                           <span className="block font-mono text-2xs text-muted-foreground">
-                            {row.asset_code}{row.component_name ? ` · ${row.component_name}` : ""}
+                            {row.asset_code}
+                            {row.asset_name ? <span className="font-sans"> · {row.asset_name}</span> : null}
                           </span>
                         )}
                       </td>
-                      <td className={`${tdClass} text-muted-foreground`}>{row.requested_by_name ?? "—"}</td>
+                      <td className={tdClass}>
+                        {/* What the material is wanted for: a build line, or a
+                            maintenance job and the kind of work it is. */}
+                        {row.maintenance_title ? (
+                          <>
+                            <span className="block max-w-[11rem] text-foreground">{row.maintenance_title}</span>
+                            <span className="block text-2xs text-muted-foreground">
+                              {row.maintenance_type ?? "Maintenance"}
+                            </span>
+                          </>
+                        ) : row.component_name ? (
+                          <>
+                            <span className="block max-w-[11rem] text-foreground">{row.component_name}</span>
+                            <span className="block text-2xs text-muted-foreground">Build requirement</span>
+                          </>
+                        ) : row.purpose ? (
+                          // A job that has since been closed out or deleted
+                          // still said what its material was for.
+                          <span className="block text-muted-foreground">{row.purpose}</span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </td>
                       <td className={tdClass}>
                         <span
-                          className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${
+                          className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${
                             STATUS_BADGES[row.status] ?? STATUS_BADGES.cancelled
                           }`}
                         >
@@ -324,14 +379,14 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                           </span>
                         )}
                       </td>
-                      <td className={tdClass}>
+                      <td className={`${tdClass} whitespace-nowrap`}>
                         <div className="flex items-center gap-1.5">
                           {canIssue && !settled && (
                             <button
                               onClick={() => openIssue(row)}
                               disabled={!!row.awaiting_procurement}
                               title={row.awaiting_procurement ? "On order — issue it once the delivery has been received and inspected" : "Issue from stock"}
-                              className="inline-flex items-center gap-1 rounded-lg bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
+                              className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-lg bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
                             >
                               <PackageCheck className="h-3.5 w-3.5" /> Issue
                             </button>
@@ -347,11 +402,11 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                           )}
                           {canIssue && !settled && (
                             <button
-                              onClick={() => cancelRequest(row)}
-                              title="Cancel this request"
-                              className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:text-destructive"
+                              onClick={() => { setBackFor(row); setBackNote(""); }}
+                              title="Send this request back to whoever raised it"
+                              className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                             >
-                              <X className="h-3.5 w-3.5" />
+                              <Undo2 className="h-3.5 w-3.5" /> Send back
                             </button>
                           )}
                         </div>
@@ -361,9 +416,71 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                 })}
               </tbody>
             </table>
+            <Pagination page={requestPage} total={filtered.length} onPage={setRequestPage} noun="requests" />
           </div>
         </div>
       )}
+
+      <Modal
+        open={backFor !== null}
+        onClose={() => setBackFor(null)}
+        title={backFor ? `Send ${backFor.request_number} back` : "Send back"}
+        size="sm"
+      >
+        {backFor && (
+          <form onSubmit={sendBack} className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              <span className="font-medium text-foreground">{backFor.what}</span> ·{" "}
+              {backFor.outstanding_quantity} {backFor.unit ?? "piece"} still owed
+            </p>
+            {/* Where it goes is the whole point of the action, so it is said
+                plainly rather than left to the person to work out. */}
+            <div className="rounded-lg border border-border bg-secondary/30 p-3 text-xs text-muted-foreground">
+              Goes back to{" "}
+              <span className="font-medium text-foreground">
+                {backFor.source === "maintenance"
+                  ? backFor.maintenance_title ?? "the maintenance job"
+                  : backFor.source === "project"
+                    ? [backFor.asset_code, backFor.component_name].filter(Boolean).join(" · ") ||
+                      backFor.project_name || "the project"
+                    : "whoever raised it"}
+              </span>
+              {backFor.source === "maintenance"
+                ? " — the supervisor answers it again, and approving raises a fresh request here."
+                : " — the requirement is undecided again, to be issued or procured."}
+              {backFor.quantity_issued > 0 &&
+                ` ${backFor.quantity_issued} ${backFor.unit ?? "piece"} already issued stays issued.`}
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="back-note" className={labelClass}>Why (optional)</label>
+              <textarea
+                id="back-note"
+                rows={2}
+                value={backNote}
+                onChange={(e) => setBackNote(e.target.value)}
+                placeholder="e.g. Not in stock until Thursday — decide again or procure"
+                className={`${inputClass} h-auto py-2`}
+              />
+            </div>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setBackFor(null)}
+                className="inline-flex h-10 items-center rounded-lg border border-border px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              >
+                Keep it here
+              </button>
+              <button
+                type="submit"
+                disabled={sendingBack}
+                className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-primary px-5 text-sm font-medium text-primary-foreground transition-all disabled:opacity-50"
+              >
+                <Undo2 className="h-4 w-4" /> {sendingBack ? "Sending…" : "Send back"}
+              </button>
+            </div>
+          </form>
+        )}
+      </Modal>
 
       <Modal
         open={issueFor !== null}
@@ -419,6 +536,20 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
             )}
             <div className="space-y-1.5">
               <label htmlFor="issue-to" className={labelClass}>Received by</label>
+              {issueFor.maintenance_assignee ? (
+                // Parts for a job go to whoever is on that job: handing them to
+                // somebody else leaves the parts with one person and the work
+                // with another.
+                <>
+                  <p className={`${inputClass} flex items-center bg-secondary/40 text-muted-foreground`}>
+                    {issueFor.maintenance_assignee}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    The technician on {issueFor.maintenance_title ?? "this job"} collects its parts.
+                  </p>
+                </>
+              ) : (
+              <>
               <select
                 id="issue-to"
                 value={receiverPick}
@@ -444,6 +575,8 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                 />
               )}
               <p className="text-xs text-muted-foreground">The team as set up under Teams; pick “Someone else” for an outside collector.</p>
+              </>
+              )}
             </div>
             <div className="space-y-1.5">
               <label htmlFor="issue-notes" className={labelClass}>Notes</label>

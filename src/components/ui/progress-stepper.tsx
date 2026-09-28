@@ -52,7 +52,7 @@ const STATUS_LABEL: Record<StepStatus, string> = {
  */
 export function ProgressStepper({ steps, className }: ProgressStepperProps) {
   return (
-    <div className={cn("overflow-x-auto pb-1", className)}>
+    <div className={cn("no-scrollbar overflow-x-auto overflow-y-hidden pb-1", className)}>
       <ol className="flex min-w-max" style={{ minWidth: `${steps.length * 104}px` }}>
         {steps.map((step, i) => {
           const next = steps[i + 1];

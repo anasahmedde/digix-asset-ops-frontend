@@ -4,7 +4,9 @@ import "leaflet/dist/leaflet.css";
 
 import L from "leaflet";
 import { useEffect, useRef, useState, useCallback } from "react";
-import { MapContainer, Marker, Popup, TileLayer, useMap, ZoomControl } from "react-leaflet";
+import { MapContainer, Marker, Popup, useMap, ZoomControl } from "react-leaflet";
+
+import { Basemap } from "./basemaps";
 import { pakistanBorder, worldMaskExceptPakistan } from "@/data/pakistan-geo";
 
 interface SitePin {
@@ -208,10 +210,7 @@ export default function SiteMap({ sites }: SiteMapProps) {
         className="dark-map"
         whenReady={() => {}}
       >
-        <TileLayer
-          url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
-          attribution='&copy; <a href="https://carto.com">CARTO</a>'
-        />
+        <Basemap />
         <PakistanOverlay />
         <ZoomControl position="topleft" />
         <MapSetup sites={validSites} />

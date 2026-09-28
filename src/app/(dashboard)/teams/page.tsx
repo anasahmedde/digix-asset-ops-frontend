@@ -1,10 +1,14 @@
 "use client";
 
-import { Pencil, Plus, RotateCcw, Users, X } from "lucide-react";
+import { Pencil, Plus, RotateCcw, ShieldCheck, Users, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { Organogram } from "@/components/teams/organogram";
+import { PermissionsDialog } from "@/components/teams/permissions-dialog";
+import { RolesMatrix } from "@/components/teams/roles-matrix";
 import { FilterBar } from "@/components/ui/filter-bar";
+import { Tabs } from "@/components/ui/tabs";
 import api from "@/lib/api";
 import { useUser } from "@/lib/user-context";
 
@@ -25,6 +29,10 @@ interface User {
   cnic?: string;
   join_date?: string | null;
   leaving_date?: string | null;
+  /** Who this person answers to — the line the organogram draws. */
+  reports_to?: string | null;
+  reports_to_name?: string | null;
+  direct_report_count?: number;
 }
 
 const CNIC_RE = /^\d{5}-\d{7}-\d$/;
@@ -66,6 +74,9 @@ export default function TeamsPage() {
   const [saving, setSaving] = useState(false);
   const [filterValues, setFilterValues] = useState<Record<string, string>>({ role: "", status: "" });
   const [search, setSearch] = useState("");
+  const [tab, setTab] = useState("people");
+  // Whose rights are being looked at, if anyone's.
+  const [permissionsFor, setPermissionsFor] = useState<User | null>(null);
   const [cnicInvalid, setCnicInvalid] = useState(false);
 
   const fetchUsers = useCallback(async () => {
@@ -119,6 +130,7 @@ export default function TeamsPage() {
         last_name: fd.get("last_name"),
         role: fd.get("role"),
         job_title: fd.get("job_title"),
+        reports_to: (fd.get("reports_to") as string) || null,
         phone: fd.get("phone"),
         is_field_staff: fd.get("is_field_staff") === "on",
         employee_id: fd.get("employee_id"),
@@ -155,6 +167,7 @@ export default function TeamsPage() {
         email: fd.get("email"),
         role: fd.get("role"),
         job_title: fd.get("job_title"),
+        reports_to: (fd.get("reports_to") as string) || null,
         phone: fd.get("phone"),
         is_field_staff: fd.get("is_field_staff") === "on",
         employee_id: fd.get("employee_id"),
@@ -228,6 +241,30 @@ export default function TeamsPage() {
         )}
       </div>
 
+      <Tabs
+        tabs={[
+          { key: "people", label: "Employees", count: users.length },
+          { key: "chart", label: "Organogram" },
+          { key: "roles", label: "Roles & Rights" },
+        ]}
+        active={tab}
+        onChange={setTab}
+      />
+
+      {tab === "roles" ? (
+        <div className="rounded-xl border border-border bg-card p-5">
+          <RolesMatrix />
+        </div>
+      ) : tab === "chart" ? (
+        <div className="rounded-xl border border-border bg-card p-5">
+          <p className="mb-4 text-xs text-muted-foreground">
+            Who reports to whom. A person&apos;s title is their place in the
+            organisation; the badge is what the system lets them do.
+          </p>
+          <Organogram people={users} />
+        </div>
+      ) : (
+      <>
       <FilterBar
         filters={[
           { key: "role", label: "Role", options: ROLES.map((r) => ({ value: r.value, label: r.label })) },
@@ -307,8 +344,16 @@ export default function TeamsPage() {
                       </div>
                     </td>
                     <td className={tdClass} onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => setPermissionsFor(user)}
+                          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-primary"
+                          title={`What ${user.full_name || user.username} may do`}
+                        >
+                          <ShieldCheck className="h-3.5 w-3.5" />
+                        </button>
                       {isAdmin ? (
-                        <div className="flex items-center gap-1">
+                        <>
                           <button onClick={() => openEdit(user)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground" title="Edit user">
                             <Pencil className="h-3.5 w-3.5" />
                           </button>
@@ -318,10 +363,9 @@ export default function TeamsPage() {
                           <button onClick={() => toggleActive(user)} className={`text-xs font-medium transition-colors ${user.is_active ? "text-red-400/70 hover:text-red-400" : "text-emerald-400/70 hover:text-emerald-400"}`}>
                             {user.is_active ? "Deactivate" : "Activate"}
                           </button>
-                        </div>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      )}
+                        </>
+                      ) : null}
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -332,10 +376,12 @@ export default function TeamsPage() {
       </div>
       );
       })()}
+      </>
+      )}
 
       {modalMode && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="max-h-[88vh] overflow-y-auto w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-md veil-in">
+          <div className="max-h-[88vh] overflow-y-auto w-full max-w-lg glass glass-pop rounded-2xl p-6">
             <div className="mb-5 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-foreground">
                 {modalMode === "create" && "Add New User"}
@@ -413,9 +459,24 @@ export default function TeamsPage() {
                     <label htmlFor="phone" className={labelClass}>Phone</label>
                     <input id="phone" name="phone" type="tel" defaultValue={selected?.phone ?? ""} className={inputClass} />
                   </div>
-                  <div className="space-y-1.5 sm:col-span-2">
+                  <div className="space-y-1.5">
                     <label htmlFor="job_title" className={labelClass}>Job Title (display only)</label>
                     <input id="job_title" name="job_title" defaultValue={selected?.job_title ?? ""} className={inputClass} placeholder="e.g. Production Supervisor, Execution Supervisor" />
+                  </div>
+                  <div className="space-y-1.5">
+                    {/* The reporting line. Permissions still come from the
+                        role; this is who the person answers to. */}
+                    <label htmlFor="reports_to" className={labelClass}>Reports To</label>
+                    <select id="reports_to" name="reports_to" defaultValue={selected?.reports_to ?? ""} className={inputClass}>
+                      <option value="">Nobody — top of the chart</option>
+                      {users
+                        .filter((u) => u.id !== selected?.id)
+                        .map((u) => (
+                          <option key={u.id} value={u.id}>
+                            {u.full_name || u.username}{u.job_title ? ` · ${u.job_title}` : ""}
+                          </option>
+                        ))}
+                    </select>
                   </div>
                 </div>
 
@@ -460,6 +521,16 @@ export default function TeamsPage() {
             )}
           </div>
         </div>
+      )}
+
+      {permissionsFor && (
+        <PermissionsDialog
+          userId={permissionsFor.id}
+          userName={permissionsFor.full_name || permissionsFor.username}
+          roleLabel={ROLES.find((r) => r.value === permissionsFor.role)?.label ?? permissionsFor.role}
+          onClose={() => setPermissionsFor(null)}
+          onSaved={fetchUsers}
+        />
       )}
     </div>
   );

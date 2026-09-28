@@ -7,6 +7,7 @@ import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import { SegmentBar, StatTiles } from "@/components/ui/analytics-strip";
+import { Pagination, pageSlice } from "@/components/ui/pagination";
 import { ProductionRoute, type ProductionStep } from "@/components/assets/production-route";
 import { Timeline, type TimelineItem, type TimelineTone } from "@/components/ui/timeline";
 import { CopyButton } from "@/components/ui/copy-button";
@@ -79,6 +80,8 @@ interface DeviceDetail extends Device {
   width_in: string | null;
   depth_in: string | null;
   diagonal_inches: string | null;
+  /** What the four sizes above were measured in. */
+  dimension_unit?: string;
   specifications: Record<string, unknown>;
   hardware_revision: string;
   purchase_date: string | null;
@@ -187,6 +190,8 @@ function vendorContact(v?: VendorOption, full = false): string {
 }
 
 interface AssetComponent {
+  /** The units actually fitted, by serial — a line for three takes three. */
+  fitted_serials?: string[];
   id: string;
   device: string;
   name: string;
@@ -292,13 +297,13 @@ const MANUAL_STATUSES = ["client_property", "decommissioned"];
 
 // What is actually moving the asset on, said plainly where the old dropdown was.
 const LIFECYCLE_SOURCE: Record<string, string> = {
-  procured: "It moves on its own: In Production when its parts are issued, In Stock when the build is finished.",
-  in_production: "It becomes In Stock on its own once every component is issued and every operation is finished.",
-  in_stock: "Assign it under Installation & Activation below — that opens the job on the Installation Tracker.",
-  assigned: "Installed is recorded by the technician finishing the checklist on the Installation Tracker.",
-  installed: "Active is recorded by the technician on site, with a photo, in the Installation Tracker.",
-  active: "Hand it to the client or retire it here — everything else follows the work.",
-  under_maintenance: "It returns to Active on its own when its maintenance job is completed.",
+  procured: "Moves to In Production when components are issued, and to In Stock when the build is complete.",
+  in_production: "Moves to In Stock once all components are issued and all operations are complete.",
+  in_stock: "Assign it under Installation & Activation below to open the installation job.",
+  assigned: "Marked Installed when the technician completes the installation checklist.",
+  installed: "Marked Active when the technician confirms on site with a photo.",
+  active: "Transfer to the client or decommission below. All other stages follow the work.",
+  under_maintenance: "Returns to Active when the maintenance job is completed. Hand it to the client or decommission it below.",
 };
 
 function shortDate(iso: string | undefined) {
@@ -324,53 +329,111 @@ function LifecycleStepper({ status, stageDates, requiresProduction = true }: { s
   const mainIdx = inMaintenance || ended
     ? TRACK_MAIN.length - 1
     : (TRACK_MAIN as readonly string[]).indexOf(status);
+  const detour = inMaintenance || !!stageDates.under_maintenance;
 
-  const node = (reached: boolean, current: boolean, tone: "primary" | "amber" | "slate" = "primary") =>
-    current
-      ? tone === "amber"
-        ? "border-amber-500 bg-amber-500 text-white"
-        : "border-primary bg-primary text-primary-foreground"
-      : reached
-        ? tone === "slate"
-          ? "border-slate-500 bg-slate-500 text-white"
-          : "border-primary bg-primary/15 text-primary"
-        : "border-border bg-card text-muted-foreground";
+  // One list, so the rail is laid out in one pass and the end states keep
+  // their place on it without a second row.
+  const stages = [
+    ...TRACK_MAIN.map((stage, i) => {
+      const reached = mainIdx >= 0 ? i <= mainIdx : !!stageDates[stage];
+      const current = !inMaintenance && !ended && status === stage;
+      return {
+        stage,
+        spur: false,
+        reached,
+        current,
+        // Solid up to where the asset has got; the rest of the line is grey.
+        filled: mainIdx >= 0 && i < mainIdx,
+        state: current ? "In Progress" : reached ? "Completed" : "Not Started",
+      };
+    }),
+    ...TRACK_END.map((stage) => {
+      const current = status === stage;
+      return {
+        stage,
+        spur: true,
+        reached: current || !!stageDates[stage],
+        current,
+        filled: false,
+        state: current ? "In Progress" : stageDates[stage] ? "Completed" : "Not Started",
+      };
+    }),
+  ];
 
   return (
-    <div className="overflow-x-auto pb-1">
-      <ol className="flex min-w-max items-start">
-        {TRACK_MAIN.map((stage, i) => {
-          const reached = mainIdx >= 0 ? i <= mainIdx : !!stageDates[stage];
-          const current = !inMaintenance && !ended && status === stage;
-          const date = shortDate(stageDates[stage]);
-          const isLast = i === TRACK_MAIN.length - 1;
-          const filled = mainIdx >= 0 && i < mainIdx;
+    <div className="pb-1">
+      {/* Room under the rail for the maintenance detour, only when there is
+          one to show. */}
+      <ol className={`flex items-start ${detour ? "pb-14" : ""}`}>
+        {stages.map((s, i) => {
+          const date = shortDate(stageDates[s.stage]);
+          const isLast = i === stages.length - 1;
+          const next = stages[i + 1];
           return (
-            <li key={stage} className="relative flex w-[92px] flex-col items-center text-center">
-              <span
-                aria-hidden
-                className={`absolute left-1/2 top-[13px] w-full ${
-                  isLast ? "border-t-2 border-dashed border-border" : `h-0.5 ${filled ? "bg-primary" : "bg-border"}`
-                }`}
-              />
-              <span className="relative flex h-7 w-7 items-center justify-center">
-                {current && <span aria-hidden className="absolute inset-0 rounded-full bg-primary/25 motion-safe:animate-ping" />}
-                <span className={`relative flex h-7 w-7 items-center justify-center rounded-full border-2 text-2xs font-bold ${node(reached, current)}`}>
-                  {reached && !current ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : i + 1}
+            <li key={s.stage} className="relative flex min-w-0 flex-1 basis-0 flex-col items-center px-0.5 text-center">
+              {/* The line runs between node centres, behind them. An end
+                  state hangs off a dashed segment: it is not the next step
+                  for every asset, and nothing comes back from it. */}
+              {!isLast && (
+                <span
+                  aria-hidden
+                  className={
+                    next?.spur
+                      ? "absolute left-1/2 top-[17px] w-full border-t-2 border-dashed border-border"
+                      : `absolute left-1/2 top-[17px] h-0.5 w-full ${s.filled ? "bg-primary" : "bg-border"}`
+                  }
+                />
+              )}
+              <span className="relative flex h-9 w-9 items-center justify-center">
+                {s.current && !s.spur && (
+                  <span aria-hidden className="absolute inset-0 rounded-full bg-primary/25 motion-safe:animate-ping" />
+                )}
+                <span
+                  className={`relative flex h-9 w-9 items-center justify-center rounded-full border-2 text-sm font-bold shadow-sm transition-colors ${
+                    s.current
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : s.reached
+                        ? s.spur
+                          ? "border-slate-400 bg-slate-500 text-white"
+                          : "border-primary bg-primary text-primary-foreground"
+                        : s.spur
+                          ? "border-dashed border-border bg-secondary text-muted-foreground/60"
+                          : "border-border bg-card text-muted-foreground"
+                  }`}
+                >
+                  {s.reached && !s.current ? <Check className="h-4 w-4" strokeWidth={3} /> : i + 1}
                 </span>
               </span>
-              <span className={`mt-1.5 text-2xs leading-tight ${current ? "font-semibold text-primary" : reached ? "font-medium text-foreground" : "text-muted-foreground"}`}>
-                {label(stage)}
+              <span
+                lang="en"
+                className={`mt-2 hyphens-auto break-words [overflow-wrap:anywhere] max-w-full text-2xs font-medium leading-tight ${
+                  s.reached || s.current ? "text-foreground" : "text-muted-foreground"
+                }`}
+              >
+                {label(s.stage)}
               </span>
-              <span className="text-2xs tabular-nums text-muted-foreground" title={stageDates[stage] ? new Date(stageDates[stage]).toLocaleString() : undefined}>
-                {reached && date ? date : " "}
+              <span
+                className={`mt-0.5 max-w-full break-words text-2xs leading-tight ${
+                  s.current ? "font-semibold text-primary" : s.reached ? "text-primary" : "text-muted-foreground"
+                }`}
+              >
+                {s.state}
               </span>
+              {s.reached && date && (
+                <span
+                  className="mt-0.5 text-2xs tabular-nums text-muted-foreground"
+                  title={stageDates[s.stage] ? new Date(stageDates[s.stage]).toLocaleString() : undefined}
+                >
+                  {date}
+                </span>
+              )}
 
-              {/* Maintenance: a detour hanging off Active. */}
-              {stage === "active" && (inMaintenance || stageDates.under_maintenance) && (
-                <span className="mt-1 flex flex-col items-center">
-                  <span aria-hidden className={`h-3 border-l-2 border-dashed ${inMaintenance ? "border-amber-500" : "border-border"}`} />
-                  <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-2xs font-semibold ring-1 ${
+              {/* Maintenance: a detour hanging below Active, clear of the rail.
+                  The asset comes back from it, so it is not on the line. */}
+              {s.stage === "active" && detour && (
+                <span className="absolute left-1/2 top-full z-10 flex w-28 -translate-x-1/2 flex-col items-center">
+                  <span aria-hidden className={`h-4 border-l-2 border-dashed ${inMaintenance ? "border-amber-500" : "border-border"}`} />
+                  <span className={`mt-1 rounded-full px-2.5 py-1 text-2xs font-semibold leading-tight ring-1 ${
                     inMaintenance ? "bg-amber-500/10 text-amber-600 ring-amber-500/30" : "bg-secondary text-muted-foreground ring-border"
                   }`}>
                     {inMaintenance ? "Under maintenance" : "Last maintenance"}
@@ -380,26 +443,6 @@ function LifecycleStepper({ status, stageDates, requiresProduction = true }: { s
                   </span>
                 </span>
               )}
-            </li>
-          );
-        })}
-
-        {/* End of life: a spur off the line. */}
-        {TRACK_END.map((stage, i) => {
-          const current = status === stage;
-          const reached = current || !!stageDates[stage];
-          return (
-            <li key={stage} className="relative flex w-[92px] flex-col items-center text-center">
-              {i === 0 && <span aria-hidden className="absolute left-1/2 top-[13px] w-full border-t-2 border-dashed border-border" />}
-              <span className={`relative flex h-7 w-7 items-center justify-center rounded-full border-2 border-dashed text-2xs font-bold ${node(reached, false, "slate")}`}>
-                {reached ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : "•"}
-              </span>
-              <span className={`mt-1.5 text-2xs leading-tight ${current ? "font-semibold text-foreground" : "text-muted-foreground"}`}>
-                {label(stage)}
-              </span>
-              <span className="text-2xs tabular-nums text-muted-foreground">
-                {reached ? shortDate(stageDates[stage]) ?? " " : " "}
-              </span>
             </li>
           );
         })}
@@ -470,7 +513,6 @@ const WARRANTY_COLORS: Record<string, string> = {
 const MAINT_TYPE_BADGE: Record<string, string> = {
   preventive: "bg-blue-500/10 text-blue-600",
   corrective: "bg-red-500/10 text-red-600",
-  predictive: "bg-purple-500/10 text-purple-600",
 };
 
 export default function AssetsPage() {
@@ -478,6 +520,7 @@ export default function AssetsPage() {
   const canEdit = canWrite("devices");
 
   const [devices, setDevices] = useState<Device[]>([]);
+  const [assetPage, setAssetPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
   const [selected, setSelected] = useState<DeviceDetail | null>(null);
@@ -488,14 +531,18 @@ export default function AssetsPage() {
   const [compSource, setCompSource] = useState<"generic" | "unique">("generic");
   const [compItemId, setCompItemId] = useState("");
   const [compUnitType, setCompUnitType] = useState("");
-  const [assetSource, setAssetSource] = useState("inhouse");
+  // Empty until chosen: registering an asset means saying how it is made.
+  const [assetSource, setAssetSource] = useState("");
+  // A joiner works in feet, a screen is quoted in inches: the sizes are
+  // stored as entered and carry the unit they were measured in.
+  const [dimensionUnit, setDimensionUnit] = useState("in");
   const [compEdit, setCompEdit] = useState<{ id: string; quantity: number } | null>(null);
   // Item 8: a new asset can start as a copy of an existing one.
   const [copyFrom, setCopyFrom] = useState("");
   // Components and a production route only belong to an asset we build ourselves.
   const buildsInHouse = assetSource === "inhouse";
   const [formAssetType, setFormAssetType] = useState("");
-  const [compQty, setCompQty] = useState(1);
+  const [compQty, setCompQty] = useState("1");
   const [stockItems, setStockItems] = useState<StockItemRef[]>([]);
   const [stockProducts, setStockProducts] = useState<StockProductRef[]>([]);
 
@@ -688,7 +735,8 @@ export default function AssetsPage() {
   }
 
   function openCreate() {
-    setAssetSource("inhouse");
+    setAssetSource("");
+    setDimensionUnit("in");
     setFormAssetType("");
     setAssignTechnician("");
     setAssignDue("");
@@ -710,6 +758,7 @@ export default function AssetsPage() {
       setAdditionalClients(data.clients ?? []);
       // Seed the assignment controls from whichever assignee the asset has.
       setAssetSource(data.source ?? "inhouse");
+      setDimensionUnit(data.dimension_unit ?? "in");
       setFormAssetType(data.asset_type ?? "");
       setAssignTechnician(data.assigned_technician ?? "");
       setAssignVendorId(data.assigned_vendor ?? "");
@@ -738,19 +787,24 @@ export default function AssetsPage() {
     e.preventDefault();
     // Name, type, serial, supplier and warranty are all imported from the
     // inventory record by the backend — nothing to retype here.
-    if (!compSelected || compQty < 1) return;
+    if (!compSelected) return;
+    const quantity = Number(compQty.trim());
+    if (!compQty.trim() || !Number.isInteger(quantity) || quantity < 1) {
+      toast.error("Enter how many are needed — a whole number, 1 or more");
+      return;
+    }
     try {
       await api.post("/assets/components/", {
         device: deviceId,
         ...(compSource === "generic"
           ? { inventory_item: compItemId }
           : { inventory_unit_type: compUnitType }),
-        quantity: compQty,
+        quantity,
       });
       toast.success("Requirement added");
       setCompItemId("");
       setCompUnitType("");
-      setCompQty(1);
+      setCompQty("1");
       refreshDetail(deviceId);
       loadInventorySources();
     } catch (err: unknown) {
@@ -1020,8 +1074,17 @@ export default function AssetsPage() {
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setSaving(true);
     const fd = new FormData(e.currentTarget);
+    const missing = [
+      !formAssetType && "an asset type",
+      !String(fd.get("display_name") ?? "").trim() && "a name",
+      !assetSource && "a manufacturing route",
+    ].filter(Boolean);
+    if (missing.length) {
+      toast.error(`Give the asset ${missing.join(", ")}`);
+      return;
+    }
+    setSaving(true);
     const payload: Record<string, unknown> = {
       // No serial here: the platform generates the asset code (and its
       // QR/barcode label), and the serial defaults to it.
@@ -1033,6 +1096,7 @@ export default function AssetsPage() {
       width_in: fd.get("width_in") || null,
       depth_in: fd.get("depth_in") || null,
       diagonal_inches: fd.get("diagonal_inches") || null,
+      dimension_unit: dimensionUnit,
       notes: fd.get("notes"),
       // Only a turnkey job has an installing vendor; both vendor routes have a
       // supplying one, and an in-house build has neither.
@@ -1264,7 +1328,16 @@ export default function AssetsPage() {
                     <MetaField label="Installation Date" value={d.installation_date ? formatDate(d.installation_date) : null} />
                     <MetaField label="Location" value={d.site_name} highlight />
                     <MetaField label="Status" value={d.status_display ?? statusLabel(d.status)} />
-                    <MetaField label="Dimensions" value={d.length_in && d.width_in ? `${d.length_in} × ${d.width_in}${d.depth_in ? ` × ${d.depth_in}` : ""} in` : d.diagonal_inches ? `${d.diagonal_inches}"` : null} />
+                    <MetaField
+                      label="Dimensions"
+                      value={
+                        d.length_in && d.width_in
+                          ? `${d.length_in} × ${d.width_in}${d.depth_in ? ` × ${d.depth_in}` : ""} ${d.dimension_unit ?? "in"}`
+                          : d.diagonal_inches
+                            ? `${d.diagonal_inches} ${d.dimension_unit ?? "in"} diagonal`
+                            : null
+                      }
+                    />
                   </div>
                 </div>
               </div>
@@ -1318,14 +1391,14 @@ export default function AssetsPage() {
                       {canEdit && (
                         <div className="mt-4 rounded-lg border border-border bg-secondary/20 p-3">
                           <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                            Record manually
+                            Next stage
                           </p>
                           {/* The lifecycle follows the work: the build moves it
                               into stock, the tracker moves it through
                               installation, maintenance brings it back. Only the
                               two end states below are somebody's decision. */}
                           <p className="mb-2 text-2xs text-muted-foreground">
-                            {LIFECYCLE_SOURCE[d.status] ?? "The lifecycle follows the work — these two end states are the only ones anybody sets by hand."}
+                            {LIFECYCLE_SOURCE[d.status] ?? "Stages advance with the work. Client Property and Decommissioned are set here."}
                           </p>
                           {(d.allowed_transitions ?? []).filter((s) => MANUAL_STATUSES.includes(s)).length > 0 ? (
                             <>
@@ -1572,7 +1645,7 @@ export default function AssetsPage() {
                             </>
                           ) : (
                             <p className="text-xs text-muted-foreground">
-                              Nothing to record by hand from “{statusLabel(d.status)}”.
+                              No action required at this stage.
                             </p>
                           )}
                         </div>
@@ -1606,7 +1679,7 @@ export default function AssetsPage() {
                               ? "On order — it comes into stock when the delivery is received against the PO."
                               : d.project_name
                                 ? "Awaiting the project's Execution decision to procure it, then the PO in Procurement."
-                                : "Awaiting its purchase order in Procurement → To Procure."
+                                : "Awaiting its purchase order in Procurement → Procurement Requests."
                             : d.status === "in_stock"
                               ? "In stock — assign it to a site above to open its installation."
                               : ""}
@@ -1655,7 +1728,14 @@ export default function AssetsPage() {
                                 <tr key={cmp.id} className="border-b border-border/60 last:border-0">
                                   <td className="px-3 py-2 font-medium text-foreground">{cmp.name}</td>
                                   <td className="px-3 py-2 text-muted-foreground">{cmp.component_type || "—"}</td>
-                                  <td className="px-3 py-2 font-mono text-muted-foreground">{cmp.serial_number || "—"}</td>
+                                  <td className="px-3 py-2 font-mono text-muted-foreground">
+                                    {/* The particular units in this asset. */}
+                                    {(cmp.fitted_serials ?? []).length > 0
+                                      ? cmp.fitted_serials!.map((sn) => (
+                                          <span key={sn} className="block text-foreground">{sn}</span>
+                                        ))
+                                      : cmp.serial_number || "—"}
+                                  </td>
                                   <td className="px-3 py-2 text-foreground">
                                     {compEdit?.id === cmp.id ? (
                                       <input
@@ -1721,7 +1801,7 @@ export default function AssetsPage() {
                         <p className="text-xs text-muted-foreground">No components recorded — single-unit asset.</p>
                       )}
                       {canEdit && (
-                        <form onSubmit={(e) => handleAddComponent(e, d.id)} className="mt-2">
+                        <form onSubmit={(e) => handleAddComponent(e, d.id)} noValidate className="mt-2">
                           <fieldset disabled={!d.requires_production || d.is_locked} className="space-y-2">
                             <p className="text-2xs text-muted-foreground">
                               What this asset is built from. Stock is not reduced here — the project decides
@@ -1730,7 +1810,7 @@ export default function AssetsPage() {
                             <div className="flex flex-wrap items-end gap-2">
                               <select
                                 value={compSource}
-                                onChange={(e) => { setCompSource(e.target.value as "generic" | "unique"); setCompItemId(""); setCompUnitType(""); setCompQty(1); }}
+                                onChange={(e) => { setCompSource(e.target.value as "generic" | "unique"); setCompItemId(""); setCompUnitType(""); setCompQty("1"); }}
                                 className="h-8 w-32 rounded-lg border border-border bg-background px-2 text-xs text-foreground"
                               >
                                 <option value="generic">Stock item</option>
@@ -1777,7 +1857,7 @@ export default function AssetsPage() {
                                   type="number"
                                   min={1}
                                   value={compQty}
-                                  onChange={(e) => setCompQty(Math.max(1, Number(e.target.value) || 1))}
+                                  onChange={(e) => setCompQty(e.target.value)}
                                   className="h-8 w-20 rounded-lg border border-border bg-background px-2 text-xs text-foreground"
                                 />
                                 {compSelected && <span className="text-2xs text-muted-foreground">{compUnit}</span>}
@@ -1785,14 +1865,14 @@ export default function AssetsPage() {
 
                               <button
                                 type="submit"
-                                disabled={!compSelected || compQty < 1}
+                                disabled={!compSelected}
                                 className="h-8 rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
                               >
                                 Add
                               </button>
                             </div>
 
-                            {compSelected && compQty > compAvailable && (
+                            {compSelected && Number(compQty) > compAvailable && (
                               <p className="text-2xs text-amber-600">
                                 Only {compAvailable} {compUnit} in stock — the shortfall can be procured from the project.
                               </p>
@@ -2028,16 +2108,7 @@ export default function AssetsPage() {
                       </div>
                     </div>
                     <div>
-                      <h4 className="text-sm font-semibold text-foreground mb-3">Device Information</h4>
-                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                        <InfoCard label="Asset Code" value={d.asset_code} />
-                        <InfoCard label="Project" value={d.project_name} />
-                        <InfoCard label="Manufacturing Route" value={d.source_display} />
-                        <InfoCard label="Asset Type" value={d.asset_type_name} />
-                      </div>
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-semibold text-foreground mb-3">Assignment</h4>
+                      <h4 className="text-sm font-semibold text-foreground mb-3">Assignment for Installation</h4>
                       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                         <InfoCard label="Site" value={d.site_name} />
                         <InfoCard label="Client" value={(d.client_names ?? []).length > 0 ? d.client_names.join(", ") : d.client_name} />
@@ -2443,7 +2514,18 @@ export default function AssetsPage() {
       </div>
 
       {(() => {
-        const toggleFlag = (f: string) => setFilterValues((prev) => ({ ...prev, flag: prev.flag === f ? "" : f }));
+        // One tile, one answer. The tiles and the status bar are ways of
+        // asking for one slice of the registry, so choosing one lets go of
+        // the others: "In Stock" on top of "Operational" is an empty table,
+        // not a filter.
+        const toggleFlag = (f: string) => setFilterValues((prev) => ({
+          ...prev, status: "", flag: prev.flag === f ? "" : f,
+          // The expired tile and the warranty dropdown ask the same question.
+          warranty: f === "warranty_expired" && prev.flag !== f ? "" : prev.warranty,
+        }));
+        const pickStatus = (st: string) => setFilterValues((prev) => ({
+          ...prev, flag: "", status: prev.status === st ? "" : st,
+        }));
         const STATUS_HEX: Record<string, string> = {
           procured: "#8b5cf6", in_transit: "#ec4899", in_production: "#eab308", in_stock: "#6366f1", assigned: "#3b82f6",
           installed: "#06b6d4", active: "#22c55e", under_maintenance: "#f59e0b",
@@ -2455,9 +2537,9 @@ export default function AssetsPage() {
               tiles={[
                 { key: "total", label: "Total Assets", value: devices.length, tone: "primary", active: !filterValues.flag && !filterValues.status, onClick: () => setFilterValues((prev) => ({ ...prev, status: "", flag: "" })) },
                 { key: "operational", label: "Operational", value: devices.filter((d) => ["active", "installed"].includes(d.status)).length, tone: "emerald", active: filterValues.flag === "operational", onClick: () => toggleFlag("operational") },
-                { key: "in_stock", label: "In Stock", value: devices.filter((d) => d.status === "in_stock").length, tone: "default", active: filterValues.status === "in_stock", onClick: () => setFilterValues((prev) => ({ ...prev, status: prev.status === "in_stock" ? "" : "in_stock" })) },
-                { key: "maint", label: "Under Maintenance", value: devices.filter((d) => d.status === "under_maintenance").length, tone: "amber", active: filterValues.status === "under_maintenance", onClick: () => setFilterValues((prev) => ({ ...prev, status: prev.status === "under_maintenance" ? "" : "under_maintenance" })) },
-                { key: "warranty_expired", label: "Warranty Expired", value: devices.filter((d) => d.warranty_status === "expired").length, tone: "red", active: filterValues.flag === "warranty_expired", onClick: () => toggleFlag("warranty_expired") },
+                { key: "in_stock", label: "In Stock", value: devices.filter((d) => d.status === "in_stock").length, tone: "default", active: filterValues.status === "in_stock", onClick: () => pickStatus("in_stock") },
+                { key: "maint", label: "Under Maintenance", value: devices.filter((d) => d.status === "under_maintenance").length, tone: "amber", active: filterValues.status === "under_maintenance", onClick: () => pickStatus("under_maintenance") },
+                { key: "warranty_expired", label: "Warranty Expired", value: devices.filter((d) => d.warranty_status === "expired").length, tone: "red", active: filterValues.flag === "warranty_expired" || filterValues.warranty === "expired", onClick: () => toggleFlag("warranty_expired") },
               ]}
             />
             <SegmentBar
@@ -2466,7 +2548,7 @@ export default function AssetsPage() {
                 count: devices.filter((d) => d.status === s.value).length,
               }))}
               active={filterValues.status || undefined}
-              onSelect={(s) => setFilterValues((prev) => ({ ...prev, status: prev.status === s ? "" : s }))}
+              onSelect={pickStatus}
             />
           </div>
         );
@@ -2481,7 +2563,13 @@ export default function AssetsPage() {
           { key: "warranty", label: "Warranty", options: [{ value: "active", label: "Under Warranty" }, { value: "expired", label: "Expired" }, { value: "none", label: "No Warranty" }] },
         ]}
         values={filterValues}
-        onChange={(k, v) => setFilterValues((prev) => ({ ...prev, [k]: v }))}
+        onChange={(k, v) => setFilterValues((prev) => ({
+          ...prev, [k]: v,
+          // A status picked here replaces a tile's flag; an expired warranty
+          // picked here is the Warranty Expired tile, and vice versa.
+          ...(k === "status" && v ? { flag: "" } : {}),
+          ...(k === "warranty" ? { flag: "" } : {}),
+        }))}
         search={search}
         onSearchChange={setSearch}
         searchPlaceholder="Search by code, name, serial #..."
@@ -2538,7 +2626,7 @@ export default function AssetsPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((d) => (
+                {pageSlice(filtered, assetPage).map((d) => (
                   <tr key={d.id} onClick={() => openDetail(d)} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
                     {canEdit && (
                       <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
@@ -2598,6 +2686,7 @@ export default function AssetsPage() {
                 ))}
               </tbody>
             </table>
+            <Pagination page={assetPage} total={filtered.length} onPage={setAssetPage} noun="assets" />
           </div>
         </div>
       )}
@@ -2641,11 +2730,12 @@ export default function AssetsPage() {
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <label htmlFor="asset_type" className={labelClass}>Asset Type</label>
+              <label htmlFor="asset_type" className={labelClass}>Asset Type *</label>
               {/* The list of types is maintained in Setup › Asset Types, so it
                   is chosen here, never invented on the registration form. */}
               <select
                 id="asset_type"
+                required
                 value={formAssetType}
                 onChange={(e) => setFormAssetType(e.target.value)}
                 className={inputClass}
@@ -2657,27 +2747,42 @@ export default function AssetsPage() {
               </select>
             </div>
             <div className="space-y-1.5">
-              <label htmlFor="display_name" className={labelClass}>Asset Name</label>
-              <input id="display_name" name="display_name" defaultValue={selected?.display_name ?? ""} className={inputClass} placeholder="e.g. Main entrance SMD wall" />
+              <label htmlFor="display_name" className={labelClass}>Asset Name *</label>
+              <input id="display_name" name="display_name" required defaultValue={selected?.display_name ?? ""} className={inputClass} placeholder="e.g. Main entrance SMD wall" />
             </div>
           </div>
 
 
           <div className="grid gap-4 sm:grid-cols-4">
             <div className="space-y-1.5">
-              <label htmlFor="length_in" className={labelClass}>Length (in)</label>
+              <label htmlFor="dimension_unit" className={labelClass}>Measured in</label>
+              <select
+                id="dimension_unit"
+                value={dimensionUnit}
+                onChange={(e) => setDimensionUnit(e.target.value)}
+                className={inputClass}
+              >
+                <option value="in">Inches (in)</option>
+                <option value="cm">Centimetres (cm)</option>
+                <option value="mm">Millimetres (mm)</option>
+                <option value="ft">Feet (ft)</option>
+                <option value="m">Metres (m)</option>
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="length_in" className={labelClass}>Length ({dimensionUnit})</label>
               <input id="length_in" name="length_in" type="number" step="0.01" defaultValue={selected?.length_in ?? ""} className={inputClass} />
             </div>
             <div className="space-y-1.5">
-              <label htmlFor="width_in" className={labelClass}>Width (in)</label>
+              <label htmlFor="width_in" className={labelClass}>Width ({dimensionUnit})</label>
               <input id="width_in" name="width_in" type="number" step="0.01" defaultValue={selected?.width_in ?? ""} className={inputClass} />
             </div>
             <div className="space-y-1.5">
-              <label htmlFor="depth_in" className={labelClass}>Depth (in)</label>
+              <label htmlFor="depth_in" className={labelClass}>Depth ({dimensionUnit})</label>
               <input id="depth_in" name="depth_in" type="number" step="0.01" defaultValue={selected?.depth_in ?? ""} className={inputClass} />
             </div>
             <div className="space-y-1.5">
-              <label htmlFor="diagonal_inches" className={labelClass}>Diagonal (in)</label>
+              <label htmlFor="diagonal_inches" className={labelClass}>Diagonal ({dimensionUnit})</label>
               <input id="diagonal_inches" name="diagonal_inches" type="number" step="0.1" defaultValue={selected?.diagonal_inches ?? ""} className={inputClass} />
             </div>
           </div>
@@ -2690,10 +2795,14 @@ export default function AssetsPage() {
               <select
                 id="source"
                 name="source"
+                required
                 value={assetSource}
                 onChange={(e) => setAssetSource(e.target.value)}
                 className={inputClass}
               >
+                {/* Chosen, not assumed: the route decides what the asset
+                    needs, so registering one means saying which. */}
+                <option value="">Select…</option>
                 <option value="inhouse">In-house Production — built from inventory components</option>
                 <option value="vendor_supplied">Vendor Supplied — installed by our technician</option>
                 <option value="vendor_turnkey">Vendor Supplied &amp; Installed — our technician oversees</option>

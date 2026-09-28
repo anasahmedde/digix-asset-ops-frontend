@@ -140,7 +140,7 @@ export function Header() {
   const otherNotifs = notifications.filter((n) => !(n.is_actionable && !n.is_resolved));
 
   return (
-    <header className="sticky top-0 z-40 flex h-16 items-center justify-between border-b border-border bg-card px-6">
+    <header className="sticky top-0 z-40 flex h-16 items-center justify-between border-b border-border bg-card/75 px-6 backdrop-blur-xl backdrop-saturate-150">
       <div className="flex items-center gap-4">
         {/* Mobile: open the drawer */}
         <button

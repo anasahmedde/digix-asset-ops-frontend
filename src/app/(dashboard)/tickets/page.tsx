@@ -36,6 +36,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import { SegmentBar, StatTiles } from "@/components/ui/analytics-strip";
+import { Pagination, pageSlice } from "@/components/ui/pagination";
 import { CopyButton } from "@/components/ui/copy-button";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { ProgressStepper } from "@/components/ui/progress-stepper";
@@ -210,14 +211,13 @@ const CATEGORY_OPTIONS = [
   "replacement",
   "inspection",
   "relocation",
-  "warranty_claim",
-  "preventive_maintenance",
+  "predictive_maintenance",
   "other",
 ];
 
 // Categories where the backend derives cost liability from the asset's
 // warranty (mirrors Ticket.WARRANTY_AWARE_CATEGORIES).
-const BILLING_CATEGORIES = ["repair", "replacement", "warranty_claim"];
+const BILLING_CATEGORIES = ["repair", "replacement"];
 
 // Supplier-side warranty types (mirrors backend derive_billability).
 const SUPPLIER_SIDE_TYPES = ["supplier", "manufacturer", "extended"];
@@ -1279,7 +1279,7 @@ function TicketDetailView({
 
       {/* Lightbox */}
       {lightboxImg && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={() => setLightboxImg(null)}>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-md veil-in" onClick={() => setLightboxImg(null)}>
           <button className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20" onClick={() => setLightboxImg(null)}>
             <X className="h-5 w-5" />
           </button>
@@ -1300,6 +1300,7 @@ export default function TicketsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [tickets, setTickets] = useState<TicketItem[]>([]);
+  const [ticketPage, setTicketPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
   const [selected, setSelected] = useState<TicketItem | null>(null);
@@ -1652,6 +1653,7 @@ export default function TicketsPage() {
                   <tr className="border-b border-border bg-secondary/50">
                     <th className={thClass}>Ticket #</th>
                     <th className={thClass}>Title</th>
+                    <th className={thClass}>Assets</th>
                     <th className={thClass}>Priority</th>
                     <th className={thClass}>Status</th>
                     <th className={thClass}>Category</th>
@@ -1662,7 +1664,7 @@ export default function TicketsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((t) => (
+                  {pageSlice(filtered, ticketPage).map((t) => (
                     <tr key={t.id} onClick={() => openDetail(t)} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
                       <td className={`${tdClass} whitespace-nowrap font-medium text-primary`}>
                         <span className="inline-flex items-center gap-1">
@@ -1680,6 +1682,19 @@ export default function TicketsPage() {
                             </span>
                           )}
                         </div>
+                      </td>
+                      <td className={`${tdClass} whitespace-nowrap font-mono text-xs text-muted-foreground`}>
+                        {/* One ticket can cover several assets; every one it
+                            is raised for is named, the primary first. */}
+                        {(() => {
+                          const codes = [
+                            t.device_code,
+                            ...(t.devices_info ?? []).map((d) => d.asset_code),
+                          ].filter((c, i, all): c is string => !!c && all.indexOf(c) === i);
+                          return codes.length === 0
+                            ? "-"
+                            : codes.map((c) => <span key={c} className="block">{c}</span>);
+                        })()}
                       </td>
                       <td className={tdClass}><span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${priorityBadge[t.priority] ?? priorityBadge.low}`}>{formatLabel(t.priority)}</span></td>
                       <td className={tdClass}><span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${statusBadge[t.status] ?? statusBadge.open}`}>{statusIcon[t.status]}{formatLabel(t.status)}</span></td>
@@ -1699,6 +1714,7 @@ export default function TicketsPage() {
                   ))}
                 </tbody>
               </table>
+              <Pagination page={ticketPage} total={filtered.length} onPage={setTicketPage} noun="tickets" />
             </div>
           </div>
         );
@@ -1706,8 +1722,8 @@ export default function TicketsPage() {
 
       {/* Create/Edit Modal */}
       {modalMode && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-md veil-in">
+          <div className="flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden glass glass-pop rounded-2xl">
             <div className="flex items-center justify-between border-b border-border px-6 py-4">
               <h2 className="text-lg font-semibold text-foreground">{modalMode === "create" ? "Create Ticket" : "Edit Ticket"}</h2>
               <button onClick={closeModal} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"><X className="h-5 w-5" /></button>
@@ -1916,7 +1932,7 @@ export default function TicketsPage() {
                 </div>
                 <div className="space-y-1.5">
                   <label htmlFor="due_date" className={labelClass}>
-                    Due Date{modalMode === "create" && <span className="font-normal text-muted-foreground/70"> (optional)</span>}
+                    Due Date
                   </label>
                   <input id="due_date" name="due_date" type="date" defaultValue={selected?.due_date ?? ""} className={inputClass} />
                   {modalMode === "create" && (

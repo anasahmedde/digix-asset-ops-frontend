@@ -86,7 +86,7 @@ const navigation: NavItem[] = [
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { collapsed, mobileOpen, closeMobile } = useSidebar();
+  const { collapsed, mobileOpen, closeMobile, goHome } = useSidebar();
   const { user } = useUser();
   const { theme, setTheme } = useTheme();
   const { totalUnread } = useChatUnread();
@@ -123,7 +123,7 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        "fixed inset-y-0 left-0 z-50 flex flex-col border-r border-border bg-sidebar transition-transform duration-200",
+        "fixed inset-y-0 left-0 z-50 flex flex-col border-r border-border bg-sidebar/80 backdrop-blur-xl backdrop-saturate-150 transition-transform duration-200",
         // Always full-width (labels visible) as a drawer on phones; honour collapse on desktop.
         "max-lg:w-64",
         sidebarWidth,
@@ -206,7 +206,11 @@ export function Sidebar() {
                 ) : (
                   <Link
                     href={item.href}
-                    onClick={closeMobile}
+                    onClick={() => {
+                      closeMobile();
+                      // Already in this section: go back to its list.
+                      if (isActive) goHome();
+                    }}
                     className={cn(
                       "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-150",
                       isActive
