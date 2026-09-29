@@ -54,8 +54,8 @@ interface NavItem {
 const navigation: NavItem[] = [
   { name: "Dashboard", href: "/", icon: Gauge },
   { name: "Assets", href: "/assets", icon: HardDrive, roles: ["super_admin", "group_head", "ops_manager", "technician"] },
-  { name: "Installation Tracker", href: "/installation-tracker", icon: Layers, roles: ["super_admin", "group_head", "ops_manager", "technician"] },
-  { name: "Maintenance", href: "/maintenance", icon: Wrench, roles: ["super_admin", "group_head", "ops_manager", "technician"] },
+  { name: "Installation Tracker", href: "/installation-tracker", icon: Layers, capability: "edit_installation", roles: ["super_admin", "group_head", "ops_manager", "technician"] },
+  { name: "Maintenance", href: "/maintenance", icon: Wrench, capability: "manage_maintenance", roles: ["super_admin", "group_head", "ops_manager", "technician"] },
   { name: "Warranties", href: "/warranties", icon: ShieldCheck, capability: "view_warranties" },
   { name: "Projects", href: "/projects", icon: ClipboardList, roles: ["super_admin", "group_head", "ops_manager"] },
   {
@@ -99,12 +99,14 @@ export function Sidebar() {
 
   const visibleNav = navigation
     .filter((item) => {
-      // A capability decides on its own: roles are editable now, so a list
-      // of role names here would go stale the moment somebody changes one.
-      if (item.capability) return capabilities.includes(item.capability);
-      if (!item.roles) return true;
-      if (!role) return false;
-      return item.roles.includes(role);
+      // Either answer is enough. A capability is the live rule; rights are
+      // editable per person now, so a menu that read only role names went
+      // stale the moment somebody's were adjusted — an Execution Supervisor
+      // approves parts on maintenance jobs and had no Maintenance link.
+      // The role list stays as the floor for the people a capability misses.
+      const byCapability = item.capability ? capabilities.includes(item.capability) : false;
+      const byRole = item.roles ? Boolean(role) && item.roles.includes(role) : !item.capability;
+      return byCapability || byRole;
     })
     .map((item) =>
       item.name === "Chat" ? { ...item, badge: totalUnread } : item

@@ -643,14 +643,20 @@ export default function ProcurementPage() {
   function renderTransitionBar(po: PurchaseOrder) {
     // Approval is the Group Head's (or the Super Admin's) — the API refuses
     // anyone else, so the button is not offered to them.
-    const canApprove = user?.role === "group_head" || user?.role === "super_admin";
-    const actions = (TRANSITIONS[po.status] ?? []).filter((a) => a.status !== "approved" || canApprove);
+    const canApprove =
+      user?.capabilities?.includes("approve_spend") ??
+      (user?.role === "group_head" || user?.role === "super_admin");
+    const actions = (TRANSITIONS[po.status] ?? []).filter((a) =>
+      a.status === "approved" ? canApprove : canEdit
+    );
     const receivable = RECEIVABLE_STATUSES.includes(po.status);
-    if (!canEdit) return null;
+    // An approver who edits nothing else still gets their bar — this guard
+    // ran first and took the Group Head's Approve button away with it.
+    if (!canEdit && !canApprove) return null;
     if (actions.length === 0 && !receivable) return null;
     return (
       <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-secondary/30 p-3">
-        {receivable && (
+        {receivable && canEdit && (
           <button
             type="button"
             onClick={() => openReceive(po.id)}

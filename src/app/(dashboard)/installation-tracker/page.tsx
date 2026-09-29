@@ -65,6 +65,9 @@ interface Installation {
   id: string;
   device: string;
   installed_by: string | null;
+  /** Whether this reader may advance the checklist. The server decides — the
+   *  screen used to infer it from the role name and got it wrong both ways. */
+  can_advance?: boolean;
   zone: string | null;
   device_code: string;
   device_name: string;
@@ -377,7 +380,6 @@ export default function InstallationTrackerPage() {
   const isManager = canWrite("sites");
   // Step actions on desktop are super-admin only; the assigned installer
   // works the steps from the mobile app (backend enforces both).
-  const isSuperAdmin = user?.role === "super_admin";
   const [trackFilter, setTrackFilter] = useState("");
   // Server-filtered rows for the Escalated tile (?escalated=true); null while
   // the fetch is pending or the filter is off — we fall back to the client-side
@@ -1277,8 +1279,8 @@ export default function InstallationTrackerPage() {
                         </div>
                       )}
                     </div>
-                    {/* Advance actions — desktop: super admin only (installer works via mobile) */}
-                    {isSuperAdmin && !closedOut && (
+                    {/* The installer, their supervisor, or a platform admin. */}
+                    {selected.can_advance && !closedOut && (
                       <div className="mt-3 flex flex-wrap gap-1.5 border-t border-border pt-3">
                         {step.status !== "in_progress" && step.status !== "completed" && (
                           <button disabled={updatingStep === step.id} onClick={() => updateStep(step.id, "in_progress")} className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 px-2 py-1 text-2xs font-medium text-amber-600 transition-colors hover:bg-amber-500/20 disabled:opacity-50">
@@ -1435,7 +1437,7 @@ export default function InstallationTrackerPage() {
             <div className="rounded-xl border border-border bg-card p-5">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-semibold text-foreground">Delay Log</h3>
-                {isSuperAdmin && (
+                {selected.can_advance && (
                   <button
                     onClick={() => setDelayFor({ stepId: null, label: "Whole installation" })}
                     className="text-2xs font-medium text-red-500 hover:underline"

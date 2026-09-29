@@ -1295,8 +1295,9 @@ function TicketDetailView({
    ═══════════════════════════════════════════════════════════════════════ */
 
 export default function TicketsPage() {
-  const { user, canWrite } = useUser();
+  const { user, canWrite, canDelete } = useUser();
   const canEdit = canWrite("tickets");
+  const canRemove = canDelete("tickets");
   const router = useRouter();
   const searchParams = useSearchParams();
   const [tickets, setTickets] = useState<TicketItem[]>([]);
@@ -1706,7 +1707,9 @@ export default function TicketsPage() {
                         {canEdit ? (
                           <div className="flex items-center gap-1">
                             <button onClick={() => openEdit(t)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground" title="Edit"><Pencil className="h-3.5 w-3.5" /></button>
-                            <button onClick={() => handleDelete(t)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-destructive" title="Delete"><Trash2 className="h-3.5 w-3.5" /></button>
+                            {canRemove && (
+                              <button onClick={() => handleDelete(t)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-destructive" title="Delete"><Trash2 className="h-3.5 w-3.5" /></button>
+                            )}
                           </div>
                         ) : <span className="text-xs text-muted-foreground">-</span>}
                       </td>
