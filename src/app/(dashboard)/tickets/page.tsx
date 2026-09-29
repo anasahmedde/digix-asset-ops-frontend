@@ -106,6 +106,7 @@ interface TicketItem {
   closed_at: string | null;
   resolution_notes: string;
   completion_notes: string;
+  completed_by: string | null;
   completed_by_name: string | null;
   completed_at: string | null;
   reviewed_by_name: string | null;
@@ -154,6 +155,7 @@ const statusBadge: Record<string, string> = {
   approved: "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20",
   rejected: "bg-rose-500/10 text-rose-600 ring-rose-500/20",
   closed: "bg-slate-500/10 text-slate-600 ring-slate-500/20",
+  cancelled: "bg-zinc-500/10 text-zinc-500 ring-zinc-500/20",
 };
 
 const statusIcon: Record<string, React.ReactNode> = {
@@ -168,6 +170,7 @@ const statusIcon: Record<string, React.ReactNode> = {
   approved: <CheckCircle2 className="h-3.5 w-3.5" />,
   rejected: <XCircle className="h-3.5 w-3.5" />,
   closed: <Check className="h-3.5 w-3.5" />,
+  cancelled: <XCircle className="h-3.5 w-3.5" />,
 };
 
 function formatLabel(value: string) {
@@ -371,16 +374,20 @@ function TicketDetailView({
   const isReporter = ticket.reported_by === currentUserId;
   const isAdmin = ["super_admin", "group_head", "ops_manager"].includes(currentUserRole);
   const isMarketing = currentUserRole === "marketing" || currentUserRole === "marketing_head";
-  const canReview = isReporter || isAdmin;
+  // Sign-off is somebody else confirming the work. Whoever carried it out
+  // does not review it, close it or reopen it — the API refuses all three,
+  // and offering the button anyway just produces a 403.
+  const didTheWork = isAssignee || ticket.completed_by === currentUserId;
+  const canReview = (isReporter || isAdmin) && !didTheWork;
   // Managers can drive the work stages too (matches backend rules).
   const canAct = isAssignee || isAdmin;
-  const isClosed = ["approved", "closed"].includes(ticket.status);
+  const isClosed = ["approved", "closed", "cancelled"].includes(ticket.status);
   const isOverdue = ticket.due_date && new Date(ticket.due_date) < new Date() && !isClosed;
   // Reopen: closed → in_progress, gated to admins + the reporter, within 7 days of closure (mirrors backend rule).
   const REOPEN_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
   const canReopen =
     ticket.status === "closed" &&
-    (isAdmin || isReporter) &&
+    (isAdmin || (isReporter && !didTheWork)) &&
     !!ticket.closed_at &&
     Date.now() - new Date(ticket.closed_at).getTime() <= REOPEN_WINDOW_MS;
 
@@ -1221,13 +1228,16 @@ function TicketDetailView({
                       </button>
                     )}
 
-                    {(isAdmin || isMarketing || isReporter) && ["open", "in_progress", "blocked", "alignment_pending"].includes(ticket.status) && (
+                    {(isAdmin || isReporter) && ["open", "in_progress", "on_hold", "blocked", "alignment_pending", "pending_ops_approval", "pending_client_approval"].includes(ticket.status) && (
                       <button
-                        onClick={() => { if (confirm("Close this ticket? Use for duplicates, invalid reports, or client-cancelled work.")) handleTransition("closed", "Closed without rectification."); }}
+                        onClick={() => {
+                          const why = prompt("Why is this being cancelled? (duplicate, not a fault, called off)");
+                          if (why && why.trim()) handleTransition("cancelled", why.trim());
+                        }}
                         disabled={actionLoading}
-                        className="flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-slate-500/30 bg-slate-500/10 text-xs font-medium text-slate-500 hover:bg-slate-500/20 disabled:opacity-50"
+                        className="flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-zinc-500/30 bg-zinc-500/10 text-xs font-medium text-zinc-500 hover:bg-zinc-500/20 disabled:opacity-50"
                       >
-                        <Check className="h-3.5 w-3.5" /> Close Ticket
+                        <XCircle className="h-3.5 w-3.5" /> Cancel Ticket
                       </button>
                     )}
 
@@ -1574,13 +1584,14 @@ export default function TicketsPage() {
         </div>
       )}
       {(() => {
-        const isActive = (t: TicketItem) => !["closed", "approved", "rejected"].includes(t.status);
+        const isActive = (t: TicketItem) => !["closed", "approved", "rejected", "cancelled"].includes(t.status);
         const todayIso = new Date().toISOString().split("T")[0];
         const toggleFlag = (f: string) => setFilterValues((prev) => ({ ...prev, flag: prev.flag === f ? "" : f }));
         const STATUS_HEX: Record<string, string> = {
           open: "#3b82f6", in_progress: "#f59e0b", on_hold: "#6b7280", blocked: "#ef4444",
           alignment_pending: "#06b6d4", pending_ops_approval: "#f97316", pending_client_approval: "#8b5cf6",
           pending_review: "#a855f7", approved: "#10b981", rejected: "#f43f5e", closed: "#64748b",
+          cancelled: "#a1a1aa",
         };
         return (
           <div className="space-y-3 rounded-xl border border-border bg-card p-4">
@@ -1620,7 +1631,7 @@ export default function TicketsPage() {
       />
 
       {(() => {
-        const isActive = (t: TicketItem) => !["closed", "approved", "rejected"].includes(t.status);
+        const isActive = (t: TicketItem) => !["closed", "approved", "rejected", "cancelled"].includes(t.status);
         const todayIso = new Date().toISOString().split("T")[0];
         const filtered = tickets.filter((t) => {
           if (deviceFilter && t.device !== deviceFilter) return false;

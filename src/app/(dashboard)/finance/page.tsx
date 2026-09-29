@@ -51,8 +51,19 @@ const statusBadge: Record<string, string> = {
   cancelled: "bg-slate-500/10 text-slate-600 ring-slate-500/20",
 };
 
-function fmt(value: string | number) {
+function fmt(value: string | number | null) {
   return formatCurrency(value);
+}
+
+/** Add up amounts, unless they are hidden.
+ *
+ * A masked reader gets null for every figure, and summing nulls produced a
+ * confident "PKR 0" on all four tiles — a wrong number stated plainly,
+ * which is worse than no number. Null in, null out, and the tile reads as
+ * a dash like every other amount on the page. */
+function total(values: (string | null)[]): number | null {
+  if (values.length && values.every((v) => v === null || v === undefined)) return null;
+  return values.reduce<number>((sum, v) => sum + parseFloat(v || "0"), 0);
 }
 
 export default function FinancePage() {
@@ -136,15 +147,15 @@ export default function FinancePage() {
     }
   }
 
-  const totalReceivable = invoices
-    .filter((i) => i.invoice_type === "receivable")
-    .reduce((sum, i) => sum + parseFloat(i.total_amount || "0"), 0);
+  const totalReceivable = total(
+    invoices.filter((i) => i.invoice_type === "receivable").map((i) => i.total_amount)
+  );
 
-  const totalPayable = invoices
-    .filter((i) => i.invoice_type === "payable")
-    .reduce((sum, i) => sum + parseFloat(i.total_amount || "0"), 0);
+  const totalPayable = total(
+    invoices.filter((i) => i.invoice_type === "payable").map((i) => i.total_amount)
+  );
 
-  const totalPaid = invoices.reduce((sum, i) => sum + parseFloat(i.paid_amount || "0"), 0);
+  const totalPaid = total(invoices.map((i) => i.paid_amount));
 
   const totalOverdue = invoices
     .filter((i) => i.status === "overdue")
