@@ -142,8 +142,9 @@ function BillingChip({ billable, chargeTo }: { billable: boolean; chargeTo: stri
 }
 
 export default function MaintenancePage() {
-  const { canWrite } = useUser();
+  const { canWrite, canDelete } = useUser();
   const canEdit = canWrite("maintenance");
+  const canRemove = canDelete("maintenance");
   const [schedules, setSchedules] = useState<MaintenanceSchedule[]>([]);
   const [jobPage, setJobPage] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -775,7 +776,7 @@ export default function MaintenancePage() {
                             >
                               <Pencil className="h-3.5 w-3.5" />
                             </button>
-                            {canEdit && (() => {
+                            {canRemove && (() => {
                               // A fault is closed, not deleted: deleting the open
                               // job would strand the asset out of service.
                               const stranding =

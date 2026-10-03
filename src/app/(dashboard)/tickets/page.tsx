@@ -106,6 +106,7 @@ interface TicketItem {
   closed_at: string | null;
   resolution_notes: string;
   completion_notes: string;
+  completed_by: string | null;
   completed_by_name: string | null;
   completed_at: string | null;
   reviewed_by_name: string | null;
@@ -154,6 +155,7 @@ const statusBadge: Record<string, string> = {
   approved: "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20",
   rejected: "bg-rose-500/10 text-rose-600 ring-rose-500/20",
   closed: "bg-slate-500/10 text-slate-600 ring-slate-500/20",
+  cancelled: "bg-zinc-500/10 text-zinc-500 ring-zinc-500/20",
 };
 
 const statusIcon: Record<string, React.ReactNode> = {
@@ -168,6 +170,7 @@ const statusIcon: Record<string, React.ReactNode> = {
   approved: <CheckCircle2 className="h-3.5 w-3.5" />,
   rejected: <XCircle className="h-3.5 w-3.5" />,
   closed: <Check className="h-3.5 w-3.5" />,
+  cancelled: <XCircle className="h-3.5 w-3.5" />,
 };
 
 function formatLabel(value: string) {
@@ -371,16 +374,20 @@ function TicketDetailView({
   const isReporter = ticket.reported_by === currentUserId;
   const isAdmin = ["super_admin", "group_head", "ops_manager"].includes(currentUserRole);
   const isMarketing = currentUserRole === "marketing" || currentUserRole === "marketing_head";
-  const canReview = isReporter || isAdmin;
+  // Sign-off is somebody else confirming the work. Whoever carried it out
+  // does not review it, close it or reopen it — the API refuses all three,
+  // and offering the button anyway just produces a 403.
+  const didTheWork = isAssignee || ticket.completed_by === currentUserId;
+  const canReview = (isReporter || isAdmin) && !didTheWork;
   // Managers can drive the work stages too (matches backend rules).
   const canAct = isAssignee || isAdmin;
-  const isClosed = ["approved", "closed"].includes(ticket.status);
+  const isClosed = ["approved", "closed", "cancelled"].includes(ticket.status);
   const isOverdue = ticket.due_date && new Date(ticket.due_date) < new Date() && !isClosed;
   // Reopen: closed → in_progress, gated to admins + the reporter, within 7 days of closure (mirrors backend rule).
   const REOPEN_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
   const canReopen =
     ticket.status === "closed" &&
-    (isAdmin || isReporter) &&
+    (isAdmin || (isReporter && !didTheWork)) &&
     !!ticket.closed_at &&
     Date.now() - new Date(ticket.closed_at).getTime() <= REOPEN_WINDOW_MS;
 
@@ -1221,13 +1228,16 @@ function TicketDetailView({
                       </button>
                     )}
 
-                    {(isAdmin || isMarketing || isReporter) && ["open", "in_progress", "blocked", "alignment_pending"].includes(ticket.status) && (
+                    {(isAdmin || isReporter) && ["open", "in_progress", "on_hold", "blocked", "alignment_pending", "pending_ops_approval", "pending_client_approval"].includes(ticket.status) && (
                       <button
-                        onClick={() => { if (confirm("Close this ticket? Use for duplicates, invalid reports, or client-cancelled work.")) handleTransition("closed", "Closed without rectification."); }}
+                        onClick={() => {
+                          const why = prompt("Why is this being cancelled? (duplicate, not a fault, called off)");
+                          if (why && why.trim()) handleTransition("cancelled", why.trim());
+                        }}
                         disabled={actionLoading}
-                        className="flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-slate-500/30 bg-slate-500/10 text-xs font-medium text-slate-500 hover:bg-slate-500/20 disabled:opacity-50"
+                        className="flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-zinc-500/30 bg-zinc-500/10 text-xs font-medium text-zinc-500 hover:bg-zinc-500/20 disabled:opacity-50"
                       >
-                        <Check className="h-3.5 w-3.5" /> Close Ticket
+                        <XCircle className="h-3.5 w-3.5" /> Cancel Ticket
                       </button>
                     )}
 
@@ -1295,8 +1305,9 @@ function TicketDetailView({
    ═══════════════════════════════════════════════════════════════════════ */
 
 export default function TicketsPage() {
-  const { user, canWrite } = useUser();
+  const { user, canWrite, canDelete } = useUser();
   const canEdit = canWrite("tickets");
+  const canRemove = canDelete("tickets");
   const router = useRouter();
   const searchParams = useSearchParams();
   const [tickets, setTickets] = useState<TicketItem[]>([]);
@@ -1392,10 +1403,14 @@ export default function TicketsPage() {
       return;
     }
     if (deviceParam) setDeviceFilter(deviceParam);
+    // The address bar decides which ticket is open — a click, Back, Forward
+    // and a reload all arrive here the same way.
     const openId = searchParams.get("open");
-    if (openId && tickets.length > 0) {
+    if (!openId) {
+      setDetailTicket(null);
+    } else if (detailTicket?.id !== openId && tickets.length > 0) {
       const found = tickets.find((t) => t.id === openId);
-      if (found) openDetail(found);
+      if (found) showTicket(found);
       else api.get(`/tickets/${openId}/`).then(({ data }) => setDetailTicket(data)).catch(() => toast.error("Ticket not found"));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1454,7 +1469,7 @@ export default function TicketsPage() {
 
   function openCreate(presetDeviceId?: string, presetCategory?: string) {
     setSelected(null); setDeviceInfo(null); setFaultFiles([]); setDeviceQuery(""); setDeviceListOpen(false);
-    setCategoryValue(presetCategory && CATEGORY_OPTIONS.includes(presetCategory) ? presetCategory : "other");
+    setCategoryValue(presetCategory && CATEGORY_OPTIONS.includes(presetCategory) ? presetCategory : "");
     resetBillingAndExtras();
     setSelectedDeviceId(presetDeviceId ?? "");
     if (presetDeviceId) onDeviceSelect(presetDeviceId);
@@ -1465,17 +1480,28 @@ export default function TicketsPage() {
     setCategoryValue(t.category); resetBillingAndExtras();
     setModalMode("edit"); loadFormOptions();
   }
-  function openDetail(t: TicketItem) {
+  function showTicket(t: TicketItem) {
     api.get(`/tickets/${t.id}/`).then(({ data }) => setDetailTicket(data)).catch(() => setDetailTicket(t));
-    router.replace(`/tickets?open=${t.id}`, { scroll: false });
   }
-  function closeDetail() { setDetailTicket(null); router.replace("/tickets", { scroll: false }); }
+  function openDetail(t: TicketItem) {
+    // push, not replace: Back should come out of the ticket to the list,
+    // not out of Tickets altogether.
+    router.push(`/tickets?open=${t.id}`, { scroll: false });
+  }
+  function closeDetail() { router.push("/tickets", { scroll: false }); }
   function closeModal() { setModalMode(null); setSelected(null); }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setSaving(true);
     const fd = new FormData(e.currentTarget);
+    if (modalMode === "create") {
+      // A ticket is about an asset, of a kind, at an urgency. The API
+      // refuses one without all three; saying so here saves the round trip.
+      if (!fd.get("device")) { toast.error("Pick the asset this ticket is about"); return; }
+      if (!fd.get("category")) { toast.error("Pick a category"); return; }
+      if (!fd.get("priority")) { toast.error("Pick a priority"); return; }
+    }
+    setSaving(true);
     const payload: Record<string, unknown> = {
       title: fd.get("title"), description: fd.get("description"), priority: fd.get("priority"),
       category: fd.get("category"), issue_type: fd.get("issue_type") || null,
@@ -1573,13 +1599,14 @@ export default function TicketsPage() {
         </div>
       )}
       {(() => {
-        const isActive = (t: TicketItem) => !["closed", "approved", "rejected"].includes(t.status);
+        const isActive = (t: TicketItem) => !["closed", "approved", "rejected", "cancelled"].includes(t.status);
         const todayIso = new Date().toISOString().split("T")[0];
         const toggleFlag = (f: string) => setFilterValues((prev) => ({ ...prev, flag: prev.flag === f ? "" : f }));
         const STATUS_HEX: Record<string, string> = {
           open: "#3b82f6", in_progress: "#f59e0b", on_hold: "#6b7280", blocked: "#ef4444",
           alignment_pending: "#06b6d4", pending_ops_approval: "#f97316", pending_client_approval: "#8b5cf6",
           pending_review: "#a855f7", approved: "#10b981", rejected: "#f43f5e", closed: "#64748b",
+          cancelled: "#a1a1aa",
         };
         return (
           <div className="space-y-3 rounded-xl border border-border bg-card p-4">
@@ -1619,7 +1646,7 @@ export default function TicketsPage() {
       />
 
       {(() => {
-        const isActive = (t: TicketItem) => !["closed", "approved", "rejected"].includes(t.status);
+        const isActive = (t: TicketItem) => !["closed", "approved", "rejected", "cancelled"].includes(t.status);
         const todayIso = new Date().toISOString().split("T")[0];
         const filtered = tickets.filter((t) => {
           if (deviceFilter && t.device !== deviceFilter) return false;
@@ -1706,7 +1733,9 @@ export default function TicketsPage() {
                         {canEdit ? (
                           <div className="flex items-center gap-1">
                             <button onClick={() => openEdit(t)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground" title="Edit"><Pencil className="h-3.5 w-3.5" /></button>
-                            <button onClick={() => handleDelete(t)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-destructive" title="Delete"><Trash2 className="h-3.5 w-3.5" /></button>
+                            {canRemove && (
+                              <button onClick={() => handleDelete(t)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-destructive" title="Delete"><Trash2 className="h-3.5 w-3.5" /></button>
+                            )}
                           </div>
                         ) : <span className="text-xs text-muted-foreground">-</span>}
                       </td>
@@ -1740,7 +1769,7 @@ export default function TicketsPage() {
               </div>
               {modalMode === "create" && (
                 <div className="space-y-1.5">
-                  <label htmlFor="device" className={labelClass}>Asset</label>
+                  <label htmlFor="device" className={labelClass}>Asset *</label>
                   <div className="relative">
                     <input
                       id="device"
@@ -1919,14 +1948,16 @@ export default function TicketsPage() {
               </div>
               <div className="grid gap-4 sm:grid-cols-3">
                 <div className="space-y-1.5">
-                  <label htmlFor="priority" className={labelClass}>Priority</label>
-                  <select id="priority" name="priority" defaultValue={selected?.priority ?? "medium"} className={inputClass}>
+                  <label htmlFor="priority" className={labelClass}>Priority *</label>
+                  <select id="priority" name="priority" required defaultValue={selected?.priority ?? ""} className={inputClass}>
+                    <option value="" disabled>Select priority</option>
                     <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option>
                   </select>
                 </div>
                 <div className="space-y-1.5">
-                  <label htmlFor="category" className={labelClass}>Category</label>
-                  <select id="category" name="category" value={categoryValue} onChange={(e) => setCategoryValue(e.target.value)} className={inputClass}>
+                  <label htmlFor="category" className={labelClass}>Category *</label>
+                  <select id="category" name="category" required value={categoryValue} onChange={(e) => setCategoryValue(e.target.value)} className={inputClass}>
+                    <option value="" disabled>Select category</option>
                     {CATEGORY_OPTIONS.map((c) => <option key={c} value={c}>{formatLabel(c)}</option>)}
                   </select>
                 </div>

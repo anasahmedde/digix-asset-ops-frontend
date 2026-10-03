@@ -45,28 +45,40 @@ export function Modal({ open, onClose, title, size = "lg", children, className }
       {/* The dimming and the blur live on their own layer, which never
           scrolls, so the backdrop is painted for the full viewport. */}
       <div className="veil-in absolute inset-0 bg-black/50 backdrop-blur-md" aria-hidden />
-      <div className="absolute inset-0 flex items-center justify-center overflow-y-auto py-8">
-        <div
-          role="dialog"
-          aria-modal="true"
-          className={cn(
-            "glass glass-pop relative w-full rounded-2xl p-6",
-            sizeClasses[size],
-            className
-          )}
-        >
-          {title && (
-            <div className="mb-5 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-card-foreground">{title}</h2>
-              <button
-                onClick={onClose}
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-          )}
-          {children}
+      {/* The scrolling happens out here, and the centring one level in.
+          Centring a child that is taller than its scroll container pushes
+          the top of it past the container's start edge, and scrollTop
+          cannot go below zero — so a long form lost its heading and its
+          close button off the top of the screen for good. With min-h-full
+          the wrapper is at least a screen tall, so a short dialog still
+          sits in the middle and a tall one starts at its own top. */}
+      <div className="absolute inset-0 overflow-y-auto overscroll-contain">
+        <div className="flex min-h-full items-center justify-center p-4 sm:p-8">
+          <div
+            role="dialog"
+            aria-modal="true"
+            className={cn(
+              "glass glass-pop relative w-full rounded-2xl",
+              sizeClasses[size],
+              className
+            )}
+          >
+            {title && (
+              // Pinned: on a form this long the way out should not be
+              // something you have to scroll back up to find.
+              <div className="sticky top-0 z-10 flex items-center justify-between rounded-t-2xl border-b border-[hsl(var(--glass-line))] bg-[rgb(var(--glass-tint)/0.92)] px-6 py-4 backdrop-blur-md">
+                <h2 className="text-lg font-semibold text-card-foreground">{title}</h2>
+                <button
+                  onClick={onClose}
+                  aria-label="Close"
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            )}
+            <div className={cn("px-6 pb-6", title ? "pt-4" : "pt-6")}>{children}</div>
+          </div>
         </div>
       </div>
     </div>,
