@@ -3,7 +3,7 @@
 import { ArrowLeft, Check, Eye, HardDrive, ImagePlus, Pencil, Plus, Printer, QrCode, Trash2, X, Download, MapPin, Clock, Shield, Wrench, FileText, ChevronRight, Calendar, DollarSign, Package, Zap, Monitor, Sun } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import { SegmentBar, StatTiles } from "@/components/ui/analytics-strip";
@@ -645,24 +645,45 @@ export default function AssetsPage() {
 
   useEffect(() => { loadInventorySources(); }, [loadInventorySources]);
 
+  // One-off instructions in the URL: a status filter, or "open the form".
   useEffect(() => {
     if (autoOpenedRef.current || loading) return;
     const statusParam = searchParams.get("status");
     if (statusParam) setFilterValues((prev) => ({ ...prev, status: statusParam }));
-    const deviceId = searchParams.get("device");
     // Sent here to define an asset — from a project's scope, say — so open the
     // registration form rather than making them find the button.
-    if (searchParams.get("new") && !deviceId) {
+    if (searchParams.get("new") && !searchParams.get("device")) {
       autoOpenedRef.current = true;
       openCreate();
       loadOptions();
+    }
+  }, [searchParams, loading]);
+
+  // Which asset is open lives in the address bar. It used to live only in
+  // React state and the URL was read once, on arrival — so the URL still
+  // said /assets while an asset was on screen, a reload went back to the
+  // register, and so did Back after stepping out to a module the asset
+  // linked to. Now the URL decides, every time it changes.
+  const openDeviceId = searchParams.get("device");
+  useEffect(() => {
+    if (loading) return;
+    // Editing from the detail view closes it for a moment so the edit form
+    // can mount, then returns; the URL has not changed and must not be
+    // acted on, or the form would be swallowed the instant it opened.
+    if (returnToDetailId) return;
+    if (!openDeviceId) {
+      if (detailView) {
+        setDetailView(null); setWarranties([]); setMaintSchedules([]); setDocuments([]);
+        setTransitionTarget(null); setTransitionReason("");
+      }
       return;
     }
-    if (!deviceId) return;
-    autoOpenedRef.current = true;
-    api.get(`/assets/devices/${deviceId}/`).then(({ data }) => {
+    if (detailView?.id === openDeviceId) return;
+    api.get(`/assets/devices/${openDeviceId}/`).then(({ data }) => {
       setDetailView(data);
       setDetailTab("overview");
+      setTransitionTarget(null);
+      setTransitionReason("");
       // Coming from a project's Execution tab: straight to the section that
       // assigns the site and technician and opens the installation.
       if (searchParams.get("assign") && (data.allowed_transitions ?? []).includes("assigned")) {
@@ -678,8 +699,12 @@ export default function AssetsPage() {
       // Deep-linking straight to an asset still needs the technician, site and
       // client pickers the detail view's own dialogs use.
       loadOptions();
-    }).catch(() => {});
-  }, [searchParams, loading]);
+    }).catch(() => toast.error("That asset could not be found."));
+    // detailView is deliberately not a dependency: it is what this sets.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openDeviceId, loading, returnToDetailId]);
+
+  const router = useRouter();
 
   async function fetchRelatedData(deviceId: string) {
     const [warRes, maintRes, docRes, tickRes, instRes] = await Promise.allSettled([
@@ -838,18 +863,10 @@ export default function AssetsPage() {
     }
   }
 
-  async function openDetail(device: Device) {
-    try {
-      const { data } = await api.get(`/assets/devices/${device.id}/`);
-      setDetailView(data);
-      setDetailTab("overview");
-      setTransitionTarget(null);
-      setTransitionReason("");
-      fetchRelatedData(data.id);
-      loadOptions();
-    } catch (err: unknown) {
-      toast.error(getApiError(err, "Failed to load device details"));
-    }
+  function openDetail(device: Device) {
+    // push, not replace: Back should come out of the asset, and Back from a
+    // module opened out of it should come back in.
+    router.push(`/assets?device=${device.id}`);
   }
 
   function clearActivePhotos() {
@@ -1246,7 +1263,7 @@ export default function AssetsPage() {
       <div className="space-y-6">
         {/* Top bar */}
         <div className="flex items-center gap-3">
-          <button onClick={() => { setDetailView(null); setWarranties([]); setMaintSchedules([]); setDocuments([]); setTransitionTarget(null); setTransitionReason(""); }} className="flex h-9 items-center gap-2 rounded-lg border border-border px-3 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
+          <button onClick={() => router.push("/assets")} className="flex h-9 items-center gap-2 rounded-lg border border-border px-3 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
             <ArrowLeft className="h-4 w-4" />
             Back to Assets
           </button>

@@ -15,8 +15,10 @@ import {
   Download,
   GripVertical,
   X,
+  Trash2,
 } from "lucide-react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -77,6 +79,8 @@ interface Installation {
   device_status: string;
   /** When the asset went live, from the registry. */
   device_activated_at: string | null;
+  /** Who marked it live — the registry's record, not the booked installer. */
+  device_activated_by?: string | null;
   /** How the asset is made — it decides who installs it. */
   device_source?: string | null;
   device_source_display?: string | null;
@@ -123,6 +127,7 @@ interface Installation {
     description: string;
     started_at: string | null;
     completed_at: string | null;
+    completed_by_name?: string | null;
   }[];
   photos: {
     id: string;
@@ -135,6 +140,7 @@ interface Installation {
 }
 
 interface InstallationListItem {
+  removed_at?: string | null;
   id: string;
   device_code: string;
   device_name: string | null;
@@ -183,9 +189,13 @@ const STEP_TYPES = [
   { value: "other", label: "Other" },
 ];
 
-type TrackBucket = "not_started" | "in_progress" | "on_hold" | "completed" | "overdue";
+type TrackBucket = "not_started" | "in_progress" | "on_hold" | "completed" | "overdue" | "handover_pending";
 
-function trackBucket(i: { progress: number; due_date: string | null; completed_at: string | null; on_hold_steps: number }): TrackBucket {
+function trackBucket(i: { progress: number; due_date: string | null; completed_at: string | null; on_hold_steps: number; health?: string }): TrackBucket {
+  // Checklist done, client not yet signed: the server says so, and it was
+  // being counted as Completed — so a job with one thing left to do was
+  // nowhere to be found.
+  if (i.completed_at && i.health === "handover_pending") return "handover_pending";
   if (i.completed_at) return "completed";
   if (i.on_hold_steps > 0) return "on_hold";
   if (i.due_date && new Date(i.due_date) < new Date()) return "overdue";
@@ -252,6 +262,11 @@ const HEALTH_STYLES: Record<string, { badge: string; bar: string; text: string }
     bar: "bg-emerald-500",
     text: "text-emerald-600",
   },
+  handover_pending: {
+    badge: "bg-sky-500/10 text-sky-700 ring-sky-500/20",
+    bar: "bg-sky-500",
+    text: "text-sky-700",
+  },
   completed: {
     badge: "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20",
     bar: "bg-emerald-500",
@@ -311,6 +326,15 @@ export default function InstallationTrackerPage() {
   const [installations, setInstallations] = useState<InstallationListItem[]>([]);
   const [installPage, setInstallPage] = useState(1);
   const [selected, setSelected] = useState<Installation | null>(null);
+  // The open job lives in the address bar. It used to live only in React
+  // state, so the URL read /installation-tracker whatever was on screen:
+  // a reload went back to the list, Back from a project landed on the list,
+  // and "Open" on a project's asset arrived with ?device= in the URL and
+  // was shown the home page because nothing read it.
+  const router = useRouter();
+  const params = useSearchParams();
+  const openInstallation = params.get("installation");
+  const openDevice = params.get("device");
   const [documents, setDocuments] = useState<RelatedDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [updatingStep, setUpdatingStep] = useState<string | null>(null);
@@ -410,6 +434,64 @@ export default function InstallationTrackerPage() {
       .catch(() => { if (!cancelled) setEscalatedRows(null); });
     return () => { cancelled = true; };
   }, [trackFilter]);
+
+  // The address bar decides what is on screen. A link can name the job, or
+  // just the asset — a project knows its assets, not their jobs — in which
+  // case the asset's live job is looked up and opened.
+  useEffect(() => {
+    let cancelled = false;
+    if (openInstallation) {
+      if (selected?.id !== openInstallation) loadDetail(openInstallation);
+      return;
+    }
+    if (openDevice) {
+      if (selected?.device === openDevice) return;
+      api.get("/sites/installations/", { params: { device: openDevice, page_size: 5 } })
+        .then(({ data }) => {
+          if (cancelled) return;
+          const rows: InstallationListItem[] = data.results ?? data ?? [];
+          const live = rows.find((r) => !r.removed_at) ?? rows[0];
+          if (live) {
+            // Settle the URL on the job itself so Back and reload are exact.
+            router.replace(`/installation-tracker?installation=${live.id}`, { scroll: false });
+          } else {
+            toast.error("That asset is not on the Installation Tracker yet.");
+            router.replace("/installation-tracker", { scroll: false });
+          }
+        })
+        .catch(() => { if (!cancelled) toast.error("Could not find that asset's installation."); });
+      return () => { cancelled = true; };
+    }
+    setSelected(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openInstallation, openDevice]);
+
+  function openJob(id: string) {
+    // push, not replace: Back should come out of the job.
+    router.push(`/installation-tracker?installation=${id}`);
+  }
+
+  function closeJob() {
+    router.push("/installation-tracker");
+  }
+
+  async function removeJob() {
+    if (!selected) return;
+    const ok = confirm(
+      `Remove ${selected.device_code}'s installation at ${selected.site_name ?? "this site"}? ` +
+      "Its steps and photos go with it. Use this for a job opened by mistake."
+    );
+    if (!ok) return;
+    try {
+      await api.delete(`/sites/installations/${selected.id}/`);
+      toast.success("Installation removed");
+      const gone = selected.id;
+      setInstallations((rows) => rows.filter((r) => r.id !== gone));
+      closeJob();
+    } catch (err: unknown) {
+      toast.error(getApiError(err, "Could not remove this installation"));
+    }
+  }
 
   async function loadDetail(id: string) {
     try {
@@ -840,20 +922,29 @@ export default function InstallationTrackerPage() {
     const stepsReadyForHandover = selected.steps
       .filter((s) => s.step_type !== "handover")
       .every((s) => s.status === "completed" || s.status === "skipped");
-    // Activating is the installer's own call (or ops'), and only once the
-    // asset is actually installed — mirrors the backend gate.
-    const canActivate =
-      selected.device_status === "installed" &&
-      user != null &&
-      (["super_admin", "group_head", "ops_manager", "supervisor"].includes(user.role) ||
-        user.id === selected.installed_by);
     // The last two steps of every installation, after whatever the
     // technician laid out: the asset goes live, then it is handed over.
     const customDone = selected.steps.length > 0 && stepsReadyForHandover;
     const activeDone =
       ["active", "under_maintenance", "client_property", "decommissioned"].includes(selected.device_status) ||
       !!selected.handover;
-    const activeStatus = activeDone ? "completed" : customDone && selected.device_status === "installed" ? "in_progress" : "not_started";
+    // Going live follows the checklist, not the word in the registry. This
+    // used to wait for the asset to read "Installed", and an asset still
+    // "In Production" never did — so every step was complete, the hint said
+    // "available once every step is complete", and no button came. The
+    // server moves it through Installed itself now; only an asset that has
+    // left the install path (out of service, written off, the client's) is
+    // not something this screen can take live.
+    const offPath = ["under_maintenance", "client_property", "decommissioned", "lost_stolen", "rma"]
+      .includes(selected.device_status);
+    const canActivate =
+      customDone &&
+      !activeDone &&
+      !offPath &&
+      user != null &&
+      (["super_admin", "group_head", "ops_manager", "supervisor"].includes(user.role) ||
+        user.id === selected.installed_by);
+    const activeStatus = activeDone ? "completed" : customDone && !offPath ? "in_progress" : "not_started";
     const handoverDone = !!selected.handover;
     const handoverStatus = handoverDone ? "completed" : activeDone ? "in_progress" : "not_started";
     const canHandover =
@@ -875,7 +966,9 @@ export default function InstallationTrackerPage() {
           ? "The asset is live."
           : activeStatus === "in_progress"
             ? "Mark the asset live, with a photo of it running."
-            : "Available once every step above is complete.",
+            : offPath
+              ? "The asset has left the installation path — see its status in the registry."
+              : "Available once every step above is complete.",
         action: canActivate && !activeDone
           ? { label: "Mark Active", onClick: () => { setActivatePhotos([]); setActivateOpen(true); } }
           : null,
@@ -902,7 +995,7 @@ export default function InstallationTrackerPage() {
       <div className="space-y-6">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => setSelected(null)}
+            onClick={closeJob}
             className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
           >
             <ArrowLeft className="h-4 w-4" />
@@ -912,6 +1005,15 @@ export default function InstallationTrackerPage() {
             <p className="text-sm text-muted-foreground">Track installation progress in different stages</p>
           </div>
           <div className="ml-auto flex items-center gap-2">
+            {isManager && !selected.handover && (
+              <button
+                onClick={removeJob}
+                title="Remove this installation — for a job opened by mistake"
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-destructive/30 px-3 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
+              >
+                <Trash2 className="h-3.5 w-3.5" /> Remove
+              </button>
+            )}
             {/* Printed first, signed on site, then uploaded on the Handover
                 step at the end of the checklist. */}
             <button
@@ -1503,7 +1605,7 @@ export default function InstallationTrackerPage() {
                       key: `step-${st.id}`,
                       title: <><span className="font-medium">{st.step_type_display}</span> — {st.status_display}</>,
                       description: st.description || null,
-                      actor: st.assigned_team || null,
+                      actor: st.completed_by_name || st.assigned_team || null,
                       at: st.completed_at ?? st.started_at,
                       tone: STEP_TONE[st.status] ?? "primary",
                     })),
@@ -1512,7 +1614,7 @@ export default function InstallationTrackerPage() {
                         key: "active",
                         title: <><span className="font-medium">Active</span> — the asset went live</>,
                         description: null,
-                        actor: selected.installed_by_name,
+                        actor: selected.device_activated_by ?? selected.installed_by_name,
                         at: selected.device_activated_at,
                         tone: "success" as TimelineItem["tone"],
                       }]
@@ -1960,7 +2062,7 @@ export default function InstallationTrackerPage() {
       </div>
 
       {(() => {
-        const counts = { not_started: 0, in_progress: 0, on_hold: 0, completed: 0, overdue: 0 };
+        const counts = { not_started: 0, in_progress: 0, on_hold: 0, handover_pending: 0, completed: 0, overdue: 0 };
         installations.forEach((i) => { counts[trackBucket(i)] += 1; });
         const delayed = installations.filter((i) => i.client_delays > 0).length;
         const escalatedCount = installations.filter((i) => i.escalated).length;
@@ -1973,6 +2075,7 @@ export default function InstallationTrackerPage() {
                 { key: "not_started", label: "Not Started", value: counts.not_started, tone: "violet", active: trackFilter === "not_started", onClick: () => toggle("not_started") },
                 { key: "in_progress", label: "In Progress", value: counts.in_progress, tone: "amber", active: trackFilter === "in_progress", onClick: () => toggle("in_progress") },
                 { key: "on_hold", label: "On Hold", value: counts.on_hold, tone: "amber", active: trackFilter === "on_hold", onClick: () => toggle("on_hold") },
+                { key: "handover_pending", label: "Handover Pending", value: counts.handover_pending, tone: "primary", active: trackFilter === "handover_pending", onClick: () => toggle("handover_pending") },
                 { key: "completed", label: "Completed", value: counts.completed, tone: "emerald", active: trackFilter === "completed", onClick: () => toggle("completed") },
                 { key: "overdue", label: "Overdue", value: counts.overdue, tone: "red", active: trackFilter === "overdue", onClick: () => toggle("overdue") },
                 { key: "escalated", label: "Escalated", value: escalatedCount, tone: "red", active: trackFilter === "escalated", onClick: () => toggle("escalated") },
@@ -1984,6 +2087,7 @@ export default function InstallationTrackerPage() {
                 { key: "not_started", label: "Not Started", count: counts.not_started, color: "#8b5cf6" },
                 { key: "in_progress", label: "In Progress", count: counts.in_progress, color: "#f59e0b" },
                 { key: "on_hold", label: "On Hold", count: counts.on_hold, color: "#f97316" },
+                { key: "handover_pending", label: "Handover Pending", count: counts.handover_pending, color: "#0ea5e9" },
                 { key: "completed", label: "Completed", count: counts.completed, color: "#10b981" },
                 { key: "overdue", label: "Overdue", count: counts.overdue, color: "#ef4444" },
               ]}
@@ -2045,7 +2149,7 @@ export default function InstallationTrackerPage() {
                   return (
                     <tr
                       key={inst.id}
-                      onClick={() => loadDetail(inst.id)}
+                      onClick={() => openJob(inst.id)}
                       className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30"
                     >
                       <td className="px-4 py-3.5">
@@ -2115,7 +2219,7 @@ export default function InstallationTrackerPage() {
                       </td>
                       <td className="px-4 py-3.5">
                         <button
-                          onClick={(e) => { e.stopPropagation(); loadDetail(inst.id); }}
+                          onClick={(e) => { e.stopPropagation(); openJob(inst.id); }}
                           className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                         >
                           View Details

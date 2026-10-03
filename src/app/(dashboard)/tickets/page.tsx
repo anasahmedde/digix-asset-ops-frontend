@@ -1403,10 +1403,14 @@ export default function TicketsPage() {
       return;
     }
     if (deviceParam) setDeviceFilter(deviceParam);
+    // The address bar decides which ticket is open — a click, Back, Forward
+    // and a reload all arrive here the same way.
     const openId = searchParams.get("open");
-    if (openId && tickets.length > 0) {
+    if (!openId) {
+      setDetailTicket(null);
+    } else if (detailTicket?.id !== openId && tickets.length > 0) {
       const found = tickets.find((t) => t.id === openId);
-      if (found) openDetail(found);
+      if (found) showTicket(found);
       else api.get(`/tickets/${openId}/`).then(({ data }) => setDetailTicket(data)).catch(() => toast.error("Ticket not found"));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1465,7 +1469,7 @@ export default function TicketsPage() {
 
   function openCreate(presetDeviceId?: string, presetCategory?: string) {
     setSelected(null); setDeviceInfo(null); setFaultFiles([]); setDeviceQuery(""); setDeviceListOpen(false);
-    setCategoryValue(presetCategory && CATEGORY_OPTIONS.includes(presetCategory) ? presetCategory : "other");
+    setCategoryValue(presetCategory && CATEGORY_OPTIONS.includes(presetCategory) ? presetCategory : "");
     resetBillingAndExtras();
     setSelectedDeviceId(presetDeviceId ?? "");
     if (presetDeviceId) onDeviceSelect(presetDeviceId);
@@ -1476,17 +1480,28 @@ export default function TicketsPage() {
     setCategoryValue(t.category); resetBillingAndExtras();
     setModalMode("edit"); loadFormOptions();
   }
-  function openDetail(t: TicketItem) {
+  function showTicket(t: TicketItem) {
     api.get(`/tickets/${t.id}/`).then(({ data }) => setDetailTicket(data)).catch(() => setDetailTicket(t));
-    router.replace(`/tickets?open=${t.id}`, { scroll: false });
   }
-  function closeDetail() { setDetailTicket(null); router.replace("/tickets", { scroll: false }); }
+  function openDetail(t: TicketItem) {
+    // push, not replace: Back should come out of the ticket to the list,
+    // not out of Tickets altogether.
+    router.push(`/tickets?open=${t.id}`, { scroll: false });
+  }
+  function closeDetail() { router.push("/tickets", { scroll: false }); }
   function closeModal() { setModalMode(null); setSelected(null); }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setSaving(true);
     const fd = new FormData(e.currentTarget);
+    if (modalMode === "create") {
+      // A ticket is about an asset, of a kind, at an urgency. The API
+      // refuses one without all three; saying so here saves the round trip.
+      if (!fd.get("device")) { toast.error("Pick the asset this ticket is about"); return; }
+      if (!fd.get("category")) { toast.error("Pick a category"); return; }
+      if (!fd.get("priority")) { toast.error("Pick a priority"); return; }
+    }
+    setSaving(true);
     const payload: Record<string, unknown> = {
       title: fd.get("title"), description: fd.get("description"), priority: fd.get("priority"),
       category: fd.get("category"), issue_type: fd.get("issue_type") || null,
@@ -1754,7 +1769,7 @@ export default function TicketsPage() {
               </div>
               {modalMode === "create" && (
                 <div className="space-y-1.5">
-                  <label htmlFor="device" className={labelClass}>Asset</label>
+                  <label htmlFor="device" className={labelClass}>Asset *</label>
                   <div className="relative">
                     <input
                       id="device"
@@ -1933,14 +1948,16 @@ export default function TicketsPage() {
               </div>
               <div className="grid gap-4 sm:grid-cols-3">
                 <div className="space-y-1.5">
-                  <label htmlFor="priority" className={labelClass}>Priority</label>
-                  <select id="priority" name="priority" defaultValue={selected?.priority ?? "medium"} className={inputClass}>
+                  <label htmlFor="priority" className={labelClass}>Priority *</label>
+                  <select id="priority" name="priority" required defaultValue={selected?.priority ?? ""} className={inputClass}>
+                    <option value="" disabled>Select priority</option>
                     <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option>
                   </select>
                 </div>
                 <div className="space-y-1.5">
-                  <label htmlFor="category" className={labelClass}>Category</label>
-                  <select id="category" name="category" value={categoryValue} onChange={(e) => setCategoryValue(e.target.value)} className={inputClass}>
+                  <label htmlFor="category" className={labelClass}>Category *</label>
+                  <select id="category" name="category" required value={categoryValue} onChange={(e) => setCategoryValue(e.target.value)} className={inputClass}>
+                    <option value="" disabled>Select category</option>
                     {CATEGORY_OPTIONS.map((c) => <option key={c} value={c}>{formatLabel(c)}</option>)}
                   </select>
                 </div>

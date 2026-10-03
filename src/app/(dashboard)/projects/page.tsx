@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -298,6 +299,15 @@ export default function ProjectsPage() {
   const [form, setForm] = useState(emptyForm);
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
   const [detailVersion, setDetailVersion] = useState(0);
+  // Which project is open, and which half of it, live in the address bar.
+  // They used to live only in React state, so the URL still read /projects
+  // while a project was on screen — reloading went back to the list, and so
+  // did Back after stepping out to an asset the project linked to. A screen
+  // you cannot link to or reload is a screen the browser cannot help with.
+  const router = useRouter();
+  const search = useSearchParams();
+  const openId = search.get("project");
+  const openTab = search.get("tab");
   const [linkedAssets, setLinkedAssets] = useState<LinkedAsset[]>([]);
   const [deviceOptions, setDeviceOptions] = useState<Option[]>([]);
   const [siteOptions, setSiteOptions] = useState<Option[]>([]);
@@ -332,13 +342,49 @@ export default function ProjectsPage() {
   const [poCurrency, setPoCurrency] = useState("PKR");
   const [poSaving, setPoSaving] = useState(false);
 
+  // The address bar drives the screen, not the other way round: whatever
+  // put ?project= there — a click, Back, Forward, a reload, a pasted link —
+  // ends up here.
+  useEffect(() => {
+    if (!openId) {
+      setDetail(null);
+      landedOn.current = null;
+      return;
+    }
+    if (detail?.id === openId) return;
+    loadDetail(openId);
+    // loadDetail is stable for this purpose; re-running on `detail` would loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openId]);
+
+  function openProject(id: string) {
+    // push, not replace: Back should come out of the project, and Back from
+    // an asset opened out of it should come back in.
+    router.push(`/projects?project=${id}`);
+  }
+
+  function closeProject() {
+    router.push("/projects");
+  }
+
+  function chooseTab(key: "planning" | "execution") {
+    setProjectTab(key);
+    if (openId) router.replace(`/projects?project=${openId}&tab=${key}`, { scroll: false });
+  }
+
   async function loadDetail(id: string) {
     try {
       const { data } = await api.get(`/teams/projects/${id}/`);
       setDetail(data);
       if (landedOn.current !== id) {
         landedOn.current = id;
-        setProjectTab(data.phase === "planning" ? "planning" : "execution");
+        // A link that names the tab wins; otherwise land on the half that
+        // is live.
+        setProjectTab(
+          openTab === "planning" || openTab === "execution"
+            ? openTab
+            : data.phase === "planning" ? "planning" : "execution"
+        );
       }
       // The summary strip sits above the tabs and would otherwise keep its
       // first answer after the budget is approved in Planning below it.
@@ -872,7 +918,7 @@ export default function ProjectsPage() {
       <div className="space-y-6">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => setDetail(null)}
+            onClick={closeProject}
             className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
           >
             <ArrowLeft className="h-4 w-4" />
@@ -1043,7 +1089,7 @@ export default function ProjectsPage() {
           ] as const).map((t) => (
             <button
               key={t.key}
-              onClick={() => setProjectTab(t.key)}
+              onClick={() => chooseTab(t.key)}
               className={`flex items-center gap-3 rounded-lg px-4 py-3 text-left transition-colors ${
                 projectTab === t.key ? "bg-primary/10 ring-1 ring-primary/30" : "hover:bg-secondary"
               }`}
@@ -1199,7 +1245,7 @@ export default function ProjectsPage() {
             {/* The cost plan reads the scope above it, so it follows it. */}
             <div className="rounded-xl border border-border bg-card p-5">
               <h3 className="mb-3 text-sm font-semibold text-foreground">Cost Plan — estimate &amp; budget approval</h3>
-              <ProjectPlanning projectId={detail.id} refreshKey={d.scope_items.map((it) => it.id).join(",")} onGoToExecution={() => setProjectTab("execution")} onChanged={() => loadDetail(detail.id)} />
+              <ProjectPlanning projectId={detail.id} refreshKey={d.scope_items.map((it) => it.id).join(",")} onGoToExecution={() => chooseTab("execution")} onChanged={() => loadDetail(detail.id)} />
             </div>
 
               </>
@@ -1657,7 +1703,7 @@ export default function ProjectsPage() {
               </thead>
               <tbody>
                 {ongoing.map((project) => (
-                  <tr key={project.id} onClick={() => loadDetail(project.id)} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
+                  <tr key={project.id} onClick={() => openProject(project.id)} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
                     <td className="px-5 py-3.5">
                       <div>
                         <div className="flex items-center gap-2">
@@ -1703,7 +1749,7 @@ export default function ProjectsPage() {
                       )}
                     </td>
                     <td className="px-5 py-3.5">
-                      <button onClick={() => loadDetail(project.id)} className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
+                      <button onClick={() => openProject(project.id)} className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
                         <Eye className="h-3 w-3" /> View Details <ChevronRight className="h-3 w-3" />
                       </button>
                     </td>
@@ -1720,8 +1766,12 @@ export default function ProjectsPage() {
         )}
       </div>
 
-      {/* Where the work is, with the three summaries reading beside it. */}
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
+      {/* Where the work is, with the three summaries reading beside it.
+          The map keeps its square but no longer grows with the window: a
+          square the width of the whole column was a thousand pixels tall on
+          a desktop, and the three tiles beside it ended long before it did.
+          Capping its column keeps it the height of the tiles. */}
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,30rem)_minmax(0,1fr)]">
         <div className="min-w-0 rounded-xl border border-border bg-card p-5">
           <h3 className="mb-4 text-sm font-semibold text-foreground">Projects on Map</h3>
           <ProjectsMap devices={mapDevices} square />
