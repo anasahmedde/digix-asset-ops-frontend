@@ -78,6 +78,7 @@ interface Plan {
   unpriced_lines: number;
   approved_total: string | null;
   submitted_by: string | null;
+  submitted_by_id: string | null;
   submitted_at: string | null;
   decided_by: string | null;
   decided_at: string | null;
@@ -139,9 +140,13 @@ export function ProjectPlanning({
 }) {
   const { user, canWrite } = useUser();
   const canPlan = canWrite("devices") || canWrite("inventory");
-  const canApprove = user != null && APPROVER_ROLES.includes(user.role);
-
   const [plan, setPlan] = useState<Plan | null>(null);
+  // Nobody approves what they sent up themselves. The API refuses it, so
+  // offering the button produced a 403 and no explanation.
+  const canApprove =
+    user != null &&
+    APPROVER_ROLES.includes(user.role) &&
+    !(plan?.submitted_by_id === user.id && user.role !== "super_admin");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [contingency, setContingency] = useState("");

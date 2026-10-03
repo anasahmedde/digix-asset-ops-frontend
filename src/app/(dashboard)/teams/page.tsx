@@ -1,6 +1,6 @@
 "use client";
 
-import { Pencil, Plus, RotateCcw, ShieldCheck, Users, X } from "lucide-react";
+import { Pencil, Plus, RotateCcw, ShieldCheck, Trash2, Users, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -10,6 +10,7 @@ import { RolesMatrix } from "@/components/teams/roles-matrix";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { Tabs } from "@/components/ui/tabs";
 import api from "@/lib/api";
+import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
 
 interface User {
@@ -65,7 +66,7 @@ const btnPrimary =
   "inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-medium text-foreground transition-all disabled:opacity-50";
 
 export default function TeamsPage() {
-  const { canWrite } = useUser();
+  const { user: me, canWrite } = useUser();
   const isAdmin = canWrite("users");
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
@@ -211,6 +212,44 @@ export default function TeamsPage() {
     }
   }
 
+  // Removing a login is the Super Admin's, as creating one is. The server
+  // refuses it for yourself, for a superuser, and while anybody still reports
+  // to the person — the chart is where those reports are moved first.
+  async function removeUser(user: User) {
+    const who = user.full_name || user.username;
+    const ok = confirm(
+      `Delete ${who}'s account? Their attendance, chat and project memberships go with it. ` +
+      "Tickets and installations they worked on stay, without their name. " +
+      "If they have only left, Deactivate keeps everything."
+    );
+    if (!ok) return;
+    try {
+      await api.delete(`/accounts/users/${user.id}/`);
+      toast.success(`${who} removed`);
+      fetchUsers();
+    } catch (err: unknown) {
+      toast.error(getApiError(err, "Could not remove this account"));
+    }
+  }
+
+  // Dragging somebody onto a new manager on the chart.
+  async function moveReport(personId: string, bossId: string | null) {
+    const person = users.find((u) => u.id === personId);
+    const boss = bossId ? users.find((u) => u.id === bossId) : null;
+    try {
+      await api.patch(`/accounts/users/${personId}/`, { reports_to: bossId });
+      toast.success(
+        boss
+          ? `${person?.full_name || person?.username} now reports to ${boss.full_name || boss.username}`
+          : `${person?.full_name || person?.username} now reports to nobody`
+      );
+      await fetchUsers();
+    } catch (err: unknown) {
+      toast.error(getApiError(err, "Could not change who they report to"));
+      throw err;
+    }
+  }
+
   async function toggleActive(user: User) {
     try {
       await api.patch(`/accounts/users/${user.id}/`, { is_active: !user.is_active });
@@ -261,7 +300,7 @@ export default function TeamsPage() {
             Who reports to whom. A person&apos;s title is their place in the
             organisation; the badge is what the system lets them do.
           </p>
-          <Organogram people={users} />
+          <Organogram people={users} canEdit={isAdmin} onMove={moveReport} />
         </div>
       ) : (
       <>
@@ -363,6 +402,11 @@ export default function TeamsPage() {
                           <button onClick={() => toggleActive(user)} className={`text-xs font-medium transition-colors ${user.is_active ? "text-red-400/70 hover:text-red-400" : "text-emerald-400/70 hover:text-emerald-400"}`}>
                             {user.is_active ? "Deactivate" : "Activate"}
                           </button>
+                          {user.id !== me?.id && (
+                            <button onClick={() => removeUser(user)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-destructive" title="Delete account">
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
                         </>
                       ) : null}
                       </div>

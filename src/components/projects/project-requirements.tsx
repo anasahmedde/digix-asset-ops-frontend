@@ -3,7 +3,7 @@
 import { ArrowRight, Check, Download, Factory, Lock, PackagePlus, PackageSearch, RotateCcw, ShoppingCart, Truck, Warehouse, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Qty } from "@/components/ui/qty";
@@ -137,6 +137,22 @@ const FULFILMENT_BADGES: Record<string, string> = {
 // Who may grant an increase (mirrors the backend).
 const MANAGER_ROLES = ["super_admin", "group_head", "ops_manager"];
 
+// How the two ways of doing an operation are drawn.
+//
+// Both used to look identical until the work started, so a decided row read
+// as undecided — the chosen pill and a full-strength button beside it say
+// "pick one" just as loudly as two buttons do. The way not taken is greyed
+// now. It stays clickable, because a decision made before the work starts
+// is a decision that can change, and the tooltip says so.
+const DECISION_BASE =
+  "inline-flex items-center gap-1 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors disabled:opacity-40";
+/** The way that was chosen. */
+const DECISION_CHOSEN = `${DECISION_BASE} border border-primary/40 bg-primary/10 text-primary`;
+/** Still to be decided — both ways look like this. */
+const DECISION_OPEN = `${DECISION_BASE} border border-border text-foreground hover:bg-secondary`;
+/** The way not taken. Quiet, but still a way back. */
+const DECISION_SET_ASIDE = `${DECISION_BASE} border border-transparent bg-secondary/40 text-muted-foreground/70 hover:bg-secondary hover:text-foreground`;
+
 // Why a requirement grew once the work was under way (mirrors the backend).
 const INCREASE_REASONS = [
   { value: "damaged", label: "Damaged / manhandled" },
@@ -170,8 +186,16 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
   const [decideFor, setDecideFor] = useState<{ row: RequirementRow; mode: "inventory" | "procure" } | null>(null);
   const [decideQty, setDecideQty] = useState("1");
 
+  // Only the very first load of a project has nothing to show. A refresh
+  // after an action must not blank the page: swapping the whole tree for a
+  // spinner collapses the document from thousands of pixels to a few
+  // hundred, the browser clamps the scroll position to the new height, and
+  // when the content comes back the reader is looking at a different part
+  // of the screen. That is the jump — not the decision, the reload under it.
+  const loadedFor = useRef<string | null>(null);
+
   const fetchRequirements = useCallback(async () => {
-    setLoading(true);
+    if (loadedFor.current !== projectId) setLoading(true);
     try {
       const [req, plan] = await Promise.all([
         api.get(`/teams/projects/${projectId}/requirements/`),
@@ -180,6 +204,7 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
       setAssets(req.data.assets ?? []);
       setTotals(req.data.totals ?? null);
       setBudget(plan?.data ?? null);
+      loadedFor.current = projectId;
     } catch (err) {
       toast.error(getApiError(err, "Failed to load the project's requirements"));
     } finally {
@@ -730,8 +755,8 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                                         <button
                                           onClick={() => stepInhouse(st)}
                                           disabled={locked || done || busy === st.id}
-                                          title="Take it back: do this operation on our own floor"
-                                          className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-40"
+                                          title="Decided: work order. Click to take it back and do it on our own floor."
+                                          className={DECISION_SET_ASIDE}
                                         >
                                           <Factory className="h-3.5 w-3.5" /> In-house
                                         </button>
@@ -742,7 +767,7 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                                     ) : st.location === "in_house" && !st.work_order ? (
                                       // The decision has been made: it reads as chosen, and the
                                       // other option stays live in case it changes.
-                                      <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-primary/40 bg-primary/10 px-2.5 py-1.5 text-xs font-medium text-primary">
+                                      <span className={DECISION_CHOSEN}>
                                         <Check className="h-3.5 w-3.5" /> In-house
                                       </span>
                                     ) : (
@@ -750,7 +775,7 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                                         onClick={() => stepInhouse(st)}
                                         disabled={locked || done || busy === st.id || !!st.work_order}
                                         title={st.work_order ? "On a work order — cancel it in Work Orders to bring it in-house" : "Do this operation on our own floor"}
-                                        className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-40"
+                                        className={st.work_order || st.location === "external" ? DECISION_SET_ASIDE : DECISION_OPEN}
                                       >
                                         <Factory className="h-3.5 w-3.5" /> In-house
                                       </button>
@@ -759,7 +784,7 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                                       st.work_order ? (
                                         // The decision was a work order: it reads as chosen, like In-house does.
                                         <span
-                                          className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-primary/40 bg-primary/10 px-2.5 py-1.5 text-xs font-medium text-primary"
+                                          className={DECISION_CHOSEN}
                                           title={`On ${st.work_order.wo_number} · ${st.work_order.status_display}`}
                                         >
                                           <Check className="h-3.5 w-3.5" /> Work order
@@ -768,8 +793,22 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                                         <button
                                           onClick={() => requestStepWorkOrder(st)}
                                           disabled={locked || done || busy === st.id}
-                                          title={locked ? "Locked until the budget is approved" : "Give this operation to a vendor — Work Orders raises the order"}
-                                          className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-40"
+                                          title={
+                                            locked
+                                              ? "Locked until the budget is approved"
+                                              : st.location === "in_house"
+                                                ? "Decided: in-house. Click to give it to a workshop instead."
+                                                : "Give this operation to a vendor — Work Orders raises the order"
+                                          }
+                                          className={
+                                            st.location === "in_house"
+                                              ? DECISION_SET_ASIDE
+                                              // Decided to go out, before the order itself exists:
+                                              // it is still the decision, so it reads as one.
+                                              : st.location === "external"
+                                                ? DECISION_CHOSEN
+                                                : DECISION_OPEN
+                                          }
                                         >
                                           <Truck className="h-3.5 w-3.5" /> Work order
                                         </button>
