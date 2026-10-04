@@ -7,7 +7,7 @@ import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import { Modal } from "@/components/ui/modal";
-import { ContactsEditor } from "@/components/ui/contacts-editor";
+import { ContactsEditor, type DraftContact } from "@/components/ui/contacts-editor";
 import { Pagination, pageSlice } from "@/components/ui/pagination";
 import { CopyButton } from "@/components/ui/copy-button";
 import { FilterBar } from "@/components/ui/filter-bar";
@@ -137,6 +137,10 @@ export default function SitesPage() {
     setPickerLng(null);
   }
 
+  // Contacts typed before the site exists. Once it does, they are posted
+  // against it; on an existing site the editor saves each one itself.
+  const [draftContacts, setDraftContacts] = useState<DraftContact[]>([]);
+
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setSaving(true);
@@ -146,9 +150,6 @@ export default function SitesPage() {
       address: fd.get("address"),
       city: fd.get("city"),
       country: fd.get("country"),
-      contact_person: fd.get("contact_person"),
-      contact_phone: fd.get("contact_phone"),
-      contact_email: fd.get("contact_email"),
       access_instructions: fd.get("access_instructions"),
       operating_hours: fd.get("operating_hours"),
       client: fd.get("client") || null,
@@ -157,7 +158,11 @@ export default function SitesPage() {
     };
     try {
       if (modalMode === "create") {
-        await api.post("/sites/sites/", payload);
+        const { data } = await api.post("/sites/sites/", payload);
+        for (const c of draftContacts) {
+          await api.post("/sites/site-contacts/", { site: data.id, ...c });
+        }
+        setDraftContacts([]);
         toast.success("Site created");
       } else if (selected) {
         await api.patch(`/sites/sites/${selected.id}/`, payload);
@@ -354,32 +359,23 @@ export default function SitesPage() {
                 />
               </div>
 
-              <div className="border-t border-border/30 pt-4">
-                <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Contact</p>
-                <div className="grid gap-4 sm:grid-cols-3">
-                  <div className="space-y-1.5">
-                    <label htmlFor="contact_person" className={labelClass}>Contact Person</label>
-                    <input id="contact_person" name="contact_person" defaultValue={selected?.contact_person ?? ""} className={inputClass} />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label htmlFor="contact_phone" className={labelClass}>Phone</label>
-                    <input id="contact_phone" name="contact_phone" type="tel" defaultValue={selected?.contact_phone ?? ""} className={inputClass} />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label htmlFor="contact_email" className={labelClass}>Email</label>
-                    <input id="contact_email" name="contact_email" type="email" defaultValue={selected?.contact_email ?? ""} className={inputClass} />
-                  </div>
-                </div>
-              </div>
-
               <div className="space-y-1.5">
                 <label htmlFor="access_instructions" className={labelClass}>Access Instructions</label>
                 <textarea id="access_instructions" name="access_instructions" rows={2} defaultValue={selected?.access_instructions ?? ""} className={`${inputClass} h-auto py-2`} placeholder="e.g. Security gate code, parking info..." />
               </div>
 
-              {modalMode === "edit" && selected && (
-                <ContactsEditor endpoint="/sites/site-contacts/" parentField="site" parentId={selected.id} label="Site Contacts (POC)" />
-              )}
+              {/* The same section in both windows: who to ask for at the
+                  site, with their designation, and room for more than one.
+                  It used to sit below a second, smaller contact form that
+                  asked for a name, a phone and an email all over again. */}
+              <ContactsEditor
+                endpoint="/sites/site-contacts/"
+                parentField="site"
+                parentId={modalMode === "edit" && selected ? selected.id : null}
+                label="Site contacts"
+                draft={draftContacts}
+                onDraftChange={setDraftContacts}
+              />
 
               <div className="flex justify-end gap-3 pt-2">
                 <button type="button" onClick={closeModal} className="inline-flex h-10 items-center rounded-lg border border-border bg-transparent px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">Cancel</button>

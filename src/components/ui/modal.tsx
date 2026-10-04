@@ -35,13 +35,19 @@ export function Modal({ open, onClose, title, size = "lg", children, className, 
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   // The page behind stays put while a dialog is open: a wheel over the
-  // dialog must not scroll the document underneath it.
+  // dialog must not scroll the document underneath it. Escape closes it,
+  // which every dialog in the app now inherits.
   useEffect(() => {
     if (!open) return;
     const previous = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = previous; };
-  }, [open]);
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = previous;
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open, onClose]);
   if (!open || !mounted) return null;
 
   return createPortal(
