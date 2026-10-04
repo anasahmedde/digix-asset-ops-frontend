@@ -25,6 +25,10 @@ interface RequirementRow {
   procure_quantity?: number;
   undecided_quantity?: number;
   available_quantity: number | null;
+  /** On-hand stock this line has not already asked the store for. What the
+   *  next "from inventory" decision can actually draw on — the shelf itself
+   *  may be entirely promised to this very line already. */
+  free_quantity?: number | null;
   can_use_stock: boolean;
   fulfilment: string;
   source_label: string | null;
@@ -136,6 +140,11 @@ const FULFILMENT_BADGES: Record<string, string> = {
 
 // Who may grant an increase (mirrors the backend).
 const MANAGER_ROLES = ["super_admin", "group_head", "ops_manager"];
+
+/** Stock this line can still claim. Falls back to the shelf for a payload
+ *  that predates the figure. */
+const freeStock = (row: { free_quantity?: number | null; available_quantity: number | null }) =>
+  row.free_quantity ?? row.available_quantity ?? 0;
 
 // How the two ways of doing an operation are drawn.
 //
@@ -332,7 +341,7 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
   /** How much a decision may cover: what is undecided — and, from inventory, no more than the shelf holds. */
   function decisionCap(row: RequirementRow, mode: "inventory" | "procure") {
     const open = openQty(row);
-    return mode === "inventory" ? Math.min(open, Math.max(row.available_quantity ?? 0, 0)) : open;
+    return mode === "inventory" ? Math.min(open, Math.max(freeStock(row), 0)) : open;
   }
 
   function openDecision(row: RequirementRow, mode: "inventory" | "procure") {
@@ -614,11 +623,12 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                                           choice is procurement. Inventory stays visible but dead. */}
                                       <button
                                         onClick={() => openDecision(row, "inventory")}
-                                        disabled={locked || busy === row.id || (row.available_quantity ?? 0) <= 0}
+                                        disabled={locked || busy === row.id || freeStock(row) <= 0}
                                         title={
                                           locked ? "Locked until the budget is approved"
                                           : (row.available_quantity ?? 0) <= 0 ? "Nothing in stock — procure this line"
-                                          : `Take up to ${Math.min(openQty(row), row.available_quantity ?? 0)} from inventory — the store issues it`
+                                          : freeStock(row) <= 0 ? "Every one in stock is already asked for on this line — procure the rest"
+                                          : `Take up to ${Math.min(openQty(row), freeStock(row))} from inventory — the store issues it`
                                         }
                                         className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-2xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-40"
                                       >
@@ -800,12 +810,16 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                                       ) : (
                                         <button
                                           onClick={() => requestStepWorkOrder(st)}
-                                          disabled={locked || done || busy === st.id}
+                                          // Both ways are final once chosen. A decision either
+                                          // side can flip is not one anybody can rely on, so
+                                          // changing it goes back through the asset's route,
+                                          // which hands it to the project to decide again.
+                                          disabled={locked || done || busy === st.id || st.location === "in_house"}
                                           title={
                                             locked
                                               ? "Locked until the budget is approved"
                                               : st.location === "in_house"
-                                                ? "Decided: in-house. Click to give it to a workshop instead."
+                                                ? "Decided: in-house. Send it back from the asset's production route to choose again."
                                                 : "Give this operation to a vendor — Work Orders raises the order"
                                           }
                                           className={
