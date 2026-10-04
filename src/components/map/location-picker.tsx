@@ -16,16 +16,59 @@ const markerIcon = new L.Icon({
   iconAnchor: [12, 41],
 });
 
+export interface PickedPlace {
+  lat: number;
+  lng: number;
+  address?: string;
+  city?: string;
+  country?: string;
+}
+
 interface LocationPickerProps {
   lat: number | null;
   lng: number | null;
-  onChange: (coords: { lat: number; lng: number; address?: string }) => void;
+  onChange: (place: PickedPlace) => void;
+}
+
+interface NominatimAddress {
+  road?: string;
+  house_number?: string;
+  neighbourhood?: string;
+  suburb?: string;
+  city?: string;
+  town?: string;
+  village?: string;
+  municipality?: string;
+  state_district?: string;
+  county?: string;
+  country?: string;
 }
 
 interface NominatimResult {
   display_name: string;
   lat: string;
   lon: string;
+  address?: NominatimAddress;
+}
+
+/** The place, as the three fields on the form want it.
+ *
+ * Nominatim names a settlement differently depending on what it is — city,
+ * town, village, municipality — so the first one that answers is the city.
+ * The street line drops the country and the city, which have their own
+ * fields; repeating them in the address is how an address ends up saying
+ * "Karachi, Karachi, Pakistan".
+ */
+function placeFrom(result: NominatimResult, lat: number, lng: number): PickedPlace {
+  const a = result.address ?? {};
+  const city = a.city || a.town || a.village || a.municipality || a.county || a.state_district || "";
+  const country = a.country || "";
+  const street = result.display_name
+    .split(",")
+    .map((p) => p.trim())
+    .filter((p) => p && p !== city && p !== country)
+    .join(", ");
+  return { lat, lng, address: street || result.display_name, city, country };
 }
 
 function DraggableMarker({
@@ -76,6 +119,7 @@ export default function LocationPicker({ lat, lng, onChange }: LocationPickerPro
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<NominatimResult[]>([]);
   const [searching, setSearching] = useState(false);
+  const [looking, setLooking] = useState(false);
   const [showResults, setShowResults] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const searchContainerRef = useRef<HTMLDivElement>(null);
@@ -122,13 +166,35 @@ export default function LocationPicker({ lat, lng, onChange }: LocationPickerPro
   function selectResult(result: NominatimResult) {
     const newLat = parseFloat(result.lat);
     const newLng = parseFloat(result.lon);
-    onChange({ lat: newLat, lng: newLng, address: result.display_name });
+    onChange(placeFrom(result, newLat, newLng));
     setQuery(result.display_name);
     setShowResults(false);
   }
 
-  function handleMarkerMove(newLat: number, newLng: number) {
+  // Dropping a pin says where the site is, so it can say what the address
+  // is too. The coordinates land straight away — the lookup is somebody
+  // else's server and may be slow or down — and the three text fields fill
+  // in when the answer arrives. They stay editable: this is a starting
+  // point, not a ruling.
+  async function handleMarkerMove(newLat: number, newLng: number) {
     onChange({ lat: newLat, lng: newLng });
+    setLooking(true);
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${newLat}&lon=${newLng}&zoom=18&addressdetails=1`,
+        { headers: { "User-Agent": "DigixAssetOps/1.0" } }
+      );
+      if (!res.ok) return;
+      const data: NominatimResult = await res.json();
+      if (!data || !data.display_name) return;
+      const place = placeFrom(data, newLat, newLng);
+      onChange(place);
+      setQuery(place.address ?? "");
+    } catch {
+      // No address this time; the pin is still exactly where it was put.
+    } finally {
+      setLooking(false);
+    }
   }
 
   return (
@@ -190,9 +256,11 @@ export default function LocationPicker({ lat, lng, onChange }: LocationPickerPro
       </div>
 
       <p className="text-2xs text-muted-foreground">
-        {position
-          ? `Selected: ${position.lat.toFixed(6)}, ${position.lng.toFixed(6)}`
-          : "Click on the map or search to set location"}
+        {looking
+          ? "Reading the address from the pin…"
+          : position
+            ? `Selected: ${position.lat.toFixed(6)}, ${position.lng.toFixed(6)}`
+            : "Click on the map or search to set location"}
       </p>
     </div>
   );

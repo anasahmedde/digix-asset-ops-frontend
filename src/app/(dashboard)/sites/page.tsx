@@ -13,6 +13,7 @@ import { CopyButton } from "@/components/ui/copy-button";
 import { FilterBar } from "@/components/ui/filter-bar";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
+import { formatDate } from "@/lib/utils";
 import { useUser } from "@/lib/user-context";
 
 const SiteMap = dynamic(() => import("@/components/map/site-map"), { ssr: false, loading: () => <div className="flex h-[500px] items-center justify-center rounded-xl border border-border bg-secondary/50"><div className="h-6 w-6 animate-spin rounded-full border-2 border-primary/30 border-t-primary" /></div> });
@@ -63,6 +64,10 @@ export default function SitesPage() {
   const [view, setView] = useState<"list" | "map">("list");
   const [filterValues, setFilterValues] = useState<Record<string, string>>({ status: "", country: "" });
   const [search, setSearch] = useState("");
+  // Address, city and country are controlled so that dropping a pin can
+  // fill them in. They stay editable — the pin gives a starting point, and
+  // a site often has a name for itself that no map knows.
+  const [place, setPlace] = useState({ address: "", city: "", country: "Pakistan" });
   const [pickerLat, setPickerLat] = useState<number | null>(null);
   const [pickerLng, setPickerLng] = useState<number | null>(null);
   const searchParams = useSearchParams();
@@ -111,6 +116,7 @@ export default function SitesPage() {
 
   function openCreate() {
     setSelected(null);
+    setPlace({ address: "", city: "", country: "Pakistan" });
     setPickerLat(null);
     setPickerLng(null);
     setModalMode("create");
@@ -121,6 +127,11 @@ export default function SitesPage() {
     try {
       const { data } = await api.get(`/sites/sites/${site.id}/`);
       setSelected(data);
+      setPlace({
+        address: data.address ?? "",
+        city: data.city ?? "",
+        country: data.country ?? "Pakistan",
+      });
       setPickerLat(data.latitude ?? null);
       setPickerLng(data.longitude ?? null);
       setModalMode("edit");
@@ -262,6 +273,7 @@ export default function SitesPage() {
                   <th className={thClass}>Client</th>
                   <th className={thClass}>City</th>
                   <th className={thClass}>Country</th>
+                  <th className={thClass}>Added</th>
                   <th className={thClass}>Devices</th>
                   <th className={thClass}>Status</th>
                   <th className={thClass}>Actions</th>
@@ -279,6 +291,7 @@ export default function SitesPage() {
                     <td className={`${tdClass} text-muted-foreground`}>{s.client_name || "-"}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{s.city || "-"}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{s.country}</td>
+                    <td className={`${tdClass} text-muted-foreground`}>{formatDate(s.created_at)}</td>
                     <td className={tdClass}>
                       <span className="inline-flex rounded-full bg-blue-500/10 px-2.5 py-0.5 text-xs font-medium text-blue-400 ring-1 ring-blue-500/20">
                         {s.device_count}
@@ -332,17 +345,37 @@ export default function SitesPage() {
 
               <div className="space-y-1.5">
                 <label htmlFor="address" className={labelClass}>Address *</label>
-                <textarea id="address" name="address" required rows={2} defaultValue={selected?.address ?? ""} className={`${inputClass} h-auto py-2`} />
+                <textarea
+                  id="address"
+                  name="address"
+                  required
+                  rows={2}
+                  value={place.address}
+                  onChange={(e) => setPlace((p) => ({ ...p, address: e.target.value }))}
+                  className={`${inputClass} h-auto py-2`}
+                />
               </div>
 
               <div className="grid gap-4 sm:grid-cols-3">
                 <div className="space-y-1.5">
                   <label htmlFor="city" className={labelClass}>City</label>
-                  <input id="city" name="city" defaultValue={selected?.city ?? ""} className={inputClass} />
+                  <input
+                    id="city"
+                    name="city"
+                    value={place.city}
+                    onChange={(e) => setPlace((p) => ({ ...p, city: e.target.value }))}
+                    className={inputClass}
+                  />
                 </div>
                 <div className="space-y-1.5">
                   <label htmlFor="country" className={labelClass}>Country</label>
-                  <input id="country" name="country" defaultValue={selected?.country ?? "Pakistan"} className={inputClass} />
+                  <input
+                    id="country"
+                    name="country"
+                    value={place.country}
+                    onChange={(e) => setPlace((p) => ({ ...p, country: e.target.value }))}
+                    className={inputClass}
+                  />
                 </div>
                 <div className="space-y-1.5">
                   <label htmlFor="operating_hours" className={labelClass}>Operating Hours</label>
@@ -355,7 +388,17 @@ export default function SitesPage() {
                 <LocationPicker
                   lat={pickerLat}
                   lng={pickerLng}
-                  onChange={({ lat, lng }) => { setPickerLat(lat); setPickerLng(lng); }}
+                  onChange={({ lat, lng, address, city, country }) => {
+                    setPickerLat(lat);
+                    setPickerLng(lng);
+                    // Only what the lookup actually found — a blank answer
+                    // must not wipe something already typed.
+                    setPlace((p) => ({
+                      address: address || p.address,
+                      city: city || p.city,
+                      country: country || p.country,
+                    }));
+                  }}
                 />
               </div>
 
