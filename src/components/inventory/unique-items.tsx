@@ -364,7 +364,7 @@ export function UniqueItems({ openTick = 0 }: { openTick?: number }) {
                                   <th className="py-1.5 font-medium">Batch</th>
                                   <th className="py-1.5 font-medium">Source</th>
                                   <th className="py-1.5 font-medium">Warranty</th>
-                                  <th className="py-1.5 font-medium">Where</th>
+                                  <th className="py-1.5 font-medium">Storage location</th>
                                 </tr>
                               </thead>
                               <tbody>

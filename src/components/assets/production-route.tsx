@@ -234,7 +234,7 @@ export function ProductionRoute({
               <tr className="border-b border-border bg-secondary/50 text-left text-muted-foreground">
                 <th className="px-3 py-2 font-medium">#</th>
                 <th className="px-3 py-2 font-medium">Operation</th>
-                <th className="px-3 py-2 font-medium">Where</th>
+                <th className="px-3 py-2 font-medium">Done at</th>
                 <th className="px-3 py-2 font-medium">Status</th>
                 <th className="px-3 py-2 font-medium">Out / Back</th>
                 {canEdit && <th className="px-3 py-2 font-medium">Move</th>}

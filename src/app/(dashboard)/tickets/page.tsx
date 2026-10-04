@@ -1495,6 +1495,7 @@ export default function TicketsPage() {
       // A ticket is about an asset, of a kind, at an urgency. The API
       // refuses one without all three; saying so here saves the round trip.
       if (!fd.get("device")) { toast.error("Pick the asset this ticket is about"); return; }
+      if (!fd.get("issue_type")) { toast.error("Pick what the fault is"); return; }
       if (!fd.get("category")) { toast.error("Pick a category"); return; }
       if (!fd.get("priority")) { toast.error("Pick a priority"); return; }
     }
@@ -1927,9 +1928,9 @@ export default function TicketsPage() {
               )}
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
-                  <label htmlFor="issue_type" className={labelClass}>Issue Type</label>
-                  <select id="issue_type" name="issue_type" defaultValue={selected?.issue_type ?? ""} className={inputClass}>
-                    <option value="">Select issue…</option>
+                  <label htmlFor="issue_type" className={labelClass}>Issue Type *</label>
+                  <select id="issue_type" name="issue_type" required defaultValue={selected?.issue_type ?? ""} className={inputClass}>
+                    <option value="" disabled>Select issue…</option>
                     {issueTypes.map((it) => <option key={it.id} value={it.id}>{it.name}</option>)}
                   </select>
                 </div>

@@ -449,10 +449,16 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
           {assets.map((asset) => (
             <div key={asset.id} className="overflow-hidden rounded-xl border border-border bg-card">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-secondary/40 px-4 py-3">
-                <div>
-                  <p className="font-mono text-sm font-semibold text-foreground">{asset.asset_code}</p>
-                  <p className="text-xs text-muted-foreground">{asset.display_name}</p>
-                </div>
+                {/* The asset's own page is where its registry, components
+                    and history live — a click away from the work. */}
+                <Link href={`/assets?device=${asset.id}`} className="group min-w-0">
+                  <p className="font-mono text-sm font-semibold text-primary group-hover:underline">
+                    {asset.asset_code}
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground group-hover:text-foreground">
+                    {asset.display_name}
+                  </p>
+                </Link>
                 <div className="flex flex-wrap items-center gap-2">
                   {/* How the asset is made is true of every asset, not just the
                       bought ones, and it is what decides everything below. It
@@ -717,7 +723,7 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                       <thead>
                         <tr className="text-left">
                           <th className={thClass}>Operation</th>
-                          <th className={thClass}>Where</th>
+                          <th className={thClass}>Done at</th>
                           <th className={thClass}>Status</th>
                           {canDecide && <th className={thClass}>Decision</th>}
                         </tr>

@@ -236,7 +236,7 @@ export function ReceivingLog() {
                                 <Detail label="Received" value={<>{new Date(r.received_at).toLocaleString()}{r.received_by_name ? <span className="block text-2xs text-muted-foreground">by {r.received_by_name}</span> : null}</>} />
                                 <Detail label="Inspected" value={<>{r.inspected_at ? new Date(r.inspected_at).toLocaleString() : "—"}{r.inspected_by_name ? <span className="block text-2xs text-muted-foreground">by {r.inspected_by_name}</span> : null}</>} />
                                 <Detail label="Batch" value={r.batch_number || null} mono />
-                                <Detail label="Placed at" value={r.storage_location || null} />
+                                <Detail label="Storage location" value={r.storage_location || null} />
                               </div>
                               {r.stocked_units.length > 0 && (
                                 <div>
