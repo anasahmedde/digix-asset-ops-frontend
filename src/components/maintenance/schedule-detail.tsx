@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
+import { Modal } from "@/components/ui/modal";
 import { SearchSelect } from "@/components/ui/search-select";
 import { useUser } from "@/lib/user-context";
 import { formatDate, formatDateTime } from "@/lib/utils";
@@ -376,8 +377,7 @@ export function ScheduleDetail({
   return (
     <div className="space-y-5">
       {askingBeforeStart && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-md veil-in">
-          <div className="w-full max-w-md glass glass-pop rounded-2xl p-6">
+        <Modal open onClose={() => setAskingBeforeStart(false)} size="sm">
             <h2 className="text-base font-semibold text-foreground">
               Do you need additional components for maintenance of this asset?
             </h2>
@@ -406,8 +406,7 @@ export function ScheduleDetail({
                 Yes
               </button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
       <div className="flex flex-wrap items-center gap-3">
         <button

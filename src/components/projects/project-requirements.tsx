@@ -752,10 +752,18 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                                     {st.work_order_requested ? (
                                       // Asked for: Work Orders raises it. In-house stays live to take it back.
                                       <>
+                                        {/* Asking for a work order hands the
+                                            operation to Work Orders. Taking it
+                                            back quietly from here left their
+                                            queue holding a request for work the
+                                            floor had already started, so the way
+                                            back is theirs: they send it back,
+                                            with a reason, and it is undecided
+                                            again. The server refuses it too. */}
                                         <button
-                                          onClick={() => stepInhouse(st)}
-                                          disabled={locked || done || busy === st.id}
-                                          title="Decided: work order. Click to take it back and do it on our own floor."
+                                          type="button"
+                                          disabled
+                                          title="With Work Orders. They send it back under Work Orders › Requests, and then it can be decided again."
                                           className={DECISION_SET_ASIDE}
                                         >
                                           <Factory className="h-3.5 w-3.5" /> In-house

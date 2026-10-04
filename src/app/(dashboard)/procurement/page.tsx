@@ -1,10 +1,11 @@
 "use client";
 
-import { ChevronDown, ChevronRight, Download, PackageCheck, Pencil, Plus, ShoppingCart, Trash2, X } from "lucide-react";
+import {ChevronDown, ChevronRight, Download, PackageCheck, Pencil, Plus, ShoppingCart, Trash2} from "lucide-react";
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Requisitions } from "@/components/procurement/requisitions";
+import { Modal } from "@/components/ui/modal";
 import { FilterBar } from "@/components/ui/filter-bar";
 import {
   PoLineItems, emptyPoLine, isPoLineEmpty, poLinePayload, poLineTotal, poLinesProblem, usePoOptions,
@@ -944,24 +945,15 @@ export default function ProcurementPage() {
       )}
 
       {modalMode && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 py-8 backdrop-blur-md veil-in">
-          <div className="w-full max-w-3xl glass glass-pop rounded-2xl p-6">
-            <div className="mb-5 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <h2 className="text-lg font-semibold text-foreground">
-                  {modalMode === "create" ? "New Purchase Order" : `Edit ${selected?.po_number}`}
-                </h2>
-                {modalMode === "edit" && selected && (
-                  <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${STATUS_BADGES[selected.status] ?? ""}`}>
-                    {statusLabel(selected.status)}
-                  </span>
-                )}
-              </div>
-              <button onClick={closeModal} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
+        <Modal open onClose={closeModal} title={modalMode === "create" ? "New Purchase Order" : `Edit ${selected?.po_number}`} size="wide"
+          headerExtra={
+            modalMode === "edit" && selected ? (
+              <span className={`inline-flex shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${STATUS_BADGES[selected.status] ?? ""}`}>
+                {statusLabel(selected.status)}
+              </span>
+            ) : null
+          }
+        >
             {modalMode === "edit" && selected && <div className="mb-4">{renderTransitionBar(selected)}</div>}
 
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -1055,25 +1047,15 @@ export default function ProcurementPage() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+          
+      </Modal>
       )}
 
       {receivePO && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 py-8 backdrop-blur-md veil-in">
-          <div className="w-full max-w-3xl glass glass-pop rounded-2xl p-6">
-            <div className="mb-5 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <h2 className="text-lg font-semibold text-foreground">Receive items — {receivePO.po_number}</h2>
-                <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${STATUS_BADGES[receivePO.status] ?? ""}`}>
+        <Modal open onClose={closeReceive} title="Receive items — {receivePO.po_number}" size="wide"
+        headerExtra={<><span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${STATUS_BADGES[receivePO.status] ?? ""}`}>
                   {statusLabel(receivePO.status)}
-                </span>
-              </div>
-              <button onClick={closeReceive} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
+                </span></>}>
             {receiveResult ? (
               <div className="space-y-4">
                 <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4">
@@ -1303,8 +1285,8 @@ export default function ProcurementPage() {
                 </div>
               </form>
             )}
-          </div>
-        </div>
+          
+      </Modal>
       )}
     </div>
   );

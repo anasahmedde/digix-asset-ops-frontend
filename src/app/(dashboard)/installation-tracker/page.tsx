@@ -1679,15 +1679,9 @@ export default function InstallationTrackerPage() {
 
         {/* Flag Delay modal */}
         {delayFor && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-md veil-in">
-            <div className="glass glass-pop max-h-[88vh] w-full max-w-sm overflow-y-auto rounded-xl p-5">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-semibold text-foreground">Flag Delay — {delayFor.label}</h3>
-                <button onClick={() => setDelayFor(null)} className="text-muted-foreground hover:text-foreground">
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-              <div className="space-y-3">
+          <Modal open onClose={() => setDelayFor(null)}
+              title={`Flag Delay — ${delayFor.label}`} size="xs">
+                            <div className="space-y-3">
                 <div>
                   <label className="mb-1 block text-xs font-medium text-muted-foreground">Caused by</label>
                   <select
@@ -1718,8 +1712,7 @@ export default function InstallationTrackerPage() {
                   {savingDelay ? "Logging..." : "Log Delay"}
                 </button>
               </div>
-            </div>
-          </div>
+        </Modal>
         )}
 
         {/* Edit installation modal */}

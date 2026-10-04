@@ -1,9 +1,10 @@
 "use client";
 
-import { Building2, Pencil, Plus, Trash2, X } from "lucide-react";
+import {Building2, Pencil, Plus, Trash2} from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { Modal } from "@/components/ui/modal";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Pagination, pageSlice } from "@/components/ui/pagination";
 import { FilterBar } from "@/components/ui/filter-bar";
@@ -211,14 +212,7 @@ export default function ClientsPage() {
       })()}
 
       {modalMode && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-md veil-in">
-          <div className="max-h-[88vh] overflow-y-auto w-full max-w-lg glass glass-pop rounded-2xl p-6">
-            <div className="mb-5 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-foreground">{modalMode === "create" ? "Add New Client" : "Edit Client"}</h2>
-              <button onClick={closeModal} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
+        <Modal open onClose={closeModal} title={modalMode === "create" ? "Add New Client" : "Edit Client"} size="md">
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
@@ -263,8 +257,8 @@ export default function ClientsPage() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+          
+      </Modal>
       )}
     </div>
   );

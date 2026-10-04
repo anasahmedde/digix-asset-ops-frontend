@@ -10,20 +10,24 @@ interface ModalProps {
   open: boolean;
   onClose: () => void;
   title?: string;
-  size?: "sm" | "md" | "lg" | "xl" | "full";
+  size?: "xs" | "sm" | "md" | "lg" | "wide" | "xl" | "full";
   children: React.ReactNode;
   className?: string;
+  /** Anything that belongs beside the title — a status badge, a count. */
+  headerExtra?: React.ReactNode;
 }
 
 const sizeClasses = {
+  xs: "max-w-sm",
   sm: "max-w-md",
   md: "max-w-lg",
   lg: "max-w-2xl",
+  wide: "max-w-3xl",
   xl: "max-w-4xl",
   full: "max-w-6xl",
 };
 
-export function Modal({ open, onClose, title, size = "lg", children, className }: ModalProps) {
+export function Modal({ open, onClose, title, size = "lg", children, className, headerExtra }: ModalProps) {
   // Rendered straight under <body>: a dialog inside the page's own tree is
   // at the mercy of every ancestor — a transformed wrapper pins "fixed" to
   // itself, a scrolled backdrop filter leaves a band along the top — and a
@@ -66,8 +70,11 @@ export function Modal({ open, onClose, title, size = "lg", children, className }
             {title && (
               // Pinned: on a form this long the way out should not be
               // something you have to scroll back up to find.
-              <div className="sticky top-0 z-10 flex items-center justify-between rounded-t-2xl border-b border-[hsl(var(--glass-line))] bg-[rgb(var(--glass-tint)/0.92)] px-6 py-4 backdrop-blur-md">
-                <h2 className="text-lg font-semibold text-card-foreground">{title}</h2>
+              <div className="sticky top-0 z-10 flex items-center justify-between gap-3 rounded-t-2xl border-b border-[hsl(var(--glass-line))] bg-[rgb(var(--glass-tint)/0.92)] px-6 py-4 backdrop-blur-md">
+                <div className="flex min-w-0 items-center gap-3">
+                  <h2 className="truncate text-lg font-semibold text-card-foreground">{title}</h2>
+                  {headerExtra}
+                </div>
                 <button
                   onClick={onClose}
                   aria-label="Close"

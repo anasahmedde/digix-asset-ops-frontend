@@ -1,11 +1,12 @@
 "use client";
 
-import { AlertTriangle, CalendarClock, Check, Pencil, Plus, Trash2, Wrench, X } from "lucide-react";
+import {AlertTriangle, CalendarClock, Check, Pencil, Plus, Trash2, Wrench} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
+import { Modal } from "@/components/ui/modal";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { Pagination, pageSlice } from "@/components/ui/pagination";
 import { MultiSelect } from "@/components/ui/multi-select";
@@ -812,21 +813,7 @@ export default function MaintenancePage() {
         </>
       )}
       {modalMode && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 py-8 backdrop-blur-md veil-in">
-          <div className="my-auto max-h-none w-full max-w-lg glass glass-pop rounded-2xl p-6 sm:max-h-[90vh] sm:overflow-y-auto">
-            <div className="mb-5 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-foreground">
-                {modalMode === "create"
-                  ? "Add New Schedule"
-                  : "Edit Schedule"}
-              </h2>
-              <button
-                onClick={closeModal}
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
+        <Modal open onClose={closeModal} title={modalMode === "create" ? "Add New Schedule" : "Edit Schedule"} size="md">
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-1.5">
                 <label htmlFor="title" className={labelClass}>
@@ -1034,20 +1021,13 @@ export default function MaintenancePage() {
                 </div>
               </div>
             )}
-          </div>
-        </div>
+          
+      </Modal>
       )}
 
       {/* Complete-maintenance modal */}
       {completeFor && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 py-8 backdrop-blur-md veil-in">
-          <div className="my-auto max-h-none w-full max-w-lg glass glass-pop rounded-2xl p-6 sm:max-h-[90vh] sm:overflow-y-auto">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-foreground">Complete — {completeFor.title}</h2>
-              <button onClick={() => setCompleteFor(null)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
+        <Modal open onClose={() => setCompleteFor(null)} title="Complete — {completeFor.title}" size="md">
             <form onSubmit={submitComplete} className="space-y-4">
               {completeFor.maintenance_type === "preventive" && completeFor.device && (
                 <p className="rounded-lg border border-dashed border-border px-3 py-2 text-2xs text-muted-foreground">
@@ -1280,8 +1260,8 @@ export default function MaintenancePage() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+          
+      </Modal>
       )}
     </div>
   );

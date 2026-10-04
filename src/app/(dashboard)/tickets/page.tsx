@@ -38,6 +38,8 @@ import { toast } from "sonner";
 import { SegmentBar, StatTiles } from "@/components/ui/analytics-strip";
 import { Pagination, pageSlice } from "@/components/ui/pagination";
 import { CopyButton } from "@/components/ui/copy-button";
+import { Lightbox } from "@/components/ui/lightbox";
+import { Modal } from "@/components/ui/modal";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { ProgressStepper } from "@/components/ui/progress-stepper";
 import api from "@/lib/api";
@@ -1289,12 +1291,7 @@ function TicketDetailView({
 
       {/* Lightbox */}
       {lightboxImg && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-md veil-in" onClick={() => setLightboxImg(null)}>
-          <button className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20" onClick={() => setLightboxImg(null)}>
-            <X className="h-5 w-5" />
-          </button>
-          <img src={lightboxImg} alt="Full size" className="max-h-[85vh] max-w-[90vw] rounded-lg object-contain" />
-        </div>
+        <Lightbox src={lightboxImg} onClose={() => setLightboxImg(null)} />
       )}
     </div>
   );
@@ -1751,14 +1748,9 @@ export default function TicketsPage() {
 
       {/* Create/Edit Modal */}
       {modalMode && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-md veil-in">
-          <div className="flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden glass glass-pop rounded-2xl">
-            <div className="flex items-center justify-between border-b border-border px-6 py-4">
-              <h2 className="text-lg font-semibold text-foreground">{modalMode === "create" ? "Create Ticket" : "Edit Ticket"}</h2>
-              <button onClick={closeModal} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"><X className="h-5 w-5" /></button>
-            </div>
-            <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
-              <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5">
+        <Modal open onClose={closeModal} title={modalMode === "create" ? "Create Ticket" : "Edit Ticket"} size="wide">
+            <form onSubmit={handleSubmit} className="flex flex-col">
+              <div className="space-y-4">
               <div className="space-y-1.5">
                 <label htmlFor="title" className={labelClass}>Title</label>
                 <input id="title" name="title" required defaultValue={selected?.title ?? ""} className={inputClass} placeholder="Brief summary of the issue" />
@@ -1993,8 +1985,7 @@ export default function TicketsPage() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );
