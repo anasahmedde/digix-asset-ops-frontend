@@ -1,10 +1,13 @@
 "use client";
 
-import {Building2, Pencil, Plus, Trash2} from "lucide-react";
+import { Building2, Pencil, Plus, Power, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Modal } from "@/components/ui/modal";
+import {
+  ContactList, blankContact, contactsForPayload, type ContactRow,
+} from "@/components/ui/contact-list";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Pagination, pageSlice } from "@/components/ui/pagination";
 import { FilterBar } from "@/components/ui/filter-bar";
@@ -17,6 +20,7 @@ interface Client {
   name: string;
   code: string;
   contact_person: string;
+  contacts?: ContactRow[];
   contact_email: string;
   contact_phone: string;
   address: string;
@@ -63,18 +67,49 @@ export default function ClientsPage() {
     setSelected(null);
   }
 
+  /** The people to ring at this client, while the form is open. */
+  const [contacts, setContacts] = useState<ContactRow[]>([]);
+  useEffect(() => {
+    if (!modalMode) return;
+    setContacts(
+      selected?.contacts?.length
+        ? selected.contacts.map((c) => ({ ...c }))
+        : [blankContact(true)],
+    );
+  }, [modalMode, selected]);
+
+  /** Taken off the books without being erased from the history. */
+  async function toggleActive(c: Client) {
+    const off = c.is_active;
+    if (off && !confirm(
+      `Deactivate ${c.name}? They stay on every record they are already on, `
+      + "and stop being offered when something new is raised.",
+    )) return;
+    try {
+      await api.patch(`/clients/${c.id}/`, { is_active: !off });
+      toast.success(off ? "Client deactivated" : "Client reactivated");
+      fetchClients();
+    } catch (err) {
+      toast.error(getApiError(err, "Could not change that"));
+    }
+  }
+
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (!contacts.some((c) => c.name.trim() && c.phone.trim())) {
+      toast.error("Add at least one contact — a name and a number");
+      return;
+    }
     setSaving(true);
     const fd = new FormData(e.currentTarget);
     const payload = {
       name: fd.get("name"),
       // The code is the platform's to issue; an edit keeps the one it has.
       ...(modalMode === "edit" && selected ? { code: selected.code } : {}),
-      contact_person: fd.get("contact_person"),
-      contact_email: fd.get("contact_email"),
-      contact_phone: fd.get("contact_phone"),
       address: fd.get("address"),
+      // The person, the number and the email on the client itself are
+      // written by the server from whichever contact is primary.
+      contacts: contactsForPayload(contacts),
     };
     try {
       if (modalMode === "create") {
@@ -193,6 +228,15 @@ export default function ClientsPage() {
                           <button onClick={() => { setSelected(c); setModalMode("edit"); }} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground" title="Edit">
                             <Pencil className="h-3.5 w-3.5" />
                           </button>
+                          <button
+                            onClick={() => toggleActive(c)}
+                            className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors hover:bg-secondary ${
+                              c.is_active ? "text-muted-foreground hover:text-amber-600" : "text-emerald-600"
+                            }`}
+                            title={c.is_active ? "Deactivate" : "Reactivate"}
+                          >
+                            <Power className="h-3.5 w-3.5" />
+                          </button>
                           <button onClick={() => handleDelete(c)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-destructive" title="Delete">
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
@@ -232,24 +276,16 @@ export default function ClientsPage() {
                   )}
                 </div>
               </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <label htmlFor="contact_person" className={labelClass}>Contact Person</label>
-                  <input id="contact_person" name="contact_person" defaultValue={selected?.contact_person ?? ""} className={inputClass} />
-                </div>
-                <div className="space-y-1.5">
-                  <label htmlFor="contact_phone" className={labelClass}>Phone</label>
-                  <input id="contact_phone" name="contact_phone" type="tel" defaultValue={selected?.contact_phone ?? ""} className={inputClass} />
-                </div>
-              </div>
               <div className="space-y-1.5">
-                <label htmlFor="contact_email" className={labelClass}>Email</label>
-                <input id="contact_email" name="contact_email" type="email" defaultValue={selected?.contact_email ?? ""} className={inputClass} />
+                <label htmlFor="address" className={labelClass}>Address *</label>
+                <textarea id="address" name="address" rows={2} required defaultValue={selected?.address ?? ""} className={`${inputClass} h-auto py-2`} />
               </div>
-              <div className="space-y-1.5">
-                <label htmlFor="address" className={labelClass}>Address</label>
-                <textarea id="address" name="address" rows={2} defaultValue={selected?.address ?? ""} className={`${inputClass} h-auto py-2`} />
-              </div>
+
+              {/* One name and one number was never how an organisation
+                  works: the person who signs the order is rarely the one
+                  who opens the gate. */}
+              <ContactList rows={contacts} onChange={setContacts} />
+
               <div className="flex justify-end gap-3 pt-2">
                 <button type="button" onClick={closeModal} className="inline-flex h-10 items-center rounded-lg border border-border bg-transparent px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">Cancel</button>
                 <button type="submit" disabled={saving} className="inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-medium text-white transition-all disabled:opacity-50">

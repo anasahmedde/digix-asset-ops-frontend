@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import {List, Map, MapPin, Pencil, Plus, Trash2} from "lucide-react";
+import { List, Map, MapPin, Pencil, Plus, Power, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
@@ -188,6 +188,23 @@ export default function SitesPage() {
     }
   }
 
+  /** Closed for the season, or gone for good: off the lists either way,
+   *  while every asset and visit already recorded there stays put. */
+  async function toggleActive(site: Site) {
+    const off = site.is_active;
+    if (off && !confirm(
+      `Deactivate ${site.name}? Everything already recorded there stays, `
+      + "and it stops being offered when something new is raised.",
+    )) return;
+    try {
+      await api.patch(`/sites/${site.id}/`, { is_active: !off });
+      toast.success(off ? "Site deactivated" : "Site reactivated");
+      fetchSites();
+    } catch (err) {
+      toast.error(getApiError(err, "Could not change that"));
+    }
+  }
+
   async function handleDelete(site: Site) {
     if (!confirm(`Delete site "${site.name}"? This cannot be undone.`)) return;
     try {
@@ -307,6 +324,15 @@ export default function SitesPage() {
                         <div className="flex items-center gap-1">
                           <button onClick={() => openEdit(s)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground" title="Edit">
                             <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            onClick={() => toggleActive(s)}
+                            className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors hover:bg-secondary ${
+                              s.is_active ? "text-muted-foreground hover:text-amber-600" : "text-emerald-600"
+                            }`}
+                            title={s.is_active ? "Deactivate" : "Reactivate"}
+                          >
+                            <Power className="h-3.5 w-3.5" />
                           </button>
                           <button onClick={() => handleDelete(s)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-destructive" title="Delete">
                             <Trash2 className="h-3.5 w-3.5" />

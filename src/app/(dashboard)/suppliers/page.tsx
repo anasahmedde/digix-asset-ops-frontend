@@ -1,10 +1,13 @@
 "use client";
 
-import {Pencil, Plus, Trash2, Truck} from "lucide-react";
+import { Pencil, Plus, Power, Trash2, Truck } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Modal } from "@/components/ui/modal";
+import {
+  ContactList, blankContact, contactsForPayload, type ContactRow,
+} from "@/components/ui/contact-list";
 import { ContactsEditor } from "@/components/ui/contacts-editor";
 import { Pagination, pageSlice } from "@/components/ui/pagination";
 import { FilterBar } from "@/components/ui/filter-bar";
@@ -17,6 +20,7 @@ interface Supplier {
   name: string;
   code: string;
   contact_person: string;
+  contacts?: ContactRow[];
   contact_email: string;
   contact_phone: string;
   address: string;
@@ -66,17 +70,47 @@ export default function SuppliersPage() {
     setSelected(null);
   }
 
+  /** The people to ring at this supplier, while the form is open. */
+  const [contacts, setContacts] = useState<ContactRow[]>([]);
+  useEffect(() => {
+    if (!modalMode) return;
+    setContacts(
+      selected?.contacts?.length
+        ? selected.contacts.map((c) => ({ ...c }))
+        : [blankContact(true)],
+    );
+  }, [modalMode, selected]);
+
+  /** Taken off the books without being erased from the history. */
+  async function toggleActive(sup: Supplier) {
+    const off = sup.is_active;
+    if (off && !confirm(
+      `Deactivate ${sup.name}? They stay on every order and asset they are `
+      + "already on, and stop being offered when something new is raised.",
+    )) return;
+    try {
+      await api.patch(`/suppliers/${sup.id}/`, { is_active: !off });
+      toast.success(off ? "Supplier deactivated" : "Supplier reactivated");
+      fetchSuppliers();
+    } catch (err) {
+      toast.error(getApiError(err, "Could not change that"));
+    }
+  }
+
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (!contacts.some((c) => c.name.trim() && c.phone.trim())) {
+      toast.error("Add at least one contact — a name and a number");
+      return;
+    }
     setSaving(true);
     const fd = new FormData(e.currentTarget);
     const payload = {
       name: fd.get("name"),
-      code: fd.get("code"),
-      contact_person: fd.get("contact_person"),
-      contact_email: fd.get("contact_email"),
-      contact_phone: fd.get("contact_phone"),
       address: fd.get("address"),
+      // The person, number and email on the supplier itself are written
+      // by the server from whichever contact is primary.
+      contacts: contactsForPayload(contacts),
       website: fd.get("website"),
       service_categories: fd.getAll("service_categories"),
     };
@@ -192,6 +226,15 @@ export default function SuppliersPage() {
                           <button onClick={() => { setSelected(s); setModalMode("edit"); }} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground" title="Edit">
                             <Pencil className="h-3.5 w-3.5" />
                           </button>
+                          <button
+                            onClick={() => toggleActive(s)}
+                            className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors hover:bg-secondary ${
+                              s.is_active ? "text-muted-foreground hover:text-amber-600" : "text-emerald-600"
+                            }`}
+                            title={s.is_active ? "Deactivate" : "Reactivate"}
+                          >
+                            <Power className="h-3.5 w-3.5" />
+                          </button>
                           <button onClick={() => handleDelete(s)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-destructive" title="Delete">
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
@@ -219,32 +262,31 @@ export default function SuppliersPage() {
                   <input id="name" name="name" required defaultValue={selected?.name ?? ""} className={inputClass} />
                 </div>
                 <div className="space-y-1.5">
-                  <label htmlFor="code" className={labelClass}>Supplier Code</label>
-                  <input id="code" name="code" required defaultValue={selected?.code ?? ""} className={inputClass} placeholder="e.g. SUP-001" />
+                  <label className={labelClass}>Supplier Code</label>
+                  {/* Issued by the register, like every other code in the
+                      platform. Asking somebody to invent one is asking for
+                      two suppliers to end up sharing it. */}
+                  {modalMode === "create" ? (
+                    <p className={`${inputClass} flex items-center bg-secondary/30 text-muted-foreground`}>
+                      Generated on save
+                    </p>
+                  ) : (
+                    <p className={`${inputClass} flex items-center bg-secondary/40 font-mono text-foreground`}>
+                      {selected?.code}
+                    </p>
+                  )}
                 </div>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <label htmlFor="contact_person" className={labelClass}>Contact Person</label>
-                  <input id="contact_person" name="contact_person" defaultValue={selected?.contact_person ?? ""} className={inputClass} />
-                </div>
-                <div className="space-y-1.5">
-                  <label htmlFor="contact_phone" className={labelClass}>Phone</label>
-                  <input id="contact_phone" name="contact_phone" type="tel" defaultValue={selected?.contact_phone ?? ""} className={inputClass} />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <label htmlFor="contact_email" className={labelClass}>Email</label>
-                <input id="contact_email" name="contact_email" type="email" defaultValue={selected?.contact_email ?? ""} className={inputClass} />
               </div>
               <div className="space-y-1.5">
                 <label htmlFor="website" className={labelClass}>Website</label>
                 <input id="website" name="website" type="url" defaultValue={selected?.website ?? ""} className={inputClass} placeholder="https://" />
               </div>
               <div className="space-y-1.5">
-                <label htmlFor="address" className={labelClass}>Address</label>
-                <textarea id="address" name="address" rows={2} defaultValue={selected?.address ?? ""} className={`${inputClass} h-auto py-2`} />
+                <label htmlFor="address" className={labelClass}>Address *</label>
+                <textarea id="address" name="address" rows={2} required defaultValue={selected?.address ?? ""} className={`${inputClass} h-auto py-2`} />
               </div>
+
+              <ContactList rows={contacts} onChange={setContacts} />
               {categories.length > 0 && (
                 <div className="space-y-1.5">
                   <label className={labelClass}>Service Categories</label>
