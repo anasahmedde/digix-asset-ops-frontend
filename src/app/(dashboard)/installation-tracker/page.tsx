@@ -2154,7 +2154,6 @@ export default function InstallationTrackerPage() {
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Installed On</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Status</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Progress</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -2230,14 +2229,6 @@ export default function InstallationTrackerPage() {
                             </span>
                           )}
                         </div>
-                      </td>
-                      <td className="px-4 py-3.5">
-                        <button
-                          onClick={(e) => { e.stopPropagation(); openJob(inst.id); }}
-                          className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                        >
-                          View Details
-                        </button>
                       </td>
                     </tr>
                   );

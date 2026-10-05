@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Check, Eye, HardDrive, ImagePlus, Pencil, Plus, Printer, QrCode, Trash2, X, Download, MapPin, Clock, Shield, Wrench, FileText, ChevronRight, Calendar, DollarSign, Package, Zap, Monitor, Sun } from "lucide-react";
+import { ArrowLeft, Check, Eye, HardDrive, ImagePlus, Pencil, Plus, Printer, QrCode, Trash2, Upload, X, Download, MapPin, Clock, Shield, Wrench, FileText, ChevronRight, Calendar, DollarSign, Package, Zap, Monitor, Sun } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -64,6 +64,26 @@ interface Device {
 }
 
 interface DeviceDetail extends Device {
+  /** What the asset has cost: building it, and keeping it running. */
+  cost_of_ownership?: {
+    development: {
+      project: string; project_name: string;
+      /** Bought complete from a vendor, rather than built. */
+      vendor_asset: boolean;
+      purchase_price: string | null; priced_from: string | null;
+      materials: string | null; production: string | null;
+      installation: string | null;
+      /** What it cost to obtain, installation excluded. */
+      obtained: string | null;
+      total: string | null;
+    } | null;
+    maintenance: {
+      preventive: { visits: number; total: string };
+      corrective: { visits: number; total: string };
+      total: string;
+    };
+    total: string;
+  } | null;
   procurement_po_number?: string | null;
   procurement_requested_at?: string | null;
   route_complete?: boolean;
@@ -161,6 +181,9 @@ interface MaintenanceItem {
   status: string;
   is_active: boolean;
   assigned_to_name: string | null;
+  /** The fault that raised it, when one did. */
+  ticket?: string | null;
+  ticket_number?: string | null;
 }
 
 interface DocumentItem {
@@ -539,6 +562,27 @@ export default function AssetsPage() {
   const [compEdit, setCompEdit] = useState<{ id: string; quantity: number } | null>(null);
   // Item 8: a new asset can start as a copy of an existing one.
   const [copyFrom, setCopyFrom] = useState("");
+  /** The asset being copied from, once it has been read.
+   *
+   * Picking one used to change nothing on screen — the copying happened on
+   * the server at save time, so the form sat empty and the person filled
+   * in by hand what they had just said to copy. */
+  const [copyOf, setCopyOf] = useState<DeviceDetail | null>(null);
+  useEffect(() => {
+    if (!copyFrom) { setCopyOf(null); return; }
+    let dropped = false;
+    api.get(`/assets/devices/${copyFrom}/`)
+      .then(({ data }) => {
+        if (dropped) return;
+        setCopyOf(data);
+        // The two the person is here to decide: what to call it, and how
+        // it is being made. Everything else follows the asset copied.
+        setFormAssetType(data.asset_type ?? "");
+        setDimensionUnit(data.dimension_unit ?? "in");
+      })
+      .catch(() => { if (!dropped) setCopyOf(null); });
+    return () => { dropped = true; };
+  }, [copyFrom]);
   // Components and a production route only belong to an asset we build ourselves.
   const buildsInHouse = assetSource === "inhouse";
   const [formAssetType, setFormAssetType] = useState("");
@@ -570,6 +614,8 @@ export default function AssetsPage() {
     if (products.status === "fulfilled") setStockProducts(products.value.data.results ?? products.value.data);
   }, []);
   const [detailTab, setDetailTab] = useState("overview");
+  /** The activity rail holds the whole journal; it starts folded. */
+  const [allActivity, setAllActivity] = useState(false);
   const [saving, setSaving] = useState(false);
   const [labelModal, setLabelModal] = useState<{ url: string; format: "qr" | "code128" } | null>(null);
   const [labelLoading, setLabelLoading] = useState(false);
@@ -601,6 +647,32 @@ export default function AssetsPage() {
   const [warranties, setWarranties] = useState<WarrantyItem[]>([]);
   const [maintSchedules, setMaintSchedules] = useState<MaintenanceItem[]>([]);
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
+  const [uploadingDoc, setUploadingDoc] = useState(false);
+
+  /** Put a file on the asset's record. The title is the file's own name —
+      renaming it is a job for later, and asking now stops people filing. */
+  async function uploadDocuments(deviceId: string, files: FileList | null) {
+    if (!files?.length) return;
+    setUploadingDoc(true);
+    try {
+      for (const file of Array.from(files)) {
+        const form = new FormData();
+        form.append("device", deviceId);
+        form.append("title", file.name.replace(/\.[^.]+$/, ""));
+        form.append("file", file);
+        await api.post("/infrastructure/documents/", form, {
+          headers: { "Content-Type": "multipart/form-data" },
+        });
+      }
+      const { data } = await api.get("/infrastructure/documents/", { params: { device: deviceId } });
+      setDocuments(data.results ?? data);
+      toast.success(files.length === 1 ? "Document uploaded" : `${files.length} documents uploaded`);
+    } catch (err) {
+      toast.error(getApiError(err, "Could not upload that document"));
+    } finally {
+      setUploadingDoc(false);
+    }
+  }
   const [deviceTickets, setDeviceTickets] = useState<{ id: string; ticket_number: string; occurrence: number; title: string; status: string; created_at: string }[]>([]);
   // The asset's job on the Installation Tracker, when it has one.
   const [installation, setInstallation] = useState<InstallationJob | null>(null);
@@ -1393,7 +1465,6 @@ export default function AssetsPage() {
                   { key: "costs", label: "Costs & Pricing" },
                   { key: "documents", label: "Documents", count: documents.length },
                   { key: "maintenance", label: "Maintenance History", count: maintSchedules.length },
-                  { key: "history", label: "Lifecycle", count: d.lifecycle_events?.length ?? 0 },
                 ]}
                 active={detailTab}
                 onChange={setDetailTab}
@@ -2078,52 +2149,135 @@ export default function AssetsPage() {
                         </p>
                       )}
                     </div>
-                    <div>
-                      <h4 className="text-sm font-semibold text-foreground mb-3">Service History</h4>
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <div className="rounded-xl border border-border p-4">
-                          <div className="flex items-center justify-between">
-                            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Tickets</p>
-                            <Link href={`/tickets?device=${d.id}`} className="text-2xs font-medium text-primary hover:underline">View all →</Link>
+                    {/* One history, not two. A fault is reported as a
+                        ticket and worked as a corrective job — listing
+                        both put the same visit on the screen twice and
+                        made three repairs look like seven. Each job is
+                        one row, saying what set it off. */}
+                    {(() => {
+                      const ticketOf = new Map(
+                        deviceTickets.map((t) => [t.id, t] as const),
+                      );
+                      const jobs = maintSchedules.map((m) => {
+                        const corrective = m.maintenance_type === "corrective";
+                        const t = m.ticket ? ticketOf.get(m.ticket) : undefined;
+                        return {
+                          ...m,
+                          corrective,
+                          ticket_number: m.ticket_number ?? t?.ticket_number ?? null,
+                          occurrence: t?.occurrence ?? null,
+                          done: m.status === "completed",
+                        };
+                      });
+                      const corrective = jobs.filter((j) => j.corrective);
+                      const preventive = jobs.filter((j) => !j.corrective);
+                      const openNow = jobs.filter((j) => !j.done);
+                      /* A ticket with no job behind it has not been worked
+                         yet; it still belongs on the asset's history. */
+                      const unworked = deviceTickets.filter(
+                        (t) => !jobs.some((j) => j.ticket === t.id),
+                      );
+
+                      const Tile = ({ label, value, tone }: {
+                        label: string; value: number; tone: string;
+                      }) => (
+                        <div className="rounded-lg bg-secondary/30 px-3 py-2">
+                          <p className={`text-lg font-bold leading-tight ${tone}`}>{value}</p>
+                          <p className="text-2xs uppercase tracking-wider text-muted-foreground">{label}</p>
+                        </div>
+                      );
+
+                      return (
+                        <div>
+                          <div className="mb-3 flex items-center justify-between gap-2">
+                            <h4 className="text-sm font-semibold text-foreground">Service history</h4>
+                            <button
+                              type="button"
+                              onClick={() => setDetailTab("maintenance")}
+                              className="text-2xs font-medium text-primary hover:underline"
+                            >
+                              View all ({jobs.length + unworked.length}) →
+                            </button>
                           </div>
-                          <div className="mt-2 flex gap-4 text-sm">
-                            <span className="font-bold text-foreground">{deviceTickets.length} total</span>
-                            <span className="font-medium text-amber-500">{deviceTickets.filter((t) => !["closed", "approved", "rejected"].includes(t.status)).length} ongoing</span>
-                            <span className="font-medium text-emerald-600">{deviceTickets.filter((t) => ["closed", "approved"].includes(t.status)).length} completed</span>
-                          </div>
-                          <div className="mt-2 space-y-1">
-                            {deviceTickets.slice(0, 4).map((t) => (
-                              <Link key={t.id} href={`/tickets?open=${t.id}`} className="flex items-center justify-between rounded-md px-2 py-1 text-xs hover:bg-secondary/50">
-                                <span className="font-medium text-primary">{t.ticket_number}{t.occurrence ? ` · #${t.occurrence}` : ""}</span>
-                                <span className="truncate px-2 text-muted-foreground">{t.title}</span>
-                                <span className="shrink-0 text-muted-foreground">{t.status.replace(/_/g, " ")}</span>
-                              </Link>
-                            ))}
-                            {deviceTickets.length === 0 && <p className="text-xs text-muted-foreground">No tickets raised for this asset.</p>}
+
+                          <div className="rounded-xl border border-border p-4">
+                            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                              <Tile label="Jobs" value={jobs.length} tone="text-foreground" />
+                              <Tile label="Corrective" value={corrective.length} tone="text-amber-600" />
+                              <Tile label="Preventive" value={preventive.length} tone="text-sky-600" />
+                              <Tile label="Open now" value={openNow.length}
+                                tone={openNow.length ? "text-red-600" : "text-emerald-600"} />
+                            </div>
+
+                            {jobs.length === 0 && unworked.length === 0 ? (
+                              <p className="mt-3 rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
+                                Nothing has been done to this asset yet.
+                              </p>
+                            ) : (
+                              <div className="mt-3 divide-y divide-border/60">
+                                {jobs.slice(0, 3).map((j) => (
+                                  <Link
+                                    key={j.id}
+                                    href={`/maintenance?kind=${j.corrective ? "corrective" : "preventive"}#job-${j.id}`}
+                                    className="flex items-center gap-3 px-1 py-2 text-xs transition-colors hover:bg-secondary/40"
+                                  >
+                                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-2xs font-medium ring-1 ${
+                                      j.corrective
+                                        ? "bg-amber-500/10 text-amber-600 ring-amber-500/20"
+                                        : "bg-sky-500/10 text-sky-600 ring-sky-500/20"
+                                    }`}>
+                                      {j.corrective ? "Corrective" : "Preventive"}
+                                    </span>
+                                    <span className="min-w-0 flex-1 truncate text-foreground">{j.title}</span>
+                                    {/* What set it off: a fault somebody
+                                        reported, or the calendar. */}
+                                    <span className="hidden shrink-0 text-muted-foreground sm:block">
+                                      {j.ticket_number
+                                        ? `${j.ticket_number}${j.occurrence ? ` · #${j.occurrence}` : ""}`
+                                        : j.frequency
+                                          ? j.frequency.replace(/_/g, " ")
+                                          : "Scheduled"}
+                                    </span>
+                                    <span className={`shrink-0 ${
+                                      j.done ? "text-emerald-600" : "text-amber-600"
+                                    }`}>
+                                      {j.done ? "Completed" : j.status.replace(/_/g, " ")}
+                                    </span>
+                                  </Link>
+                                ))}
+                                {unworked.slice(0, Math.max(0, 3 - jobs.length)).map((t) => (
+                                  <Link
+                                    key={t.id}
+                                    href={`/tickets?open=${t.id}`}
+                                    className="flex items-center gap-3 px-1 py-2 text-xs transition-colors hover:bg-secondary/40"
+                                  >
+                                    <span className="shrink-0 rounded-full bg-secondary px-2 py-0.5 text-2xs font-medium text-muted-foreground ring-1 ring-border">
+                                      Reported
+                                    </span>
+                                    <span className="min-w-0 flex-1 truncate text-foreground">{t.title}</span>
+                                    <span className="hidden shrink-0 text-muted-foreground sm:block">
+                                      {t.ticket_number}
+                                    </span>
+                                    <span className="shrink-0 text-muted-foreground">
+                                      {t.status.replace(/_/g, " ")}
+                                    </span>
+                                  </Link>
+                                ))}
+                                {jobs.length + unworked.length > 3 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setDetailTab("maintenance")}
+                                    className="px-1 pt-2 text-2xs text-primary hover:underline"
+                                  >
+                                    +{jobs.length + unworked.length - 3} more in Maintenance History
+                                  </button>
+                                )}
+                              </div>
+                            )}
                           </div>
                         </div>
-                        <div className="rounded-xl border border-border p-4">
-                          <div className="flex items-center justify-between">
-                            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Maintenance</p>
-                            <Link href="/maintenance" className="text-2xs font-medium text-primary hover:underline">View all →</Link>
-                          </div>
-                          <div className="mt-2 flex gap-4 text-sm">
-                            <span className="font-bold text-foreground">{maintSchedules.length} total</span>
-                            <span className="font-medium text-amber-500">{maintSchedules.filter((m) => m.status !== "completed").length} ongoing</span>
-                            <span className="font-medium text-emerald-600">{maintSchedules.filter((m) => m.status === "completed").length} completed</span>
-                          </div>
-                          <div className="mt-2 space-y-1">
-                            {maintSchedules.slice(0, 4).map((m) => (
-                              <Link key={m.id} href={`/maintenance?schedule=${m.id}`} className="flex items-center justify-between rounded-md px-2 py-1 text-xs hover:bg-secondary/50">
-                                <span className="truncate font-medium text-foreground">{m.title || "Schedule"}</span>
-                                <span className="shrink-0 text-muted-foreground">{m.status.replace(/_/g, " ")}</span>
-                              </Link>
-                            ))}
-                            {maintSchedules.length === 0 && <p className="text-xs text-muted-foreground">No maintenance scheduled for this asset.</p>}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+                      );
+                    })()}
                     <div>
                       <h4 className="text-sm font-semibold text-foreground mb-3">Assignment for Installation</h4>
                       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -2275,36 +2429,129 @@ export default function AssetsPage() {
                 {/* Costs & Pricing */}
                 {detailTab === "costs" && (
                   <div className="space-y-6">
-                    <div>
-                      <h4 className="text-sm font-semibold text-foreground mb-3">Procurement Details</h4>
-                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                        <InfoCard label="Supplier" value={d.supplier_name} />
-                        <InfoCard label="Purchase Date" value={d.purchase_date ? formatDate(d.purchase_date) : null} />
-                        <InfoCard label="Purchase Price" value={d.purchase_price ? `PKR ${Number(d.purchase_price).toLocaleString()}` : null} />
-                        <InfoCard label="Invoice Reference" value={d.invoice_reference} />
-                      </div>
-                    </div>
-                    {d.purchase_price && (
-                      <div className="rounded-xl border border-border p-5">
-                        <h4 className="text-sm font-semibold text-foreground mb-4">Cost Summary</h4>
-                        <div className="space-y-3">
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm text-muted-foreground">Unit Cost</span>
-                            <span className="text-sm font-semibold text-foreground">PKR {Number(d.purchase_price).toLocaleString()}</span>
-                          </div>
-                          <div className="border-t border-border pt-3 flex items-center justify-between">
-                            <span className="text-sm font-medium text-foreground">Total Purchase Cost</span>
-                            <span className="text-base font-bold text-primary">PKR {Number(d.purchase_price).toLocaleString()}</span>
+                    {/* Built once, kept running for years. Both halves are
+                        read from where they are already added up — the
+                        project's costing and the maintenance register — so
+                        there is no second answer to go stale. */}
+                    {(() => {
+                      const c = d.cost_of_ownership;
+                      if (!c) return null;
+                      const dev = c.development;
+                      const row = (label: string, value: string | null | undefined, muted = false) => (
+                        <div className="flex items-center justify-between gap-4">
+                          <span className={`text-sm ${muted ? "text-muted-foreground" : "text-foreground"}`}>{label}</span>
+                          <span className={`text-sm tabular-nums ${muted ? "text-muted-foreground" : "font-medium text-foreground"}`}>
+                            {value == null ? "—" : `PKR ${Number(value).toLocaleString()}`}
+                          </span>
+                        </div>
+                      );
+                      return (
+                        <div className="rounded-xl border border-border p-5">
+                          <h4 className="mb-1 text-sm font-semibold text-foreground">Asset cost</h4>
+                          <p className="mb-4 text-2xs text-muted-foreground">
+                            Building it, and keeping it running since.
+                          </p>
+
+                          <div className="space-y-3">
+                            {/* Three headings, whichever way the asset got
+                                here: what it cost to obtain, what it cost
+                                to put up, and what it has cost since. */}
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between gap-4">
+                                <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                  Procurement
+                                </span>
+                                {dev?.project_name && (
+                                  <span className="text-2xs text-muted-foreground">{dev.project_name}</span>
+                                )}
+                              </div>
+                              {dev ? (
+                                <>
+                                  {dev.vendor_asset ? (
+                                    <>
+                                      {row("Purchase price", dev.purchase_price, true)}
+                                      {dev.priced_from && (
+                                        <p className="text-2xs text-muted-foreground">{dev.priced_from}</p>
+                                      )}
+                                    </>
+                                  ) : (
+                                    <>
+                                      {row("Materials", dev.materials, true)}
+                                      {/* In-house work and anything paid out
+                                          on a work order: one cost of making
+                                          it, not two to add up. */}
+                                      {row("Production", dev.production, true)}
+                                    </>
+                                  )}
+                                  <div className="border-t border-border pt-2">
+                                    {row("Procurement total", dev.obtained)}
+                                  </div>
+                                </>
+                              ) : (
+                                <p className="text-xs text-muted-foreground">
+                                  This asset is not on a project, so there is nothing to read a cost from.
+                                </p>
+                              )}
+                            </div>
+
+                            <div className="space-y-2 border-t border-border pt-3">
+                              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                Installation
+                              </span>
+                              {row("Installation and activation", dev?.installation, true)}
+                              <div className="border-t border-border pt-2">
+                                {row("Installation total", dev?.installation ?? "0")}
+                              </div>
+                            </div>
+
+                            <div className="space-y-2 border-t border-border pt-3">
+                              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                Maintenance
+                              </span>
+                              {row(
+                                `Preventive · ${c.maintenance.preventive.visits} visit${c.maintenance.preventive.visits === 1 ? "" : "s"}`,
+                                c.maintenance.preventive.total, true,
+                              )}
+                              {row(
+                                `Corrective · ${c.maintenance.corrective.visits} visit${c.maintenance.corrective.visits === 1 ? "" : "s"}`,
+                                c.maintenance.corrective.total, true,
+                              )}
+                              <div className="border-t border-border pt-2">{row("Maintenance total", c.maintenance.total)}</div>
+                            </div>
+
+                            <div className="flex items-center justify-between gap-4 border-t border-border pt-3">
+                              <span className="text-sm font-semibold text-foreground">Total cost</span>
+                              <span className="text-base font-bold tabular-nums text-primary">
+                                PKR {Number(c.total).toLocaleString()}
+                              </span>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    )}
+                      );
+                    })()}
                   </div>
                 )}
 
                 {/* Documents */}
                 {detailTab === "documents" && (
-                  <div>
+                  <div className="space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs text-muted-foreground">
+                        Invoices, warranty cards, site permissions — anything that belongs with this asset.
+                      </p>
+                      <label className={`inline-flex h-9 cursor-pointer items-center gap-2 rounded-lg bg-primary px-3.5 text-xs font-semibold text-white transition-colors hover:bg-primary/90 ${
+                        uploadingDoc ? "pointer-events-none opacity-60" : ""
+                      }`}>
+                        <Upload className="h-3.5 w-3.5" />
+                        {uploadingDoc ? "Uploading…" : "Upload document"}
+                        <input
+                          type="file"
+                          multiple
+                          className="hidden"
+                          onChange={(e) => uploadDocuments(d.id, e.target.files)}
+                        />
+                      </label>
+                    </div>
                     {documents.length > 0 ? (
                       <div className="space-y-2">
                         {documents.map((doc) => (
@@ -2365,17 +2612,6 @@ export default function AssetsPage() {
                 )}
 
                 {/* Lifecycle Events */}
-                {detailTab === "history" && (
-                  <div className="space-y-3">
-                    {(d.lifecycle_events ?? []).length > 0 ? (
-                      <div className="rounded-xl border border-border p-4">
-                        <Timeline items={lifecycleItems(d.lifecycle_events)} />
-                      </div>
-                    ) : (
-                      <EmptyState icon={<Clock className="h-10 w-10" />} text="No lifecycle events recorded yet." />
-                    )}
-                  </div>
-                )}
               </div>
             </div>
           </div>
@@ -2409,24 +2645,30 @@ export default function AssetsPage() {
               </div>
             )}
 
-            {/* Activity — who changed what, and when. The Lifecycle tab holds
-                the same journal; this puts the last few in reach. */}
+            {/* Activity — who changed what, and when. This is the asset's
+                whole lifecycle journal; it used to be repeated in a tab of
+                its own, which was the same list twice. */}
             <div className="rounded-xl border border-border bg-card p-5">
               <div className="mb-3 flex items-center justify-between">
                 <h3 className="text-sm font-semibold text-foreground">Activity</h3>
                 {(d.lifecycle_events ?? []).length > 0 && (
                   <button
-                    onClick={() => setDetailTab("history")}
+                    onClick={() => setAllActivity((v) => !v)}
                     className="text-2xs font-medium text-primary hover:underline"
                   >
-                    View all →
+                    {allActivity ? "Show less" : `View all (${d.lifecycle_events.length})`}
                   </button>
                 )}
               </div>
               {(d.lifecycle_events ?? []).length === 0 ? (
                 <p className="text-xs text-muted-foreground">Nothing recorded yet.</p>
               ) : (
-                <Timeline compact items={lifecycleItems(d.lifecycle_events.slice(0, 6))} />
+                <div className={allActivity ? "max-h-[28rem] overflow-y-auto pr-1" : ""}>
+                  <Timeline
+                    compact
+                    items={lifecycleItems(allActivity ? d.lifecycle_events : d.lifecycle_events.slice(0, 6))}
+                  />
+                </div>
               )}
             </div>
 
@@ -2710,7 +2952,7 @@ export default function AssetsPage() {
 
       {/* Create/Edit Modal */}
       <Modal open={!!modalMode} onClose={closeModal} title={modalMode === "create" ? "Register New Asset" : "Edit Asset"} size="xl">
-        <form onSubmit={handleSubmit} className="max-h-[70vh] space-y-4 overflow-y-auto pr-1">
+        <form key={copyFrom || "blank"} onSubmit={handleSubmit} className="max-h-[70vh] space-y-4 overflow-y-auto pr-1">
           {modalMode === "edit" && selected && (
             <div className="space-y-1.5">
               <label className={labelClass}>Asset Code</label>
@@ -2738,8 +2980,9 @@ export default function AssetsPage() {
                   ))}
                 </select>
                 <p className="text-2xs text-muted-foreground">
-                  Copies its type, size, build source, components and production route. The code and
-                  serial stay this asset&apos;s own.
+                  Fills in its type, size, components and production route.
+                  The name and the manufacturing route are yours to choose,
+                  and the code and serial stay this asset&apos;s own.
                 </p>
               </div>
             </div>
@@ -2787,20 +3030,20 @@ export default function AssetsPage() {
               </select>
             </div>
             <div className="space-y-1.5">
-              <label htmlFor="length_in" className={labelClass}>Length ({dimensionUnit})</label>
-              <input id="length_in" name="length_in" type="number" step="0.01" defaultValue={selected?.length_in ?? ""} className={inputClass} />
+              <label htmlFor="length_in" className={labelClass}>Length ({dimensionUnit}) *</label>
+              <input id="length_in" name="length_in" type="number" step="0.01" min="0" required defaultValue={selected?.length_in ?? copyOf?.length_in ?? ""} className={inputClass} />
             </div>
             <div className="space-y-1.5">
-              <label htmlFor="width_in" className={labelClass}>Width ({dimensionUnit})</label>
-              <input id="width_in" name="width_in" type="number" step="0.01" defaultValue={selected?.width_in ?? ""} className={inputClass} />
+              <label htmlFor="width_in" className={labelClass}>Width ({dimensionUnit}) *</label>
+              <input id="width_in" name="width_in" type="number" step="0.01" min="0" required defaultValue={selected?.width_in ?? copyOf?.width_in ?? ""} className={inputClass} />
             </div>
             <div className="space-y-1.5">
               <label htmlFor="depth_in" className={labelClass}>Depth ({dimensionUnit})</label>
-              <input id="depth_in" name="depth_in" type="number" step="0.01" defaultValue={selected?.depth_in ?? ""} className={inputClass} />
+              <input id="depth_in" name="depth_in" type="number" step="0.01" defaultValue={selected?.depth_in ?? copyOf?.depth_in ?? ""} className={inputClass} />
             </div>
             <div className="space-y-1.5">
               <label htmlFor="diagonal_inches" className={labelClass}>Diagonal ({dimensionUnit})</label>
-              <input id="diagonal_inches" name="diagonal_inches" type="number" step="0.1" defaultValue={selected?.diagonal_inches ?? ""} className={inputClass} />
+              <input id="diagonal_inches" name="diagonal_inches" type="number" step="0.1" defaultValue={selected?.diagonal_inches ?? copyOf?.diagonal_inches ?? ""} className={inputClass} />
             </div>
           </div>
 
