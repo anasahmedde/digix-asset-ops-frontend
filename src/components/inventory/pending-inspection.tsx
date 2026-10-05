@@ -435,7 +435,7 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
                   <p className="text-2xs text-muted-foreground">The accepted quantity is added to this stock item and journalled against GRN {active.grn_number}.</p>
                 </div>
                 <div className="space-y-1.5">
-                  <label htmlFor="ins_placed" className={labelClass}>Placed At</label>
+                  <label htmlFor="ins_placed" className={labelClass}>Storage location</label>
                   <input
                     id="ins_placed"
                     value={storageLocation}
@@ -459,7 +459,7 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
                   </select>
                 </div>
                 <div className="space-y-1.5">
-                  <label htmlFor="ins_placed" className={labelClass}>Placed At</label>
+                  <label htmlFor="ins_placed" className={labelClass}>Storage location</label>
                   <input
                     id="ins_placed"
                     value={storageLocation}

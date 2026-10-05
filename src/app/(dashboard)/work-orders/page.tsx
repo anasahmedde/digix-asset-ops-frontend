@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, ChevronRight, ClipboardCheck, FileDown, Pencil, Plus, ScrollText, Trash2, X } from "lucide-react";
+import {ChevronDown, ChevronRight, ClipboardCheck, FileDown, Pencil, Plus, ScrollText, Trash2} from "lucide-react";
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -620,17 +620,7 @@ export default function WorkOrdersPage() {
       ))}
 
       {modalMode && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 py-8 backdrop-blur-md veil-in">
-          <div className="w-full max-w-3xl glass glass-pop rounded-2xl p-6">
-            <div className="mb-5 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-foreground">
-                {modalMode === "create" ? "New Work Order" : `Edit ${selected?.wo_number}`}
-              </h2>
-              <button onClick={closeModal} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
+        <Modal open onClose={closeModal} title={modalMode === "create" ? "New Work Order" : `Edit ${selected?.wo_number}`} size="wide">
             {modalMode === "edit" && selected && movesFor(selected.status, user?.role).length > 0 && (
               <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-secondary/30 p-3">
                 <span className="text-xs font-medium text-muted-foreground">Advance status:</span>
@@ -738,8 +728,8 @@ export default function WorkOrdersPage() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+          
+      </Modal>
       )}
 
       {/* Which jobs the vendor has finished. Only the ones still with him can

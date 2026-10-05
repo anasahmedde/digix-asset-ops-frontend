@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { IssuanceLog } from "@/components/inventory/issuance-log";
 import { IssuanceRequests } from "@/components/inventory/issuance-requests";
 import { LowStock } from "@/components/inventory/low-stock";
+import { PriceApprovals } from "@/components/procurement/price-approvals";
 import { PendingInspection } from "@/components/inventory/pending-inspection";
 import { ReceivingLog } from "@/components/inventory/receiving-log";
 import { UniqueItems } from "@/components/inventory/unique-items";
@@ -340,7 +341,14 @@ export default function InventoryPage() {
       {tab === "requests" && <IssuanceRequests onIssued={fetchItems} />}
 
       {tab === "issuance" && <IssuanceLog />}
-      {tab === "low_stock" && <LowStock onChanged={refreshLowCount} />}
+      {tab === "low_stock" && (
+        <div className="space-y-6">
+          {/* A reorder the store raised, coming back priced over the last
+              purchase. The store owns that figure, so the store agrees it. */}
+          <PriceApprovals showWhenEmpty={false} />
+          <LowStock onChanged={refreshLowCount} />
+        </div>
+      )}
       {tab === "receiving_log" && <ReceivingLog />}
 
       {tab === "inspection" && (
@@ -383,7 +391,7 @@ export default function InventoryPage() {
                   <th className={thClass}>Code</th>
                   <th className={thClass}>Component</th>
                   <th className={thClass}>Category</th>
-                  <th className={thClass}>Location</th>
+                  <th className={thClass}>Storage location</th>
                   <th className={thClass}>On Hand</th>
                   <th className={thClass}>Reorder Level</th>
                   <th className={thClass}>Unit Cost</th>
@@ -508,7 +516,7 @@ export default function InventoryPage() {
                 </div>
               </div>
               <div className="space-y-1.5">
-                <label htmlFor="storage_location" className={labelClass}>Placed At</label>
+                <label htmlFor="storage_location" className={labelClass}>Storage location</label>
                 <input
                   id="storage_location"
                   name="storage_location"

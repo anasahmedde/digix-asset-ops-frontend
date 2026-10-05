@@ -1,17 +1,19 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { List, Map, MapPin, Pencil, Plus, Trash2, X } from "lucide-react";
+import { List, Map, MapPin, Pencil, Plus, Power, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
-import { ContactsEditor } from "@/components/ui/contacts-editor";
+import { Modal } from "@/components/ui/modal";
+import { ContactsEditor, type DraftContact } from "@/components/ui/contacts-editor";
 import { Pagination, pageSlice } from "@/components/ui/pagination";
 import { CopyButton } from "@/components/ui/copy-button";
 import { FilterBar } from "@/components/ui/filter-bar";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
+import { formatDate } from "@/lib/utils";
 import { useUser } from "@/lib/user-context";
 
 const SiteMap = dynamic(() => import("@/components/map/site-map"), { ssr: false, loading: () => <div className="flex h-[500px] items-center justify-center rounded-xl border border-border bg-secondary/50"><div className="h-6 w-6 animate-spin rounded-full border-2 border-primary/30 border-t-primary" /></div> });
@@ -62,6 +64,10 @@ export default function SitesPage() {
   const [view, setView] = useState<"list" | "map">("list");
   const [filterValues, setFilterValues] = useState<Record<string, string>>({ status: "", country: "" });
   const [search, setSearch] = useState("");
+  // Address, city and country are controlled so that dropping a pin can
+  // fill them in. They stay editable — the pin gives a starting point, and
+  // a site often has a name for itself that no map knows.
+  const [place, setPlace] = useState({ address: "", city: "", country: "Pakistan" });
   const [pickerLat, setPickerLat] = useState<number | null>(null);
   const [pickerLng, setPickerLng] = useState<number | null>(null);
   const searchParams = useSearchParams();
@@ -110,6 +116,7 @@ export default function SitesPage() {
 
   function openCreate() {
     setSelected(null);
+    setPlace({ address: "", city: "", country: "Pakistan" });
     setPickerLat(null);
     setPickerLng(null);
     setModalMode("create");
@@ -120,6 +127,11 @@ export default function SitesPage() {
     try {
       const { data } = await api.get(`/sites/sites/${site.id}/`);
       setSelected(data);
+      setPlace({
+        address: data.address ?? "",
+        city: data.city ?? "",
+        country: data.country ?? "Pakistan",
+      });
       setPickerLat(data.latitude ?? null);
       setPickerLng(data.longitude ?? null);
       setModalMode("edit");
@@ -136,6 +148,10 @@ export default function SitesPage() {
     setPickerLng(null);
   }
 
+  // Contacts typed before the site exists. Once it does, they are posted
+  // against it; on an existing site the editor saves each one itself.
+  const [draftContacts, setDraftContacts] = useState<DraftContact[]>([]);
+
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setSaving(true);
@@ -145,9 +161,6 @@ export default function SitesPage() {
       address: fd.get("address"),
       city: fd.get("city"),
       country: fd.get("country"),
-      contact_person: fd.get("contact_person"),
-      contact_phone: fd.get("contact_phone"),
-      contact_email: fd.get("contact_email"),
       access_instructions: fd.get("access_instructions"),
       operating_hours: fd.get("operating_hours"),
       client: fd.get("client") || null,
@@ -156,7 +169,11 @@ export default function SitesPage() {
     };
     try {
       if (modalMode === "create") {
-        await api.post("/sites/sites/", payload);
+        const { data } = await api.post("/sites/sites/", payload);
+        for (const c of draftContacts) {
+          await api.post("/sites/site-contacts/", { site: data.id, ...c });
+        }
+        setDraftContacts([]);
         toast.success("Site created");
       } else if (selected) {
         await api.patch(`/sites/sites/${selected.id}/`, payload);
@@ -168,6 +185,23 @@ export default function SitesPage() {
       toast.error(getApiError(err, "Failed to save site"));
     } finally {
       setSaving(false);
+    }
+  }
+
+  /** Closed for the season, or gone for good: off the lists either way,
+   *  while every asset and visit already recorded there stays put. */
+  async function toggleActive(site: Site) {
+    const off = site.is_active;
+    if (off && !confirm(
+      `Deactivate ${site.name}? Everything already recorded there stays, `
+      + "and it stops being offered when something new is raised.",
+    )) return;
+    try {
+      await api.patch(`/sites/${site.id}/`, { is_active: !off });
+      toast.success(off ? "Site deactivated" : "Site reactivated");
+      fetchSites();
+    } catch (err) {
+      toast.error(getApiError(err, "Could not change that"));
     }
   }
 
@@ -256,6 +290,7 @@ export default function SitesPage() {
                   <th className={thClass}>Client</th>
                   <th className={thClass}>City</th>
                   <th className={thClass}>Country</th>
+                  <th className={thClass}>Added</th>
                   <th className={thClass}>Devices</th>
                   <th className={thClass}>Status</th>
                   <th className={thClass}>Actions</th>
@@ -273,6 +308,7 @@ export default function SitesPage() {
                     <td className={`${tdClass} text-muted-foreground`}>{s.client_name || "-"}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{s.city || "-"}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{s.country}</td>
+                    <td className={`${tdClass} text-muted-foreground`}>{formatDate(s.created_at)}</td>
                     <td className={tdClass}>
                       <span className="inline-flex rounded-full bg-blue-500/10 px-2.5 py-0.5 text-xs font-medium text-blue-400 ring-1 ring-blue-500/20">
                         {s.device_count}
@@ -288,6 +324,15 @@ export default function SitesPage() {
                         <div className="flex items-center gap-1">
                           <button onClick={() => openEdit(s)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground" title="Edit">
                             <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            onClick={() => toggleActive(s)}
+                            className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors hover:bg-secondary ${
+                              s.is_active ? "text-muted-foreground hover:text-amber-600" : "text-emerald-600"
+                            }`}
+                            title={s.is_active ? "Deactivate" : "Reactivate"}
+                          >
+                            <Power className="h-3.5 w-3.5" />
                           </button>
                           <button onClick={() => handleDelete(s)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-destructive" title="Delete">
                             <Trash2 className="h-3.5 w-3.5" />
@@ -308,14 +353,7 @@ export default function SitesPage() {
       })()}
 
       {modalMode && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 py-8 backdrop-blur-md veil-in">
-          <div className="w-full max-w-2xl glass glass-pop rounded-2xl p-6">
-            <div className="mb-5 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-foreground">{modalMode === "create" ? "Add New Site" : "Edit Site"}</h2>
-              <button onClick={closeModal} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
+        <Modal open onClose={closeModal} title={modalMode === "create" ? "Add New Site" : "Edit Site"} size="lg">
             <form onSubmit={handleSubmit} className="max-h-[70vh] space-y-4 overflow-y-auto pr-1">
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
@@ -333,17 +371,37 @@ export default function SitesPage() {
 
               <div className="space-y-1.5">
                 <label htmlFor="address" className={labelClass}>Address *</label>
-                <textarea id="address" name="address" required rows={2} defaultValue={selected?.address ?? ""} className={`${inputClass} h-auto py-2`} />
+                <textarea
+                  id="address"
+                  name="address"
+                  required
+                  rows={2}
+                  value={place.address}
+                  onChange={(e) => setPlace((p) => ({ ...p, address: e.target.value }))}
+                  className={`${inputClass} h-auto py-2`}
+                />
               </div>
 
               <div className="grid gap-4 sm:grid-cols-3">
                 <div className="space-y-1.5">
                   <label htmlFor="city" className={labelClass}>City</label>
-                  <input id="city" name="city" defaultValue={selected?.city ?? ""} className={inputClass} />
+                  <input
+                    id="city"
+                    name="city"
+                    value={place.city}
+                    onChange={(e) => setPlace((p) => ({ ...p, city: e.target.value }))}
+                    className={inputClass}
+                  />
                 </div>
                 <div className="space-y-1.5">
                   <label htmlFor="country" className={labelClass}>Country</label>
-                  <input id="country" name="country" defaultValue={selected?.country ?? "Pakistan"} className={inputClass} />
+                  <input
+                    id="country"
+                    name="country"
+                    value={place.country}
+                    onChange={(e) => setPlace((p) => ({ ...p, country: e.target.value }))}
+                    className={inputClass}
+                  />
                 </div>
                 <div className="space-y-1.5">
                   <label htmlFor="operating_hours" className={labelClass}>Operating Hours</label>
@@ -356,26 +414,18 @@ export default function SitesPage() {
                 <LocationPicker
                   lat={pickerLat}
                   lng={pickerLng}
-                  onChange={({ lat, lng }) => { setPickerLat(lat); setPickerLng(lng); }}
+                  onChange={({ lat, lng, address, city, country }) => {
+                    setPickerLat(lat);
+                    setPickerLng(lng);
+                    // Only what the lookup actually found — a blank answer
+                    // must not wipe something already typed.
+                    setPlace((p) => ({
+                      address: address || p.address,
+                      city: city || p.city,
+                      country: country || p.country,
+                    }));
+                  }}
                 />
-              </div>
-
-              <div className="border-t border-border/30 pt-4">
-                <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Contact</p>
-                <div className="grid gap-4 sm:grid-cols-3">
-                  <div className="space-y-1.5">
-                    <label htmlFor="contact_person" className={labelClass}>Contact Person</label>
-                    <input id="contact_person" name="contact_person" defaultValue={selected?.contact_person ?? ""} className={inputClass} />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label htmlFor="contact_phone" className={labelClass}>Phone</label>
-                    <input id="contact_phone" name="contact_phone" type="tel" defaultValue={selected?.contact_phone ?? ""} className={inputClass} />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label htmlFor="contact_email" className={labelClass}>Email</label>
-                    <input id="contact_email" name="contact_email" type="email" defaultValue={selected?.contact_email ?? ""} className={inputClass} />
-                  </div>
-                </div>
               </div>
 
               <div className="space-y-1.5">
@@ -383,9 +433,18 @@ export default function SitesPage() {
                 <textarea id="access_instructions" name="access_instructions" rows={2} defaultValue={selected?.access_instructions ?? ""} className={`${inputClass} h-auto py-2`} placeholder="e.g. Security gate code, parking info..." />
               </div>
 
-              {modalMode === "edit" && selected && (
-                <ContactsEditor endpoint="/sites/site-contacts/" parentField="site" parentId={selected.id} label="Site Contacts (POC)" />
-              )}
+              {/* The same section in both windows: who to ask for at the
+                  site, with their designation, and room for more than one.
+                  It used to sit below a second, smaller contact form that
+                  asked for a name, a phone and an email all over again. */}
+              <ContactsEditor
+                endpoint="/sites/site-contacts/"
+                parentField="site"
+                parentId={modalMode === "edit" && selected ? selected.id : null}
+                label="Site contacts"
+                draft={draftContacts}
+                onDraftChange={setDraftContacts}
+              />
 
               <div className="flex justify-end gap-3 pt-2">
                 <button type="button" onClick={closeModal} className="inline-flex h-10 items-center rounded-lg border border-border bg-transparent px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">Cancel</button>
@@ -394,8 +453,8 @@ export default function SitesPage() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+          
+      </Modal>
       )}
     </div>
   );

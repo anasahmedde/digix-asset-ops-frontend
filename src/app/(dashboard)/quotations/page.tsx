@@ -1,10 +1,11 @@
 "use client";
 
-import { ChevronDown, ChevronRight, ClipboardList, FileDown, Pencil, Plus, ReceiptText, Trash2, X } from "lucide-react";
+import {ChevronDown, ChevronRight, ClipboardList, FileDown, Pencil, Plus, ReceiptText, Trash2} from "lucide-react";
 import Link from "next/link";
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { Modal } from "@/components/ui/modal";
 import { SegmentBar, StatTiles } from "@/components/ui/analytics-strip";
 import { CopyButton } from "@/components/ui/copy-button";
 import { FilterBar } from "@/components/ui/filter-bar";
@@ -707,24 +708,13 @@ export default function QuotationsPage() {
       )}
 
       {modalMode && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 py-8 backdrop-blur-md veil-in">
-          <div className="w-full max-w-3xl glass glass-pop rounded-2xl p-6">
-            <div className="mb-5 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <h2 className="text-lg font-semibold text-foreground">
-                  {modalMode === "create" ? "New Quotation" : `Edit ${selected?.quote_number}`}
-                </h2>
-                {modalMode === "edit" && selected && (
-                  <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${STATUS_BADGES[selected.status] ?? ""}`}>
-                    {statusLabel(selected.status)}
-                  </span>
-                )}
-              </div>
-              <button onClick={closeModal} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
+        <Modal open onClose={closeModal}
+          title={modalMode === "create" ? "New Quotation" : `Edit ${selected?.quote_number}`}
+          headerExtra={modalMode === "edit" && selected ? (
+            <span className={`inline-flex shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${STATUS_BADGES[selected.status] ?? ""}`}>
+              {statusLabel(selected.status)}
+            </span>
+          ) : null} size="wide">
             {modalMode === "edit" && selected && <div className="mb-4">{renderTransitionBar(selected)}</div>}
 
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -895,13 +885,11 @@ export default function QuotationsPage() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {pendingTransition && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-md veil-in">
-          <div className="w-full max-w-md glass glass-pop rounded-2xl p-6">
+        <Modal open onClose={() => setPendingTransition(null)} size="sm">
             <h3 className="text-base font-semibold text-foreground">
               {pendingTransition.label} — {pendingTransition.quotation.quote_number}?
             </h3>
@@ -942,8 +930,7 @@ export default function QuotationsPage() {
                 {transitioning ? "Working..." : pendingTransition.label}
               </button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

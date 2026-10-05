@@ -247,6 +247,9 @@ export interface ChatMessage {
 
 export type TicketStatus =
   | "open"
+  // Given to a technician, with a visit planned — the step between a fault
+  // being reported and somebody being on site for it.
+  | "assigned"
   | "in_progress"
   | "on_hold"
   | "blocked"

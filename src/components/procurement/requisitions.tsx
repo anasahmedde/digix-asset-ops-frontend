@@ -1,6 +1,6 @@
 "use client";
 
-import { ClipboardList, ShoppingCart, Undo2 } from "lucide-react";
+import { AlertTriangle, ClipboardList, ShoppingCart, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -22,6 +22,10 @@ import { useUser } from "@/lib/user-context";
  */
 interface Requisition {
   kind?: "component" | "asset" | "reorder";
+  /** Which part of the business asked for this — Project, Inventory, … */
+  origin?: string;
+  /** The screen it was raised from, under the origin. */
+  origin_detail?: string;
   component: string | null;
   device?: string | null;
   /** A stock reorder raised from Inventory › Low Stock, with its PR number. */
@@ -44,6 +48,11 @@ interface Requisition {
   po_number: string | null;
   /** The last price we paid, when there is one to suggest. */
   last_unit_price?: string | null;
+  /** What the line should cost, to hold the quote against. */
+  reference_unit_price?: string | number | null;
+  reference_amount?: string | number | null;
+  /** Where that figure came from — an approved budget, or the last order. */
+  reference_label?: string;
 }
 interface Ref { id: string; name: string }
 
@@ -60,6 +69,34 @@ function keyOf(r: Requisition): string {
 }
 function idOf(r: Requisition): string | null | undefined {
   return r.kind === "asset" ? r.device : r.kind === "reorder" ? r.reorder : r.component;
+}
+
+/**
+ * Where a request came from.
+ *
+ * The buyer works the queue top to bottom without knowing the history of
+ * each line, so the row says which part of the business asked for it. The
+ * server sends it; the fallback covers a line raised before it did.
+ */
+const ORIGIN_TINT: Record<string, string> = {
+  Project: "bg-sky-500/10 text-sky-600 ring-sky-500/20",
+  Inventory: "bg-amber-500/10 text-amber-600 ring-amber-500/20",
+  Maintenance: "bg-violet-500/10 text-violet-600 ring-violet-500/20",
+  "Asset registry": "bg-indigo-500/10 text-indigo-600 ring-indigo-500/20",
+};
+
+/** A figure with its thousands marked. The column heading carries the currency. */
+function amount(value: string | number | null | undefined): string {
+  if (value === null || value === undefined || value === "") return "—";
+  const n = typeof value === "string" ? parseFloat(value) : value;
+  return Number.isNaN(n) ? "—" : n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
+function originOf(r: Requisition): { name: string; detail: string } {
+  if (r.origin) return { name: r.origin, detail: r.origin_detail ?? "" };
+  if (r.kind === "reorder") return { name: "Inventory", detail: "Low Stock" };
+  if (r.project_name) return { name: "Project", detail: "Execution › Build Requirements" };
+  return { name: "Asset registry", detail: "" };
 }
 
 export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
@@ -85,6 +122,9 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
   const [terms, setTerms] = useState("");
   const [notes, setNotes] = useState("");
   const [prices, setPrices] = useState<Record<string, string>>({});
+  // Why a line is going on above the figure it was planned at. Travels with
+  // the order to whoever has to agree it.
+  const [reasons, setReasons] = useState<Record<string, string>>({});
   // Anything else the order needs that no request asked for — freight, a
   // spare, a charge. Written with the editor the new-order form uses.
   const [extraLines, setExtraLines] = useState<PoLine[]>([]);
@@ -149,8 +189,15 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
     setTerms("");
     setNotes("");
     setPrices({});
+    setReasons({});
     setExtraLines([]);
   }
+
+  /** Lines going on above what they were planned at. */
+  const overPlan = chosen.filter((r) => {
+    const ref = r.reference_unit_price == null ? null : Number(r.reference_unit_price);
+    return ref != null && Number(prices[keyOf(r)] ?? 0) > ref;
+  });
 
   async function raisePo() {
     if (!supplier || chosen.length === 0) return;
@@ -162,10 +209,13 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
     setSaving(true);
     try {
       const priceById: Record<string, string> = {};
+      const reasonById: Record<string, string> = {};
       chosen.forEach((r) => {
         const id = idOf(r);
         const p = (prices[keyOf(r)] ?? "").trim();
         if (id && p !== "") priceById[id] = p;
+        const why = (reasons[keyOf(r)] ?? "").trim();
+        if (id && why) reasonById[id] = why;
       });
       const { data } = await api.post("/procurement/purchase-orders/raise-po/", {
         supplier,
@@ -173,6 +223,7 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
         devices: chosen.filter((r) => r.kind === "asset").map((r) => r.device),
         reorders: chosen.filter((r) => r.kind === "reorder").map((r) => r.reorder),
         prices: priceById,
+        variance_reasons: reasonById,
         extra_items: extraLines.filter((l) => !isPoLineEmpty(l)).map(poLinePayload),
         currency,
         supplier_details: supplierDetails.trim(),
@@ -180,7 +231,16 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
         terms: terms.trim(),
         notes: notes.trim(),
       });
-      toast.success(`${data.po_number} drafted with ${data.items?.length ?? 0} line(s) — review it, then submit it for the Group Head's approval`);
+      const flagged = overPlan.length;
+      toast.success(
+        flagged
+          ? `${data.po_number} drafted. ${flagged} line(s) are priced over plan and have gone to `
+            + `${[...new Set(overPlan.map((r) => originOf(r).name))].join(" and ")} to agree — `
+            + "the order cannot go up for signature until they do."
+          : `${data.po_number} drafted with ${data.items?.length ?? 0} line(s) — review it, then `
+            + "submit it for the Group Head's approval",
+        { duration: flagged ? 9000 : 5000 },
+      );
       resetModal();
       fetchRows();
       onPoRaised?.();
@@ -280,10 +340,12 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
                     </th>
                   )}
                   <th className={thClass}>To Buy</th>
+                  <th className={thClass}>Origin</th>
                   <th className={thClass}>For Asset</th>
                   <th className={thClass}>Project</th>
                   <th className={thClass}>Qty</th>
                   <th className={thClass}>In Stock</th>
+                  <th className={`${thClass} text-right`}>Reference Value (PKR)</th>
                   <th className={thClass}>Purchase Order</th>
                   {canBuy && <th className={thClass}></th>}
                 </tr>
@@ -293,6 +355,7 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
                   const key = keyOf(r);
                   const isAsset = r.kind === "asset";
                   const isReorder = r.kind === "reorder";
+                  const origin = originOf(r);
                   return (
                     <tr key={key} className="border-b border-border transition-colors hover:bg-secondary/30">
                       {canBuy && (
@@ -323,6 +386,16 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
                           </span>
                         )}
                       </td>
+                      <td className={tdClass}>
+                        <span className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-2xs font-medium ring-1 ${
+                          ORIGIN_TINT[origin.name] ?? "bg-secondary text-muted-foreground ring-border"
+                        }`}>
+                          {origin.name}
+                        </span>
+                        {origin.detail && (
+                          <span className="mt-0.5 block text-2xs text-muted-foreground">{origin.detail}</span>
+                        )}
+                      </td>
                       <td className={`${tdClass} ${isReorder ? "text-muted-foreground" : "font-mono text-muted-foreground"}`}>
                         {isReorder ? <>Stock<span className="block text-2xs">reorder level {r.reorder_level ?? "—"}</span></> : r.asset_code}
                       </td>
@@ -340,6 +413,24 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
                               <span className="block text-2xs text-muted-foreground">stock would cover it</span>
                             )}
                           </>
+                        )}
+                      </td>
+                      {/* What the line should come to, so a quote can be
+                          judged without leaving the queue. */}
+                      <td className={`${tdClass} text-right`}>
+                        {/* The unit value, not the line total: it is the
+                            figure a supplier quotes and the one worth
+                            arguing over. */}
+                        <span className="font-medium tabular-nums text-foreground">
+                          {amount(r.reference_unit_price)}
+                        </span>
+                        <span className="block text-2xs text-muted-foreground">
+                          per {r.unit ?? "piece"}
+                        </span>
+                        {r.reference_label && (
+                          <span className="block text-2xs text-muted-foreground">
+                            {r.reference_label}
+                          </span>
                         )}
                       </td>
                       <td className={`${tdClass} font-mono text-muted-foreground`}>{r.po_number ?? "—"}</td>
@@ -434,6 +525,7 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
                     <th className="px-3 py-2 font-medium">Line</th>
                     <th className="px-3 py-2 font-medium">For</th>
                     <th className="px-3 py-2 text-right font-medium">Qty</th>
+                    <th className="px-3 py-2 text-right font-medium">Reference</th>
                     <th className="px-3 py-2 text-right font-medium">Unit price</th>
                     <th className="px-3 py-2 text-right font-medium">Line total</th>
                   </tr>
@@ -442,24 +534,55 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
                   {chosen.map((r) => {
                     const key = keyOf(r);
                     const price = Number(prices[key] ?? 0);
+                    // What the line was planned or last bought at, and how
+                    // far the price being typed has moved from it. Finding
+                    // that out after the order is placed is too late.
+                    const ref = r.reference_unit_price == null
+                      ? null : Number(r.reference_unit_price);
+                    const drift = ref && price ? (price - ref) / ref : 0;
                     return (
                       <tr key={key} className="border-b border-border/60 last:border-0">
                         <td className="px-3 py-2 font-medium text-foreground">{r.name}</td>
                         <td className="px-3 py-2 font-mono text-muted-foreground">{r.asset_code}</td>
                         <td className="px-3 py-2 text-right text-foreground"><Qty value={r.outstanding_quantity} unit={r.unit} /></td>
-                        <td className="px-3 py-2 text-right">
+                        <td className="px-3 py-2 text-right align-top">
+                          <span className="tabular-nums text-foreground">{amount(ref)}</span>
+                          {r.reference_label && (
+                            <span className="block text-2xs text-muted-foreground">{r.reference_label}</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-right align-top">
                           <input
                             type="number"
                             min={0}
                             step="0.01"
                             value={prices[key] ?? ""}
                             onChange={(e) => setPrices((prev) => ({ ...prev, [key]: e.target.value }))}
-                            placeholder="last paid"
+                            placeholder={ref ? String(ref) : "last paid"}
                             aria-label={`Unit price for ${r.name}`}
                             className="h-8 w-28 rounded-lg border border-border bg-background px-2 text-right text-xs text-foreground focus:border-primary/50 focus:outline-none"
                           />
+                          {Math.abs(drift) >= 0.005 && (
+                            <span className={`block text-2xs ${drift > 0 ? "text-amber-600" : "text-emerald-600"}`}>
+                              {drift > 0 ? "+" : "−"}{Math.abs(drift * 100).toFixed(0)}%
+                              {drift > 0 ? " over" : " under"} reference
+                            </span>
+                          )}
+                          {/* Over the plan is somebody else's money. The
+                              reason travels with the line to whoever has to
+                              agree it, so ask for it while the quote is in
+                              front of the buyer. */}
+                          {drift > 0 && (
+                            <input
+                              value={reasons[key] ?? ""}
+                              onChange={(e) => setReasons((prev) => ({ ...prev, [key]: e.target.value }))}
+                              placeholder="Why the higher price?"
+                              aria-label={`Reason for the higher price on ${r.name}`}
+                              className="mt-1 h-7 w-44 rounded-lg border border-amber-500/40 bg-background px-2 text-2xs text-foreground focus:border-primary/50 focus:outline-none"
+                            />
+                          )}
                         </td>
-                        <td className="px-3 py-2 text-right text-muted-foreground">
+                        <td className="px-3 py-2 text-right align-top tabular-nums text-muted-foreground">
                           {prices[key] ? (price * r.outstanding_quantity).toLocaleString() : "—"}
                         </td>
                       </tr>
@@ -469,8 +592,21 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
               </table>
             </div>
             <p className="text-2xs text-muted-foreground">
-              A blank price falls back to what we last paid for that line, or zero if we never have.
+              Reference is the figure the project budget was approved on, or the last price paid
+              for stock. A blank price falls back to what we last paid for that line, or zero if
+              we never have.
             </p>
+            {overPlan.length > 0 && (
+              <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-700 dark:text-amber-500">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>
+                  {overPlan.length} line{overPlan.length === 1 ? " is" : "s are"} priced above plan.
+                  The draft will be raised, then{" "}
+                  {[...new Set(overPlan.map((r) => originOf(r).name))].join(" and ")} has to agree
+                  the price before this order can go up for the Group Head&apos;s signature.
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Anything the order needs beyond the requests — same editor as a
