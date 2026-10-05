@@ -2,7 +2,6 @@
 
 import {AlertTriangle, CalendarClock, Check, Pencil, Plus, Trash2, Wrench} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
@@ -59,21 +58,7 @@ interface Option { id: string; label: string }
 type ReqRow = { name: string; quantity: number; inventory_item?: string; inventory_unit_type?: string };
 
 /** A part the store issued for this job, waiting to be accounted for. */
-interface IssuedPart {
-  id: string;
-  what: string;
-  unit: string;
-  item: string | null;
-  unit_type: string | null;
-  quantity_issued: number;
-  issued_serials: string[];
-  quantity_used: number | null;
-}
 
-interface BillingDefaults {
-  is_billable: boolean;
-  charge_to: string; // "" | "company" | "client" | "vendor"
-}
 
 interface MaintenanceRecordRow {
   id: string;
@@ -123,7 +108,6 @@ const FREQ_LABEL: Record<string, string> = {
 };
 
 // Supplier-side warranty types (mirrors backend derive_billability).
-const SUPPLIER_SIDE_TYPES = ["supplier", "manufacturer", "extended"];
 
 function BillingChip({ billable, chargeTo }: { billable: boolean; chargeTo: string }) {
   const label = billable
@@ -170,34 +154,10 @@ export default function MaintenancePage() {
   const [supplierOptions, setSupplierOptions] = useState<Option[]>([]);
   /** Where the chosen asset stands — the schedule's site follows it. */
   const [formAssetSite, setFormAssetSite] = useState<string | null>(null);
-  const [completeFor, setCompleteFor] = useState<MaintenanceSchedule | null>(null);
-  const [completeComponents, setCompleteComponents] = useState<{ id: string; name: string }[]>([]);
-  // The cover the billing answer turns on, and who would be billed without it.
-  const [completeCover, setCompleteCover] = useState<{
-    covered: boolean;
-    label: string;
-    until: string | null;
-    clientName: string | null;
-  } | null>(null);
-  const [usedComponents, setUsedComponents] = useState<string[]>([]);
-  const [completePhotos, setCompletePhotos] = useState<File[]>([]);
-  const [completing, setCompleting] = useState(false);
-  // MW-01/02 billing: derived defaults from the asset's active warranties
-  // (null = unknown → server derives on save) and the user's explicit edits
-  // (null = untouched → omitted from the payload).
-  const [completeBilling, setCompleteBilling] = useState<BillingDefaults | null>(null);
-  // Parts the store issued for the job, and what the visit did with them.
-  // Generic stock is counted; unique units are named, because the store puts
-  // them back one serial at a time.
-  const [issuedParts, setIssuedParts] = useState<IssuedPart[]>([]);
-  const [usedQty, setUsedQty] = useState<Record<string, number>>({});
-  const [backSerials, setBackSerials] = useState<Record<string, string[]>>({});
   const [pastRecords, setPastRecords] = useState<MaintenanceRecordRow[]>([]);
-  // The round being closed out: a visit is recorded against the day it fell
-  // due and the day somebody was actually on site, which are rarely the same.
-  const [completeVisit, setCompleteVisit] = useState<{
-    id: string; due_date: string; started_at: string | null; assigned_to_name: string | null;
-  } | null>(null);
+  /** Which of the two lists is showing. Held in the address, so Back works
+      and a link to one of them lands on it. */
+  const [kind, setKindState] = useState<"preventive" | "corrective">("preventive");
   // Guards openEdit's past-records fetch against out-of-order responses from
   // a previously opened schedule (null = no edit modal open).
   const openScheduleIdRef = useRef<string | null>(null);
@@ -246,6 +206,11 @@ export default function MaintenancePage() {
   // lives in the address, and Back closes the job instead of leaving
   // Maintenance for whatever page came before it.
   useEffect(() => {
+    const fromUrl = new URLSearchParams(window.location.search).get("kind");
+    if (fromUrl === "corrective" || fromUrl === "preventive") setKindState(fromUrl);
+  }, []);
+
+  useEffect(() => {
     const readHash = () => {
       const match = window.location.hash.match(/^#job-(.+)$/);
       setDetailForId(match ? match[1] : null);
@@ -258,6 +223,15 @@ export default function MaintenancePage() {
       window.removeEventListener("hashchange", readHash);
     };
   }, []);
+
+  // The chosen list lives in the address beside the open job, so going
+  // back out of a job returns to the list it was opened from.
+  function setKind(next: "preventive" | "corrective") {
+    setKindState(next);
+    const url = new URL(window.location.href);
+    url.searchParams.set("kind", next);
+    window.history.replaceState(null, "", url.toString() + window.location.hash);
+  }
 
   function openDetail(id: string) {
     window.history.pushState(null, "", `#job-${id}`);
@@ -272,129 +246,6 @@ export default function MaintenancePage() {
       const { data } = await api.get(`/assets/devices/${id}/`);
       setFormAssetSite(data.site_name ?? null);
     } catch { /* the site field says it could not be read */ }
-  }
-
-  async function openComplete(s: MaintenanceSchedule) {
-    setCompleteFor(s);
-    setUsedComponents([]);
-    setCompletePhotos([]);
-    setCompleteComponents([]);
-    setCompleteBilling(null);
-    setIssuedParts([]);
-    setUsedQty({});
-    setBackSerials({});
-    setCompleteVisit(null);
-    try {
-      const { data } = await api.get("/maintenance/visits/", {
-        params: { schedule: s.id, page_size: 20 },
-      });
-      const open = (data.results ?? data).find(
-        (v: { status: string }) => v.status === "planned" || v.status === "in_progress"
-      );
-      setCompleteVisit(open ?? null);
-    } catch { /* the dialog simply does not name the round */ }
-    try {
-      const { data } = await api.get("/maintenance/part-requests/", {
-        params: { schedule: s.id, page_size: 200 },
-      });
-      // Only what the store actually handed over and nobody has accounted
-      // for yet: the rest of the list is asking and answering.
-      const open: IssuedPart[] = (data.results ?? data).filter(
-        (p: IssuedPart) => (p.quantity_issued ?? 0) > 0 && p.quantity_used === null
-      );
-      setIssuedParts(open);
-      setUsedQty(Object.fromEntries(open.map((p) => [p.id, p.quantity_issued])));
-      setBackSerials(Object.fromEntries(open.map((p) => [p.id, []])));
-    } catch { /* the dialog asks about nothing rather than the wrong thing */ }
-    if (s.device) {
-      try {
-        const { data } = await api.get(`/assets/devices/${s.device}/`);
-        setCompleteComponents((data.components ?? []).map((c: { id: string; name: string }) => ({ id: c.id, name: c.name })));
-        setCompleteCover((prev) => ({
-          covered: prev?.covered ?? false,
-          label: prev?.label ?? "",
-          until: prev?.until ?? null,
-          clientName: data.client_name ?? null,
-        }));
-      } catch { /* components stay empty */ }
-      try {
-        // Mirror the backend default: active client warranty → company (or
-        // vendor when a supplier-side warranty is also active); none → client.
-        const { data } = await api.get("/warranties/", {
-          params: { device: s.device, status: "active", page_size: 100 },
-        });
-        const list: { warranty_type: string; warranty_type_display?: string; end_date?: string }[] =
-          data.results ?? data;
-        const client = list.find((w) => w.warranty_type === "client");
-        const supplierSide = list.find((w) => SUPPLIER_SIDE_TYPES.includes(w.warranty_type));
-        const cover = client ?? supplierSide;
-        setCompleteCover((prev) => ({
-          covered: Boolean(client),
-          label: cover?.warranty_type_display ?? (cover ? cover.warranty_type : ""),
-          until: cover?.end_date ?? null,
-          clientName: prev?.clientName ?? null,
-        }));
-        setCompleteBilling(
-          client
-            ? { is_billable: false, charge_to: supplierSide ? "vendor" : "company" }
-            : { is_billable: true, charge_to: "client" }
-        );
-      } catch { /* unknown — billing derived server-side, shown after submit */ }
-    }
-  }
-
-  async function submitComplete(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    if (!completeFor) return;
-    setCompleting(true);
-    const fd = new FormData(e.currentTarget);
-    try {
-      const { data: record } = await api.post("/maintenance/records/", {
-        schedule: completeFor.id,
-        performed_at: new Date().toISOString(),
-        status: "completed",
-        notes: fd.get("notes") || "",
-        cost: fd.get("cost") || null,
-        components_used: usedComponents,
-        // Billing is not sent: the server reads the asset's cover, which is
-        // the same thing this dialog is showing.
-        ...(issuedParts.length > 0
-          ? {
-              parts_settlement: issuedParts.map((p) => ({
-                part_request: p.id,
-                used: p.unit_type
-                  ? p.quantity_issued - (backSerials[p.id]?.length ?? 0)
-                  : usedQty[p.id] ?? p.quantity_issued,
-                serials: p.unit_type ? backSerials[p.id] ?? [] : [],
-              })),
-            }
-          : {}),
-      });
-      for (const photo of completePhotos) {
-        const photoForm = new FormData();
-        photoForm.append("record", record.id);
-        photoForm.append("image", photo);
-        await api.post("/maintenance/record-photos/", photoForm, {
-          headers: { "Content-Type": "multipart/form-data" },
-        });
-      }
-      toast.success("Maintenance completed — schedule rolled to next cycle", {
-        description: record.is_billable
-          ? `Billable${record.charge_to ? ` to ${record.charge_to}` : ""}`
-          : `Covered by warranty${record.charge_to ? ` — charged to ${record.charge_to}` : ""}`,
-      });
-      if (record.return_grn) {
-        toast.success(`Returned parts are with receiving on ${record.return_grn}`, {
-          description: "They are back in stock once inspection passes them.",
-        });
-      }
-      setCompleteFor(null);
-      fetchSchedules();
-    } catch (err) {
-      toast.error(getApiError(err, "Failed to complete maintenance"));
-    } finally {
-      setCompleting(false);
-    }
   }
 
   async function openEdit(s: MaintenanceSchedule) {
@@ -525,7 +376,6 @@ export default function MaintenancePage() {
           schedule={detailFor}
           onBack={() => window.history.back()}
           onChanged={fetchSchedules}
-          onComplete={() => openComplete(detailFor)}
           onEdit={canEdit ? () => openEdit(detailFor) : undefined}
         />
       ) : (
@@ -637,9 +487,46 @@ export default function MaintenancePage() {
           );
         })()}
 
+        {/* The two kinds of maintenance are two different jobs run by two
+            different triggers — a calendar and a fault — so they get a
+            list each rather than one list with a filter on it. */}
+        <div className="grid gap-2 rounded-xl border border-border bg-card p-1.5 sm:grid-cols-2">
+          {([
+            {
+              key: "preventive", label: "Preventive",
+              hint: "Rounds that come round on a schedule",
+              count: schedules.filter((s) => s.maintenance_type === "preventive").length,
+            },
+            {
+              key: "corrective", label: "Corrective",
+              hint: "Repairs raised by a fault on an asset",
+              count: schedules.filter((s) => s.maintenance_type === "corrective").length,
+            },
+          ] as const).map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setKind(t.key)}
+              className={`flex items-center gap-3 rounded-lg px-4 py-3 text-left transition-colors ${
+                kind === t.key ? "bg-primary/10 ring-1 ring-primary/30" : "hover:bg-secondary"
+              }`}
+            >
+              <span className={`flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full px-1.5 text-xs font-bold ${
+                kind === t.key ? "bg-primary text-white" : "bg-secondary text-muted-foreground"
+              }`}>
+                {t.count}
+              </span>
+              <span>
+                <span className={`block text-sm font-semibold ${kind === t.key ? "text-primary" : "text-foreground"}`}>
+                  {t.label}
+                </span>
+                <span className="block text-2xs text-muted-foreground">{t.hint}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+
         <FilterBar
           filters={[
-            { key: "type", label: "Type", options: Object.keys(TYPE_BADGES).map((t) => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) })) },
             { key: "frequency", label: "Frequency", options: Object.entries(FREQ_LABEL).map(([v, l]) => ({ value: v, label: l })) },
             { key: "status", label: "Status", options: [["active", "Active"], ["pending", "Pending"], ["in_process", "In progress"], ["on_hold", "Paused"], ["overdue", "Over Due"], ["completed", "Completed"]].map(([v, l]) => ({ value: v, label: l })) },
           ]}
@@ -652,7 +539,7 @@ export default function MaintenancePage() {
 
         {(() => {
           const filtered = schedules.filter((s) => {
-            if (filterValues.type && s.maintenance_type !== filterValues.type) return false;
+            if (s.maintenance_type !== kind) return false;
             if (filterValues.frequency && s.frequency !== filterValues.frequency) return false;
             if (filterValues.status && (s.effective_status || s.status) !== filterValues.status) return false;
             if (search) {
@@ -715,9 +602,15 @@ export default function MaintenancePage() {
                         </span>
                       </td>
                       <td className={tdClass}>
-                        <span className="inline-flex rounded-full bg-secondary/500/10 px-2.5 py-0.5 text-xs font-medium text-muted-foreground ring-1 ring-gray-500/20">
-                          {FREQ_LABEL[s.frequency] ?? s.frequency}
-                        </span>
+                        {/* Only an arrangement that comes round has a
+                            frequency. A fault happens once. */}
+                        {s.maintenance_type === "preventive" ? (
+                          <span className="inline-flex rounded-full bg-secondary px-2.5 py-0.5 text-xs font-medium text-muted-foreground ring-1 ring-gray-500/20">
+                            {FREQ_LABEL[s.frequency] ?? s.frequency}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
                       </td>
                       <td className={tdClass}>
                         <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ring-1 ${PRIORITY_BADGES[s.priority] ?? PRIORITY_BADGES.medium}`}>
@@ -1025,244 +918,6 @@ export default function MaintenancePage() {
       </Modal>
       )}
 
-      {/* Complete-maintenance modal */}
-      {completeFor && (
-        <Modal open onClose={() => setCompleteFor(null)} title="Complete — {completeFor.title}" size="md">
-            <form onSubmit={submitComplete} className="space-y-4">
-              {completeFor.maintenance_type === "preventive" && completeFor.device && (
-                <p className="rounded-lg border border-dashed border-border px-3 py-2 text-2xs text-muted-foreground">
-                  Something this visit cannot fix?{" "}
-                  <Link href={`/tickets?create=1&device=${completeFor.device}&category=repair`} className="font-medium text-primary hover:underline">
-                    Raise a ticket
-                  </Link>
-                </p>
-              )}
-              {completeVisit && (
-                <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-3 py-2">
-                  <div>
-                    <p className={labelClass}>Due on</p>
-                    <p className="text-sm text-foreground">{formatDate(completeVisit.due_date)}</p>
-                  </div>
-                  <div>
-                    <p className={labelClass}>Carried out</p>
-                    <p className="text-sm text-foreground">
-                      {completeVisit.started_at
-                        ? new Date(completeVisit.started_at).toLocaleString()
-                        : "Today"}
-                    </p>
-                  </div>
-                  {completeVisit.assigned_to_name && (
-                    <div>
-                      <p className={labelClass}>Technician</p>
-                      <p className="text-sm text-foreground">{completeVisit.assigned_to_name}</p>
-                    </div>
-                  )}
-                </div>
-              )}
-              {issuedParts.length > 0 && (
-                <div className="space-y-3 rounded-lg border border-border p-3">
-                  <div>
-                    <p className="text-xs font-semibold text-foreground">Components issued</p>
-                    <p className="text-2xs text-muted-foreground">
-                      What was used? The rest goes back to the store for checking in.
-                    </p>
-                  </div>
-                  {issuedParts.map((p) => {
-                    const chosen = backSerials[p.id] ?? [];
-                    const back = p.unit_type ? chosen.length : Math.max(0, p.quantity_issued - (usedQty[p.id] ?? p.quantity_issued));
-                    return (
-                      <div key={p.id} className="space-y-2 border-t border-border pt-2.5 first:border-0 first:pt-0">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <p className="text-sm font-medium text-foreground">
-                            {p.what}
-                            <span className="ml-2 text-2xs font-normal text-muted-foreground">
-                              {p.quantity_issued} {p.unit} issued
-                            </span>
-                          </p>
-                          {p.unit_type ? (
-                            <span className="text-2xs text-muted-foreground">Coming back</span>
-                          ) : (
-                            <label className="flex items-center gap-2 text-2xs text-muted-foreground">
-                              Used
-                              <input
-                                type="number"
-                                min={0}
-                                max={p.quantity_issued}
-                                value={usedQty[p.id] ?? p.quantity_issued}
-                                onChange={(e) => {
-                                  const n = Math.max(0, Math.min(p.quantity_issued, Number(e.target.value) || 0));
-                                  setUsedQty((cur) => ({ ...cur, [p.id]: n }));
-                                }}
-                                className="h-8 w-20 rounded-lg border border-border bg-card px-2 text-sm text-foreground focus:border-primary/50 focus:outline-none"
-                              />
-                            </label>
-                          )}
-                        </div>
-                        {p.unit_type && (
-                          <div className="flex flex-wrap gap-1.5">
-                            {/* A unit is known by its serial: without one, the
-                                store cannot say which of them is back. */}
-                            {(p.issued_serials ?? []).map((sn) => {
-                              const on = chosen.includes(sn);
-                              return (
-                                <label
-                                  key={sn}
-                                  className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-2.5 py-1.5 font-mono text-2xs text-foreground transition-colors hover:bg-secondary"
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={on}
-                                    onChange={() =>
-                                      setBackSerials((cur) => ({
-                                        ...cur,
-                                        [p.id]: on ? chosen.filter((v) => v !== sn) : [...chosen, sn],
-                                      }))
-                                    }
-                                    className="h-3.5 w-3.5 accent-primary"
-                                  />
-                                  {sn}
-                                </label>
-                              );
-                            })}
-                            {(p.issued_serials ?? []).length === 0 && (
-                              <span className="text-2xs text-muted-foreground">
-                                No serials recorded.
-                              </span>
-                            )}
-                          </div>
-                        )}
-                        <p className="text-2xs text-muted-foreground">
-                          {back > 0 ? `${back} ${p.unit} going back` : "Nothing going back"}
-                        </p>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-              {(completeFor.required_components ?? []).length > 0 && (
-                <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
-                  <p className="mb-1 text-xs font-semibold text-foreground">Required for this maintenance</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {completeFor.required_components.map((rc, i) => (
-                      <span key={i} className="rounded-full bg-card px-2 py-0.5 text-2xs text-muted-foreground ring-1 ring-border">
-                        {rc.name} ×{rc.quantity}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {completeComponents.length > 0 && (
-                <div className="space-y-1.5">
-                  <label className={labelClass}>Components used / serviced</label>
-                  <div className="flex flex-wrap gap-2">
-                    {completeComponents.map((c) => {
-                      const on = usedComponents.includes(c.id);
-                      return (
-                        <button
-                          key={c.id}
-                          type="button"
-                          onClick={() => setUsedComponents((cur) => (on ? cur.filter((v) => v !== c.id) : [...cur, c.id]))}
-                          className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
-                            on ? "border-primary/50 bg-primary/10 text-primary" : "border-border bg-card text-muted-foreground hover:text-foreground"
-                          }`}
-                        >
-                          {on && <Check className="h-3 w-3" />}
-                          {c.name}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-              <div className="space-y-1.5">
-                <label htmlFor="mc-notes" className={labelClass}>Work done / notes</label>
-                <textarea id="mc-notes" name="notes" rows={3} className={`${inputClass} h-auto py-2`} placeholder="What was done, parts replaced, observations…" />
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <label htmlFor="mc-cost" className={labelClass}>Cost (optional)</label>
-                  <input id="mc-cost" name="cost" type="number" step="0.01" className={inputClass} placeholder="0.00" />
-                </div>
-                <div className="space-y-1.5">
-                  <label htmlFor="mc-photos" className={labelClass}>Photos</label>
-                  <input
-                    id="mc-photos"
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    onChange={(e) => setCompletePhotos(Array.from(e.target.files ?? []))}
-                    className="block w-full text-xs text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-primary/10 file:px-3 file:py-2 file:text-xs file:font-medium file:text-primary"
-                  />
-                  {completePhotos.length > 0 && (
-                    <p className="text-2xs text-muted-foreground">{completePhotos.length} photo{completePhotos.length > 1 ? "s" : ""} selected</p>
-                  )}
-                </div>
-              </div>
-              <div className="space-y-2.5 rounded-lg border border-border p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-xs font-semibold text-foreground">Billing</p>
-                  {completeBilling ? (
-                    <BillingChip billable={completeBilling.is_billable} chargeTo={completeBilling.charge_to} />
-                  ) : (
-                    <span className="text-2xs text-muted-foreground">Derived from the asset&apos;s warranty on save</span>
-                  )}
-                </div>
-                {/* Cover decides who pays, so it is stated rather than asked
-                    for — a tick box here could only contradict the warranty. */}
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="space-y-0.5">
-                    <p className="text-2xs uppercase tracking-wider text-muted-foreground">Warranty</p>
-                    {completeCover === null ? (
-                      <p className="text-sm text-muted-foreground">Checking…</p>
-                    ) : completeCover.covered ? (
-                      <p className="text-sm font-medium text-emerald-600">
-                        Under warranty
-                        <span className="block text-2xs font-normal text-muted-foreground">
-                          {[completeCover.label, completeCover.until ? `to ${formatDate(completeCover.until)}` : null]
-                            .filter(Boolean).join(" · ")}
-                        </span>
-                      </p>
-                    ) : (
-                      <p className="text-sm font-medium text-amber-600">
-                        Not under warranty
-
-                      </p>
-                    )}
-                  </div>
-                  <div className="space-y-0.5">
-                    <p className="text-2xs uppercase tracking-wider text-muted-foreground">Charged to</p>
-                    <p className="text-sm font-medium text-foreground">
-                      {completeBilling === null
-                        ? "Worked out on save"
-                        : completeBilling.charge_to === "client"
-                          ? completeCover?.clientName ?? "The client"
-                          : completeBilling.charge_to === "vendor"
-                            ? "The vendor, under its warranty"
-                            : "Us, under the client's warranty"}
-                      <span className="block text-2xs font-normal text-muted-foreground">
-                        From the asset&apos;s cover.
-                      </span>
-                    </p>
-                  </div>
-                </div>
-              </div>
-              <p className="text-2xs text-muted-foreground">
-                {completeFor.frequency === "one_time"
-                  ? "A one-time job closes out here."
-                  : `Opens the next ${FREQ_LABEL[completeFor.frequency]?.toLowerCase() ?? ""} round.`}
-              </p>
-              <div className="flex justify-end gap-3 pt-2">
-                <button type="button" onClick={() => setCompleteFor(null)} className="inline-flex h-10 items-center rounded-lg border border-border bg-transparent px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
-                  Cancel
-                </button>
-                <button type="submit" disabled={completing} className="inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-medium text-white transition-all disabled:opacity-50">
-                  {completing ? "Saving..." : "Complete Maintenance"}
-                </button>
-              </div>
-            </form>
-          
-      </Modal>
-      )}
     </div>
   );
 }
