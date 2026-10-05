@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, ChevronRight, Fingerprint, Pencil, Trash2, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Fingerprint, Pencil, Trash2, Upload, X } from "lucide-react";
 import Link from "next/link";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -96,6 +96,35 @@ export function UniqueItems({ openTick = 0 }: { openTick?: number }) {
   // Opening stock: how many units are on the shelf, and the serial of each.
   const [openingQty, setOpeningQty] = useState(0);
   const [openingSerials, setOpeningSerials] = useState<string[]>([]);
+  const [reading, setReading] = useState(false);
+
+  /** Take the serials out of a sheet and drop them into the boxes.
+   *
+   * Two hundred typed by hand is not a job to give anybody, so the list
+   * the supplier sent is read instead — the server does the reading, and
+   * what comes back fills the same boxes, still correctable by hand. */
+  async function readSerialFile(file: File | null) {
+    if (!file) return;
+    setReading(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const { data } = await api.post("/inventory/products/read-serials/", form, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      const found: string[] = data.serials ?? [];
+      setOpeningSerials(found);
+      setOpeningQty(found.length);
+      toast.success(
+        `${found.length} serial${found.length === 1 ? "" : "s"} read from ${file.name}`,
+        { description: (data.notes ?? []).join(" ") || undefined },
+      );
+    } catch (err) {
+      toast.error(getApiError(err, "Could not read that file"));
+    } finally {
+      setReading(false);
+    }
+  }
   useEffect(() => {
     if (modal === "open") { setOpeningQty(0); setOpeningSerials([]); }
   }, [modal]);
@@ -364,7 +393,7 @@ export function UniqueItems({ openTick = 0 }: { openTick?: number }) {
                                   <th className="py-1.5 font-medium">Batch</th>
                                   <th className="py-1.5 font-medium">Source</th>
                                   <th className="py-1.5 font-medium">Warranty</th>
-                                  <th className="py-1.5 font-medium">Where</th>
+                                  <th className="py-1.5 font-medium">Storage location</th>
                                 </tr>
                               </thead>
                               <tbody>
@@ -500,8 +529,10 @@ export function UniqueItems({ openTick = 0 }: { openTick?: number }) {
               <input id="model_name" name="model_name" defaultValue={selected?.model_name ?? ""} className={inputClass} placeholder="e.g. MP-900" />
             </div>
             <div className="space-y-1.5">
-              <label htmlFor="category" className={labelClass}>Category</label>
-              <select id="category" name="category" defaultValue={selected?.category ?? ""} className={inputClass}>
+              <label htmlFor="category" className={labelClass}>Category *</label>
+              {/* What the store searches and reports by. A shelf of
+                  uncategorised units is a shelf nobody can find on. */}
+              <select id="category" name="category" required defaultValue={selected?.category ?? ""} className={inputClass}>
                 <option value="">Select a category…</option>
                 {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
@@ -540,8 +571,27 @@ export function UniqueItems({ openTick = 0 }: { openTick?: number }) {
                   className={inputClass}
                 />
                 <p className="text-2xs text-muted-foreground">
-                  Units already on the shelf — a serial number is typed for each one below.
+                  Units already on the shelf — a serial number for each one below.
                   Leave at 0 to open empty; serials then come in at goods inspection.
+                </p>
+                {/* For a pallet of them, the supplier's own list does the
+                    typing. Offered beside the count because reading a file
+                    is what sets the count. */}
+                <label className={`inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-border px-2.5 text-2xs font-semibold text-primary transition-colors hover:bg-primary/10 ${
+                  reading ? "pointer-events-none opacity-60" : ""
+                }`}>
+                  <Upload className="h-3.5 w-3.5" />
+                  {reading ? "Reading…" : "Upload serial list"}
+                  <input
+                    type="file"
+                    accept=".xlsx,.xlsm,.csv,.txt"
+                    className="hidden"
+                    onChange={(e) => { readSerialFile(e.target.files?.[0] ?? null); e.target.value = ""; }}
+                  />
+                </label>
+                <p className="text-2xs text-muted-foreground">
+                  .xlsx or .csv — one serial per row in the first column, or a
+                  column headed &quot;Serial number&quot;.
                 </p>
               </div>
             )}

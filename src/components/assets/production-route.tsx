@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDown, ArrowUp, Check, Factory, Pencil, Plus, Trash2, Truck, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, Factory, Pencil, Plus, Trash2, Truck, Undo2, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -16,6 +16,9 @@ export interface ProductionStep {
   location: "undecided" | "in_house" | "external";
   location_display: string;
   hold_reason?: string;
+  /** Whether a project is behind this asset — there is nobody to send a
+   *  decision back to without one. */
+  on_project?: boolean;
   /** True while the project still has to say where this operation happens. */
   decision_pending?: boolean;
   /** The live work order covering this operation, once raised. */
@@ -116,6 +119,27 @@ export function ProductionRoute({
     }
   }
 
+  // Where a decision is undone. In-house and work order are both final
+  // once chosen — this hands the operation back to the project's Execution
+  // tab, undecided, for the choice to be made again.
+  async function sendBack(step: ProductionStep) {
+    const ok = confirm(
+      `Send "${step.name}" back to the project to be decided again? ` +
+      "It becomes undecided, and Execution chooses in-house or a work order."
+    );
+    if (!ok) return;
+    setBusy(step.id);
+    try {
+      await api.post(`/assets/production-steps/${step.id}/send-back/`, {});
+      toast.success(`${step.name} — back with the project to decide`);
+      onChanged();
+    } catch (err: unknown) {
+      toast.error(getApiError(err, "Could not send it back"));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function advance(step: ProductionStep, status: string) {
     setBusy(step.id);
     try {
@@ -210,7 +234,7 @@ export function ProductionRoute({
               <tr className="border-b border-border bg-secondary/50 text-left text-muted-foreground">
                 <th className="px-3 py-2 font-medium">#</th>
                 <th className="px-3 py-2 font-medium">Operation</th>
-                <th className="px-3 py-2 font-medium">Where</th>
+                <th className="px-3 py-2 font-medium">Done at</th>
                 <th className="px-3 py-2 font-medium">Status</th>
                 <th className="px-3 py-2 font-medium">Out / Back</th>
                 {canEdit && <th className="px-3 py-2 font-medium">Move</th>}
@@ -301,6 +325,18 @@ export function ProductionRoute({
                             <option key={t} value={t}>{STATUS_LABELS[t] ?? t}</option>
                           ))}
                         </select>
+                        {/* Pending and already decided: the one way to
+                            change which way it goes. */}
+                        {step.on_project && step.status === "pending" && step.location !== "undecided" && !step.work_order && (
+                          <button
+                            onClick={() => sendBack(step)}
+                            disabled={busy === step.id}
+                            title="Send back to the project to decide again — in-house or a work order"
+                            className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+                          >
+                            <Undo2 className="h-3 w-3" />
+                          </button>
+                        )}
                         {canRestructure && (editing?.id === step.id ? (
                           <>
                             <button

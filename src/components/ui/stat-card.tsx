@@ -28,22 +28,33 @@ export function StatCard({
     <div
       onClick={onClick}
       className={cn(
-        "group card-lift rounded-xl border border-border bg-card p-5 shadow-sm",
+        // Fills whatever cell it is put in. A grid stretches its items,
+        // but the card inside only took its content height — so a tile
+        // whose subtitle wrapped onto two lines stood taller than the
+        // one beside it that fitted on one.
+        "group card-lift h-full rounded-xl border border-border bg-card p-5 shadow-sm",
         onClick && "cursor-pointer",
         variant === "highlighted" && "border-primary/30 bg-primary/5",
         className
       )}
     >
-      <div className="flex items-center justify-between">
+      {/* The icon sits against the number, not against the whole tile:
+          centring it on a block whose height depends on how long the
+          subtitle wraps is what left the four of them misaligned. */}
+      <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-medium text-muted-foreground truncate">{label}</p>
-          <p className="mt-2 text-2xl font-bold text-card-foreground">
+          <p className="truncate text-xs font-medium text-muted-foreground">{label}</p>
+          <p className="mt-2 text-2xl font-bold leading-none text-card-foreground">
             {typeof value === "number" ? value.toLocaleString() : value}
           </p>
           {(subtitle || percentage !== undefined) && (
-            <div className="mt-1 flex items-center gap-2">
+            <div className="mt-1.5 flex items-start gap-2">
               {subtitle && (
-                <span className="text-xs text-muted-foreground">{subtitle}</span>
+                /* Two lines at most. A tile that grows a third line is a
+                   tile taller than the three beside it. */
+                <span className="line-clamp-2 text-xs leading-snug text-muted-foreground">
+                  {subtitle}
+                </span>
               )}
               {percentage !== undefined && (
                 <span className="text-xs font-medium text-primary">

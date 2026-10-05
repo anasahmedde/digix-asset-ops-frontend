@@ -1,10 +1,11 @@
 "use client";
 
-import { ChevronDown, ChevronRight, Download, PackageCheck, Pencil, Plus, ShoppingCart, Trash2, X } from "lucide-react";
+import {ChevronDown, ChevronRight, Download, PackageCheck, Pencil, Plus, ShoppingCart, Trash2} from "lucide-react";
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Requisitions } from "@/components/procurement/requisitions";
+import { Modal } from "@/components/ui/modal";
 import { FilterBar } from "@/components/ui/filter-bar";
 import {
   PoLineItems, emptyPoLine, isPoLineEmpty, poLinePayload, poLineTotal, poLinesProblem, usePoOptions,
@@ -39,6 +40,15 @@ interface POItem {
   line_detail?: string | null;
   /** Unit of measure of the line (piece, meter, asset…). */
   unit?: string;
+  /** What the line was expected to cost, and whether paying over was agreed. */
+  reference_unit_price?: string | null;
+  reference_label?: string;
+  variance_percent?: number | null;
+  variance_status?: "not_required" | "pending" | "approved" | "rejected";
+  variance_status_display?: string;
+  variance_owner_display?: string;
+  variance_notes?: string;
+  variance_decided_by_name?: string | null;
   /** Set when the line is for a serialized inventory product. */
   inventory_unit_type?: string | null;
   inventory_item?: string | null;
@@ -873,7 +883,31 @@ export default function ProcurementPage() {
                                       </td>
                                       <td className="px-4 py-2 text-muted-foreground">{itemTypeLabel(item)}</td>
                                       <td className="px-4 py-2 text-right text-muted-foreground"><Qty value={item.quantity} unit={item.unit} /></td>
-                                      <td className="px-4 py-2 text-right text-muted-foreground">{po.prices_hidden ? "—" : Number(item.unit_price).toLocaleString()}</td>
+                                      <td className="px-4 py-2 text-right text-muted-foreground">
+                                        {po.prices_hidden ? "—" : Number(item.unit_price).toLocaleString()}
+                                        {/* Over what was planned: who has to agree it,
+                                            and whether they have. */}
+                                        {!po.prices_hidden && item.variance_status
+                                          && item.variance_status !== "not_required" && (
+                                          <span className={`mt-0.5 block text-2xs font-medium ${
+                                            item.variance_status === "approved" ? "text-emerald-600"
+                                            : item.variance_status === "rejected" ? "text-destructive"
+                                            : "text-amber-600"
+                                          }`}>
+                                            {item.variance_percent != null && `+${item.variance_percent}% · `}
+                                            {item.variance_status === "pending"
+                                              ? `with ${item.variance_owner_display}`
+                                              : item.variance_status_display}
+                                            {item.variance_decided_by_name
+                                              && ` · ${item.variance_decided_by_name}`}
+                                          </span>
+                                        )}
+                                        {item.variance_status === "rejected" && item.variance_notes && (
+                                          <span className="block text-2xs text-muted-foreground">
+                                            {item.variance_notes}
+                                          </span>
+                                        )}
+                                      </td>
                                       <td className="px-4 py-2 text-right text-muted-foreground">{item.received_quantity ?? 0} / {item.quantity}</td>
                                       <td className="px-4 py-2 text-right font-medium text-foreground">
                                         {po.prices_hidden ? "—" : Number(item.line_total ?? Number(item.quantity) * Number(item.unit_price)).toLocaleString()}
@@ -944,24 +978,15 @@ export default function ProcurementPage() {
       )}
 
       {modalMode && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 py-8 backdrop-blur-md veil-in">
-          <div className="w-full max-w-3xl glass glass-pop rounded-2xl p-6">
-            <div className="mb-5 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <h2 className="text-lg font-semibold text-foreground">
-                  {modalMode === "create" ? "New Purchase Order" : `Edit ${selected?.po_number}`}
-                </h2>
-                {modalMode === "edit" && selected && (
-                  <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${STATUS_BADGES[selected.status] ?? ""}`}>
-                    {statusLabel(selected.status)}
-                  </span>
-                )}
-              </div>
-              <button onClick={closeModal} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
+        <Modal open onClose={closeModal} title={modalMode === "create" ? "New Purchase Order" : `Edit ${selected?.po_number}`} size="wide"
+          headerExtra={
+            modalMode === "edit" && selected ? (
+              <span className={`inline-flex shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${STATUS_BADGES[selected.status] ?? ""}`}>
+                {statusLabel(selected.status)}
+              </span>
+            ) : null
+          }
+        >
             {modalMode === "edit" && selected && <div className="mb-4">{renderTransitionBar(selected)}</div>}
 
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -1055,25 +1080,15 @@ export default function ProcurementPage() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+          
+      </Modal>
       )}
 
       {receivePO && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 py-8 backdrop-blur-md veil-in">
-          <div className="w-full max-w-3xl glass glass-pop rounded-2xl p-6">
-            <div className="mb-5 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <h2 className="text-lg font-semibold text-foreground">Receive items — {receivePO.po_number}</h2>
-                <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${STATUS_BADGES[receivePO.status] ?? ""}`}>
+        <Modal open onClose={closeReceive} title="Receive items — {receivePO.po_number}" size="wide"
+        headerExtra={<><span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${STATUS_BADGES[receivePO.status] ?? ""}`}>
                   {statusLabel(receivePO.status)}
-                </span>
-              </div>
-              <button onClick={closeReceive} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
+                </span></>}>
             {receiveResult ? (
               <div className="space-y-4">
                 <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4">
@@ -1303,8 +1318,8 @@ export default function ProcurementPage() {
                 </div>
               </form>
             )}
-          </div>
-        </div>
+          
+      </Modal>
       )}
     </div>
   );

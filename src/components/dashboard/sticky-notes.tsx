@@ -149,7 +149,7 @@ export function StickyNotes() {
   }
 
   return (
-    <div className="flex h-full flex-col rounded-xl border border-border bg-card">
+    <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-card">
       <div className="flex items-center gap-2 px-4 pt-4">
         <Pin className="h-4 w-4 text-primary" />
         <h3 className="text-sm font-semibold text-foreground">Notes</h3>
@@ -205,9 +205,12 @@ export function StickyNotes() {
         ))}
       </div>
 
-      <div className="relative border-t border-border p-3">
+      {/* Pinned to the bottom, the way every message box is: the notes
+          read upward and the place to write one does not move as they
+          pile up. */}
+      <div className="relative mt-auto border-t border-border p-3">
         {suggestions.length > 0 && (
-          <div className="absolute bottom-full left-3 right-3 mb-1 overflow-hidden rounded-lg border border-border bg-card shadow-lg">
+          <div className="absolute bottom-full left-3 right-3 z-10 mb-1 overflow-hidden rounded-lg border border-border bg-card shadow-lg">
             {suggestions.map((p) => (
               <button
                 key={p.id}
@@ -244,6 +247,8 @@ export function StickyNotes() {
           </button>
         </div>
       </div>
+
+
     </div>
   );
 }

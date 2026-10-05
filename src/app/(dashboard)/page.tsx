@@ -631,9 +631,12 @@ export default function DashboardPage() {
 
         </div>
 
-        {/* The board runs down the right, screen-tall, and comes with you
-            as the page scrolls. */}
-        <aside className="order-2 xl:sticky xl:top-[5.5rem] xl:h-[calc(100vh-7rem)] xl:self-start">
+        {/* The board runs down the right and comes with you as the page
+            scrolls. It is as tall as its notes and no taller than the
+            screen: a fixed screen-tall panel pushed the box you write in
+            below the fold on a short display, which is where it was
+            least findable. */}
+        <aside className="order-2 flex max-h-[calc(100vh-9rem)] min-h-[20rem] flex-col self-start lg:sticky lg:top-[5.5rem]">
           <StickyNotes />
         </aside>
       </div>

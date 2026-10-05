@@ -141,6 +141,8 @@ interface Installation {
 
 interface InstallationListItem {
   removed_at?: string | null;
+  /** The asset this job is for — used to keep it off the New Installation list. */
+  device?: string;
   id: string;
   device_code: string;
   device_name: string | null;
@@ -225,6 +227,12 @@ interface AssetInfo {
   client_names: string[];
   site_name: string | null;
   current_site: string | null;
+  /** How the asset is made. Only a turnkey job has an outside crew doing
+   *  the installing, so only then is there a vendor to name. */
+  source?: string | null;
+  source_display?: string | null;
+  assigned_vendor?: string | null;
+  assigned_vendor_name?: string | null;
 }
 
 function toLocalInputValue(iso: string | null): string {
@@ -384,6 +392,9 @@ export default function InstallationTrackerPage() {
   const [editVendor, setEditVendor] = useState("");
   const [createInstaller, setCreateInstaller] = useState("");
   const [assetInfo, setAssetInfo] = useState<AssetInfo | null>(null);
+  // Vendor Supplied & Installed is the one route with an outside crew doing
+  // the installing, so it is the one route that has a vendor to name.
+  const turnkey = assetInfo?.source === "vendor_turnkey";
   const [editOpen, setEditOpen] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
   const [editInstaller, setEditInstaller] = useState("");
@@ -635,11 +646,22 @@ export default function InstallationTrackerPage() {
       api.get("/accounts/users/", { params: { is_field_staff: true, is_active: true, page_size: 200 } }),
       api.get("/suppliers/", { params: { page_size: 1000 } }),
     ]);
-    if (dev.status === "fulfilled")
-      setDeviceOptions((dev.value.data.results ?? []).map((d: { id: string; asset_code: string; display_name: string | null }) => ({
-        id: d.id,
-        label: d.display_name ? `${d.asset_code} — ${d.display_name}` : d.asset_code,
-      })));
+    if (dev.status === "fulfilled") {
+      // An asset goes on the tracker once. Offering one that already has a
+      // job open invited a duplicate the server then refused, so the list
+      // is the assets with nothing open against them.
+      const taken = new Set(
+        installations.filter((i) => !i.removed_at).map((i) => i.device)
+      );
+      setDeviceOptions(
+        (dev.value.data.results ?? [])
+          .filter((d: { id: string }) => !taken.has(d.id))
+          .map((d: { id: string; asset_code: string; display_name: string | null }) => ({
+            id: d.id,
+            label: d.display_name ? `${d.asset_code} — ${d.display_name}` : d.asset_code,
+          }))
+      );
+    }
     if (sites.status === "fulfilled")
       setSiteOptions((sites.value.data.results ?? []).map((s: { id: string; name: string }) => ({ id: s.id, label: s.name })));
     if (users.status === "fulfilled")
@@ -750,7 +772,6 @@ export default function InstallationTrackerPage() {
       const { data } = await api.post("/sites/installations/", {
         device: fd.get("device"),
         site: fd.get("site"),
-        zone: fd.get("zone") || null,
         installed_by: fd.get("installed_by") || null,
         vendor: fd.get("vendor") || null,
         external_vendor_name: fd.get("external_vendor_name") || "",
@@ -1679,15 +1700,9 @@ export default function InstallationTrackerPage() {
 
         {/* Flag Delay modal */}
         {delayFor && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-md veil-in">
-            <div className="glass glass-pop max-h-[88vh] w-full max-w-sm overflow-y-auto rounded-xl p-5">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-semibold text-foreground">Flag Delay — {delayFor.label}</h3>
-                <button onClick={() => setDelayFor(null)} className="text-muted-foreground hover:text-foreground">
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-              <div className="space-y-3">
+          <Modal open onClose={() => setDelayFor(null)}
+              title={`Flag Delay — ${delayFor.label}`} size="xs">
+                            <div className="space-y-3">
                 <div>
                   <label className="mb-1 block text-xs font-medium text-muted-foreground">Caused by</label>
                   <select
@@ -1718,8 +1733,7 @@ export default function InstallationTrackerPage() {
                   {savingDelay ? "Logging..." : "Log Delay"}
                 </button>
               </div>
-            </div>
-          </div>
+        </Modal>
         )}
 
         {/* Edit installation modal */}
@@ -1797,7 +1811,7 @@ export default function InstallationTrackerPage() {
                 <input id="ei-due" name="due_date" type="date" defaultValue={selected.due_date ?? ""} className={createInputClass} />
               </div>
               <div className="sm:col-span-2">
-                <label htmlFor="ei-position" className={createLabelClass}>Position / Location Label</label>
+                <label htmlFor="ei-position" className={createLabelClass}>Position on site</label>
                 <input id="ei-position" name="position_label" defaultValue={selected.position_label} placeholder="e.g. Main entrance, 2nd floor" className={createInputClass} />
               </div>
             </div>
@@ -2140,7 +2154,6 @@ export default function InstallationTrackerPage() {
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Installed On</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Status</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Progress</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -2217,14 +2230,6 @@ export default function InstallationTrackerPage() {
                           )}
                         </div>
                       </td>
-                      <td className="px-4 py-3.5">
-                        <button
-                          onClick={(e) => { e.stopPropagation(); openJob(inst.id); }}
-                          className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                        >
-                          View Details
-                        </button>
-                      </td>
                     </tr>
                   );
                 })}
@@ -2274,50 +2279,53 @@ export default function InstallationTrackerPage() {
                   />
                 </div>
                 <div>
-                  <label htmlFor="ci-zone" className={createLabelClass}>Zone (optional)</label>
-                  <select id="ci-zone" name="zone" defaultValue="" className={createInputClass} disabled={zoneOptions.length === 0}>
-                    <option value="">{zoneOptions.length === 0 ? "No zones for this site" : "None"}</option>
-                    {zoneOptions.map((z) => (
-                      <option key={z.id} value={z.id}>{z.label}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className={createLabelClass}>Assigned Installer</label>
+                  {/* The same question the asset's own Installation &
+                      Activation asks, in the same words: who is doing it. */}
+                  <label className={createLabelClass}>
+                    {turnkey ? "Assign to (overseeing)" : "Assign to"}
+                  </label>
                   <SearchSelect
                     options={installerOptions}
                     value={createInstaller}
                     onChange={setCreateInstaller}
                     name="installed_by"
-                    placeholder="Search installer…"
+                    placeholder={turnkey ? "Technician overseeing…" : "Search technician…"}
                   />
                 </div>
-                <div>
-                  <div className="flex items-center justify-between">
-                    <label className={createLabelClass}>Vendor (optional)</label>
-                    <button
-                      type="button"
-                      onClick={() => { setCreateVendorManual((v) => !v); setCreateVendor(""); }}
-                      className="text-2xs font-medium text-primary hover:underline"
-                    >
-                      {createVendorManual ? "Pick a registered vendor" : "Not registered? Enter manually"}
-                    </button>
-                  </div>
-                  {createVendorManual ? (
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      <input name="external_vendor_name" placeholder="Vendor name" className={createInputClass} />
-                      <input name="external_vendor_contact" placeholder="Contact person / phone" className={createInputClass} />
+                {/* Only a turnkey asset has an outside crew installing it, and
+                    the asset already records which. Asking again here was a
+                    second answer that could disagree with the registry. */}
+                {turnkey && (
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <label className={createLabelClass}>Installing vendor</label>
+                      <button
+                        type="button"
+                        onClick={() => { setCreateVendorManual((v) => !v); setCreateVendor(""); }}
+                        className="text-2xs font-medium text-primary hover:underline"
+                      >
+                        {createVendorManual ? "Pick a registered vendor" : "Not registered? Enter manually"}
+                      </button>
                     </div>
-                  ) : (
-                  <SearchSelect
-                    options={supplierOptions}
-                    value={createVendor}
-                    onChange={setCreateVendor}
-                    name="vendor"
-                    placeholder="Search vendor…"
-                  />
-                  )}
-                </div>
+                    {createVendorManual ? (
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <input name="external_vendor_name" placeholder="Vendor name" className={createInputClass} />
+                        <input name="external_vendor_contact" placeholder="Contact person / phone" className={createInputClass} />
+                      </div>
+                    ) : (
+                      <SearchSelect
+                        options={supplierOptions}
+                        value={createVendor}
+                        onChange={setCreateVendor}
+                        name="vendor"
+                        placeholder="Search vendor…"
+                      />
+                    )}
+                    <p className="mt-1 text-2xs text-muted-foreground">
+                      {assetInfo?.source_display ?? "Vendor Supplied & Installed"} — the vendor installs it, our technician oversees.
+                    </p>
+                  </div>
+                )}
                 <div>
                   <label htmlFor="ci-installed-at" className={createLabelClass}>Start / Installed At</label>
                   <input
@@ -2334,7 +2342,7 @@ export default function InstallationTrackerPage() {
                   <input id="ci-due" name="due_date" type="date" className={createInputClass} />
                 </div>
                 <div>
-                  <label htmlFor="ci-position" className={createLabelClass}>Position / Location Label</label>
+                  <label htmlFor="ci-position" className={createLabelClass}>Position on site</label>
                   <input id="ci-position" name="position_label" placeholder="e.g. Main entrance, 2nd floor" className={createInputClass} />
                 </div>
               </div>

@@ -1,4 +1,4 @@
-# DIGIX Asset Ops -- Frontend
+# DIGIX Asset Management -- Frontend
 
 Next.js web dashboard for the DIGIX Asset Management & Operations Platform.
 

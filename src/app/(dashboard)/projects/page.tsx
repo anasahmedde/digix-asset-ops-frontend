@@ -23,6 +23,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { PriceApprovals } from "@/components/procurement/price-approvals";
 import { ProjectRequirements } from "@/components/projects/project-requirements";
 import { ProjectBudgetSummary } from "@/components/projects/project-budget-summary";
 import { ProjectPlanning } from "@/components/projects/project-planning";
@@ -110,6 +111,8 @@ interface ScopeItem {
   quantity: number;
   site: string | null;
   site_name: string | null;
+  /** The asset's own site, set when it is assigned for installation. */
+  device_site_name: string | null;
   start_date: string | null;
   notes: string;
 }
@@ -458,25 +461,17 @@ export default function ProjectsPage() {
     const fd = new FormData(e.currentTarget);
     const formEl = e.currentTarget;
     const deviceId = String(fd.get("scope_device") ?? "");
-    const site = String(fd.get("scope_site") ?? "");
 
-    // An asset on a project is work at a place. Scoping one without saying
-    // where leaves it nowhere, so ask before it goes in.
-    if (!site) {
-      toast.error(
-        (detail.sites ?? []).length === 0
-          ? "This project has no sites yet — add one to the project, then say which one this asset goes to."
-          : "Say which of the project's sites this asset goes to.",
-      );
-      return;
-    }
-
+    // Where the asset goes is settled when it is assigned for installation,
+    // on the asset itself - that is the step that opens its job on the
+    // tracker, and it already refuses to proceed without a site. Asking
+    // again here meant two answers that could disagree.
     const payload = {
       project: detail.id,
       device: deviceId,
       component: null,
       quantity: 1,
-      site,
+      site: null,
       start_date: null,
       notes: fd.get("scope_notes") || "",
     };
@@ -497,11 +492,11 @@ export default function ProjectsPage() {
   }
 
   const [editingScope, setEditingScope] = useState<string | null>(null);
-  const [scopeEdit, setScopeEdit] = useState({ site: "", notes: "" });
+  const [scopeEdit, setScopeEdit] = useState({ notes: "" });
 
   async function saveScopeItem(id: string) {
     try {
-      await api.patch(`/teams/scope-items/${id}/`, { site: scopeEdit.site || null, notes: scopeEdit.notes });
+      await api.patch(`/teams/scope-items/${id}/`, { notes: scopeEdit.notes });
       setEditingScope(null);
       if (detail) await loadDetail(detail.id);
       toast.success("Scope updated");
@@ -1113,7 +1108,7 @@ export default function ProjectsPage() {
               <>
             {/* Scope */}
             <div className="rounded-xl border border-border bg-card p-5">
-              <h3 className="mb-3 text-sm font-semibold text-foreground">Scope — assets, sites & notes</h3>
+              <h3 className="mb-3 text-sm font-semibold text-foreground">Scope — assets & notes</h3>
               {d.scope_items.length > 0 ? (
                 <div className="overflow-x-auto rounded-xl border border-border">
                   <table className="w-full text-xs">
@@ -1135,20 +1130,11 @@ export default function ProjectsPage() {
                             {it.device_name && <span className="block text-muted-foreground">{it.device_name}</span>}
                           </td>
                           <td className="px-3 py-2 text-muted-foreground">
-                            {editingScope === it.id ? (
-                              <select
-                                value={scopeEdit.site}
-                                onChange={(e) => setScopeEdit((v) => ({ ...v, site: e.target.value }))}
-                                className="h-8 rounded-lg border border-border bg-card px-2 text-xs text-foreground focus:outline-none"
-                              >
-                                <option value="">No site</option>
-                                {/* Only the sites this order covers — the same
-                                    list the row below offers. */}
-                                {siteOptions
-                                  .filter((st) => !d.sites || d.sites.length === 0 || d.sites.map(String).includes(String(st.id)))
-                                  .map((st) => <option key={st.id} value={st.id}>{st.label}</option>)}
-                              </select>
-                            ) : (it.site_name || "—")}
+                            {/* Read from the asset: it is set when the asset
+                                is assigned for installation, not here. */}
+                            {it.device_site_name || it.site_name || (
+                              <span className="italic">set on assignment</span>
+                            )}
                           </td>
                           <td className="px-3 py-2 text-muted-foreground">
                             {editingScope === it.id ? (
@@ -1172,7 +1158,7 @@ export default function ProjectsPage() {
                                     </button>
                                   </>
                                 ) : (
-                                  <button onClick={() => { setEditingScope(it.id); setScopeEdit({ site: it.site ?? "", notes: it.notes ?? "" }); }} className="text-muted-foreground transition-colors hover:text-foreground" title="Edit">
+                                  <button onClick={() => { setEditingScope(it.id); setScopeEdit({ notes: it.notes ?? "" }); }} className="text-muted-foreground transition-colors hover:text-foreground" title="Edit">
                                     <Pencil className="h-3.5 w-3.5" />
                                   </button>
                                 )}
@@ -1203,24 +1189,14 @@ export default function ProjectsPage() {
                   <p className="text-2xs text-muted-foreground">
                     Every asset has its own ID: add each one once. An asset already on another project cannot be added.
                   </p>
-                  <div className="grid gap-2 sm:grid-cols-3">
-                    <div className="sm:col-span-2">
-                      <SearchSelect
-                        options={deviceOptions}
-                        value={scopeDevice}
-                        onChange={handleScopeDeviceChange}
-                        name="scope_device"
-                        required
-                        placeholder="Search asset…"
-                      />
-                    </div>
-                    <select name="scope_site" defaultValue="" title="Which of the project's sites this asset goes to" className="h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-muted-foreground focus:outline-none">
-                      <option value="">Site *</option>
-                      {siteOptions
-                        .filter((st) => !d.sites || d.sites.length === 0 || d.sites.map(String).includes(String(st.id)))
-                        .map((st) => <option key={st.id} value={st.id}>{st.label}</option>)}
-                    </select>
-                  </div>
+                  <SearchSelect
+                    options={deviceOptions}
+                    value={scopeDevice}
+                    onChange={handleScopeDeviceChange}
+                    name="scope_device"
+                    required
+                    placeholder="Search asset…"
+                  />
                   <input name="scope_notes" placeholder="Notes" className="h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none" />
                   <div className="flex flex-wrap items-center gap-2">
                     <button type="submit" disabled={addingScope} className="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-primary/90 disabled:opacity-50">
@@ -1244,7 +1220,7 @@ export default function ProjectsPage() {
 
             {/* The cost plan reads the scope above it, so it follows it. */}
             <div className="rounded-xl border border-border bg-card p-5">
-              <h3 className="mb-3 text-sm font-semibold text-foreground">Cost Plan — estimate &amp; budget approval</h3>
+              <h3 className="mb-3 text-sm font-semibold text-foreground">Budget and Costing — estimate &amp; approval</h3>
               <ProjectPlanning projectId={detail.id} refreshKey={d.scope_items.map((it) => it.id).join(",")} onGoToExecution={() => chooseTab("execution")} onChanged={() => loadDetail(detail.id)} />
             </div>
 
@@ -1253,6 +1229,11 @@ export default function ProjectsPage() {
 
             {projectTab === "execution" && (
               <>
+            {/* A part coming back from Procurement priced above what the
+                budget was approved on. Execution owns that figure, so the
+                order waits here until Execution agrees to pay more. */}
+            <PriceApprovals showWhenEmpty={false} />
+
             {/* Build requirements: every asset's components, gathered here so
                 the user can decide stock-vs-procure per line. */}
             <div className="rounded-xl border border-border bg-card p-5">

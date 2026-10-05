@@ -16,13 +16,27 @@ interface Contact {
   is_primary: boolean;
 }
 
+export interface DraftContact {
+  name: string;
+  designation: string;
+  phone: string;
+  email: string;
+  is_primary: boolean;
+}
+
 interface ContactsEditorProps {
   /** collection endpoint, e.g. "/sites/site-contacts/" (trailing slash) */
   endpoint: string;
   /** FK field name on the contact, e.g. "site" or "supplier" */
   parentField: string;
-  parentId: string;
+  /** The record these belong to, or null while it is still being created. */
+  parentId: string | null;
   label?: string;
+  /** Held here until the record exists. Give both props to use draft
+   *  mode: the editor keeps nothing on the server and hands the list
+   *  back, for the parent to post once it has an id. */
+  draft?: DraftContact[];
+  onDraftChange?: (next: DraftContact[]) => void;
 }
 
 const inputClass =
@@ -30,15 +44,26 @@ const inputClass =
 
 const empty = { name: "", designation: "", phone: "", email: "", is_primary: false };
 
-export function ContactsEditor({ endpoint, parentField, parentId, label = "Contacts (POC)" }: ContactsEditorProps) {
-  const [contacts, setContacts] = useState<Contact[]>([]);
+export function ContactsEditor({
+  endpoint, parentField, parentId, label = "Contacts (POC)", draft, onDraftChange,
+}: ContactsEditorProps) {
+  // Before the record exists there is nothing to hang a contact off, so the
+  // list is held here and the parent posts it once it has an id. Afterwards
+  // each change goes straight to the server, as it always did.
+  const deferred = !parentId && !!onDraftChange;
+  const [saved, setSaved] = useState<Contact[]>([]);
   const [form, setForm] = useState(empty);
   const [saving, setSaving] = useState(false);
 
+  const contacts: Contact[] = deferred
+    ? (draft ?? []).map((c, i) => ({ ...c, id: `draft-${i}` }))
+    : saved;
+
   const load = useCallback(async () => {
+    if (!parentId) return;
     try {
       const { data } = await api.get(endpoint, { params: { [parentField]: parentId } });
-      setContacts(data.results ?? data);
+      setSaved(data.results ?? data);
     } catch {
       /* silent — parent modal already surfaces errors */
     }
@@ -51,6 +76,15 @@ export function ContactsEditor({ endpoint, parentField, parentId, label = "Conta
   async function add() {
     if (!form.name.trim()) {
       toast.error("Contact name is required");
+      return;
+    }
+    if (deferred) {
+      // Only one can be the primary one, here as on the server.
+      const next = form.is_primary
+        ? [...(draft ?? []).map((c) => ({ ...c, is_primary: false })), { ...form }]
+        : [...(draft ?? []), { ...form }];
+      onDraftChange!(next);
+      setForm(empty);
       return;
     }
     setSaving(true);
@@ -67,6 +101,11 @@ export function ContactsEditor({ endpoint, parentField, parentId, label = "Conta
   }
 
   async function remove(id: string) {
+    if (deferred) {
+      const at = Number(id.replace("draft-", ""));
+      onDraftChange!((draft ?? []).filter((_, i) => i !== at));
+      return;
+    }
     try {
       await api.delete(`${endpoint}${id}/`);
       load();

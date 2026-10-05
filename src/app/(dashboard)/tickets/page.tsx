@@ -4,8 +4,6 @@ import {
   AlertCircle,
   AlertTriangle,
   ArrowLeft,
-  Calendar,
-  Camera,
   Check,
   CheckCircle2,
   ChevronRight,
@@ -20,13 +18,13 @@ import {
   Pencil,
   Play,
   Plus,
-  RotateCcw,
   Send,
   ShieldCheck,
   ShieldX,
   Ticket,
   Trash2,
   User,
+  Wrench,
   X,
   XCircle,
 } from "lucide-react";
@@ -38,11 +36,12 @@ import { toast } from "sonner";
 import { SegmentBar, StatTiles } from "@/components/ui/analytics-strip";
 import { Pagination, pageSlice } from "@/components/ui/pagination";
 import { CopyButton } from "@/components/ui/copy-button";
+import { Lightbox } from "@/components/ui/lightbox";
+import { Modal } from "@/components/ui/modal";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { ProgressStepper } from "@/components/ui/progress-stepper";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
-import { formatCurrency } from "@/lib/currency";
 import { useUser } from "@/lib/user-context";
 import { formatDateTime, formatDate } from "@/lib/utils";
 import type { TicketAttachment, TicketComment, TicketStatus } from "@/types";
@@ -90,6 +89,14 @@ interface TicketItem {
   // serializer omits some of these, so they stay optional.
   devices?: string[];
   devices_info?: TicketDeviceInfo[];
+  /** The corrective jobs this ticket raised — one for each asset on it. */
+  maintenance_jobs?: {
+    id: string;
+    status: string;
+    asset_code: string | null;
+    asset_name: string | null;
+    site_name: string | null;
+  }[];
   warranty?: string | null;
   warranty_info?: TicketWarrantyInfo | null;
   is_billable?: boolean;
@@ -145,6 +152,7 @@ const priorityBadge: Record<string, string> = {
 
 const statusBadge: Record<string, string> = {
   open: "bg-blue-500/10 text-blue-600 ring-blue-500/20",
+  assigned: "bg-indigo-500/10 text-indigo-600 ring-indigo-500/20",
   in_progress: "bg-amber-500/10 text-amber-600 ring-amber-500/20",
   on_hold: "bg-gray-500/10 text-gray-600 ring-gray-500/20",
   blocked: "bg-red-500/10 text-red-600 ring-red-500/20",
@@ -160,6 +168,7 @@ const statusBadge: Record<string, string> = {
 
 const statusIcon: Record<string, React.ReactNode> = {
   open: <Clock className="h-3.5 w-3.5" />,
+  assigned: <User className="h-3.5 w-3.5" />,
   in_progress: <Play className="h-3.5 w-3.5" />,
   on_hold: <Pause className="h-3.5 w-3.5" />,
   blocked: <AlertTriangle className="h-3.5 w-3.5" />,
@@ -228,11 +237,15 @@ const SUPPLIER_SIDE_TYPES = ["supplier", "manufacturer", "extended"];
 /* ─── Status Stepper ───────────────────────────────────────────────── */
 
 function getStepperSteps(status: TicketStatus) {
+  // The corrective flow, in the order the work happens: raised, given to
+  // somebody, under way on site, back for the office to look at, done.
+  // "Approved" is gone — accepting the work is what closes the ticket, so
+  // it was a step that nothing ever rested on.
   const MAIN_FLOW: TicketStatus[] = [
     "open",
+    "assigned",
     "in_progress",
     "pending_review",
-    "approved",
     "closed",
   ];
   const idx = MAIN_FLOW.indexOf(status);
@@ -342,54 +355,24 @@ function TicketDetailView({
   onEdit: () => void;
   onRefresh: () => void;
 }) {
+  // What is left once the work moved to the maintenance job: reading the
+  // ticket, and talking on it.
   const [ticket, setTicket] = useState(initialTicket);
-  const [actionLoading, setActionLoading] = useState(false);
-  const [activeAction, setActiveAction] = useState<string | null>(null);
-  const [transitionNotes, setTransitionNotes] = useState("");
-  const [completionNotes, setCompletionNotes] = useState("");
-  const [partsUsed, setPartsUsed] = useState("");
-  const [assignUsers, setAssignUsers] = useState<{ id: string; label: string }[]>([]);
-  const [assignVendors, setAssignVendors] = useState<{ id: string; name: string }[]>([]);
-  const [assignUser, setAssignUser] = useState("");
-  const [assignVendor, setAssignVendor] = useState("");
-  const [visitFiles, setVisitFiles] = useState<File[]>([]);
-  const [visitCaption, setVisitCaption] = useState("");
-  const [visitUploading, setVisitUploading] = useState(false);
-  const [completionImages, setCompletionImages] = useState<File[]>([]);
-  const [completionPreviews, setCompletionPreviews] = useState<string[]>([]);
-  const [reviewComments, setReviewComments] = useState("");
   const [newComment, setNewComment] = useState("");
   const [commentImage, setCommentImage] = useState<File | null>(null);
   const commentFileRef = useRef<HTMLInputElement>(null);
   const [commentLoading, setCommentLoading] = useState(false);
   const [lightboxImg, setLightboxImg] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [editingCost, setEditingCost] = useState(false);
-  const [costInput, setCostInput] = useState("");
-  const [costSaving, setCostSaving] = useState(false);
 
   const isAssignee = ticket.assigned_to === currentUserId;
   // Highest fired escalation stage from escalation_state ("trigger:stage" keys).
   const escalation = deriveEscalation(ticket.escalation_state);
-  const isReporter = ticket.reported_by === currentUserId;
+  // Who may do what is the maintenance job's question now. All this page
+  // decides is whether the complaint itself may still be edited, and
+  // whether it is late.
   const isAdmin = ["super_admin", "group_head", "ops_manager"].includes(currentUserRole);
-  const isMarketing = currentUserRole === "marketing" || currentUserRole === "marketing_head";
-  // Sign-off is somebody else confirming the work. Whoever carried it out
-  // does not review it, close it or reopen it — the API refuses all three,
-  // and offering the button anyway just produces a 403.
-  const didTheWork = isAssignee || ticket.completed_by === currentUserId;
-  const canReview = (isReporter || isAdmin) && !didTheWork;
-  // Managers can drive the work stages too (matches backend rules).
-  const canAct = isAssignee || isAdmin;
   const isClosed = ["approved", "closed", "cancelled"].includes(ticket.status);
   const isOverdue = ticket.due_date && new Date(ticket.due_date) < new Date() && !isClosed;
-  // Reopen: closed → in_progress, gated to admins + the reporter, within 7 days of closure (mirrors backend rule).
-  const REOPEN_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
-  const canReopen =
-    ticket.status === "closed" &&
-    (isAdmin || (isReporter && !didTheWork)) &&
-    !!ticket.closed_at &&
-    Date.now() - new Date(ticket.closed_at).getTime() <= REOPEN_WINDOW_MS;
 
   const completionAttachments = ticket.attachments?.filter((a) => a.attachment_type === "completion") || [];
   const generalAttachments = ticket.attachments?.filter((a) => a.attachment_type === "general" || a.attachment_type === "fault") || [];
@@ -399,114 +382,6 @@ function TicketDetailView({
       const { data } = await api.get(`/tickets/${ticket.id}/`);
       setTicket(data);
     } catch { /* keep current */ }
-  }
-
-  async function openAssignPanel() {
-    setActiveAction("assign");
-    try {
-      const [u, v] = await Promise.all([
-        api.get("/accounts/users/", { params: { is_active: true, page_size: 200 } }),
-        api.get("/suppliers/", { params: { page_size: 200 } }),
-      ]);
-      setAssignUsers((u.data.results ?? u.data).map((x: { id: string; first_name: string; last_name: string; username: string }) => ({
-        id: x.id, label: `${x.first_name} ${x.last_name}`.trim() || x.username,
-      })));
-      setAssignVendors(v.data.results ?? v.data);
-      setAssignUser(ticket.assigned_to ?? "");
-      setAssignVendor(ticket.assigned_vendor ?? "");
-    } catch { toast.error("Could not load assignees"); }
-  }
-
-  async function handleAssign() {
-    setActionLoading(true);
-    try {
-      const { data } = await api.post(`/tickets/${ticket.id}/assign/`, {
-        assigned_to: assignUser || null,
-        assigned_vendor: assignVendor || null,
-      });
-      setTicket(data);
-      setActiveAction(null);
-      onRefresh();
-      toast.success("Ticket assigned");
-    } catch (err: unknown) { toast.error(getApiError(err, "Assignment failed")); }
-    finally { setActionLoading(false); }
-  }
-
-  async function handleVisitUpload() {
-    if (visitFiles.length === 0) return;
-    setVisitUploading(true);
-    try {
-      for (const file of visitFiles) {
-        const fd = new FormData();
-        fd.append("file", file);
-        fd.append("attachment_type", "general");
-        fd.append("caption", visitCaption || "Site visit photo");
-        await api.post(`/tickets/${ticket.id}/attachments/`, fd, { headers: { "Content-Type": "multipart/form-data" } });
-      }
-      setVisitFiles([]);
-      setVisitCaption("");
-      await refreshTicket();
-      toast.success("Photos attached");
-    } catch (err: unknown) { toast.error(getApiError(err, "Upload failed")); }
-    finally { setVisitUploading(false); }
-  }
-
-  async function handleTransition(targetStatus: string, notes: string = "") {
-    setActionLoading(true);
-    try {
-      const { data } = await api.post(`/tickets/${ticket.id}/transition/`, { status: targetStatus, notes });
-      setTicket(data);
-      setActiveAction(null);
-      setTransitionNotes("");
-      onRefresh();
-      toast.success(`Status changed to ${formatLabel(targetStatus)}`);
-    } catch (err: unknown) {
-      toast.error(getApiError(err, "Failed to update status"));
-    } finally {
-      setActionLoading(false);
-    }
-  }
-
-  async function handleSubmitCompletion() {
-    if (!completionNotes.trim()) { toast.error("Please describe what was done"); return; }
-    setActionLoading(true);
-    try {
-      const formData = new FormData();
-      formData.append("completion_notes", completionNotes);
-      formData.append("parts_used", partsUsed);
-      completionImages.forEach((img) => formData.append("images", img));
-      const { data } = await api.post(`/tickets/${ticket.id}/submit-completion/`, formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-      setTicket(data);
-      setActiveAction(null);
-      setCompletionNotes("");
-      setCompletionImages([]);
-      setCompletionPreviews([]);
-      onRefresh();
-      toast.success("Submitted for review!");
-    } catch (err: unknown) {
-      toast.error(getApiError(err, "Failed to submit"));
-    } finally {
-      setActionLoading(false);
-    }
-  }
-
-  async function handleReview(action: "approve" | "reject") {
-    if (action === "reject" && !reviewComments.trim()) { toast.error("Please provide feedback for rejection"); return; }
-    setActionLoading(true);
-    try {
-      const { data } = await api.post(`/tickets/${ticket.id}/review/`, { action, comments: reviewComments });
-      setTicket(data);
-      setActiveAction(null);
-      setReviewComments("");
-      onRefresh();
-      toast.success(action === "approve" ? "Ticket approved!" : "Ticket rejected");
-    } catch (err: unknown) {
-      toast.error(getApiError(err, "Failed to review"));
-    } finally {
-      setActionLoading(false);
-    }
   }
 
   async function handleAddComment() {
@@ -531,39 +406,6 @@ function TicketDetailView({
     }
   }
 
-  async function handleSaveCost() {
-    setCostSaving(true);
-    try {
-      const trimmed = costInput.trim();
-      const { data } = await api.patch(`/tickets/${ticket.id}/`, {
-        repair_cost: trimmed === "" ? null : trimmed,
-      });
-      setTicket(data);
-      setEditingCost(false);
-      onRefresh();
-      toast.success("Repair cost updated");
-    } catch (err: unknown) {
-      toast.error(getApiError(err, "Failed to update repair cost"));
-    } finally {
-      setCostSaving(false);
-    }
-  }
-
-  function handleImageSelect(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.target.files || []);
-    setCompletionImages((prev) => [...prev, ...files]);
-    files.forEach((f) => {
-      const reader = new FileReader();
-      reader.onload = (ev) => setCompletionPreviews((prev) => [...prev, ev.target?.result as string]);
-      reader.readAsDataURL(f);
-    });
-  }
-
-  function removeImage(idx: number) {
-    setCompletionImages((prev) => prev.filter((_, i) => i !== idx));
-    setCompletionPreviews((prev) => prev.filter((_, i) => i !== idx));
-  }
-
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-background">
       {/* ── Top bar ──────────────────────────────────────────────── */}
@@ -576,37 +418,24 @@ function TicketDetailView({
             <ArrowLeft className="h-4 w-4" />
             Back to Tickets
           </button>
+          {/* The bar names the ticket and says how it stands. Everything
+              else it used to carry — the occurrence count, the fault type,
+              the priority, the escalation wording — is on the record below,
+              and five badges in a row is not a summary. Only an escalation
+              stays, because that is the one thing worth interrupting for. */}
           <div className="hidden items-center gap-2 sm:flex">
             <div className="h-4 w-px bg-border" />
-            <span className="text-xs font-semibold text-foreground">{ticket.ticket_number || `#${ticket.id.slice(0, 8)}`}</span>
-            {ticket.device_code && ticket.occurrence > 0 && (
-              <Link href={`/assets?device=${ticket.device}`} className="rounded-full bg-secondary px-2 py-0.5 text-2xs font-medium text-primary hover:bg-primary/10" title={`Ticket #${ticket.occurrence} raised against ${ticket.device_code} — view asset`}>
-                #{ticket.occurrence} for {ticket.device_code}
-              </Link>
-            )}
+            <span className="text-xs font-semibold text-foreground">
+              {ticket.ticket_number || `#${ticket.id.slice(0, 8)}`}
+            </span>
             <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ${statusBadge[ticket.status] ?? statusBadge.open}`}>
               {statusIcon[ticket.status]} {formatLabel(ticket.status)}
             </span>
-            {ticket.issue_type_name && (
-              <span className="rounded-full bg-rose-500/10 px-2 py-0.5 text-2xs font-medium text-rose-500 ring-1 ring-rose-500/20">{ticket.issue_type_name}</span>
-            )}
-            {(escalation || ticket.escalated || ticket.is_response_overdue || ticket.assignment_escalated || ticket.due_date_escalated) && (
+            {(escalation || ticket.escalated || ticket.assignment_escalated || ticket.due_date_escalated) && (
               <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-0.5 text-2xs font-semibold text-red-500 ring-1 ring-red-500/20">
-                <AlertTriangle className="h-3 w-3" />
-                {escalation
-                  ? `Escalated — L${escalation.stage}${escalation.reason ? ` · ${escalation.reason}` : ""}`
-                  : ticket.assignment_escalated
-                    ? "Escalated — Unassigned"
-                    : ticket.due_date_escalated
-                      ? "Escalated — Past Due"
-                      : ticket.escalated
-                        ? "Escalated"
-                        : "Response Overdue"}
+                <AlertTriangle className="h-3 w-3" /> Escalated
               </span>
             )}
-            <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ${priorityBadge[ticket.priority]}`}>
-              {formatLabel(ticket.priority)}
-            </span>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -946,340 +775,60 @@ function TicketDetailView({
                 </div>
               </div>
 
-              {/* ── BILLING CARD (WF-14/15) ──────────────────────── */}
-              {(BILLING_CATEGORIES.includes(ticket.category) || !!ticket.charge_to || ticket.repair_cost != null) && (
-                <div className="rounded-xl border border-border bg-card p-5">
-                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-4">Billing</h3>
-                  <div className="space-y-4">
-                    {ticket.warranty_info && (
-                      <span
-                        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-2xs font-semibold ring-1 ${
-                          ticket.warranty_info.status === "active"
-                            ? "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20"
-                            : "bg-amber-500/10 text-amber-600 ring-amber-500/20"
-                        }`}
+              {/* Billing is not asked twice. What a repair costs, whether it
+                  is chargeable and to whom are settled on the maintenance
+                  record when the work is completed — both sides derived the
+                  same answer from derive_billability(device), and two copies
+                  of one answer is one too many. */}
+              {/* The work is run from the maintenance job, not from here.
+                  A ticket is the complaint: it is raised, it is tracked, and
+                  it closes when the repair is accepted. Assigning a
+                  technician, starting and finishing a visit and reviewing
+                  the result all happen in one place now — two sets of the
+                  same buttons is what let one repair hold two statuses. */}
+              <div className="rounded-xl border border-border bg-card p-5">
+                <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  The work
+                </h3>
+                <p className="text-xs text-muted-foreground">
+                  This fault is worked as a maintenance job: the technician,
+                  the visits and the review all live there. This ticket
+                  follows it and closes when the repair is accepted.
+                </p>
+                {/* One asset, one job: go straight there. A complaint
+                    covering two standees raised two jobs, and only the
+                    reader knows which one they came for. */}
+                {(ticket.maintenance_jobs ?? []).length > 1 ? (
+                  <div className="mt-3 space-y-1.5">
+                    {(ticket.maintenance_jobs ?? []).map((j) => (
+                      <Link
+                        key={j.id}
+                        href={`/maintenance#job-${j.id}`}
+                        className="flex h-auto w-full items-center gap-2 rounded-lg border border-border px-3 py-2 text-left text-sm font-medium text-foreground transition-colors hover:bg-secondary"
                       >
-                        <ShieldCheck className="h-3.5 w-3.5" />
-                        {formatLabel(ticket.warranty_info.warranty_type)} warranty · {formatLabel(ticket.warranty_info.status)} · ends {formatDate(ticket.warranty_info.end_date)}
-                      </span>
-                    )}
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-muted-foreground">Billable</span>
-                      <span
-                        className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ${
-                          ticket.is_billable
-                            ? "bg-amber-500/10 text-amber-600 ring-amber-500/20"
-                            : "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20"
-                        }`}
-                      >
-                        {ticket.is_billable ? "Billable" : "Not Billable"}
-                      </span>
-                    </div>
-                    <div className="h-px bg-border" />
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-muted-foreground">Charge To</span>
-                      <span className="text-sm font-medium text-foreground">{ticket.charge_to ? formatLabel(ticket.charge_to) : "—"}</span>
-                    </div>
-                    <div className="h-px bg-border" />
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs text-muted-foreground">Repair Cost</span>
-                      {editingCost ? (
-                        <div className="flex items-center gap-1.5">
-                          <input
-                            value={costInput}
-                            onChange={(e) => setCostInput(e.target.value)}
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            placeholder="0.00"
-                            className={`${inputClass} h-8 w-28 text-xs`}
-                          />
-                          <button onClick={handleSaveCost} disabled={costSaving} className="flex h-8 items-center rounded-lg bg-primary px-2.5 text-xs font-medium text-white disabled:opacity-50">
-                            {costSaving ? "…" : "Save"}
-                          </button>
-                          <button onClick={() => setEditingCost(false)} className="flex h-8 w-8 items-center justify-center rounded-lg border border-border text-muted-foreground hover:bg-secondary">
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      ) : (
-                        <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-                          {ticket.repair_cost != null ? formatCurrency(ticket.repair_cost) : "Not set"}
-                          {isAdmin && (
-                            <button
-                              onClick={() => { setCostInput(ticket.repair_cost ?? ""); setEditingCost(true); }}
-                              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                              title="Edit repair cost"
-                            >
-                              <Pencil className="h-3 w-3" />
-                            </button>
+                        <Wrench className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span className="min-w-0">
+                          <span className="block truncate">{j.asset_code ?? "Asset"}</span>
+                          {j.asset_name && (
+                            <span className="block truncate text-2xs font-normal text-muted-foreground">
+                              {j.asset_name}
+                            </span>
                           )}
                         </span>
-                      )}
-                    </div>
+                      </Link>
+                    ))}
                   </div>
-                </div>
-              )}
-
-              {/* ── ACTION CARD ──────────────────────────────────── */}
-              <div className="rounded-xl border border-border bg-card p-5">
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Actions</h3>
-
-                {/* Inline transition forms */}
-                {activeAction === "blocked" && (
-                  <div className="mb-4 space-y-3 rounded-lg border border-red-500/20 bg-red-500/5 p-3">
-                    <p className="text-xs font-semibold text-red-500">Mark as Blocked</p>
-                    <textarea value={transitionNotes} onChange={(e) => setTransitionNotes(e.target.value)} placeholder="What is blocking this? (required)" rows={2} className={`${inputClass} h-auto py-2 text-xs`} />
-                    <div className="flex gap-2">
-                      <button onClick={() => setActiveAction(null)} className="flex-1 h-8 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-secondary">Cancel</button>
-                      <button onClick={() => handleTransition("blocked", transitionNotes)} disabled={actionLoading || !transitionNotes.trim()} className="flex-1 h-8 rounded-lg bg-red-500 text-xs font-medium text-white disabled:opacity-50">{actionLoading ? "..." : "Confirm"}</button>
-                    </div>
-                  </div>
-                )}
-                {activeAction === "on_hold" && (
-                  <div className="mb-4 space-y-3 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
-                    <p className="text-xs font-semibold text-amber-500">Put On Hold</p>
-                    <textarea value={transitionNotes} onChange={(e) => setTransitionNotes(e.target.value)} placeholder="Reason for hold (required)" rows={2} className={`${inputClass} h-auto py-2 text-xs`} />
-                    <div className="flex gap-2">
-                      <button onClick={() => setActiveAction(null)} className="flex-1 h-8 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-secondary">Cancel</button>
-                      <button onClick={() => handleTransition("on_hold", transitionNotes)} disabled={actionLoading || !transitionNotes.trim()} className="flex-1 h-8 rounded-lg bg-amber-500 text-xs font-medium text-white disabled:opacity-50">{actionLoading ? "..." : "Confirm"}</button>
-                    </div>
-                  </div>
-                )}
-                {activeAction === "completion" && (
-                  <div className="mb-4 space-y-3 rounded-lg border border-purple-500/20 bg-purple-500/5 p-3">
-                    <p className="text-xs font-semibold text-purple-500">Submit for Review</p>
-                    <p className="text-2xs text-muted-foreground">Describe work done &amp; upload evidence. This goes to your supervisor.</p>
-                    <textarea value={completionNotes} onChange={(e) => setCompletionNotes(e.target.value)} placeholder="What was completed? (required)" rows={3} className={`${inputClass} h-auto py-2 text-xs`} />
-                    <textarea value={partsUsed} onChange={(e) => setPartsUsed(e.target.value)} placeholder="Parts used (e.g. 1x P6 module, 2x ribbon cables)" rows={2} className={`${inputClass} h-auto py-2 text-xs`} />
-                    <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleImageSelect} />
-                    <button type="button" onClick={() => fileInputRef.current?.click()} className="flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border bg-secondary/20 px-3 py-2.5 text-xs text-muted-foreground hover:border-primary/40 hover:bg-primary/5 transition-colors">
-                      <Camera className="h-3.5 w-3.5" /> Upload Photos
-                    </button>
-                    {completionPreviews.length > 0 && (
-                      <div className="grid grid-cols-3 gap-2">
-                        {completionPreviews.map((src, i) => (
-                          <div key={i} className="group relative aspect-square">
-                            <img src={src} alt={`Preview ${i + 1}`} className="h-full w-full rounded-lg object-cover" />
-                            <button onClick={() => removeImage(i)} className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-white opacity-0 transition-opacity group-hover:opacity-100"><X className="h-3 w-3" /></button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    <div className="flex gap-2">
-                      <button onClick={() => { setActiveAction(null); setCompletionNotes(""); setCompletionImages([]); setCompletionPreviews([]); }} className="flex-1 h-8 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-secondary">Cancel</button>
-                      <button onClick={handleSubmitCompletion} disabled={actionLoading || !completionNotes.trim()} className="flex-1 h-8 rounded-lg bg-purple-500 text-xs font-medium text-white disabled:opacity-50">{actionLoading ? "Submitting..." : "Submit"}</button>
-                    </div>
-                  </div>
-                )}
-                {activeAction === "review" && (
-                  <div className="mb-4 space-y-3 rounded-lg border border-border bg-secondary/10 p-3">
-                    <p className="text-xs font-semibold text-foreground">Review Submission</p>
-                    <textarea value={reviewComments} onChange={(e) => setReviewComments(e.target.value)} placeholder="Comments (required for rejection)..." rows={2} className={`${inputClass} h-auto py-2 text-xs`} />
-                    <div className="flex gap-2">
-                      <button onClick={() => setActiveAction(null)} className="h-8 rounded-lg border border-border px-3 text-xs font-medium text-muted-foreground hover:bg-secondary">Cancel</button>
-                      <button onClick={() => handleReview("reject")} disabled={actionLoading || !reviewComments.trim()} className="flex-1 h-8 rounded-lg bg-red-500 text-xs font-medium text-white disabled:opacity-50 flex items-center justify-center gap-1"><XCircle className="h-3 w-3" /> Reject</button>
-                      <button onClick={() => handleReview("approve")} disabled={actionLoading} className="flex-1 h-8 rounded-lg bg-emerald-500 text-xs font-medium text-white disabled:opacity-50 flex items-center justify-center gap-1"><CheckCircle2 className="h-3 w-3" /> Approve</button>
-                    </div>
-                  </div>
-                )}
-
-                {activeAction === "ops_approval" && (
-                  <div className="mb-4 space-y-3 rounded-lg border border-orange-500/20 bg-orange-500/5 p-3">
-                    <p className="text-xs font-semibold text-orange-500">Request Operations Approval</p>
-                    <textarea value={transitionNotes} onChange={(e) => setTransitionNotes(e.target.value)} placeholder="Issue found, parts/cost needed (required)" rows={2} className={`${inputClass} h-auto py-2 text-xs`} />
-                    <div className="flex gap-2">
-                      <button onClick={() => setActiveAction(null)} className="flex-1 h-8 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-secondary">Cancel</button>
-                      <button onClick={() => handleTransition("pending_ops_approval", transitionNotes)} disabled={actionLoading || !transitionNotes.trim()} className="flex-1 h-8 rounded-lg bg-orange-500 text-xs font-medium text-white disabled:opacity-50">{actionLoading ? "..." : "Request"}</button>
-                    </div>
-                  </div>
-                )}
-                {activeAction === "decline" && (
-                  <div className="mb-4 space-y-3 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
-                    <p className="text-xs font-semibold text-amber-500">Decline — Put On Hold</p>
-                    <textarea value={transitionNotes} onChange={(e) => setTransitionNotes(e.target.value)} placeholder="Reason (required)" rows={2} className={`${inputClass} h-auto py-2 text-xs`} />
-                    <div className="flex gap-2">
-                      <button onClick={() => setActiveAction(null)} className="flex-1 h-8 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-secondary">Cancel</button>
-                      <button onClick={() => handleTransition("on_hold", transitionNotes)} disabled={actionLoading || !transitionNotes.trim()} className="flex-1 h-8 rounded-lg bg-amber-500 text-xs font-medium text-white disabled:opacity-50">{actionLoading ? "..." : "Confirm"}</button>
-                    </div>
-                  </div>
-                )}
-                {activeAction === "reopen" && (
-                  <div className="mb-4 space-y-3 rounded-lg border border-blue-500/20 bg-blue-500/5 p-3">
-                    <p className="text-xs font-semibold text-blue-500">Reopen Ticket</p>
-                    <p className="text-2xs text-muted-foreground">Moves the ticket back to In Progress. Available within 7 days of closure.</p>
-                    <textarea value={transitionNotes} onChange={(e) => setTransitionNotes(e.target.value)} placeholder="Why is this being reopened? (required)" rows={2} className={`${inputClass} h-auto py-2 text-xs`} />
-                    <div className="flex gap-2">
-                      <button onClick={() => setActiveAction(null)} className="flex-1 h-8 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-secondary">Cancel</button>
-                      <button onClick={() => handleTransition("in_progress", transitionNotes)} disabled={actionLoading || !transitionNotes.trim()} className="flex-1 h-8 rounded-lg bg-blue-500 text-xs font-medium text-white disabled:opacity-50">{actionLoading ? "..." : "Reopen"}</button>
-                    </div>
-                  </div>
-                )}
-                {activeAction === "assign" && (
-                  <div className="mb-4 space-y-3 rounded-lg border border-primary/20 bg-primary/5 p-3">
-                    <p className="text-xs font-semibold text-primary">Assign Ticket</p>
-                    <div className="space-y-1">
-                      <label className="text-2xs text-muted-foreground">Employee</label>
-                      <select value={assignUser} onChange={(e) => setAssignUser(e.target.value)} className={`${inputClass} text-xs`}>
-                        <option value="">Unassigned</option>
-                        {assignUsers.map((u) => <option key={u.id} value={u.id}>{u.label}</option>)}
-                      </select>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-2xs text-muted-foreground">Vendor (for in-warranty assets)</label>
-                      <select value={assignVendor} onChange={(e) => setAssignVendor(e.target.value)} className={`${inputClass} text-xs`}>
-                        <option value="">No vendor</option>
-                        {assignVendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-                      </select>
-                    </div>
-                    <div className="flex gap-2">
-                      <button onClick={() => setActiveAction(null)} className="flex-1 h-8 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-secondary">Cancel</button>
-                      <button onClick={handleAssign} disabled={actionLoading} className="flex-1 h-8 rounded-lg bg-primary text-xs font-medium text-white disabled:opacity-50">{actionLoading ? "..." : "Assign"}</button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Action buttons */}
-                {!activeAction && (
-                  <div className="space-y-2">
-                    {isAdmin && !isClosed && (
-                      <button onClick={openAssignPanel} className="flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-primary/30 bg-primary/5 text-sm font-medium text-primary hover:bg-primary/10">
-                        <User className="h-4 w-4" /> {ticket.assigned_to_name || ticket.assigned_vendor_name ? "Reassign" : "Assign"} Ticket
-                      </button>
-                    )}
-                    {canAct && ticket.status === "open" && (
-                      <button onClick={() => handleTransition("in_progress")} disabled={actionLoading} className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-primary text-sm font-medium text-white disabled:opacity-50">
-                        <Play className="h-4 w-4" /> {actionLoading ? "..." : "Start Working"}
-                      </button>
-                    )}
-                    {canAct && ticket.status === "in_progress" && (
-                      <>
-                        <button onClick={() => setActiveAction("completion")} className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-purple-500 text-sm font-medium text-white">
-                          <CheckCircle2 className="h-4 w-4" /> Submit for Review
-                        </button>
-                        <button onClick={() => setActiveAction("ops_approval")} className="flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-orange-500/30 bg-orange-500/10 text-xs font-medium text-orange-600">
-                          <ShieldCheck className="h-3.5 w-3.5" /> Request Ops Approval
-                        </button>
-                        <div className="grid grid-cols-3 gap-2">
-                          <button onClick={() => handleTransition("alignment_pending")} disabled={actionLoading} className="flex h-9 items-center justify-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 text-xs font-medium text-cyan-600 disabled:opacity-50">
-                            Alignment
-                          </button>
-                          <button onClick={() => setActiveAction("on_hold")} className="flex h-9 items-center justify-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 text-xs font-medium text-amber-600">
-                            <Pause className="h-3.5 w-3.5" /> Hold
-                          </button>
-                          <button onClick={() => setActiveAction("blocked")} className="flex h-9 items-center justify-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/10 text-xs font-medium text-red-600">
-                            <AlertTriangle className="h-3.5 w-3.5" /> Blocked
-                          </button>
-                        </div>
-                      </>
-                    )}
-                    {canAct && (ticket.status === "on_hold" || ticket.status === "blocked" || ticket.status === "alignment_pending") && (
-                      <button onClick={() => handleTransition("in_progress")} disabled={actionLoading} className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-primary text-sm font-medium text-white disabled:opacity-50">
-                        <Play className="h-4 w-4" /> {actionLoading ? "..." : "Resume Work"}
-                      </button>
-                    )}
-                    {(isAdmin || isMarketing) && ticket.status === "on_hold" && (
-                      <button onClick={() => handleTransition("closed", "Closed from hold (client declined / no action).")} disabled={actionLoading} className="flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-slate-500/30 bg-slate-500/10 text-xs font-medium text-slate-500 disabled:opacity-50">
-                        <Check className="h-3.5 w-3.5" /> Close Ticket
-                      </button>
-                    )}
-                    {isAdmin && ticket.status === "pending_ops_approval" && (
-                      <>
-                        <button onClick={() => handleTransition("in_progress", "Rectification approved by Operations.")} disabled={actionLoading} className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-emerald-500 text-sm font-medium text-white disabled:opacity-50">
-                          <CheckCircle2 className="h-4 w-4" /> Approve Rectification
-                        </button>
-                        <div className="grid grid-cols-2 gap-2">
-                          <button onClick={() => handleTransition("pending_client_approval", "Client expense approval required — over to Marketing.")} disabled={actionLoading} className="flex h-9 items-center justify-center gap-1.5 rounded-lg border border-violet-500/30 bg-violet-500/10 text-xs font-medium text-violet-600 disabled:opacity-50">
-                            Needs Client Approval
-                          </button>
-                          <button onClick={() => setActiveAction("decline")} className="flex h-9 items-center justify-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 text-xs font-medium text-amber-600">
-                            Decline
-                          </button>
-                        </div>
-                      </>
-                    )}
-                    {(isMarketing || isAdmin) && ticket.status === "pending_client_approval" && (
-                      <>
-                        <button onClick={() => handleTransition("in_progress", "Client approved the expense — proceed with rectification.")} disabled={actionLoading} className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-emerald-500 text-sm font-medium text-white disabled:opacity-50">
-                          <CheckCircle2 className="h-4 w-4" /> Client Approved
-                        </button>
-                        <button onClick={() => setActiveAction("decline")} className="flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 text-xs font-medium text-amber-600">
-                          Client Declined
-                        </button>
-                      </>
-                    )}
-                    {canAct && ticket.status === "rejected" && (
-                      <>
-                        <button onClick={() => setActiveAction("completion")} className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-purple-500 text-sm font-medium text-white">
-                          <CheckCircle2 className="h-4 w-4" /> Resubmit for Review
-                        </button>
-                        <button onClick={() => handleTransition("in_progress")} disabled={actionLoading} className="flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-secondary disabled:opacity-50">
-                          <Play className="h-3.5 w-3.5" /> {actionLoading ? "..." : "Resume & Rework First"}
-                        </button>
-                      </>
-                    )}
-                    {canReview && ticket.status === "pending_review" && (
-                      <button onClick={() => setActiveAction("review")} className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-primary text-sm font-medium text-white">
-                        <ShieldCheck className="h-4 w-4" /> Review Submission
-                      </button>
-                    )}
-                    {(isAdmin || isMarketing) && ticket.status === "approved" && (
-                      <button onClick={() => handleTransition("closed", "Reviewed and shared with client — closing.")} disabled={actionLoading} className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-slate-600 text-sm font-medium text-white disabled:opacity-50">
-                        <Check className="h-4 w-4" /> {actionLoading ? "..." : "Close Ticket (Client Sign-off)"}
-                      </button>
-                    )}
-
-                    {(isAdmin || isReporter) && ["open", "in_progress", "on_hold", "blocked", "alignment_pending", "pending_ops_approval", "pending_client_approval"].includes(ticket.status) && (
-                      <button
-                        onClick={() => {
-                          const why = prompt("Why is this being cancelled? (duplicate, not a fault, called off)");
-                          if (why && why.trim()) handleTransition("cancelled", why.trim());
-                        }}
-                        disabled={actionLoading}
-                        className="flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-zinc-500/30 bg-zinc-500/10 text-xs font-medium text-zinc-500 hover:bg-zinc-500/20 disabled:opacity-50"
-                      >
-                        <XCircle className="h-3.5 w-3.5" /> Cancel Ticket
-                      </button>
-                    )}
-
-                    {canReopen && (
-                      <button onClick={() => setActiveAction("reopen")} className="flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-blue-500/30 bg-blue-500/10 text-sm font-medium text-blue-600 hover:bg-blue-500/20">
-                        <RotateCcw className="h-4 w-4" /> Reopen Ticket
-                      </button>
-                    )}
-
-                    {/* Site-visit photos (any stage before closure) */}
-                    {!isClosed && (
-                      <div className="mt-3 space-y-2 rounded-lg border border-border bg-secondary/20 p-3">
-                        <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">Attach Visit Photos</p>
-                        <input
-                          type="file" accept="image/*" multiple
-                          onChange={(e) => setVisitFiles(Array.from(e.target.files ?? []))}
-                          className="block w-full text-xs text-muted-foreground file:mr-2 file:rounded file:border-0 file:bg-primary/10 file:px-2 file:py-1 file:text-2xs file:text-primary"
-                        />
-                        <input value={visitCaption} onChange={(e) => setVisitCaption(e.target.value)} placeholder="Describe the issue seen…" className={`${inputClass} h-8 text-xs`} />
-                        <button onClick={handleVisitUpload} disabled={visitUploading || visitFiles.length === 0} className="flex h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-primary/90 text-xs font-medium text-white disabled:opacity-50">
-                          <Camera className="h-3.5 w-3.5" /> {visitUploading ? "Uploading…" : `Attach${visitFiles.length ? ` (${visitFiles.length})` : ""}`}
-                        </button>
-                      </div>
-                    )}
-
-                    {/* Status messages */}
-                    {isAssignee && !isAdmin && ticket.status === "pending_review" && (
-                      <div className="flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-purple-500/20 bg-purple-500/5 text-sm font-medium text-purple-500">
-                        <Clock className="h-4 w-4" /> Awaiting Review
-                      </div>
-                    )}
-                    {!isAssignee && !canReview && ticket.status === "open" && (
-                      <div className="flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-border bg-secondary/30 text-sm font-medium text-muted-foreground">
-                        <User className="h-4 w-4" /> Assigned to {ticket.assigned_to_name || "someone else"}
-                      </div>
-                    )}
-                    {isClosed && (
-                      <div className="flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 text-sm font-medium text-emerald-600">
-                        <CheckCircle2 className="h-4 w-4" /> Ticket {formatLabel(ticket.status)}
-                      </div>
-                    )}
-                  </div>
+                ) : (
+                  <Link
+                    href={
+                      ticket.maintenance_jobs?.[0]
+                        ? `/maintenance#job-${ticket.maintenance_jobs[0].id}`
+                        : "/maintenance"
+                    }
+                    className="mt-3 inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-border text-sm font-medium text-foreground transition-colors hover:bg-secondary"
+                  >
+                    <Wrench className="h-4 w-4" /> Open in Maintenance
+                  </Link>
                 )}
               </div>
             </div>
@@ -1289,12 +838,7 @@ function TicketDetailView({
 
       {/* Lightbox */}
       {lightboxImg && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-md veil-in" onClick={() => setLightboxImg(null)}>
-          <button className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20" onClick={() => setLightboxImg(null)}>
-            <X className="h-5 w-5" />
-          </button>
-          <img src={lightboxImg} alt="Full size" className="max-h-[85vh] max-w-[90vw] rounded-lg object-contain" />
-        </div>
+        <Lightbox src={lightboxImg} onClose={() => setLightboxImg(null)} />
       )}
     </div>
   );
@@ -1337,12 +881,15 @@ export default function TicketsPage() {
   const [categoryValue, setCategoryValue] = useState("other");
   // Cost liability (WF-14/15) — sent only when the user overrides the
   // warranty-derived defaults, so the backend derivation stays authoritative.
-  const [billingEdited, setBillingEdited] = useState(false);
-  const [billingBillable, setBillingBillable] = useState(true);
-  const [billingChargeTo, setBillingChargeTo] = useState("client");
   // Defaults derived from the asset's active warranties (mirrors backend
   // derive_billability); null = unknown → server derives on save.
   const [warrantyBilling, setWarrantyBilling] = useState<{ is_billable: boolean; charge_to: string } | null>(null);
+  // Whether this repair is chargeable. Defaulted from the warranty and
+  // overridable, because a warranty can be void for a reason the record
+  // does not know about. Who it is charged *to* stays the warranty's
+  // answer — there was nothing for a person to add to that.
+  const [billingBillable, setBillingBillable] = useState(true);
+  const [billingEdited, setBillingEdited] = useState(false);
   // Extra assets linked to the same ticket (MW-03).
   const [extraAssets, setExtraAssets] = useState<{ id: string; label: string }[]>([]);
   const [extraQuery, setExtraQuery] = useState("");
@@ -1437,14 +984,12 @@ export default function TicketsPage() {
       const { data } = await api.get(`/assets/devices/${deviceId}/`);
       setDeviceInfo(data);
     } catch { setDeviceInfo(null); }
-    // Re-derive the billing defaults from this asset's active warranties
-    // (mirrors backend derive_billability: only an active *client* warranty
-    // covers the cost — charged to the vendor when a supplier-side warranty
-    // is also active); any prior manual override resets with the asset.
-    setBillingEdited(false);
+    // Re-read who bears the cost for this asset (mirrors the backend's
+    // derive_billability: only an active *client* warranty covers it, and
+    // the vendor is charged when a supplier-side warranty is active too).
+    // Shown, not asked — the server decides this on save.
     setWarrantyBilling(null);
-    setBillingBillable(true);
-    setBillingChargeTo("client");
+    setBillingEdited(false);
     try {
       const { data } = await api.get("/warranties/", {
         params: { device: deviceId, status: "active", page_size: 100 },
@@ -1456,14 +1001,13 @@ export default function TicketsPage() {
         ? { is_billable: false, charge_to: hasSupplierSide ? "vendor" : "company" }
         : { is_billable: true, charge_to: "client" };
       setWarrantyBilling(derived);
-      setBillingBillable(derived.is_billable);
-      setBillingChargeTo(derived.charge_to);
+      if (!billingEdited) setBillingBillable(derived.is_billable);
     } catch { /* unknown — billing derived server-side on save */ }
   }
 
   function resetBillingAndExtras() {
-    setBillingEdited(false); setBillingBillable(true); setBillingChargeTo("client");
     setWarrantyBilling(null);
+    setBillingBillable(true); setBillingEdited(false);
     setExtraAssets([]); setExtraQuery(""); setExtraListOpen(false);
   }
 
@@ -1498,6 +1042,7 @@ export default function TicketsPage() {
       // A ticket is about an asset, of a kind, at an urgency. The API
       // refuses one without all three; saying so here saves the round trip.
       if (!fd.get("device")) { toast.error("Pick the asset this ticket is about"); return; }
+      if (!fd.get("issue_type")) { toast.error("Pick what the fault is"); return; }
       if (!fd.get("category")) { toast.error("Pick a category"); return; }
       if (!fd.get("priority")) { toast.error("Pick a priority"); return; }
     }
@@ -1511,11 +1056,11 @@ export default function TicketsPage() {
     if (modalMode === "create") {
       payload.device = fd.get("device") || null;
       payload.site = deviceInfo?.current_site || null;
-      // Only send billing overrides the user actually made — otherwise the
-      // backend derives them from the asset's warranty (WF-14/15).
+      // Only sent when somebody actually changed it. Left alone, the
+      // server reads the asset's warranty — the same answer this form is
+      // already showing, so there is nothing to send.
       if (billingEdited && selectedDeviceId && BILLING_CATEGORIES.includes(categoryValue)) {
         payload.is_billable = billingBillable;
-        payload.charge_to = billingChargeTo;
       }
       if (extraAssets.length > 0 && selectedDeviceId) {
         payload.devices = [selectedDeviceId, ...extraAssets.map((a) => a.id)];
@@ -1605,7 +1150,7 @@ export default function TicketsPage() {
         const STATUS_HEX: Record<string, string> = {
           open: "#3b82f6", in_progress: "#f59e0b", on_hold: "#6b7280", blocked: "#ef4444",
           alignment_pending: "#06b6d4", pending_ops_approval: "#f97316", pending_client_approval: "#8b5cf6",
-          pending_review: "#a855f7", approved: "#10b981", rejected: "#f43f5e", closed: "#64748b",
+          assigned: "#6366f1", pending_review: "#a855f7", approved: "#10b981", rejected: "#f43f5e", closed: "#64748b",
           cancelled: "#a1a1aa",
         };
         return (
@@ -1751,14 +1296,9 @@ export default function TicketsPage() {
 
       {/* Create/Edit Modal */}
       {modalMode && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-md veil-in">
-          <div className="flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden glass glass-pop rounded-2xl">
-            <div className="flex items-center justify-between border-b border-border px-6 py-4">
-              <h2 className="text-lg font-semibold text-foreground">{modalMode === "create" ? "Create Ticket" : "Edit Ticket"}</h2>
-              <button onClick={closeModal} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"><X className="h-5 w-5" /></button>
-            </div>
-            <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
-              <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5">
+        <Modal open onClose={closeModal} title={modalMode === "create" ? "Create Ticket" : "Edit Ticket"} size="wide">
+            <form onSubmit={handleSubmit} className="flex flex-col">
+              <div className="space-y-4">
               <div className="space-y-1.5">
                 <label htmlFor="title" className={labelClass}>Title</label>
                 <input id="title" name="title" required defaultValue={selected?.title ?? ""} className={inputClass} placeholder="Brief summary of the issue" />
@@ -1851,30 +1391,19 @@ export default function TicketsPage() {
                       <ShieldCheck className="h-3.5 w-3.5" /> Client warranty active — {warrantyBilling.charge_to === "vendor" ? "vendor" : "company"} bears cost
                     </span>
                   )}
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <label className="flex h-10 cursor-pointer items-center gap-2 rounded-lg border border-border bg-card px-3 text-sm text-foreground">
-                      <input
-                        type="checkbox"
-                        checked={billingBillable}
-                        onChange={(e) => { setBillingBillable(e.target.checked); setBillingEdited(true); }}
-                        className="h-4 w-4"
-                      />
-                      Billable
-                    </label>
-                    <select
-                      aria-label="Charge to"
-                      value={billingChargeTo}
-                      onChange={(e) => { setBillingChargeTo(e.target.value); setBillingEdited(true); }}
-                      className={inputClass}
-                    >
-                      <option value="">Charge to…</option>
-                      <option value="company">Company</option>
-                      <option value="client">Client</option>
-                      <option value="vendor">Vendor</option>
-                    </select>
-                  </div>
+                  <label className="flex h-10 w-fit cursor-pointer items-center gap-2 rounded-lg border border-border bg-card px-3 text-sm text-foreground">
+                    <input
+                      type="checkbox"
+                      checked={billingBillable}
+                      onChange={(e) => { setBillingBillable(e.target.checked); setBillingEdited(true); }}
+                      className="h-4 w-4"
+                    />
+                    Billable
+                  </label>
                   <p className="text-2xs text-muted-foreground">
-                    Defaults derive from the asset&apos;s warranty — change only if this ticket differs.
+                    Read from the asset&apos;s warranty — untick only if this repair
+                    is not chargeable. What it actually costs is settled on the
+                    maintenance job when the work is done.
                   </p>
                 </div>
               )}
@@ -1935,9 +1464,9 @@ export default function TicketsPage() {
               )}
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
-                  <label htmlFor="issue_type" className={labelClass}>Issue Type</label>
-                  <select id="issue_type" name="issue_type" defaultValue={selected?.issue_type ?? ""} className={inputClass}>
-                    <option value="">Select issue…</option>
+                  <label htmlFor="issue_type" className={labelClass}>Issue Type *</label>
+                  <select id="issue_type" name="issue_type" required defaultValue={selected?.issue_type ?? ""} className={inputClass}>
+                    <option value="" disabled>Select issue…</option>
                     {issueTypes.map((it) => <option key={it.id} value={it.id}>{it.name}</option>)}
                   </select>
                 </div>
@@ -1993,8 +1522,7 @@ export default function TicketsPage() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, FileText, Plus, Printer, RotateCcw, Save, Send, Trash2, XCircle } from "lucide-react";
+import { CheckCircle2, FileText, Pencil, Plus, Printer, RotateCcw, Save, Send, Trash2, XCircle } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -149,6 +149,8 @@ export function ProjectPlanning({
     !(plan?.submitted_by_id === user.id && user.role !== "super_admin");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  /** The overhead being corrected, if any. */
+  const [editingLine, setEditingLine] = useState<string | null>(null);
   const [contingency, setContingency] = useState("");
   const [decisionNotes, setDecisionNotes] = useState("");
   const [line, setLine] = useState({ cost_type: "", description: "", quantity: "1", unit_cost: "" });
@@ -186,7 +188,7 @@ export function ProjectPlanning({
       setPlan(data);
       setContingency(String(Number(data.contingency_percent)));
     } catch (err) {
-      toast.error(getApiError(err, "Failed to load the cost plan"));
+      toast.error(getApiError(err, "Failed to load the budget and costing"));
     } finally {
       setLoading(false);
     }
@@ -231,6 +233,20 @@ export function ProjectPlanning({
       toast.error(getApiError(err, "Could not add the cost"));
     } finally {
       setBusy(false);
+    }
+  }
+
+  /** Correct a cost in place. A rate typed wrong used to mean deleting
+   *  the line and entering the whole thing again. */
+  async function saveLine(id: string, patch: Record<string, string>) {
+    try {
+      await api.patch(`/teams/cost-lines/${id}/`, patch);
+      await load();
+      toast.success("Cost updated");
+    } catch (err) {
+      toast.error(getApiError(err, "Could not update the cost"));
+    } finally {
+      setEditingLine(null);
     }
   }
 
@@ -343,10 +359,10 @@ export function ProjectPlanning({
           <button
             onClick={() => openDocument(`/teams/projects/${projectId}/plan/document/`)}
             disabled={!plan.has_plan && plan.materials.length === 0}
-            title="Print the cost plan — per-asset BOM, production, overheads and total"
+            title="Print the budget and costing — per-asset BOM, production, overheads and total"
             className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
           >
-            <Printer className="h-3.5 w-3.5" /> Print cost plan
+            <Printer className="h-3.5 w-3.5" /> Print budget and costing
           </button>
           <button
             onClick={() => setShowBoq((v) => !v)}
@@ -805,24 +821,92 @@ export function ProjectPlanning({
                 </tr>
               </thead>
               <tbody>
-                {plan.overheads.map((o) => (
+                {plan.overheads.map((o) => {
+                  const open = editingLine === o.id;
+                  return (
                   <tr key={o.id} className="border-b border-border/60 last:border-0">
-                    <td className={tdClass}>
-                      <span className="rounded-full bg-secondary px-2 py-0.5 text-2xs font-medium text-foreground">{o.cost_type}</span>
-                    </td>
-                    <td className={`${tdClass} text-muted-foreground`}>{o.description || "—"}</td>
-                    <td className={`${tdClass} text-right text-foreground`}>{Number(o.quantity)}</td>
-                    <td className={`${tdClass} text-right text-foreground`}>{money(o.unit_cost)}</td>
-                    <td className={`${tdClass} text-right font-medium text-foreground`}>{money(o.amount)}</td>
-                    {editable && (
-                      <td className={`${tdClass} text-right`}>
-                        <button onClick={() => removeLine(o.id)} title="Remove" className="text-muted-foreground transition-colors hover:text-destructive">
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </td>
+                    {open ? (
+                      /* The row becomes the form, so what is being changed
+                         is the line itself rather than a dialog about it. */
+                      <>
+                        <td className={tdClass} colSpan={2}>
+                          <input
+                            defaultValue={o.description || o.cost_type}
+                            id={`oh-what-${o.id}`}
+                            className={`${inputClass} w-full`}
+                          />
+                        </td>
+                        <td className={`${tdClass} text-right`}>
+                          <input
+                            type="number" min={0} step="0.01"
+                            defaultValue={String(Number(o.quantity))}
+                            id={`oh-qty-${o.id}`}
+                            className={`${inputClass} w-20 text-right`}
+                          />
+                        </td>
+                        <td className={`${tdClass} text-right`}>
+                          <input
+                            type="number" min={0} step="0.01"
+                            defaultValue={String(Number(o.unit_cost))}
+                            id={`oh-rate-${o.id}`}
+                            className={`${inputClass} w-28 text-right`}
+                          />
+                        </td>
+                        <td className={`${tdClass} text-right text-muted-foreground`}>—</td>
+                        <td className={`${tdClass} text-right`}>
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              onClick={() => {
+                                const what = (document.getElementById(`oh-what-${o.id}`) as HTMLInputElement)?.value.trim();
+                                const qty = (document.getElementById(`oh-qty-${o.id}`) as HTMLInputElement)?.value;
+                                const rate = (document.getElementById(`oh-rate-${o.id}`) as HTMLInputElement)?.value;
+                                if (!what || !rate) { toast.error("A cost needs a name and a rate"); return; }
+                                saveLine(o.id, {
+                                  cost_type: what, description: what,
+                                  quantity: qty || "1", unit_cost: rate,
+                                });
+                              }}
+                              title="Save"
+                              className="rounded-md bg-primary px-2 py-1 text-2xs font-semibold text-white hover:bg-primary/90"
+                            >
+                              Save
+                            </button>
+                            <button
+                              onClick={() => setEditingLine(null)}
+                              title="Cancel"
+                              className="rounded-md px-2 py-1 text-2xs font-medium text-muted-foreground hover:bg-secondary"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </td>
+                      </>
+                    ) : (
+                      <>
+                        <td className={tdClass}>
+                          <span className="rounded-full bg-secondary px-2 py-0.5 text-2xs font-medium text-foreground">{o.cost_type}</span>
+                        </td>
+                        <td className={`${tdClass} text-muted-foreground`}>{o.description || "—"}</td>
+                        <td className={`${tdClass} text-right text-foreground`}>{Number(o.quantity)}</td>
+                        <td className={`${tdClass} text-right text-foreground`}>{money(o.unit_cost)}</td>
+                        <td className={`${tdClass} text-right font-medium text-foreground`}>{money(o.amount)}</td>
+                        {editable && (
+                          <td className={`${tdClass} text-right`}>
+                            <div className="flex items-center justify-end gap-2">
+                              <button onClick={() => setEditingLine(o.id)} title="Edit" className="text-muted-foreground transition-colors hover:text-primary">
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                              <button onClick={() => removeLine(o.id)} title="Remove" className="text-muted-foreground transition-colors hover:text-destructive">
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        )}
+                      </>
                     )}
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

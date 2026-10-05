@@ -8,6 +8,7 @@ import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useChatUnread } from "@/lib/chat-context";
 import { WebSocketClient } from "@/lib/websocket";
+import { Modal } from "@/components/ui/modal";
 import { Avatar } from "@/components/ui/avatar";
 import { formatDateTime } from "@/lib/utils";
 
@@ -438,18 +439,9 @@ export default function ChatPage() {
 
       {/* New Chat Modal */}
       {showNewChat && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="glass glass-pop max-h-[88vh] w-full max-w-md overflow-y-auto rounded-xl">
-            <div className="flex items-center justify-between border-b border-border px-5 py-4">
-              <h3 className="text-sm font-semibold text-foreground">New Conversation</h3>
-              <button
-                onClick={() => { setShowNewChat(false); setUserSearch(""); }}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                &times;
-              </button>
-            </div>
-            <div className="px-5 py-3">
+        <Modal open onClose={() => { setShowNewChat(false); setUserSearch(""); }}
+          title="New Conversation" size="sm">
+                        <div className="px-5 py-3">
               <div className="relative">
                 <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                 <input
@@ -480,8 +472,7 @@ export default function ChatPage() {
                 ))
               )}
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );
