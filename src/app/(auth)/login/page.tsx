@@ -284,7 +284,7 @@ export default function LoginPage() {
 
             {/* Footer */}
             <p className="mt-8 text-center text-2xs text-muted-foreground">
-              &copy; {new Date().getFullYear()} DIGIX Asset Operations. All rights reserved.
+              &copy; {new Date().getFullYear()} DIGIX Asset Management. All rights reserved.
             </p>
           </div>
         </div>

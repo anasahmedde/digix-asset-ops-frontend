@@ -1,4 +1,4 @@
-# DIGIX Asset Ops — User Manual
+# DIGIX Asset Management — User Manual
 
 **Version 1.0 · 28 September 2026**
 
@@ -8,14 +8,14 @@
 
 | | |
 |---|---|
-| **Document title** | DIGIX Asset Ops — User Manual |
+| **Document title** | DIGIX Asset Management — User Manual |
 | **Document reference** | DIGIX-UM-001 |
 | **Current version** | 1.0 |
 | **Status** | Issued for review |
 | **Issue date** | 28 September 2026 |
 | **Applies to build** | `feat/maintenance-tickets-sep21` (backend + frontend) |
 | **Owner** | DIGIX implementation team |
-| **Source of truth** | `docs/DIGIX_Asset_Ops_User_Manual.md` in the frontend repository |
+| **Source of truth** | `docs/DIGIX_Asset_Management_User_Manual.md` in the frontend repository |
 | **Classification** | Internal — DIGIX and client personnel only |
 
 ### Revision history
@@ -33,7 +33,7 @@ tenth when wording, screenshots or a procedure are corrected.
 ### How to revise this manual
 
 1. Raise the change against the current version — quote the section number.
-2. Edit the source file `docs/DIGIX_Asset_Ops_User_Manual.md` on a branch.
+2. Edit the source file `docs/DIGIX_Asset_Management_User_Manual.md` on a branch.
 3. Re-take any screenshot the change affects (see §16.3) so the picture
    matches the words.
 4. Add a row to the revision history above. Never overwrite an existing
@@ -89,7 +89,7 @@ with any build can always be recovered from the repository history.
 
 ### 1.1 Who this is for
 
-Everyone who uses DIGIX Asset Ops: the Group Head, the Operation and CS
+Everyone who uses DIGIX Asset Management: the Group Head, the Operation and CS
 Leads, supervisors, the store, the CS desk and the technicians in the
 field. It assumes no prior knowledge of the system.
 
@@ -99,7 +99,7 @@ do, from start to finish, naming the screen and the button at every step.
 
 ### 1.2 What the system is for
 
-DIGIX Asset Ops follows a digital display asset through its whole life:
+DIGIX Asset Management follows a digital display asset through its whole life:
 bought or built, held in stock, assigned to a project, installed at a
 client's site, kept running, and eventually handed to the client or
 retired. Around that spine sit the things that serve it — purchasing,
