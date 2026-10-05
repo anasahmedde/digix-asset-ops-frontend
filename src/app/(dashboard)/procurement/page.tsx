@@ -40,6 +40,15 @@ interface POItem {
   line_detail?: string | null;
   /** Unit of measure of the line (piece, meter, asset…). */
   unit?: string;
+  /** What the line was expected to cost, and whether paying over was agreed. */
+  reference_unit_price?: string | null;
+  reference_label?: string;
+  variance_percent?: number | null;
+  variance_status?: "not_required" | "pending" | "approved" | "rejected";
+  variance_status_display?: string;
+  variance_owner_display?: string;
+  variance_notes?: string;
+  variance_decided_by_name?: string | null;
   /** Set when the line is for a serialized inventory product. */
   inventory_unit_type?: string | null;
   inventory_item?: string | null;
@@ -874,7 +883,31 @@ export default function ProcurementPage() {
                                       </td>
                                       <td className="px-4 py-2 text-muted-foreground">{itemTypeLabel(item)}</td>
                                       <td className="px-4 py-2 text-right text-muted-foreground"><Qty value={item.quantity} unit={item.unit} /></td>
-                                      <td className="px-4 py-2 text-right text-muted-foreground">{po.prices_hidden ? "—" : Number(item.unit_price).toLocaleString()}</td>
+                                      <td className="px-4 py-2 text-right text-muted-foreground">
+                                        {po.prices_hidden ? "—" : Number(item.unit_price).toLocaleString()}
+                                        {/* Over what was planned: who has to agree it,
+                                            and whether they have. */}
+                                        {!po.prices_hidden && item.variance_status
+                                          && item.variance_status !== "not_required" && (
+                                          <span className={`mt-0.5 block text-2xs font-medium ${
+                                            item.variance_status === "approved" ? "text-emerald-600"
+                                            : item.variance_status === "rejected" ? "text-destructive"
+                                            : "text-amber-600"
+                                          }`}>
+                                            {item.variance_percent != null && `+${item.variance_percent}% · `}
+                                            {item.variance_status === "pending"
+                                              ? `with ${item.variance_owner_display}`
+                                              : item.variance_status_display}
+                                            {item.variance_decided_by_name
+                                              && ` · ${item.variance_decided_by_name}`}
+                                          </span>
+                                        )}
+                                        {item.variance_status === "rejected" && item.variance_notes && (
+                                          <span className="block text-2xs text-muted-foreground">
+                                            {item.variance_notes}
+                                          </span>
+                                        )}
+                                      </td>
                                       <td className="px-4 py-2 text-right text-muted-foreground">{item.received_quantity ?? 0} / {item.quantity}</td>
                                       <td className="px-4 py-2 text-right font-medium text-foreground">
                                         {po.prices_hidden ? "—" : Number(item.line_total ?? Number(item.quantity) * Number(item.unit_price)).toLocaleString()}

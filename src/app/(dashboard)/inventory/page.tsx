@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { IssuanceLog } from "@/components/inventory/issuance-log";
 import { IssuanceRequests } from "@/components/inventory/issuance-requests";
 import { LowStock } from "@/components/inventory/low-stock";
+import { PriceApprovals } from "@/components/procurement/price-approvals";
 import { PendingInspection } from "@/components/inventory/pending-inspection";
 import { ReceivingLog } from "@/components/inventory/receiving-log";
 import { UniqueItems } from "@/components/inventory/unique-items";
@@ -340,7 +341,14 @@ export default function InventoryPage() {
       {tab === "requests" && <IssuanceRequests onIssued={fetchItems} />}
 
       {tab === "issuance" && <IssuanceLog />}
-      {tab === "low_stock" && <LowStock onChanged={refreshLowCount} />}
+      {tab === "low_stock" && (
+        <div className="space-y-6">
+          {/* A reorder the store raised, coming back priced over the last
+              purchase. The store owns that figure, so the store agrees it. */}
+          <PriceApprovals showWhenEmpty={false} />
+          <LowStock onChanged={refreshLowCount} />
+        </div>
+      )}
       {tab === "receiving_log" && <ReceivingLog />}
 
       {tab === "inspection" && (
