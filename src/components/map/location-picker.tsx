@@ -147,7 +147,7 @@ export default function LocationPicker({ lat, lng, onChange }: LocationPickerPro
     try {
       const res = await fetch(
         `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=5&addressdetails=1`,
-        { headers: { "User-Agent": "DigixAssetOps/1.0" } }
+        { headers: { "User-Agent": "DigixAssetManagement/1.0" } }
       );
       const data: NominatimResult[] = await res.json();
       setResults(data);
@@ -182,7 +182,7 @@ export default function LocationPicker({ lat, lng, onChange }: LocationPickerPro
     try {
       const res = await fetch(
         `https://nominatim.openstreetmap.org/reverse?format=json&lat=${newLat}&lon=${newLng}&zoom=18&addressdetails=1`,
-        { headers: { "User-Agent": "DigixAssetOps/1.0" } }
+        { headers: { "User-Agent": "DigixAssetManagement/1.0" } }
       );
       if (!res.ok) return;
       const data: NominatimResult = await res.json();

@@ -149,7 +149,7 @@ export function StickyNotes() {
   }
 
   return (
-    <div className="flex h-full flex-col rounded-xl border border-border bg-card">
+    <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-card">
       <div className="flex items-center gap-2 px-4 pt-4">
         <Pin className="h-4 w-4 text-primary" />
         <h3 className="text-sm font-semibold text-foreground">Notes</h3>
@@ -174,9 +174,43 @@ export function StickyNotes() {
         {board === "self" ? "Private to you." : "Everyone sees these."}
       </p>
 
-      <div className="relative border-b border-border p-3">
+      <div className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto px-4">
+        {notes.length === 0 && (
+          <p className="py-6 text-center text-xs text-muted-foreground">
+            {board === "self" ? "No notes yet." : "Nothing on the board."}
+          </p>
+        )}
+        {notes.map((n) => (
+          <div key={n.id} className="group rounded-lg border border-border bg-secondary/30 p-3">
+            <div className="mb-1 flex items-center gap-2">
+              {board === "team" && (
+                <span className="text-2xs font-semibold text-foreground">{n.author_name}</span>
+              )}
+              <span className="text-2xs text-muted-foreground">{ago(n.created_at)}</span>
+              {n.mine && (
+                <button
+                  type="button"
+                  onClick={() => remove(n.id)}
+                  aria-label="Delete note"
+                  className="ml-auto text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+            <p className="whitespace-pre-wrap break-words text-xs text-foreground">
+              {withTags(n.body, n.mentioned_names)}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      {/* Pinned to the bottom, the way every message box is: the notes
+          read upward and the place to write one does not move as they
+          pile up. */}
+      <div className="relative mt-auto border-t border-border p-3">
         {suggestions.length > 0 && (
-          <div className="absolute top-full left-3 right-3 z-10 mt-1 overflow-hidden rounded-lg border border-border bg-card shadow-lg">
+          <div className="absolute bottom-full left-3 right-3 z-10 mb-1 overflow-hidden rounded-lg border border-border bg-card shadow-lg">
             {suggestions.map((p) => (
               <button
                 key={p.id}
@@ -214,36 +248,6 @@ export function StickyNotes() {
         </div>
       </div>
 
-      <div className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto px-4">
-        {notes.length === 0 && (
-          <p className="py-6 text-center text-xs text-muted-foreground">
-            {board === "self" ? "No notes yet." : "Nothing on the board."}
-          </p>
-        )}
-        {notes.map((n) => (
-          <div key={n.id} className="group rounded-lg border border-border bg-secondary/30 p-3">
-            <div className="mb-1 flex items-center gap-2">
-              {board === "team" && (
-                <span className="text-2xs font-semibold text-foreground">{n.author_name}</span>
-              )}
-              <span className="text-2xs text-muted-foreground">{ago(n.created_at)}</span>
-              {n.mine && (
-                <button
-                  type="button"
-                  onClick={() => remove(n.id)}
-                  aria-label="Delete note"
-                  className="ml-auto text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              )}
-            </div>
-            <p className="whitespace-pre-wrap break-words text-xs text-foreground">
-              {withTags(n.body, n.mentioned_names)}
-            </p>
-          </div>
-        ))}
-      </div>
 
     </div>
   );
