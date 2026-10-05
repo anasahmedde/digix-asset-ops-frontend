@@ -23,6 +23,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { PriceApprovals } from "@/components/procurement/price-approvals";
 import { ProjectRequirements } from "@/components/projects/project-requirements";
 import { ProjectBudgetSummary } from "@/components/projects/project-budget-summary";
 import { ProjectPlanning } from "@/components/projects/project-planning";
@@ -1219,7 +1220,7 @@ export default function ProjectsPage() {
 
             {/* The cost plan reads the scope above it, so it follows it. */}
             <div className="rounded-xl border border-border bg-card p-5">
-              <h3 className="mb-3 text-sm font-semibold text-foreground">Cost Plan — estimate &amp; budget approval</h3>
+              <h3 className="mb-3 text-sm font-semibold text-foreground">Budget and Costing — estimate &amp; approval</h3>
               <ProjectPlanning projectId={detail.id} refreshKey={d.scope_items.map((it) => it.id).join(",")} onGoToExecution={() => chooseTab("execution")} onChanged={() => loadDetail(detail.id)} />
             </div>
 
@@ -1228,6 +1229,11 @@ export default function ProjectsPage() {
 
             {projectTab === "execution" && (
               <>
+            {/* A part coming back from Procurement priced above what the
+                budget was approved on. Execution owns that figure, so the
+                order waits here until Execution agrees to pay more. */}
+            <PriceApprovals showWhenEmpty={false} />
+
             {/* Build requirements: every asset's components, gathered here so
                 the user can decide stock-vs-procure per line. */}
             <div className="rounded-xl border border-border bg-card p-5">
