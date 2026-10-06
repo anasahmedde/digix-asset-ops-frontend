@@ -101,6 +101,9 @@ function originOf(r: Requisition): { name: string; detail: string } {
 
 export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
   const { canWrite } = useUser();
+  // Local date, not the UTC slice toISOString() gives: east of Greenwich
+  // that is tomorrow after mid-afternoon, and west of it, yesterday.
+  const today = new Date().toLocaleDateString("en-CA");
   const canBuy = canWrite("procurement");
 
   const [rows, setRows] = useState<Requisition[]>([]);
@@ -111,7 +114,10 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
   const [saving, setSaving] = useState(false);
   // Off by default: hiding ordered lines made a re-flagged requirement
   // look like it had vanished.
-  const [onlyUnordered, setOnlyUnordered] = useState(false);
+  // A queue of what to buy shows what has not been bought. A line already on
+  // an order is a line somebody decided; leaving it here invited it to be
+  // ordered twice, and made a delivered part look outstanding.
+  const [showOrdered, setShowOrdered] = useState(false);
 
   // The order's own details — asked for up front so the draft is complete.
   const [supplier, setSupplier] = useState("");
@@ -137,7 +143,7 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
     setLoading(true);
     try {
       const { data } = await api.get("/procurement/purchase-orders/requisitions/", {
-        params: onlyUnordered ? { unordered: "true" } : {},
+        params: showOrdered ? {} : { unordered: "true" },
       });
       setRows(data.results ?? []);
       setSelected(new Set());
@@ -146,7 +152,7 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
     } finally {
       setLoading(false);
     }
-  }, [onlyUnordered]);
+  }, [showOrdered]);
 
   useEffect(() => {
     fetchRows();
@@ -175,7 +181,8 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
       .map((r) => r.project_target_date)
       .filter((d): d is string => !!d)
       .sort()[0];
-    setExpectedDelivery(due ?? "");
+    // An overdue project would otherwise seed a date in the past.
+    setExpectedDelivery(due && due >= today ? due : "");
     setPoModal(true);
   }
 
@@ -201,6 +208,10 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
 
   async function raisePo() {
     if (!supplier || chosen.length === 0) return;
+    if (expectedDelivery && expectedDelivery < today) {
+      toast.error("The delivery date has passed — set one the supplier can still meet");
+      return;
+    }
     const problem = poLinesProblem(extraLines);
     if (problem) {
       toast.error(problem);
@@ -281,19 +292,19 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
-          What projects flagged to buy — components an asset needs and whole assets the vendor
-          supplies — plus stock reorders raised from Inventory › Low Stock. Send back returns a line
-          to where it came from, with the reason on record.
+          Still to buy: components an asset needs, whole assets the vendor supplies, and stock
+          reorders raised from Inventory › Low Stock. A line goes off this list once it is on a
+          purchase order. Send back returns a line to where it came from, with the reason on record.
         </p>
         <div className="flex items-center gap-3">
           <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
             <input
               type="checkbox"
-              checked={onlyUnordered}
-              onChange={(e) => setOnlyUnordered(e.target.checked)}
+              checked={showOrdered}
+              onChange={(e) => setShowOrdered(e.target.checked)}
               className="h-3.5 w-3.5 rounded border-border accent-primary"
             />
-            Hide already ordered
+            Show lines already on an order
           </label>
           {canBuy && (
             <button
@@ -500,12 +511,35 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <label htmlFor="req_order_date" className={labelClass}>Order Date</label>
-                <input id="req_order_date" type="text" value="Set when the Group Head approves the order" disabled className={`${inputClass} bg-secondary/40 text-muted-foreground`} />
+                <label className={labelClass}>Order Date</label>
+                {/* The sentence did not fit the box and was being cut off
+                    mid-word. It reads as a short answer, like PO Number
+                    above it, with the detail underneath. */}
+                <p className={`${inputClass} flex items-center bg-secondary/30 text-muted-foreground`}>
+                  On approval
+                </p>
+                <p className="text-2xs text-muted-foreground">Stamped when the Group Head signs it off.</p>
               </div>
               <div className="space-y-1.5">
                 <label htmlFor="req_delivery" className={labelClass}>Required Delivery *</label>
-                <input id="req_delivery" type="date" required value={expectedDelivery} onChange={(e) => setExpectedDelivery(e.target.value)} className={inputClass} />
+                {/* A supplier cannot be held to a date that has gone. The
+                    project's own date seeds this, and an overdue project
+                    seeds a date already past — which is how an order came
+                    to be raised against last week. */}
+                <input
+                  id="req_delivery"
+                  type="date"
+                  required
+                  min={today}
+                  value={expectedDelivery}
+                  onChange={(e) => setExpectedDelivery(e.target.value)}
+                  className={inputClass}
+                />
+                {expectedDelivery && expectedDelivery < today && (
+                  <p className="text-2xs font-medium text-destructive">
+                    That date has passed — set one the supplier can still meet.
+                  </p>
+                )}
               </div>
             </div>
           </div>

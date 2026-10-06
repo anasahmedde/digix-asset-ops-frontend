@@ -37,6 +37,11 @@ interface ReceiptLine {
   batch_number: string;
   serial_numbers: string[];
   inspection_status: string;
+  /** Set once Procurement checked the delivery against the order. */
+  accepted_quantity?: number | null;
+  rejected_quantity?: number;
+  inspection_notes?: string;
+  inspected_by_name?: string | null;
   created_at: string;
 }
 interface Ref { id: string; name: string }
@@ -133,13 +138,26 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
     }
   }
 
+  /**
+   * What is standing at the door, from both directions.
+   *
+   * A purchase delivery was already checked against the order in
+   * Procurement, so the store only counts it in. Anything coming back — off
+   * a project, out of a maintenance job — was never inspected by anybody,
+   * so it still is here.
+   */
   const fetchLines = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await api.get("/inventory/receipt-lines/pending/", { params: { page_size: 200 } });
-      setLines(data.results ?? data);
+      const [toStock, toInspect] = await Promise.all([
+        api.get("/inventory/receipt-lines/awaiting-stock/", { params: { page_size: 200 } }),
+        api.get("/inventory/receipt-lines/pending/", { params: { page_size: 200 } }),
+      ]);
+      const passed = toStock.data.results ?? toStock.data ?? [];
+      const pending = toInspect.data.results ?? toInspect.data ?? [];
+      setLines([...passed, ...pending]);
     } catch (err) {
-      toast.error(getApiError(err, "Failed to load the inspection queue"));
+      toast.error(getApiError(err, "Failed to load what is waiting to be received"));
     } finally {
       setLoading(false);
     }
@@ -149,6 +167,71 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
     fetchLines();
     api.get("/assets/material-types/").then((r) => setMaterialTypes(r.data.results ?? r.data)).catch(() => {});
   }, [fetchLines]);
+
+  /** How many units of a line actually go onto the shelf. */
+  function keptOf(line: ReceiptLine): number {
+    return line.accepted_quantity ?? line.quantity;
+  }
+
+  /** Was this delivery already checked against its order, in Procurement? */
+  function alreadyJudged(line: ReceiptLine): boolean {
+    return line.inspection_status === "passed";
+  }
+
+  // ── Receiving: counting in what Procurement already passed ──────────
+  const [receiving, setReceiving] = useState<ReceiptLine | null>(null);
+  const [tally, setTally] = useState<string[]>([]);
+  const [receiveNote, setReceiveNote] = useState("");
+  const [receiveBusy, setReceiveBusy] = useState(false);
+
+  function openReceive(line: ReceiptLine) {
+    const keeping = line.accepted_quantity ?? line.quantity;
+    const given = line.serial_numbers ?? [];
+    // The serials Procurement wrote down, padded to what is actually being
+    // kept: the store corrects whichever does not match the box.
+    setTally(
+      line.kind === "unique"
+        ? Array.from({ length: keeping }, (_, i) => given[i] ?? "")
+        : [],
+    );
+    setReceiveNote("");
+    setReceiving(line);
+  }
+
+  async function submitReceive() {
+    if (!receiving) return;
+    const keeping = receiving.accepted_quantity ?? receiving.quantity;
+    if (receiving.kind === "unique") {
+      const clean = tally.map((x) => x.trim()).filter(Boolean);
+      if (clean.length !== keeping) {
+        toast.error(`${keeping} serial number(s) are expected — ${clean.length} filled in`);
+        return;
+      }
+      if (new Set(clean).size !== clean.length) {
+        toast.error("Two units cannot carry the same serial number");
+        return;
+      }
+    }
+    setReceiveBusy(true);
+    try {
+      const body: Record<string, unknown> = { notes: receiveNote.trim() };
+      if (receiving.kind === "unique") {
+        body.route = "unique";
+        body.units = tally.map((x) => ({ serial_number: x.trim() }));
+      } else if (receiving.kind === "generic") {
+        body.route = "generic";
+      }
+      await api.post(`/inventory/receipt-lines/${receiving.id}/receive/`, body);
+      toast.success(`${receiving.component_code || "The goods"} received into stock`);
+      setReceiving(null);
+      fetchLines();
+      onStocked?.();
+    } catch (err) {
+      toast.error(getApiError(err, "Could not receive that line"));
+    } finally {
+      setReceiveBusy(false);
+    }
+  }
 
   function openInspect(line: ReceiptLine) {
     setActive(line);
@@ -240,9 +323,10 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <p className="max-w-3xl text-sm text-muted-foreground">
-          Everything coming into the store waits here: purchase deliveries, components left over from a
-          project, and parts back from maintenance. A supervisor or the store inspects each line and files
-          what passes into generic or unique components — nothing enters inventory until then.
+          Everything coming into the store waits here. A purchase delivery was
+          already checked against its order in Procurement — the store counts it onto the shelf and
+          corrects any serial number that does not match the box. Components back from a project or
+          a maintenance job never met an inspector, so they are inspected here.
         </p>
         {canInspect && (
           <button
@@ -318,27 +402,45 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
                         <span className="text-2xs text-muted-foreground">decided at inspection</span>
                       )}
                     </td>
-                    <td className={`${tdClass} font-medium text-foreground`}><Qty value={line.quantity} unit={line.unit} /></td>
+                    <td className={`${tdClass} font-medium text-foreground`}>
+                      {/* What is actually going onto the shelf. The delivered
+                          figure is not it: anything the inspector turned away
+                          never reaches the store. */}
+                      <Qty value={keptOf(line)} unit={line.unit} />
+                      {keptOf(line) !== line.quantity && (
+                        <span className="block text-2xs font-normal text-amber-600">
+                          of {line.quantity} delivered · {line.quantity - keptOf(line)} rejected
+                        </span>
+                      )}
+                    </td>
                     <td className={`${tdClass} font-mono text-muted-foreground`}>{line.batch_number || "—"}</td>
                     <td className={`${tdClass} text-muted-foreground`}>
                       {/* The serials themselves: a unit is traced by its own
-                          number, and a count traces nothing. */}
+                          number, and a count traces nothing. Only the ones
+                          being kept — the rest go back with the goods. */}
                       {line.kind === "generic" || line.serial_numbers.length === 0 ? (
                         "—"
                       ) : (
                         <span className="font-mono text-2xs">
-                          {line.serial_numbers.slice(0, 3).join(", ")}
-                          {line.serial_numbers.length > 3 && ` +${line.serial_numbers.length - 3} more`}
+                          {line.serial_numbers.slice(0, Math.min(keptOf(line), 3)).join(", ")}
+                          {keptOf(line) > 3 && ` +${keptOf(line) - 3} more`}
                         </span>
                       )}
                     </td>
                     {canInspect && (
                       <td className={tdClass}>
+                        {/* A delivery already judged in Procurement is only
+                            counted in here. Anything else never met an
+                            inspector, so it meets one now. */}
                         <button
-                          onClick={() => openInspect(line)}
+                          onClick={() => (alreadyJudged(line) ? openReceive(line) : openInspect(line))}
                           className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-primary/90"
                         >
-                          <ClipboardCheck className="h-3.5 w-3.5" /> Inspect
+                          {alreadyJudged(line) ? (
+                            <><PackageCheck className="h-3.5 w-3.5" /> Receive</>
+                          ) : (
+                            <><ClipboardCheck className="h-3.5 w-3.5" /> Inspect</>
+                          )}
                         </button>
                       </td>
                     )}
@@ -350,6 +452,107 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
           </div>
         </div>
       )}
+
+      {/* Receiving: no verdict, because one was already given against the
+          order. The store counts the goods and corrects any serial that does
+          not match what is in the box. */}
+      <Modal
+        open={receiving !== null}
+        onClose={() => setReceiving(null)}
+        title={receiving ? `Receive into stock — ${receiving.grn_number ?? ""}` : "Receive into stock"}
+        size="lg"
+      >
+        {receiving && (
+          <div className="space-y-4">
+            <div className="rounded-xl border border-border bg-secondary/30 p-4 text-sm">
+              <p className="font-medium text-foreground">
+                {receiving.po_item_description ?? receiving.material_name ?? "Delivery line"}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {receiving.po_number ? `${receiving.po_number} · ` : ""}
+                {receiving.supplier_name ?? "—"} · {receiving.accepted_quantity ?? receiving.quantity}{" "}
+                {receiving.unit ?? "piece"} passed inspection
+                {receiving.inspected_by_name ? ` · checked by ${receiving.inspected_by_name}` : ""}
+              </p>
+              {(receiving.rejected_quantity ?? 0) > 0 && (
+                <p className="mt-1 text-xs text-amber-600">
+                  {receiving.rejected_quantity} turned away at inspection
+                  {receiving.inspection_notes ? ` — ${receiving.inspection_notes}` : ""}. That
+                  quantity stays owed on the order.
+                </p>
+              )}
+            </div>
+
+            {receiving.kind === "unique" ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className={labelClass}>Serial numbers — tally against the goods</label>
+                  <span className="text-2xs text-muted-foreground">
+                    As entered by Procurement; correct any that do not match
+                  </span>
+                </div>
+                {(receiving.serial_numbers ?? []).length > (receiving.accepted_quantity ?? receiving.quantity) && (
+                  <p className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-2.5 py-1.5 text-2xs text-amber-700 dark:text-amber-500">
+                    Procurement recorded {(receiving.serial_numbers ?? []).length} serial numbers but only{" "}
+                    {receiving.accepted_quantity ?? receiving.quantity} passed. The spares are not shown —
+                    check the ones below against the box before receiving.
+                  </p>
+                )}
+                <div className="max-h-72 space-y-1.5 overflow-y-auto">
+                  {tally.map((value, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <span className="w-6 shrink-0 text-2xs tabular-nums text-muted-foreground">{i + 1}</span>
+                      <input
+                        value={value}
+                        onChange={(e) =>
+                          setTally((rows) => rows.map((r, j) => (j === i ? e.target.value : r)))
+                        }
+                        placeholder="Serial number"
+                        className={`${inputClass} font-mono text-xs`}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <p className="rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
+                Counted stock — {receiving.accepted_quantity ?? receiving.quantity}{" "}
+                {receiving.unit ?? "piece"} go onto the shelf. No serial numbers to tally.
+              </p>
+            )}
+
+            <div className="space-y-1.5">
+              <label htmlFor="receive_note" className={labelClass}>Note (optional)</label>
+              <input
+                id="receive_note"
+                value={receiveNote}
+                onChange={(e) => setReceiveNote(e.target.value)}
+                placeholder="e.g. One serial corrected against the box"
+                className={inputClass}
+              />
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setReceiving(null)}
+                className="inline-flex h-10 items-center rounded-lg border border-border px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={submitReceive}
+                disabled={receiveBusy}
+                className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-primary px-5 text-sm font-medium text-white transition-all disabled:opacity-50"
+              >
+                <PackageCheck className="h-4 w-4" />
+                {receiveBusy ? "Receiving…" : "Receive into stock"}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       <Modal open={active !== null} onClose={() => setActive(null)} title="Inspect Delivery" size="xl">
         {active && (
