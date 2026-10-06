@@ -1,6 +1,6 @@
 "use client";
 
-import { ClipboardList, ScrollText, Undo2 } from "lucide-react";
+import { AlertTriangle, ClipboardList, ScrollText, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -48,6 +48,14 @@ export function WorkOrderRequests({ onRaised }: { onRaised?: () => void }) {
   const [terms, setTerms] = useState("");
   const [notes, setNotes] = useState("");
   const [amounts, setAmounts] = useState<Record<string, string>>({});
+  // Why an operation is going on above the figure the project planned.
+  const [reasons, setReasons] = useState<Record<string, string>>({});
+
+  /** Quoted above what the project costed this operation at. */
+  function overPlan(r: { step: string; planned_cost: string | null }) {
+    const planned = r.planned_cost == null ? null : Number(r.planned_cost);
+    return planned != null && planned > 0 && Number(amounts[r.step] ?? 0) > planned;
+  }
   // Handing a request back to the project, with the reason on record.
   const [sendBack, setSendBack] = useState<WorkOrderRequest | null>(null);
   const [reason, setReason] = useState("");
@@ -114,6 +122,9 @@ export function WorkOrderRequests({ onRaised }: { onRaised?: () => void }) {
         steps: chosen.map((r) => r.step),
         supplier: vendor,
         amounts: filled,
+        variance_reasons: Object.fromEntries(
+          chosen.filter(overPlan).map((r) => [r.step, (reasons[r.step] ?? "").trim()]),
+        ),
         expected_delivery: expectedDelivery || null,
         terms: terms.trim(),
         notes: notes.trim(),
@@ -286,6 +297,7 @@ export function WorkOrderRequests({ onRaised }: { onRaised?: () => void }) {
                   <th className="px-3 py-2 font-medium">Operation</th>
                   <th className="px-3 py-2 font-medium">For</th>
                   <th className="px-3 py-2 font-medium">Project</th>
+                  <th className="px-3 py-2 text-right font-medium">Planned</th>
                   <th className="px-3 py-2 text-right font-medium">Amount (PKR)</th>
                 </tr>
               </thead>
@@ -295,28 +307,60 @@ export function WorkOrderRequests({ onRaised }: { onRaised?: () => void }) {
                     <td className="px-3 py-2 text-foreground">{r.operation}</td>
                     <td className="px-3 py-2 font-mono text-muted-foreground">{r.asset_code}</td>
                     <td className="px-3 py-2 text-muted-foreground">{r.project_name ?? "—"}</td>
-                    <td className="px-3 py-2 text-right">
+                    {/* What the project costed this operation at. A vendor
+                        quoting above it is spending the project's money, so
+                        Execution agrees the figure before the order goes up. */}
+                    <td className="px-3 py-2 text-right align-top tabular-nums text-muted-foreground">
+                      {r.planned_cost == null ? "—" : Number(r.planned_cost).toLocaleString()}
+                      <span className="block text-2xs">per operation</span>
+                    </td>
+                    <td className="px-3 py-2 text-right align-top">
                       <input
                         type="number"
                         min={0}
                         step="0.01"
                         value={amounts[r.step] ?? ""}
                         onChange={(e) => setAmounts({ ...amounts, [r.step]: e.target.value })}
-                        placeholder="planned"
+                        placeholder={r.planned_cost == null ? "amount" : String(Number(r.planned_cost))}
                         title="Blank uses the planned step cost"
                         className="h-8 w-28 rounded-lg border border-border bg-card px-2 text-right text-xs text-foreground focus:border-primary/50 focus:outline-none"
                       />
+                      {overPlan(r) && (
+                        <>
+                          <span className="block text-2xs font-medium text-amber-600">
+                            +{Math.round(((Number(amounts[r.step]) - Number(r.planned_cost)) / Number(r.planned_cost)) * 100)}% over plan
+                          </span>
+                          <input
+                            value={reasons[r.step] ?? ""}
+                            onChange={(e) => setReasons({ ...reasons, [r.step]: e.target.value })}
+                            placeholder="Why the higher quote?"
+                            aria-label={`Reason for the higher quote on ${r.operation}`}
+                            className="mt-1 h-7 w-40 rounded-lg border border-amber-500/40 bg-card px-2 text-2xs text-foreground focus:border-primary/50 focus:outline-none"
+                          />
+                        </>
+                      )}
                     </td>
                   </tr>
                 ))}
                 <tr className="bg-secondary/30">
-                  <td colSpan={3} className="px-3 py-2 text-right font-medium text-muted-foreground">Draft total</td>
+                  <td colSpan={4} className="px-3 py-2 text-right font-medium text-muted-foreground">Draft total</td>
                   <td className="px-3 py-2 text-right font-semibold text-foreground">{draftTotal.toLocaleString()}</td>
                 </tr>
               </tbody>
             </table>
           </div>
           <p className="text-2xs text-muted-foreground">A blank amount falls back to what the plan expected for that operation, or zero if it was never priced.</p>
+          {chosen.some(overPlan) && (
+            <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-700 dark:text-amber-500">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>
+                {chosen.filter(overPlan).length} operation
+                {chosen.filter(overPlan).length === 1 ? " is" : "s are"} quoted above the project&apos;s
+                plan. The draft will be raised, then Project Execution has to agree the price before
+                this order can go up for the Group Head&apos;s signature.
+              </span>
+            </div>
+          )}
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
