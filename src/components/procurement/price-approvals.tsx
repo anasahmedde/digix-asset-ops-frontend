@@ -17,7 +17,12 @@ import { getApiError } from "@/lib/api-error";
  */
 interface Variance {
   id: string;
-  purchase_order: string;
+  /** Which kind of order it sits on — the decision goes to a different
+   *  endpoint for each, though it is the same argument either way. */
+  kind?: "purchase" | "work";
+  order: string;
+  order_number: string;
+  purchase_order: string | null;
   po_number: string;
   supplier_name: string | null;
   currency: string;
@@ -87,8 +92,13 @@ export function PriceApprovals({
     }
     setSaving(true);
     try {
+      // Buying a part and buying an operation are the same argument about
+      // the same kind of figure; only the order they sit on differs.
+      const path = deciding.row.kind === "work"
+        ? `/work-orders/${deciding.row.order}/price-variance/`
+        : `/procurement/purchase-orders/${deciding.row.order ?? deciding.row.purchase_order}/price-variance/`;
       const { data } = await api.post(
-        `/procurement/purchase-orders/${deciding.row.purchase_order}/price-variance/`,
+        path,
         { item: deciding.row.id, approve: deciding.approve, notes: notes.trim() },
       );
       toast.success(data.detail);
@@ -146,7 +156,14 @@ export function PriceApprovals({
                       </span>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">
-                      <span className="font-mono text-xs text-foreground">{r.po_number}</span>
+                      <span className="font-mono text-xs text-foreground">
+                        {r.order_number ?? r.po_number}
+                      </span>
+                      {r.kind === "work" && (
+                        <span className="ml-1.5 rounded-full bg-secondary px-1.5 py-0.5 text-2xs text-muted-foreground">
+                          work order
+                        </span>
+                      )}
                       <span className="block text-2xs">
                         {r.supplier_name ?? "—"}{r.raised_by ? ` · ${r.raised_by}` : ""}
                       </span>
@@ -204,7 +221,8 @@ export function PriceApprovals({
               {deciding.approve ? (
                 <>
                   <span className="font-medium text-foreground">{deciding.row.description}</span> goes
-                  on {deciding.row.po_number} at {money(deciding.row.unit_price)} instead of the{" "}
+                  on {deciding.row.order_number ?? deciding.row.po_number} at{" "}
+                  {money(deciding.row.unit_price)} instead of the{" "}
                   {money(deciding.row.reference_unit_price)} planned. The order can then go up for
                   signature.
                 </>

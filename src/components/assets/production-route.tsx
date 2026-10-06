@@ -1,12 +1,26 @@
 "use client";
 
-import { ArrowDown, ArrowUp, Check, Factory, Pencil, Plus, Trash2, Truck, Undo2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, Factory, Pencil, Play, Plus, Trash2, Truck, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
+
+/** A moment, read as the day with the hour under it. */
+function Stamp({ at }: { at?: string | null }) {
+  if (!at) return <span className="text-muted-foreground">—</span>;
+  const when = new Date(at);
+  return (
+    <span className="whitespace-nowrap">
+      <span className="block text-foreground">{when.toLocaleDateString()}</span>
+      <span className="block text-2xs">
+        {when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+      </span>
+    </span>
+  );
+}
 
 export interface ProductionStep {
   id: string;
@@ -32,6 +46,7 @@ export interface ProductionStep {
   assigned_to: string | null;
   assigned_to_name: string | null;
   expected_days: number | null;
+  started_at: string | null;
   sent_at: string | null;
   returned_at: string | null;
   completed_at: string | null;
@@ -116,27 +131,6 @@ export function ProductionRoute({
       toast.error(getApiError(err, "Could not add the step"));
     } finally {
       setAdding(false);
-    }
-  }
-
-  // Where a decision is undone. In-house and work order are both final
-  // once chosen — this hands the operation back to the project's Execution
-  // tab, undecided, for the choice to be made again.
-  async function sendBack(step: ProductionStep) {
-    const ok = confirm(
-      `Send "${step.name}" back to the project to be decided again? ` +
-      "It becomes undecided, and Execution chooses in-house or a work order."
-    );
-    if (!ok) return;
-    setBusy(step.id);
-    try {
-      await api.post(`/assets/production-steps/${step.id}/send-back/`, {});
-      toast.success(`${step.name} — back with the project to decide`);
-      onChanged();
-    } catch (err: unknown) {
-      toast.error(getApiError(err, "Could not send it back"));
-    } finally {
-      setBusy(null);
     }
   }
 
@@ -236,8 +230,9 @@ export function ProductionRoute({
                 <th className="px-3 py-2 font-medium">Operation</th>
                 <th className="px-3 py-2 font-medium">Done at</th>
                 <th className="px-3 py-2 font-medium">Status</th>
-                <th className="px-3 py-2 font-medium">Out / Back</th>
-                {canEdit && <th className="px-3 py-2 font-medium">Move</th>}
+                <th className="px-3 py-2 font-medium">Started</th>
+                <th className="px-3 py-2 font-medium">Finished</th>
+                {canEdit && <th className="px-3 py-2 font-medium">Action</th>}
               </tr>
             </thead>
             <tbody>
@@ -303,39 +298,57 @@ export function ProductionRoute({
                       {step.status_display}
                     </span>
                   </td>
+                  {/* When the work began and when it was done. An operation
+                      sent outside starts when it leaves and finishes when it
+                      comes back, so one pair of columns reads for both. */}
                   <td className="px-3 py-2 text-muted-foreground">
-                    {step.sent_at ? new Date(step.sent_at).toLocaleDateString() : "—"}
-                    {step.returned_at && ` → ${new Date(step.returned_at).toLocaleDateString()}`}
+                    <Stamp at={step.started_at ?? step.sent_at} />
+                  </td>
+                  <td className="px-3 py-2 text-muted-foreground">
+                    <Stamp at={step.completed_at ?? step.returned_at} />
                   </td>
                   {canEdit && (
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-1">
-                        <select
-                          value=""
-                          disabled={busy === step.id || step.allowed_transitions.length === 0}
-                          onChange={(e) => e.target.value && advance(step, e.target.value)}
-                          className="h-7 rounded-lg border border-border bg-background px-1.5 text-2xs text-muted-foreground disabled:opacity-40"
-                        >
-                          <option value="">
-                            {step.allowed_transitions.length === 0
-                              ? (["completed", "skipped"].includes(step.status) ? "Finished" : step.location === "external" ? (step.work_order ? "Follows the work order" : "Awaiting the work order") : "Decide in Execution")
-                              : "Move to…"}
-                          </option>
-                          {step.allowed_transitions.map((t) => (
-                            <option key={t} value={t}>{STATUS_LABELS[t] ?? t}</option>
-                          ))}
-                        </select>
-                        {/* Pending and already decided: the one way to
-                            change which way it goes. */}
-                        {step.on_project && step.status === "pending" && step.location !== "undecided" && !step.work_order && (
-                          <button
-                            onClick={() => sendBack(step)}
-                            disabled={busy === step.id}
-                            title="Send back to the project to decide again — in-house or a work order"
-                            className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
-                          >
-                            <Undo2 className="h-3 w-3" />
-                          </button>
+                        {/* Work on the bench is started and finished — two
+                            things a person does, so two buttons rather than a
+                            list of states to pick from. An operation sent
+                            outside follows its work order, and one nobody has
+                            decided on is not being done at all; those say so
+                            instead of offering a control that cannot be used. */}
+                        {step.location === "in_house" ? (
+                          <>
+                            {step.allowed_transitions.includes("in_progress") && (
+                              <button
+                                onClick={() => advance(step, "in_progress")}
+                                disabled={busy === step.id}
+                                className="inline-flex h-7 items-center gap-1 rounded-lg bg-primary px-2.5 text-2xs font-medium text-white transition-colors hover:bg-primary/90 disabled:opacity-40"
+                              >
+                                <Play className="h-3 w-3" /> Start
+                              </button>
+                            )}
+                            {step.allowed_transitions.includes("completed") && (
+                              <button
+                                onClick={() => advance(step, "completed")}
+                                disabled={busy === step.id}
+                                className="inline-flex h-7 items-center gap-1 rounded-lg border border-border px-2.5 text-2xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-40"
+                              >
+                                <Check className="h-3 w-3" /> Finish
+                              </button>
+                            )}
+                            {step.allowed_transitions.length === 0 && (
+                              <span className="text-2xs text-muted-foreground" title={step.hold_reason || undefined}>
+                                {["completed", "skipped"].includes(step.status) ? "Finished" : "Waiting on materials"}
+                              </span>
+                            )}
+                          </>
+                        ) : (
+                          <span className="text-2xs text-muted-foreground" title={step.hold_reason || undefined}>
+                            {["completed", "skipped"].includes(step.status) ? "Finished"
+                              : step.location === "external"
+                                ? (step.work_order ? "Follows the work order" : "Awaiting the work order")
+                                : "Decide in Execution first"}
+                          </span>
                         )}
                         {canRestructure && (editing?.id === step.id ? (
                           <>

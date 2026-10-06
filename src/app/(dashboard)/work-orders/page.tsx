@@ -115,6 +115,13 @@ function lateness(wo: WorkOrder): string {
   return "on the day";
 }
 
+/** Operations quoted above what the project planned, not yet agreed. */
+function unagreedOn(wo: { items?: WorkOrderItem[] }) {
+  return (wo.items ?? []).filter(
+    (i) => i.variance_status === "pending" || i.variance_status === "rejected",
+  );
+}
+
 interface ItemRow {
   description: string;
   quantity: string;
@@ -501,6 +508,7 @@ export default function WorkOrdersPage() {
                           // Nothing is "partly" about a single job, and there
                           // has to be more than one still out for it to apply.
                           const canSplit = lines.length > 1 && lines.filter((i) => i.line_state === "with_vendor").length > 1;
+                          const unagreed = unagreedOn({ items: lines });
                           const moves = movesFor(wo.status, user?.role).filter(
                             (m) => m !== "partially_delivered" || canSplit,
                           );
@@ -567,7 +575,29 @@ export default function WorkOrdersPage() {
                                             )}
                                           </td>
                                           <td className="px-3 py-1.5 text-right text-muted-foreground">{i.quantity}</td>
-                                          <td className="px-3 py-1.5 text-right text-foreground">{Number(i.unit_price).toLocaleString()}</td>
+                                          <td className="px-3 py-1.5 text-right text-foreground">
+                                            {Number(i.unit_price).toLocaleString()}
+                                            {/* Over what the project planned: who
+                                                has to agree it, and whether they have. */}
+                                            {i.variance_status && i.variance_status !== "not_required" && (
+                                              <span className={`mt-0.5 block text-2xs font-medium ${
+                                                i.variance_status === "approved" ? "text-emerald-600"
+                                                : i.variance_status === "rejected" ? "text-destructive"
+                                                : "text-amber-600"
+                                              }`}>
+                                                {i.variance_percent != null && `+${i.variance_percent}% · `}
+                                                {i.variance_status === "pending"
+                                                  ? `with ${i.variance_owner_display}`
+                                                  : i.variance_status_display}
+                                                {i.variance_decided_by_name && ` · ${i.variance_decided_by_name}`}
+                                              </span>
+                                            )}
+                                            {i.reference_unit_price != null && (
+                                              <span className="block text-2xs text-muted-foreground">
+                                                planned {Number(i.reference_unit_price).toLocaleString()}
+                                              </span>
+                                            )}
+                                          </td>
                                         </tr>
                                       ))}
                                     </tbody>
@@ -596,13 +626,31 @@ export default function WorkOrdersPage() {
                                   {wo.status === "pending_approval" && user?.role !== "group_head" && user?.role !== "super_admin" && (
                                     <span className="text-2xs text-muted-foreground">Waiting for the Group Head to approve.</span>
                                   )}
-                                  {moves.map((m) => (
-                                    <button key={m} type="button"
-                                      onClick={() => (m === "partially_delivered" ? openPartDelivery(wo) : handleTransition(wo.id, m))}
-                                      className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${m === "cancelled" ? "border-border text-muted-foreground hover:bg-destructive/10 hover:text-destructive" : m === "approved" ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/20" : "border-border bg-card text-foreground hover:bg-secondary"}`}>
-                                      {labelFor(wo.status, m)}
-                                    </button>
-                                  ))}
+                                  {moves.map((m) => {
+                                    // A quote above the project's plan is the
+                                    // project's money. The order waits on
+                                    // Execution, so the button says so rather
+                                    // than inviting a click and an error.
+                                    const held = m === "pending_approval" && unagreed.length > 0;
+                                    return (
+                                      <button key={m} type="button" disabled={held}
+                                        title={held
+                                          ? `${unagreed.length} operation(s) are quoted above the project's plan and not yet agreed.`
+                                          : undefined}
+                                        onClick={() => (m === "partially_delivered" ? openPartDelivery(wo) : handleTransition(wo.id, m))}
+                                        className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${m === "cancelled" ? "border-border text-muted-foreground hover:bg-destructive/10 hover:text-destructive" : m === "approved" ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/20" : "border-border bg-card text-foreground hover:bg-secondary"}`}>
+                                        {labelFor(wo.status, m)}
+                                      </button>
+                                    );
+                                  })}
+                                  {unagreed.length > 0 && wo.status === "draft" && (
+                                    <span className="text-2xs text-amber-600">
+                                      With {unagreed[0].variance_owner_display ?? "Project Execution"} to agree
+                                      the price — {unagreed.length} operation
+                                      {unagreed.length === 1 ? " is" : "s are"} quoted above plan, so the order
+                                      cannot be placed yet.
+                                    </span>
+                                  )}
                                 </div>
                               )}
                             </div>
@@ -627,12 +675,24 @@ export default function WorkOrdersPage() {
                 {selected.status === "pending_approval" && user?.role !== "group_head" && user?.role !== "super_admin" && (
                   <span className="text-2xs text-muted-foreground">Waiting for the Group Head to approve.</span>
                 )}
-                {movesFor(selected.status, user?.role).map((s) => (
-                  <button key={s} type="button" onClick={() => handleTransition(selected.id, s)}
-                    className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary">
-                    {labelFor(selected.status, s)}
-                  </button>
-                ))}
+                {movesFor(selected.status, user?.role).map((s) => {
+                  const held = s === "pending_approval" && unagreedOn(selected).length > 0;
+                  return (
+                    <button key={s} type="button" disabled={held}
+                      title={held
+                        ? `${unagreedOn(selected).length} operation(s) are quoted above the project's plan and not yet agreed.`
+                        : undefined}
+                      onClick={() => handleTransition(selected.id, s)}
+                      className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-40">
+                      {labelFor(selected.status, s)}
+                    </button>
+                  );
+                })}
+                {unagreedOn(selected).length > 0 && selected.status === "draft" && (
+                  <span className="text-2xs text-amber-600">
+                    With Project Execution to agree the price — quoted above plan.
+                  </span>
+                )}
               </div>
             )}
 
