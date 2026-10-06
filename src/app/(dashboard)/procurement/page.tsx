@@ -1,6 +1,6 @@
 "use client";
 
-import {ChevronDown, ChevronRight, Download, PackageCheck, Pencil, Plus, ShoppingCart, Trash2} from "lucide-react";
+import {ChevronDown, ChevronRight, Download, PackageCheck, Pencil, Plus, ShoppingCart, Trash2, Upload} from "lucide-react";
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -108,6 +108,9 @@ interface ReceiveRow {
   asset_codes: string[];
   /** Vendor warranty on a complete asset, in months from receipt (asset lines only). */
   warranty_months: string;
+  /** How much of the delivery is being turned away, and why. */
+  rejected: string;
+  inspection_notes: string;
 }
 
 interface CreatedDevice {
@@ -288,6 +291,34 @@ export default function ProcurementPage() {
   const [receiveSaving, setReceiveSaving] = useState(false);
   const [receiveResult, setReceiveResult] = useState<ReceiveResult | null>(null);
   const [receiveRowErrors, setReceiveRowErrors] = useState<Record<string, string>>({});
+  /** Which line's sheet is being read, so only that row says "Reading…". */
+  const [readingFor, setReadingFor] = useState<string | null>(null);
+
+  /** Take the serials out of a sheet and drop them into a line's box.
+   *
+   * The same reader the inventory screen uses: the server does the reading,
+   * what comes back fills the box, and it stays correctable by hand. */
+  async function readSerialsInto(poItem: string, file: File | null) {
+    if (!file) return;
+    setReadingFor(poItem);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const { data } = await api.post("/inventory/products/read-serials/", form, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      const found: string[] = data.serials ?? [];
+      updateReceiveRow(poItem, { serials: found.join("\n") });
+      toast.success(
+        `${found.length} serial${found.length === 1 ? "" : "s"} read from ${file.name}`,
+        { description: (data.notes ?? []).join(" ") || undefined },
+      );
+    } catch (err) {
+      toast.error(getApiError(err, "Could not read that file"));
+    } finally {
+      setReadingFor(null);
+    }
+  }
   const [receiveError, setReceiveError] = useState<string | null>(null);
 
   // Receipts history for the expanded PO
@@ -538,10 +569,12 @@ export default function ProcurementPage() {
               ordered: i.quantity,
               received,
               outstanding: Math.max(i.quantity - received, 0),
-              quantity: "0",
+              quantity: String(Math.max(i.quantity - received, 0)),
               batch_number: "",
               warranty_months: "",
               serials: "",
+              rejected: "0",
+              inspection_notes: "",
             };
           })
       );
@@ -578,9 +611,17 @@ export default function ProcurementPage() {
     const qty = Number(r.quantity) || 0;
     if (qty <= 0) return null;
     if (qty > r.outstanding) return `Only ${r.outstanding} outstanding on this line.`;
-    if (r.serialized) {
+    const rejected = Number(r.rejected) || 0;
+    if (rejected > qty) return `Cannot reject ${rejected} of ${qty} delivered.`;
+    if (rejected > 0 && !r.inspection_notes.trim()) {
+      return "Say what is wrong with the rejected goods.";
+    }
+    const keeping = qty - rejected;
+    if (r.serialized && keeping > 0) {
       const count = parseSerials(r.serials).length;
-      if (count !== qty) return `Enter exactly ${qty} serial number(s), one per line — currently ${count}.`;
+      if (count !== keeping) {
+        return `Enter exactly ${keeping} serial number(s) — the ones being kept — one per line; currently ${count}.`;
+      }
     }
     return null;
   }
@@ -600,6 +641,10 @@ export default function ProcurementPage() {
       ...(r.batch_number.trim() ? { batch_number: r.batch_number.trim() } : {}),
       ...(r.serialized ? { serial_numbers: parseSerials(r.serials) } : {}),
       ...(r.warranty_months ? { warranty_months: Number(r.warranty_months) } : {}),
+      // What was turned away, and why. The rest counts against the order.
+      rejected_quantity: Number(r.rejected || 0),
+      accepted_quantity: Number(r.quantity) - Number(r.rejected || 0),
+      ...(r.inspection_notes.trim() ? { inspection_notes: r.inspection_notes.trim() } : {}),
     }));
     setReceiveSaving(true);
     setReceiveError(null);
@@ -672,26 +717,50 @@ export default function ProcurementPage() {
             onClick={() => openReceive(po.id)}
             className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white transition-all"
           >
-            <PackageCheck className="h-3.5 w-3.5" /> Receive items
+            <PackageCheck className="h-3.5 w-3.5" /> Inspect delivery
           </button>
         )}
-        {actions.length > 0 && (
-          <>
-            <span className="text-xs font-medium text-muted-foreground">Advance status:</span>
-            {actions.map((a) => (
-              <button
-                key={a.status}
-                type="button"
-                onClick={() => handleTransition(po, a.status)}
-                className={`rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium transition-colors hover:bg-secondary ${
-                  a.status === "cancelled" ? "text-red-400 hover:text-red-400" : "text-foreground"
-                }`}
-              >
-                {a.label}
-              </button>
-            ))}
-          </>
-        )}
+        {actions.length > 0 && (() => {
+          // A line priced over plan has to be agreed by the side whose figure
+          // it passed before the order can go up for signature. The server
+          // refuses it either way; offering the button anyway only invites a
+          // click and an error message.
+          const unagreed = (po.items ?? []).filter(
+            (i) => i.variance_status === "pending" || i.variance_status === "rejected",
+          );
+          const waitingOn = [...new Set(
+            unagreed.map((i) => i.variance_owner_display).filter(Boolean),
+          )].join(" and ");
+          return (
+            <>
+              <span className="text-xs font-medium text-muted-foreground">Advance status:</span>
+              {actions.map((a) => {
+                const blocked = a.status === "pending_approval" && unagreed.length > 0;
+                return (
+                  <button
+                    key={a.status}
+                    type="button"
+                    disabled={blocked}
+                    title={blocked
+                      ? `${unagreed.length} line(s) are priced over plan and not yet agreed by ${waitingOn}.`
+                      : undefined}
+                    onClick={() => handleTransition(po, a.status)}
+                    className={`rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-card ${
+                      a.status === "cancelled" ? "text-red-400 hover:text-red-400" : "text-foreground"
+                    }`}
+                  >
+                    {a.label}
+                  </button>
+                );
+              })}
+              {unagreed.length > 0 && (
+                <span className="text-2xs text-amber-600">
+                  Waiting on {waitingOn} to agree {unagreed.length === 1 ? "a price" : `${unagreed.length} prices`}
+                </span>
+              )}
+            </>
+          );
+        })()}
         {deliveryAsk?.poId === po.id && (
           <div className="flex w-full flex-wrap items-center gap-2 border-t border-border pt-2">
             <label htmlFor={`delivery-${po.id}`} className="text-xs font-medium text-foreground">
@@ -1085,7 +1154,7 @@ export default function ProcurementPage() {
       )}
 
       {receivePO && (
-        <Modal open onClose={closeReceive} title="Receive items — {receivePO.po_number}" size="wide"
+        <Modal open onClose={closeReceive} title={`Inspect delivery — ${receivePO.po_number}`} size="wide"
         headerExtra={<><span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${STATUS_BADGES[receivePO.status] ?? ""}`}>
                   {statusLabel(receivePO.status)}
                 </span></>}>
@@ -1096,7 +1165,10 @@ export default function ProcurementPage() {
                     Goods receipt {receiveResult.grn_number} recorded
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Stock and received quantities have been updated on {receivePO.po_number}.
+                    {/* Nothing is on a shelf yet: the store counts it in,
+                        which is a different person in a different place. */}
+                    {receivePO.po_number} is updated with what was accepted. The goods now wait
+                    at Inventory › Receiving to be counted into stock.
                   </p>
                 </div>
                 {receiveResult.created_devices.length > 0 && (
@@ -1146,6 +1218,9 @@ export default function ProcurementPage() {
                   <label className={labelClass}>Lines in this delivery</label>
                   {receiveRows.map((r) => {
                     const qty = Number(r.quantity) || 0;
+                    // Serials belong to the units going into stock, not to
+                    // the ones going back to the supplier.
+                    const keeping = Math.max(qty - (Number(r.rejected) || 0), 0);
                     const problem = receiveRowProblem(r);
                     const serverError = receiveRowErrors[r.po_item];
                     const serialCount = parseSerials(r.serials).length;
@@ -1195,6 +1270,20 @@ export default function ProcurementPage() {
                                   className={inputClass}
                                 />
                               </div>
+                              <div className="w-24 space-y-1">
+                                {/* The delivery is checked against the order
+                                    here. What is turned away stays owed, so
+                                    the supplier delivers it again. */}
+                                <label className={labelClass}>Rejected</label>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max={qty}
+                                  value={r.rejected}
+                                  onChange={(e) => updateReceiveRow(r.po_item, { rejected: e.target.value })}
+                                  className={inputClass}
+                                />
+                              </div>
                               <div className="w-40 space-y-1">
                                 <label className={labelClass}>Batch number</label>
                                 <input
@@ -1207,6 +1296,20 @@ export default function ProcurementPage() {
                             </>
                           )}
                         </div>
+                        {Number(r.rejected || 0) > 0 && (
+                          <div className="space-y-1">
+                            <label className={labelClass}>What is wrong with the rejected goods? *</label>
+                            <input
+                              value={r.inspection_notes}
+                              onChange={(e) => updateReceiveRow(r.po_item, { inspection_notes: e.target.value })}
+                              placeholder="e.g. Three reels cut short of the stated length"
+                              className={inputClass}
+                            />
+                            <p className="text-2xs text-muted-foreground">
+                              {r.rejected} of {qty} stays owed on the order — the supplier delivers it again.
+                            </p>
+                          </div>
+                        )}
                         {r.asset_codes.length > 0 && !fullyReceived && qty > 0 && (
                           <div className="space-y-1">
                             <label className={labelClass}>Assets arriving</label>
@@ -1233,16 +1336,37 @@ export default function ProcurementPage() {
                             />
                           </div>
                         )}
-                        {r.serialized && !fullyReceived && qty > 0 && (
+                        {r.serialized && !fullyReceived && keeping > 0 && (
                           <div className="space-y-1">
-                            <div className="flex items-center justify-between">
-                              <label className={labelClass}>Serial numbers (one per line)</label>
-                              <span className={`text-xs font-medium ${serialCount === qty ? "text-emerald-500" : "text-amber-500"}`}>
-                                {serialCount} / {qty}
-                              </span>
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <label className={labelClass}>
+                                Serial numbers {keeping !== qty && "of the units being kept "}(one per line)
+                              </label>
+                              <div className="flex items-center gap-3">
+                                {/* Two hundred typed by hand is not a job to
+                                    give anybody: the list the supplier sent is
+                                    read instead, into the same box, still
+                                    correctable afterwards. */}
+                                <label className="inline-flex cursor-pointer items-center gap-1 text-2xs font-semibold text-primary hover:underline">
+                                  <Upload className="h-3 w-3" />
+                                  {readingFor === r.po_item ? "Reading…" : "Upload sheet"}
+                                  <input
+                                    type="file"
+                                    accept=".xlsx,.xlsm,.csv,.txt"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                      readSerialsInto(r.po_item, e.target.files?.[0] ?? null);
+                                      e.target.value = "";
+                                    }}
+                                  />
+                                </label>
+                                <span className={`text-xs font-medium ${serialCount === keeping ? "text-emerald-500" : "text-amber-500"}`}>
+                                  {serialCount} / {keeping}
+                                </span>
+                              </div>
                             </div>
                             <textarea
-                              rows={Math.min(Math.max(qty, 2), 6)}
+                              rows={Math.min(Math.max(keeping, 2), 6)}
                               value={r.serials}
                               onChange={(e) => updateReceiveRow(r.po_item, { serials: e.target.value })}
                               placeholder={"SN-0001\nSN-0002"}

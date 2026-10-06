@@ -342,6 +342,19 @@
   background: #f3f4f6 !important;
 }
 
+/* ── A map stays inside its own box ──
+   Leaflet numbers its panes from 400 and its controls from 800, and it
+   does that in whatever stacking context it finds itself in. Against a
+   dialog at z-50 the map won every time: open New Project on a page with
+   a map and the map floated over the form. Pinning the container at 0 and
+   isolating it keeps Leaflet's numbering inside the map, where it means
+   something, instead of competing with the rest of the application. */
+.leaflet-container {
+  position: relative;
+  z-index: 0;
+  isolation: isolate;
+}
+
 /* ── Dot markers ── */
 .map-dot-wrap {
   background: transparent !important;

@@ -447,6 +447,16 @@ export interface WorkOrderItem {
   inspection_notes?: string;
   line_state?: "with_vendor" | "awaiting_inspection" | "accepted" | "rework";
   line_state_display?: string;
+  /** What the project costed this operation at, and whether paying the
+   *  vendor more than that has been agreed. */
+  reference_unit_price?: string | null;
+  reference_label?: string;
+  variance_percent?: number | null;
+  variance_status?: "not_required" | "pending" | "approved" | "rejected";
+  variance_status_display?: string;
+  variance_owner_display?: string;
+  variance_notes?: string;
+  variance_decided_by_name?: string | null;
 }
 
 export interface WorkOrder {
@@ -477,6 +487,8 @@ export interface WorkOrder {
   notes: string;
   items: WorkOrderItem[];
   project_name?: string | null;
+  /** The sites this asset's project covers — where it may be installed. */
+  project_sites?: { id: string; name: string; city?: string }[];
   created_by_name?: string | null;
   approved_by_name?: string | null;
   /** Work receiving: when the vendor delivered and how the work was inspected. */

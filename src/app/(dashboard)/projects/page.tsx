@@ -24,6 +24,7 @@ import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { PriceApprovals } from "@/components/procurement/price-approvals";
+import { ClientWarranties } from "@/components/projects/client-warranties";
 import { ProjectRequirements } from "@/components/projects/project-requirements";
 import { ProjectBudgetSummary } from "@/components/projects/project-budget-summary";
 import { ProjectPlanning } from "@/components/projects/project-planning";
@@ -53,14 +54,12 @@ interface DeviceRow { id: string; asset_code: string; display_name: string | nul
 function siteLabels(rows: { id: string; name: string; city?: string }[]): Option[] {
   return rows.map((s) => ({ id: s.id, label: s.city ? `${s.name} · ${s.city}` : s.name }));
 }
-const STATUS_OPTIONS = [
-  { value: "planning", label: "Planning" },
-  { value: "on_track", label: "On Track" },
-  { value: "at_risk", label: "At Risk" },
-  { value: "delayed", label: "Delayed" },
-  { value: "on_hold", label: "On Hold" },
-  { value: "completed", label: "Completed" },
+// Who can be put in charge of a project. Everybody else on the staff list
+// has a job on a project, not the running of it.
+const MANAGER_ROLES = [
+  "super_admin", "group_head", "ops_manager", "marketing_head", "supervisor",
 ];
+
 // The phases the work actually goes through, in order. The commercial run-up
 // is one phase to the delivery team. "On Hold" and "Lost" are off-ramps.
 const PHASES = [
@@ -319,6 +318,8 @@ export default function ProjectsPage() {
   const [scopeComponents, setScopeComponents] = useState<Option[]>([]);
   const [addingScope, setAddingScope] = useState(false);
   const [contractFilter, setContractFilter] = useState("");
+  /** Which tile is showing. Blank is the default: the work still running. */
+  const [tile, setTile] = useState<"" | "all" | "on_track" | "at_risk" | "delayed" | "completed">("");
   // Planning (estimate + budget approval) comes first; execution (stock,
   // procurement, delivery) follows once the budget is signed off.
   const [projectTab, setProjectTab] = useState<"planning" | "execution">("planning");
@@ -409,7 +410,9 @@ export default function ProjectsPage() {
         ))
         .catch(() => setLinkedAssets([]));
       if (deviceOptions.length === 0) {
-        api.get("/assets/devices/", { params: { page_size: 1000 } })
+        // Only assets no project has claimed. Offering one that is already
+        // on another project was offering something the server refuses.
+        api.get("/assets/devices/", { params: { page_size: 1000, unassigned: "true" } })
           .then((r) => setDeviceOptions((r.data.results ?? []).map((d: DeviceRow) => ({
             id: d.id,
             label: d.display_name ? `${d.asset_code} — ${d.display_name}` : d.asset_code,
@@ -724,10 +727,17 @@ export default function ProjectsPage() {
       .then((r) => setMapDevices(r.data.results ?? r.data))
       .catch(() => {});
     api.get("/accounts/users/", { params: { is_active: true, page_size: 200 } })
-      .then((r) => setManagerOptions((r.data.results ?? []).map((u: { id: string; first_name: string; last_name: string; username: string }) => ({
-        id: u.id,
-        label: u.first_name || u.last_name ? `${u.first_name} ${u.last_name}`.trim() : u.username,
-      }))))
+      .then((r) => setManagerOptions(
+        (r.data.results ?? [])
+          // Running a project is not everybody's job. The list was every
+          // active account, so technicians, the warehouse and even a
+          // client's own viewer were being offered as project manager.
+          .filter((u: { role?: string }) => MANAGER_ROLES.includes(u.role ?? ""))
+          .map((u: { id: string; first_name: string; last_name: string; username: string; job_title?: string }) => ({
+            id: u.id,
+            label: u.first_name || u.last_name ? `${u.first_name} ${u.last_name}`.trim() : u.username,
+          })),
+      ))
       .catch(() => {});
   }, [fetchAll]);
 
@@ -739,7 +749,6 @@ export default function ProjectsPage() {
       name: form.name.trim(),
       sites: form.sites,
       description: form.description,
-      status: form.status,
       phase: form.phase,
       client: form.client || null,
       // The project's own site is the first of the ones the order covers.
@@ -783,68 +792,72 @@ export default function ProjectsPage() {
             autoFocus
           />
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Client</label>
-            <select value={form.client} onChange={(e) => setForm((f) => ({ ...f, client: e.target.value }))} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none">
-              <option value="">—</option>
-              {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Status</label>
-            <select value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none">
-              {STATUS_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-            </select>
-          </div>
+        {/* Status is not asked for: it follows the phase the project is
+            actually at, and a figure somebody typed in a form is the one
+            that goes stale. */}
+        <div>
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">Client</label>
+          <select value={form.client} onChange={(e) => setForm((f) => ({ ...f, client: e.target.value }))} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none">
+            <option value="">—</option>
+            {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
         </div>
         <div>
-          <label htmlFor="project_site" className="mb-1 block text-xs font-medium text-muted-foreground">
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">
             Sites (one order can span several)
           </label>
-          <select
-            id="project_site"
+
+          {/* Twenty-odd sites in a native select is a scroll, not a choice.
+              The picker searches, and what has been picked is a list that
+              reads down the page rather than a cloud of chips. */}
+          <SearchSelect
+            options={siteOptions.filter((st) => !form.sites.includes(st.id))}
             value=""
-            onChange={(e) => {
-              const id = e.target.value;
+            onChange={(id) => {
               if (id) setForm((f) => (f.sites.includes(id) ? f : { ...f, sites: [...f.sites, id] }));
             }}
-            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none"
-          >
-            <option value="">
-              {siteOptions.every((st) => form.sites.includes(st.id)) ? "Every site is on this project" : "Add a site…"}
-            </option>
-            {siteOptions
-              .filter((st) => !form.sites.includes(st.id))
-              .map((st) => <option key={st.id} value={st.id}>{st.label}</option>)}
-          </select>
+            placeholder={
+              siteOptions.length === 0 ? "No sites on record yet"
+              : siteOptions.every((st) => form.sites.includes(st.id)) ? "Every site is on this project"
+              : "Search sites…"
+            }
+            disabled={siteOptions.length === 0 || siteOptions.every((st) => form.sites.includes(st.id))}
+          />
 
-          {form.sites.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {form.sites.map((id) => {
+          {form.sites.length > 0 ? (
+            <div className="mt-2 divide-y divide-border overflow-hidden rounded-lg border border-border">
+              {form.sites.map((id, i) => {
                 const site = siteOptions.find((st) => st.id === id);
+                const [name, city] = (site?.label ?? "Site").split(" · ");
                 return (
-                  <span
-                    key={id}
-                    className="inline-flex items-center gap-1 rounded-full bg-secondary px-2.5 py-1 text-2xs font-medium text-foreground"
-                  >
-                    {site?.label ?? "Site"}
+                  <div key={id} className="flex items-center gap-3 bg-card px-3 py-2">
+                    <span className="w-5 shrink-0 text-2xs tabular-nums text-muted-foreground">{i + 1}</span>
+                    <span className="min-w-0 flex-1 truncate text-sm text-foreground">
+                      {name}
+                      {city && <span className="ml-1.5 text-2xs text-muted-foreground">{city}</span>}
+                    </span>
                     <button
                       type="button"
                       onClick={() => setForm((f) => ({ ...f, sites: f.sites.filter((x) => x !== id) }))}
-                      aria-label={`Take ${site?.label ?? "this site"} off the project`}
-                      className="text-muted-foreground transition-colors hover:text-destructive"
+                      aria-label={`Take ${name} off the project`}
+                      className="shrink-0 text-muted-foreground transition-colors hover:text-destructive"
                     >
-                      <X className="h-3 w-3" />
+                      <X className="h-3.5 w-3.5" />
                     </button>
-                  </span>
+                  </div>
                 );
               })}
             </div>
+          ) : (
+            <p className="mt-2 rounded-lg border border-dashed border-border px-3 py-3 text-center text-2xs text-muted-foreground">
+              No site on this project yet. Pick each one the order covers.
+            </p>
           )}
 
           <p className="mt-1 text-2xs text-muted-foreground">
-            Pick each site the order covers. Locations are kept under Sites.
+            {form.sites.length > 0
+              ? `${form.sites.length} site${form.sites.length === 1 ? "" : "s"} on this project. Locations are kept under Sites.`
+              : "Locations are kept under Sites."}
           </p>
         </div>
         <div className="grid grid-cols-2 gap-3">
@@ -1103,7 +1116,7 @@ export default function ProjectsPage() {
         </div>
 
         <div className="grid gap-6 lg:grid-cols-3">
-          <div className="space-y-6 lg:col-span-2">
+          <div className={`min-w-0 space-y-6 ${projectTab === "execution" ? "lg:col-span-2" : "lg:col-span-3"}`}>
             {projectTab === "planning" && (
               <>
             {/* Scope */}
@@ -1241,6 +1254,12 @@ export default function ProjectsPage() {
                 Build Requirements — what each asset needs
               </h3>
               <ProjectRequirements projectId={detail.id} />
+            </div>
+
+            {/* The last thing an order owes its client: what each asset is
+                covered for. Recorded here, read everywhere warranties are. */}
+            <div className="rounded-xl border border-border bg-card p-5">
+              <ClientWarranties projectId={detail.id} onChanged={() => loadDetail(detail.id)} />
             </div>
 
             {/* What it is actually costing, against what was approved. */}
@@ -1590,9 +1609,31 @@ export default function ProjectsPage() {
   ];
 
   const searching = query.trim().length > 0;
-  const ongoing = projects.filter(
-    (p) => (searching || !["completed", "on_hold"].includes(p.status)) && (!contractFilter || p.contract_type === contractFilter),
-  );
+  // The tiles are the filter. A figure somebody reads and cannot click
+  // through to is a figure they have to take on trust — and a project that
+  // completes itself on handover then vanishes from the only list there is.
+  const TILE_TESTS: Record<string, (p: Project) => boolean> = {
+    all: () => true,
+    on_track: (p) => p.status === "on_track",
+    at_risk: (p) => p.status === "at_risk",
+    delayed: (p) => p.status === "delayed",
+    completed: (p) => p.status === "completed",
+  };
+  const ongoing = projects.filter((p) => {
+    const matches = searching
+      ? true
+      : tile
+        ? TILE_TESTS[tile](p)
+        : !["completed", "on_hold"].includes(p.status);
+    return matches && (!contractFilter || p.contract_type === contractFilter);
+  });
+  const TILE_TITLES: Record<string, string> = {
+    all: "All Projects",
+    on_track: "On Track",
+    at_risk: "At Risk",
+    delayed: "Delayed",
+    completed: "Completed",
+  };
 
   function daysLeft(targetDate: string | null): string {
     if (!targetDate) return "—";
@@ -1637,23 +1678,36 @@ export default function ProjectsPage() {
 
       {/* Top stat cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        {/* A tile called Total Projects showing fewer than the projects on
+            the books is a tile nobody can trust. It counts them all; the
+            split between live work and finished sits underneath, and the
+            percentages below are measured against the live ones. */}
+        {/* Each tile shows its own projects below. Clicking the one already
+            showing puts the list back to the work still running. */}
         <StatCard
           label="Total Projects"
-          value={total}
-          subtitle={parked > 0 ? `ongoing · ${parked} completed or on hold` : "ongoing"}
+          value={total + parked}
+          subtitle={parked > 0 ? `${total} ongoing · ${parked} completed or on hold` : "ongoing"}
           icon={<ClipboardList className="h-5 w-5" />}
+          onClick={() => setTile((t) => (t === "all" ? "" : "all"))}
         />
-        <StatCard label="On Track" value={onTrack} subtitle={total > 0 ? `${((onTrack / total) * 100).toFixed(1)}%` : "0%"} icon={<CheckCircle className="h-5 w-5" />} />
-        <StatCard label="At Risk" value={atRisk} subtitle={total > 0 ? `${((atRisk / total) * 100).toFixed(1)}%` : "0%"} icon={<AlertTriangle className="h-5 w-5" />} />
-        <StatCard label="Delayed" value={delayed} subtitle={total > 0 ? `${((delayed / total) * 100).toFixed(1)}%` : "0%"} icon={<XCircle className="h-5 w-5" />} />
-        <StatCard label="Completed" value={completed} subtitle="This Month" icon={<Truck className="h-5 w-5" />} />
+        <StatCard label="On Track" value={onTrack} subtitle={total > 0 ? `${((onTrack / total) * 100).toFixed(1)}%` : "0%"} icon={<CheckCircle className="h-5 w-5" />}
+          onClick={() => setTile((t) => (t === "on_track" ? "" : "on_track"))} />
+        <StatCard label="At Risk" value={atRisk} subtitle={total > 0 ? `${((atRisk / total) * 100).toFixed(1)}%` : "0%"} icon={<AlertTriangle className="h-5 w-5" />}
+          onClick={() => setTile((t) => (t === "at_risk" ? "" : "at_risk"))} />
+        <StatCard label="Delayed" value={delayed} subtitle={total > 0 ? `${((delayed / total) * 100).toFixed(1)}%` : "0%"} icon={<XCircle className="h-5 w-5" />}
+          onClick={() => setTile((t) => (t === "delayed" ? "" : "delayed"))} />
+        <StatCard label="Completed" value={completed} subtitle="This Month" icon={<Truck className="h-5 w-5" />}
+          onClick={() => setTile((t) => (t === "completed" ? "" : "completed"))} />
       </div>
 
       {/* Ongoing Projects Table */}
       <div className="rounded-xl border border-border bg-card overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-5">
           <h2 className="text-base font-semibold text-foreground">
-            {searching ? `Projects matching "${query.trim()}"` : "Ongoing Projects"}
+            {searching
+              ? `Projects matching "${query.trim()}"`
+              : tile ? TILE_TITLES[tile] : "Ongoing Projects"}
             {searching && <span className="ml-2 text-xs font-normal text-muted-foreground">{ongoing.length} found · all statuses</span>}
           </h2>
           <div className="flex items-center gap-3">
@@ -1662,9 +1716,16 @@ export default function ProjectsPage() {
               values={{ contract: contractFilter }}
               onChange={(_, v) => setContractFilter(v)}
             />
-            <Link href="/projects" className="text-xs font-medium text-primary hover:underline">
-              View All Projects
-            </Link>
+            {/* It used to link to this very page, so it did nothing at all. */}
+            <button
+              type="button"
+              onClick={() => setTile((t) => (t ? "" : "all"))}
+              className="text-xs font-medium text-primary hover:underline"
+            >
+              {tile
+                ? "Show ongoing only"
+                : `View All Projects${parked ? ` (${parked} completed or on hold)` : ""}`}
+            </button>
           </div>
         </div>
         {ongoing.length > 0 ? (
@@ -1742,7 +1803,15 @@ export default function ProjectsPage() {
         ) : (
           <div className="p-12 text-center">
             <ClipboardList className="mx-auto h-12 w-12 text-muted-foreground/30" />
-            <p className="mt-3 text-sm text-muted-foreground">No ongoing projects</p>
+            {/* The list now answers whichever tile was clicked, so the empty
+                state has to say which question came back empty. */}
+            <p className="mt-3 text-sm text-muted-foreground">
+              {searching
+                ? `No project matches "${query.trim()}"`
+                : tile
+                  ? `No projects are ${TILE_TITLES[tile].toLowerCase()}`
+                  : "No ongoing projects"}
+            </p>
           </div>
         )}
       </div>

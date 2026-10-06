@@ -64,6 +64,8 @@ interface Device {
 }
 
 interface DeviceDetail extends Device {
+  /** The sites this asset's project covers — where it may be installed. */
+  project_sites?: { id: string; name: string; city?: string }[];
   /** What the asset has cost: building it, and keeping it running. */
   cost_of_ownership?: {
     development: {
@@ -575,10 +577,13 @@ export default function AssetsPage() {
       .then(({ data }) => {
         if (dropped) return;
         setCopyOf(data);
-        // The two the person is here to decide: what to call it, and how
-        // it is being made. Everything else follows the asset copied.
+        // Everything that is required to register one of these follows the
+        // asset being copied — the type, how it is made, and the units its
+        // size is in. The name is the one thing the person must decide,
+        // because two assets sharing a name is the problem this avoids.
         setFormAssetType(data.asset_type ?? "");
         setDimensionUnit(data.dimension_unit ?? "in");
+        setAssetSource(data.source ?? "");
       })
       .catch(() => { if (!dropped) setCopyOf(null); });
     return () => { dropped = true; };
@@ -1314,6 +1319,13 @@ export default function AssetsPage() {
   /* ─── DETAIL VIEW ─── */
   if (detailView) {
     const d = detailView;
+    // Where this asset may go up: its own project's sites. Nothing falls back
+    // to the full register — an asset with no project has nowhere named yet,
+    // and saying so beats offering every site on the books.
+    const installSites = (d.project_sites ?? []).map((s) => ({
+      id: s.id,
+      label: s.city ? `${s.name} · ${s.city}` : s.name,
+    }));
     const allImages = [
       ...(d.image ? [{ id: "primary", image: d.image, caption: "Primary", is_primary: true }] : []),
       ...(d.images ?? []),
@@ -2066,8 +2078,16 @@ export default function AssetsPage() {
                                 onChange={(e) => setAssignSite(e.target.value)}
                                 className={`${inputClass} h-9 text-xs`}
                               >
-                                <option value="">Select site…</option>
-                                {sites.map((site) => <option key={site.id} value={site.id}>{site.label}</option>)}
+                                {/* An asset goes up at one of the places its
+                                    own project is for. Offering all 23 sites
+                                    on the books invited it to be sent
+                                    somewhere the order never mentioned. */}
+                                <option value="">
+                                  {installSites.length ? "Select site…" : "No site on this project"}
+                                </option>
+                                {installSites.map((site) => (
+                                  <option key={site.id} value={site.id}>{site.label}</option>
+                                ))}
                               </select>
                             )}
                             <select
@@ -2952,7 +2972,7 @@ export default function AssetsPage() {
 
       {/* Create/Edit Modal */}
       <Modal open={!!modalMode} onClose={closeModal} title={modalMode === "create" ? "Register New Asset" : "Edit Asset"} size="xl">
-        <form key={copyFrom || "blank"} onSubmit={handleSubmit} className="max-h-[70vh] space-y-4 overflow-y-auto pr-1">
+        <form key={copyOf?.id ?? (copyFrom ? "loading" : "blank")} onSubmit={handleSubmit} className="max-h-[70vh] space-y-4 overflow-y-auto pr-1">
           {modalMode === "edit" && selected && (
             <div className="space-y-1.5">
               <label className={labelClass}>Asset Code</label>
@@ -2980,10 +3000,19 @@ export default function AssetsPage() {
                   ))}
                 </select>
                 <p className="text-2xs text-muted-foreground">
-                  Fills in its type, size, components and production route.
-                  The name and the manufacturing route are yours to choose,
-                  and the code and serial stay this asset&apos;s own.
+                  Fills in its type, manufacturing route, size, components and
+                  production route. The name is yours to choose, and the code
+                  and serial stay this asset&apos;s own.
                 </p>
+                {copyOf && copyOf.length_in == null && copyOf.width_in == null && (
+                  /* An asset registered before size was asked for has none to
+                     give. Saying so beats leaving two required boxes empty
+                     with no explanation. */
+                  <p className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-2.5 py-1.5 text-2xs text-amber-700 dark:text-amber-500">
+                    {copyOf.asset_code} has no size on record, so Length and Width
+                    are still yours to fill in.
+                  </p>
+                )}
               </div>
             </div>
           )}

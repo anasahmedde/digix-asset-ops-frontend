@@ -560,7 +560,7 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                 }}
                 className={inputClass}
               >
-                <option value="">Who is taking it away…</option>
+                <option value="">Who is taking it away… *</option>
                 {people.map((p) => <option key={p.id} value={p.label}>{p.label}</option>)}
                 <option value="__other__">Someone else…</option>
               </select>
@@ -575,6 +575,11 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                 />
               )}
               <p className="text-xs text-muted-foreground">The team as set up under Teams; pick “Someone else” for an outside collector.</p>
+              {!issue.received_by.trim() && (
+                <p className="text-xs font-medium text-amber-600">
+                  Name who is collecting — stock cannot leave the store unaccounted for.
+                </p>
+              )}
               </>
               )}
             </div>
@@ -598,7 +603,7 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
               </button>
               <button
                 type="submit"
-                disabled={saving || Number(issue.quantity) < 1}
+                disabled={saving || Number(issue.quantity) < 1 || !issue.received_by.trim()}
                 className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
               >
                 {saving ? "Issuing…" : `Issue ${Number(issue.quantity) || 0}`}

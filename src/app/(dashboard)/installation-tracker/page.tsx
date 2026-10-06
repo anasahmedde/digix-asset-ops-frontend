@@ -1410,11 +1410,27 @@ export default function InstallationTrackerPage() {
                             <Play className="h-3 w-3" /> Start
                           </button>
                         )}
-                        {step.status !== "completed" && (
-                          <button disabled={updatingStep === step.id} onClick={() => updateStep(step.id, "completed")} className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-1 text-2xs font-medium text-emerald-600 transition-colors hover:bg-emerald-500/20 disabled:opacity-50">
-                            <Check className="h-3 w-3" /> Complete
-                          </button>
-                        )}
+                        {step.status !== "completed" && (() => {
+                          // Work that was never started cannot be finished:
+                          // the step was being ticked straight from Not
+                          // Started to Completed, and the dates on the card
+                          // then had nothing behind them.
+                          const notBegun = step.status !== "in_progress";
+                          return (
+                            <button
+                              disabled={updatingStep === step.id || notBegun}
+                              title={
+                                step.status === "on_hold"
+                                  ? "On hold — start it again before marking it complete"
+                                  : notBegun ? "Start this step before completing it" : undefined
+                              }
+                              onClick={() => updateStep(step.id, "completed")}
+                              className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-1 text-2xs font-medium text-emerald-600 transition-colors hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-emerald-500/10"
+                            >
+                              <Check className="h-3 w-3" /> Complete
+                            </button>
+                          );
+                        })()}
                         {step.status !== "on_hold" && step.status !== "completed" && (
                           <button onClick={() => { setDelayCause("client"); setDelayFor({ stepId: step.id, label: `${step.step_number}. ${step.step_type_display}`, hold: true }); }} className="inline-flex items-center gap-1 rounded-md bg-orange-500/10 px-2 py-1 text-2xs font-medium text-orange-500 transition-colors hover:bg-orange-500/20">
                             <Pause className="h-3 w-3" /> Hold
