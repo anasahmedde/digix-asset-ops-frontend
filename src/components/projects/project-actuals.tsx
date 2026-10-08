@@ -1,10 +1,11 @@
 "use client";
 
-import { Plus, Printer, Trash2 } from "lucide-react";
+import { Pencil, Plus, Printer, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Qty } from "@/components/ui/qty";
+import { confirmAction } from "@/components/ui/confirm";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
@@ -73,6 +74,10 @@ interface Overhead {
 }
 interface Actuals {
   budget_status: string | null;
+  /** Whether the plan can still be changed. A line the budget was signed off
+   *  on is revised, not edited underneath the signature; one added during
+   *  execution was never in it, so it stays the team's to correct or drop. */
+  budget_is_editable: boolean;
   approved_total: string | null;
   estimate_total: string;
   assets: ActualAsset[];
@@ -102,7 +107,7 @@ const inputClass =
  * each one came to — plus the variance against the approved budget.
  */
 export function ProjectActuals({ projectId }: { projectId: string }) {
-  const { canWrite } = useUser();
+  const { can } = useUser();
 
   /** The complete actual-cost table as a PDF, fetched with the token and opened to print. */
   async function printActuals() {
@@ -139,26 +144,17 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
       toast.error(getApiError(err, "Could not record that cost"));
     }
   }
-  const canEdit = canWrite("devices") || canWrite("inventory");
+  const canEdit = can("plan_budget");
 
   const [data, setData] = useState<Actuals | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [draft, setDraft] = useState<Record<string, { qty: string; rate: string }>>({});
   const [extra, setExtra] = useState({ cost_type: "", description: "", quantity: "1", unit_cost: "" });
 
   const load = useCallback(async () => {
     try {
       const { data } = await api.get(`/teams/projects/${projectId}/actuals/`);
       setData(data);
-      const seeded: Record<string, { qty: string; rate: string }> = {};
-      for (const o of data.overheads as Overhead[]) {
-        seeded[o.id] = {
-          qty: o.actual_quantity != null ? String(Number(o.actual_quantity)) : "",
-          rate: o.actual_unit_cost != null ? String(Number(o.actual_unit_cost)) : "",
-        };
-      }
-      setDraft(seeded);
     } catch (err) {
       toast.error(getApiError(err, "Failed to load the actual costs"));
     } finally {
@@ -167,23 +163,6 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
   }, [projectId]);
 
   useEffect(() => { load(); }, [load]);
-
-  async function saveActual(line: Overhead) {
-    const row = draft[line.id] ?? { qty: "", rate: "" };
-    if (row.rate === "" && line.actual_unit_cost == null) return;
-    setBusy(true);
-    try {
-      await api.patch(`/teams/cost-lines/${line.id}/`, {
-        actual_quantity: row.qty === "" ? null : row.qty,
-        actual_unit_cost: row.rate === "" ? null : row.rate,
-      });
-      await load();
-    } catch (err) {
-      toast.error(getApiError(err, "Could not record that cost"));
-    } finally {
-      setBusy(false);
-    }
-  }
 
   async function addUnplanned(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -208,8 +187,50 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
     }
   }
 
+  /** Can this overhead's own details still be changed?
+   *
+   *  The budget's signature is on the planned lines, so those are revised
+   *  rather than edited. Anything added while the work was running was never
+   *  signed off and stays the team's to correct or drop. */
+  function openToChange(line: Overhead): boolean {
+    return line.unplanned || (data?.budget_is_editable ?? false);
+  }
+
+  /** The line being edited, or none. One at a time, like the plan. */
+  const [editingLine, setEditingLine] = useState<string | null>(null);
+
+  /**
+   * Write the line as it now stands.
+   *
+   * The name goes with it when the budget has not been signed off on this
+   * line — the server refuses a planned field on a signed budget, so there is
+   * no point sending one it will only reject.
+   */
+  async function saveLine(line: Overhead) {
+    const name = (document.getElementById(`oh-name-${line.id}`) as HTMLInputElement)?.value.trim();
+    const qty = (document.getElementById(`oh-qty-${line.id}`) as HTMLInputElement)?.value;
+    const rate = (document.getElementById(`oh-rate-${line.id}`) as HTMLInputElement)?.value;
+    if (!name) { toast.error("A cost needs a name"); return; }
+    const body: Record<string, string | null> = {
+      actual_quantity: rate === "" ? null : (qty || "1"),
+      actual_unit_cost: rate === "" ? null : rate,
+    };
+    if (openToChange(line) && name !== (line.description || line.cost_type)) {
+      body.cost_type = name;
+      body.description = name;
+    }
+    try {
+      await api.patch(`/teams/cost-lines/${line.id}/`, body);
+      setEditingLine(null);
+      await load();
+      toast.success(rate === "" ? "Actual cleared" : "Actual recorded");
+    } catch (err) {
+      toast.error(getApiError(err, "Could not record that cost"));
+    }
+  }
+
   async function removeLine(line: Overhead) {
-    if (!confirm(`Remove "${line.cost_type}" from the actual costs?`)) return;
+    if (!(await confirmAction(`Remove "${line.cost_type}" from the actual costs?`))) return;
     try {
       await api.delete(`/teams/cost-lines/${line.id}/`);
       await load();
@@ -508,54 +529,101 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
               </thead>
               <tbody>
                 {data.overheads.map((o) => {
-                  const row = draft[o.id] ?? { qty: "", rate: "" };
                   const diff = o.actual_amount == null ? null : Number(o.actual_amount) - Number(o.planned_amount);
+                  const open = openToChange(o);
                   return (
                     <tr key={o.id} className="border-b border-border/60 last:border-0">
-                      <td className={tdClass}>
-                        <span className="rounded-full bg-secondary px-2 py-0.5 text-2xs font-medium text-foreground">{o.cost_type}</span>
-                        {o.unplanned && <span className="ml-1 text-2xs text-amber-600">unplanned</span>}
-                      </td>
-                      <td className={`${tdClass} text-muted-foreground`}>{o.description || "—"}</td>
-                      <td className={`${tdClass} text-right text-muted-foreground`}>{money(o.planned_amount)}</td>
-                      <td className={`${tdClass} text-right`}>
-                        {canEdit ? (
-                          <input
-                            type="number" min={0} step="0.01" value={row.qty}
-                            onChange={(e) => setDraft({ ...draft, [o.id]: { ...row, qty: e.target.value } })}
-                            onBlur={() => saveActual(o)}
-                            placeholder="—"
-                            className={`${inputClass} w-20 text-right`}
-                          />
-                        ) : (o.actual_quantity ?? "—")}
-                      </td>
-                      <td className={`${tdClass} text-right`}>
-                        {canEdit ? (
-                          <input
-                            type="number" min={0} step="0.01" value={row.rate}
-                            onChange={(e) => setDraft({ ...draft, [o.id]: { ...row, rate: e.target.value } })}
-                            onBlur={() => saveActual(o)}
-                            placeholder="—"
-                            className={`${inputClass} w-24 text-right`}
-                          />
-                        ) : (o.actual_unit_cost ?? "—")}
-                      </td>
-                      <td className={`${tdClass} text-right font-medium text-foreground`}>
-                        {o.actual_amount == null ? <span className="text-muted-foreground">not recorded</span> : money(o.actual_amount)}
-                        {diff != null && Math.abs(diff) >= 0.01 && (
-                          <span className={`block text-2xs ${diff > 0 ? "text-amber-600" : "text-emerald-600"}`}>
-                            {diff > 0 ? "+" : "−"}{money(Math.abs(diff))} vs plan
-                          </span>
-                        )}
-                      </td>
-                      {canEdit && (
-                        <td className={`${tdClass} text-right`}>
-                          {o.unplanned && (
-                            <button onClick={() => removeLine(o)} title="Remove" className="text-muted-foreground transition-colors hover:text-destructive">
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
+                      {editingLine === o.id ? (
+                        /* The whole line is edited at once, the way a planned
+                           cost is: a figure that saves the moment the cursor
+                           leaves the box is a figure nobody meant to type. */
+                        <>
+                          <td className={tdClass} colSpan={2}>
+                            <input
+                              defaultValue={o.description || o.cost_type}
+                              id={`oh-name-${o.id}`}
+                              className={`${inputClass} w-full`}
+                              autoFocus
+                            />
+                          </td>
+                          <td className={`${tdClass} text-right text-muted-foreground`}>{money(o.planned_amount)}</td>
+                          <td className={`${tdClass} text-right`}>
+                            <input
+                              type="number" min={0} step="0.01"
+                              defaultValue={o.actual_quantity != null ? String(Number(o.actual_quantity)) : ""}
+                              id={`oh-qty-${o.id}`}
+                              placeholder="1"
+                              className={`${inputClass} w-20 text-right`}
+                            />
+                          </td>
+                          <td className={`${tdClass} text-right`}>
+                            <input
+                              type="number" min={0} step="0.01"
+                              defaultValue={o.actual_unit_cost != null ? String(Number(o.actual_unit_cost)) : ""}
+                              id={`oh-rate-${o.id}`}
+                              placeholder="Rate"
+                              className={`${inputClass} w-24 text-right`}
+                            />
+                          </td>
+                          <td className={`${tdClass} text-right text-muted-foreground`}>—</td>
+                          <td className={`${tdClass} text-right`}>
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                onClick={() => saveLine(o)}
+                                className="rounded-md bg-primary px-2 py-1 text-2xs font-semibold text-white hover:bg-primary/90"
+                              >
+                                Save
+                              </button>
+                              <button
+                                onClick={() => setEditingLine(null)}
+                                className="rounded-md px-2 py-1 text-2xs font-medium text-muted-foreground hover:bg-secondary"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </td>
+                        </>
+                      ) : (
+                        <>
+                          <td className={tdClass}>
+                            <span className="rounded-full bg-secondary px-2 py-0.5 text-2xs font-medium text-foreground">{o.cost_type}</span>
+                            {o.unplanned && <span className="ml-1 text-2xs text-amber-600">unplanned</span>}
+                          </td>
+                          <td className={`${tdClass} text-muted-foreground`}>{o.description || "—"}</td>
+                          <td className={`${tdClass} text-right text-muted-foreground`}>{money(o.planned_amount)}</td>
+                          <td className={`${tdClass} text-right text-foreground`}>
+                            {o.actual_quantity != null ? Number(o.actual_quantity) : "—"}
+                          </td>
+                          <td className={`${tdClass} text-right text-foreground`}>
+                            {o.actual_unit_cost != null ? money(o.actual_unit_cost) : "—"}
+                          </td>
+                          <td className={`${tdClass} text-right font-medium text-foreground`}>
+                            {o.actual_amount == null ? <span className="text-muted-foreground">not recorded</span> : money(o.actual_amount)}
+                            {diff != null && Math.abs(diff) >= 0.01 && (
+                              <span className={`block text-2xs ${diff > 0 ? "text-amber-600" : "text-emerald-600"}`}>
+                                {diff > 0 ? "+" : "−"}{money(Math.abs(diff))} vs plan
+                              </span>
+                            )}
+                          </td>
+                          {canEdit && (
+                            <td className={`${tdClass} text-right`}>
+                              <div className="flex items-center justify-end gap-2">
+                                <button onClick={() => setEditingLine(o.id)} title="Record or change what this cost came to" className="text-muted-foreground transition-colors hover:text-primary">
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </button>
+                                {open ? (
+                                  <button onClick={() => removeLine(o)} title="Remove this cost" className="text-muted-foreground transition-colors hover:text-destructive">
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                ) : (
+                                  <span className="text-2xs text-muted-foreground" title="The budget was signed off on this line — revise the budget to remove it">
+                                    in the budget
+                                  </span>
+                                )}
+                              </div>
+                            </td>
                           )}
-                        </td>
+                        </>
                       )}
                     </tr>
                   );

@@ -6,6 +6,8 @@ import { toast } from "sonner";
 
 import { Modal } from "@/components/ui/modal";
 import { Qty } from "@/components/ui/qty";
+import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
+import { confirmAction } from "@/components/ui/confirm";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { formatDate } from "@/lib/utils";
@@ -34,9 +36,10 @@ const inputClass =
 const labelClass = "text-xs font-medium text-muted-foreground";
 
 export function LowStock({ onChanged }: { onChanged?: () => void }) {
-  const { canWrite } = useUser();
-  const canRequest = canWrite("inventory");
+  const { can } = useUser();
+  const canRequest = can("manage_stock");
   const [rows, setRows] = useState<LowStockRow[]>([]);
+  const sort = useSortState();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   // The request being raised: quantity and the reason on record.
@@ -89,7 +92,7 @@ export function LowStock({ onChanged }: { onChanged?: () => void }) {
 
   async function withdraw(row: LowStockRow) {
     if (!row.open_request) return;
-    if (!window.confirm(`Withdraw the reorder request for ${row.name}?`)) return;
+    if (!(await confirmAction(`Withdraw the reorder request for ${row.name}?`))) return;
     try {
       await api.post(`/inventory/reorder-requests/${row.open_request.id}/cancel/`, { reason: "Withdrawn from Low Stock" });
       toast.success("Reorder request withdrawn");
@@ -124,18 +127,18 @@ export function LowStock({ onChanged }: { onChanged?: () => void }) {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
-                  <th className={thClass}>Code</th>
-                  <th className={thClass}>Component</th>
-                  <th className={thClass}>Kind</th>
-                  <th className={`${thClass} text-right`}>On Hand</th>
-                  <th className={`${thClass} text-right`}>Reorder Level</th>
-                  <th className={`${thClass} text-right`}>Shortfall</th>
-                  <th className={thClass}>Reorder Request</th>
+                  <SortTh sort={sort} k="code" className={thClass}>Code</SortTh>
+                  <SortTh sort={sort} k="name" className={thClass}>Component</SortTh>
+                  <SortTh sort={sort} k="kind" className={thClass}>Kind</SortTh>
+                  <SortTh sort={sort} k="on_hand" className={`${thClass} text-right`}>On Hand</SortTh>
+                  <SortTh sort={sort} k="reorder_level" className={`${thClass} text-right`}>Reorder Level</SortTh>
+                  <SortTh sort={sort} k="shortfall" className={`${thClass} text-right`}>Shortfall</SortTh>
+                  <SortTh sort={sort} k="request" className={thClass}>Reorder Request</SortTh>
                   {canRequest && <th className={thClass}>Actions</th>}
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => (
+                {sortRows(rows, sort, { request: (r) => r.open_request?.request_number }).map((r) => (
                   <tr key={`${r.kind}:${r.id}`} className="border-b border-border transition-colors hover:bg-secondary/30">
                     <td className={`${tdClass} whitespace-nowrap font-mono text-muted-foreground`}>{r.code}</td>
                     <td className={`${tdClass} font-medium text-foreground`}>

@@ -6,6 +6,7 @@ import { toast } from "sonner";
 
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
+import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
 
 interface Column { key: string; label: string }
 interface ReportData {
@@ -22,7 +23,7 @@ const REPORT_TYPES = [
   { value: "work_orders", label: "Work Orders" },
   { value: "inventory", label: "Inventory" },
   { value: "suppliers", label: "Suppliers" },
-  { value: "clients", label: "Customers" },
+  { value: "clients", label: "Clients" },
   { value: "teams", label: "Teams / Projects" },
 ];
 
@@ -42,6 +43,7 @@ function toCsv(columns: Column[], rows: Record<string, unknown>[]): string {
 
 export default function ReportsPage() {
   const [type, setType] = useState("assets");
+  const sort = useSortState();
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [loading, setLoading] = useState(false);
@@ -96,11 +98,11 @@ export default function ReportsPage() {
         </div>
         <div className="space-y-1.5">
           <label className={labelClass}>From</label>
-          <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className={inputClass} />
+          <input type="date" max={dateTo || undefined} value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className={inputClass} />
         </div>
         <div className="space-y-1.5">
           <label className={labelClass}>To</label>
-          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className={inputClass} />
+          <input type="date" min={dateFrom || undefined} value={dateTo} onChange={(e) => setDateTo(e.target.value)} className={inputClass} />
         </div>
         <button onClick={generate} disabled={loading} className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-5 text-sm font-medium text-white transition-all disabled:opacity-50">
           <BarChart3 className="h-4 w-4" /> {loading ? "Generating..." : "Generate"}
@@ -155,12 +157,12 @@ export default function ReportsPage() {
                 <thead>
                   <tr className="border-b border-border bg-secondary/50">
                     {report.columns.map((c) => (
-                      <th key={c.key} className="px-5 py-3.5 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">{c.label}</th>
+                      <SortTh key={c.key} sort={sort} k={c.key} className="px-5 py-3.5 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">{c.label}</SortTh>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {report.rows.map((row, i) => (
+                  {sortRows(report.rows, sort).map((row, i) => (
                     <tr key={i} className="border-b border-border transition-colors hover:bg-secondary/30">
                       {report.columns.map((c) => (
                         <td key={c.key} className="px-4 py-2.5 text-muted-foreground">{row[c.key] == null || row[c.key] === "" ? "-" : String(row[c.key])}</td>

@@ -11,6 +11,8 @@ import {
 import { ContactsEditor } from "@/components/ui/contacts-editor";
 import { Pagination, pageSlice } from "@/components/ui/pagination";
 import { FilterBar } from "@/components/ui/filter-bar";
+import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
+import { confirmAction } from "@/components/ui/confirm";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
@@ -41,6 +43,7 @@ export default function SuppliersPage() {
   const canEdit = canWrite("suppliers");
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [vendorPage, setVendorPage] = useState(1);
+  const sort = useSortState();
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
@@ -84,10 +87,10 @@ export default function SuppliersPage() {
   /** Taken off the books without being erased from the history. */
   async function toggleActive(sup: Supplier) {
     const off = sup.is_active;
-    if (off && !confirm(
+    if (off && !(await confirmAction(
       `Deactivate ${sup.name}? They stay on every order and asset they are `
       + "already on, and stop being offered when something new is raised.",
-    )) return;
+    ))) return;
     try {
       await api.patch(`/suppliers/${sup.id}/`, { is_active: !off });
       toast.success(off ? "Supplier deactivated" : "Supplier reactivated");
@@ -132,7 +135,7 @@ export default function SuppliersPage() {
   }
 
   async function handleDelete(supplier: Supplier) {
-    if (!confirm(`Delete supplier "${supplier.name}"? This cannot be undone.`)) return;
+    if (!(await confirmAction(`Delete supplier "${supplier.name}"? This cannot be undone.`))) return;
     try {
       await api.delete(`/suppliers/${supplier.id}/`);
       toast.success("Supplier deleted");
@@ -198,17 +201,17 @@ export default function SuppliersPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
-                  <th className={thClass}>Name</th>
-                  <th className={thClass}>Code</th>
-                  <th className={thClass}>Contact</th>
-                  <th className={thClass}>Email</th>
-                  <th className={thClass}>Phone</th>
-                  <th className={thClass}>Status</th>
+                  <SortTh sort={sort} k="name" className={thClass}>Name</SortTh>
+                  <SortTh sort={sort} k="code" className={thClass}>Code</SortTh>
+                  <SortTh sort={sort} k="contact_person" className={thClass}>Contact</SortTh>
+                  <SortTh sort={sort} k="contact_email" className={thClass}>Email</SortTh>
+                  <SortTh sort={sort} k="contact_phone" className={thClass}>Phone</SortTh>
+                  <SortTh sort={sort} k="is_active" className={thClass}>Status</SortTh>
                   <th className={thClass}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {pageSlice(filtered, vendorPage).map((s) => (
+                {pageSlice(sortRows(filtered, sort), vendorPage).map((s) => (
                   <tr key={s.id} onClick={() => { setSelected(s); setModalMode("edit"); }} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
                     <td className={`${tdClass} font-medium text-foreground`}>{s.name}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{s.code}</td>

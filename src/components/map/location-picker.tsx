@@ -8,6 +8,12 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { MapPin, Search, X } from "lucide-react";
 
+import { CopyButton } from "@/components/ui/copy-button";
+
+/** A pin anyone can open in Google Maps, on a phone or a desk. */
+export const mapsLink = (lat: number | string, lng: number | string) =>
+  `https://www.google.com/maps?q=${Number(lat).toFixed(6)},${Number(lng).toFixed(6)}`;
+
 const markerIcon = new L.Icon({
   iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
   iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
@@ -255,12 +261,26 @@ export default function LocationPicker({ lat, lng, onChange }: LocationPickerPro
         </MapContainer>
       </div>
 
-      <p className="text-2xs text-muted-foreground">
-        {looking
-          ? "Reading the address from the pin…"
-          : position
-            ? `Selected: ${position.lat.toFixed(6)}, ${position.lng.toFixed(6)}`
-            : "Click on the map or search to set location"}
+      <p className="flex flex-wrap items-center gap-1.5 text-2xs text-muted-foreground">
+        {looking ? (
+          "Reading the address from the pin…"
+        ) : position ? (
+          <>
+            Selected: {position.lat.toFixed(6)}, {position.lng.toFixed(6)}
+            {/* A link anyone can open on their phone to drive there. */}
+            <a
+              href={mapsLink(position.lat, position.lng)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-primary hover:underline"
+            >
+              Open in Google Maps
+            </a>
+            <CopyButton text={mapsLink(position.lat, position.lng)} label="Google Maps link" />
+          </>
+        ) : (
+          "Click on the map or search to set location"
+        )}
       </p>
     </div>
   );

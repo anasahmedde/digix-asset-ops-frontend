@@ -2,12 +2,16 @@
 
 import {ChevronDown, ChevronRight, ClipboardCheck, FileDown, Pencil, Plus, ScrollText, Trash2} from "lucide-react";
 import { Fragment, useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import { CopyButton } from "@/components/ui/copy-button";
 import { Modal } from "@/components/ui/modal";
 import { WorkOrderRequests } from "@/components/work-orders/work-order-requests";
 import { WorkReceiving } from "@/components/work-orders/work-receiving";
+import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
+import { confirmAction } from "@/components/ui/confirm";
+import { deadlineMin } from "@/lib/utils";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
@@ -82,13 +86,15 @@ const ORDER_TYPES = [
 const LEGACY_TYPES: Record<string, string> = {
   supply: "Supply / Purchase", installation: "Installation", supply_install: "Supply & Installation", production: "Production Step",
 };
-// The same sign-off as a purchase order: the Group Head approves, Operations
-// move the order everywhere else.
-function movesFor(status: WorkOrderStatus, role: string | undefined): WorkOrderStatus[] {
-  const all = NEXT_STATUS[status];
-  if (role === "group_head") return all.filter((s) => s === "approved" || s === "draft");
-  if (role === "super_admin") return all;
-  return all.filter((s) => s !== "approved");
+// The same sign-off as a purchase order: one signature approves, whoever
+// raises orders moves them everywhere else. Sending one back from approval
+// is either side's.
+function movesFor(status: WorkOrderStatus, canApprove: boolean, canEdit: boolean): WorkOrderStatus[] {
+  return NEXT_STATUS[status].filter((s) =>
+    s === "approved" ? canApprove
+    : s === "draft" && status === "pending_approval" ? canApprove || canEdit
+    : canEdit,
+  );
 }
 function labelFor(status: WorkOrderStatus, next: WorkOrderStatus): string {
   return TRANSITIONS[status].find((a) => a.status === next)?.label ?? next;
@@ -152,10 +158,21 @@ const emptyForm: FormState = {
 const label = (s: string) => s.split("_").map((w) => w[0].toUpperCase() + w.slice(1)).join(" ");
 
 export default function WorkOrdersPage() {
-  const { canWrite, user } = useUser();
-  const canEdit = canWrite("setup") || canWrite("procurement");
+  const { can } = useUser();
+  const canEdit = can("raise_work_order");
+  const canApprove = can("approve_work_order");
+  const canInspect = can("inspect_work");
   const [tab, setTab] = useState<"orders" | "requests" | "receiving">("orders");
   const [expanded, setExpanded] = useState<string | null>(null);
+  // A notification lands on the order, or the tab, it is about.
+  const params = useSearchParams();
+  useEffect(() => {
+    const wo = params.get("wo");
+    const t = params.get("tab");
+    if (t === "requests" || t === "receiving") setTab(t);
+    if (wo) { setTab("orders"); setExpanded(wo); loadDetail(wo); }
+  }, [params]);
+  const sort = useSortState();
   const [detail, setDetail] = useState<Record<string, WorkOrder>>({});
   const [downloading, setDownloading] = useState<string | null>(null);
   // The vendor has finished some of the jobs on an order: which ones.
@@ -367,7 +384,7 @@ export default function WorkOrdersPage() {
   }
 
   async function handleDelete(wo: WorkOrder) {
-    if (!confirm(`Delete work order ${wo.wo_number}? This cannot be undone.`)) return;
+    if (!(await confirmAction(`Delete work order ${wo.wo_number}? This cannot be undone.`))) return;
     try {
       await api.delete(`/work-orders/${wo.id}/`);
       toast.success("Work order deleted");
@@ -437,19 +454,19 @@ export default function WorkOrdersPage() {
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
                   <th className={`${thClass} w-8`}></th>
-                  <th className={thClass}>WO #</th>
-                  <th className={thClass}>Title</th>
-                  <th className={thClass}>For</th>
-                  <th className={thClass}>Type</th>
-                  <th className={thClass}>Vendor</th>
-                  <th className={thClass}>Total</th>
-                  <th className={thClass}>Status</th>
-                  <th className={thClass}>Delivery</th>
+                  <SortTh sort={sort} k="wo_number" className={thClass}>WO #</SortTh>
+                  <SortTh sort={sort} k="title" className={thClass}>Title</SortTh>
+                  <SortTh sort={sort} k="for" className={thClass}>For</SortTh>
+                  <SortTh sort={sort} k="order_type_display" className={thClass}>Type</SortTh>
+                  <SortTh sort={sort} k="supplier_name" className={thClass}>Vendor</SortTh>
+                  <SortTh sort={sort} k="total_amount" className={thClass}>Total</SortTh>
+                  <SortTh sort={sort} k="status" className={thClass}>Status</SortTh>
+                  <SortTh sort={sort} k="expected_delivery" className={thClass}>Delivery</SortTh>
                   <th className={thClass}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {orders.map((wo) => (
+                {sortRows(orders, sort, { for: (wo) => wo.project_name || wo.client_name || wo.site_name }).map((wo) => (
                   <Fragment key={wo.id}>
                   <tr onClick={() => expandRow(wo.id)} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30" aria-expanded={expanded === wo.id}>
                     <td className={`${tdClass} text-muted-foreground`}>
@@ -509,7 +526,7 @@ export default function WorkOrdersPage() {
                           // has to be more than one still out for it to apply.
                           const canSplit = lines.length > 1 && lines.filter((i) => i.line_state === "with_vendor").length > 1;
                           const unagreed = unagreedOn({ items: lines });
-                          const moves = movesFor(wo.status, user?.role).filter(
+                          const moves = movesFor(wo.status, canApprove, canEdit).filter(
                             (m) => m !== "partially_delivered" || canSplit,
                           );
                           return (
@@ -615,15 +632,15 @@ export default function WorkOrdersPage() {
                                   {downloading === wo.id ? "Preparing…" : "Download WO"}
                                 </button>
                               </div>
-                              {canEdit && (moves.length > 0 || wo.status === "delivered" || wo.status === "partially_delivered" || wo.status === "pending_approval") && (
+                              {(moves.length > 0 || ((wo.status === "delivered" || wo.status === "partially_delivered") && canInspect) || (wo.status === "pending_approval" && canEdit)) && (
                                 <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-secondary/30 p-3">
-                                  {(wo.status === "delivered" || wo.status === "partially_delivered") && (
+                                  {(wo.status === "delivered" || wo.status === "partially_delivered") && canInspect && (
                                     <button type="button" onClick={() => setTab("receiving")} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white transition-all">
                                       <ClipboardCheck className="h-3.5 w-3.5" /> Inspect work
                                     </button>
                                   )}
                                   {moves.length > 0 && <span className="text-xs font-medium text-muted-foreground">Advance status:</span>}
-                                  {wo.status === "pending_approval" && user?.role !== "group_head" && user?.role !== "super_admin" && (
+                                  {wo.status === "pending_approval" && !canApprove && (
                                     <span className="text-2xs text-muted-foreground">Waiting for the Group Head to approve.</span>
                                   )}
                                   {moves.map((m) => {
@@ -669,13 +686,13 @@ export default function WorkOrdersPage() {
 
       {modalMode && (
         <Modal open onClose={closeModal} title={modalMode === "create" ? "New Work Order" : `Edit ${selected?.wo_number}`} size="wide">
-            {modalMode === "edit" && selected && movesFor(selected.status, user?.role).length > 0 && (
+            {modalMode === "edit" && selected && movesFor(selected.status, canApprove, canEdit).length > 0 && (
               <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-secondary/30 p-3">
                 <span className="text-xs font-medium text-muted-foreground">Advance status:</span>
-                {selected.status === "pending_approval" && user?.role !== "group_head" && user?.role !== "super_admin" && (
+                {selected.status === "pending_approval" && !canApprove && (
                   <span className="text-2xs text-muted-foreground">Waiting for the Group Head to approve.</span>
                 )}
-                {movesFor(selected.status, user?.role).map((s) => {
+                {movesFor(selected.status, canApprove, canEdit).map((s) => {
                   const held = s === "pending_approval" && unagreedOn(selected).length > 0;
                   return (
                     <button key={s} type="button" disabled={held}
@@ -743,7 +760,7 @@ export default function WorkOrdersPage() {
                 </div>
                 <div className="space-y-1.5">
                   <label className={labelClass}>Required Delivery</label>
-                  <input type="date" value={form.expected_delivery} onChange={(e) => setForm({ ...form, expected_delivery: e.target.value })} className={inputClass} />
+                  <input type="date" min={form.order_date && form.order_date > deadlineMin(selected?.expected_delivery) ? form.order_date : deadlineMin(selected?.expected_delivery)} value={form.expected_delivery} onChange={(e) => setForm({ ...form, expected_delivery: e.target.value })} className={inputClass} />
                 </div>
               </div>
 

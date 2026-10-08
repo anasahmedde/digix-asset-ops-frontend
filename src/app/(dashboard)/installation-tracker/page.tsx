@@ -35,7 +35,9 @@ import { StatusBadge } from "@/components/ui/badge";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { ProgressStepper } from "@/components/ui/progress-stepper";
 import { Timeline, type TimelineItem } from "@/components/ui/timeline";
-import { formatDate } from "@/lib/utils";
+import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
+import { confirmAction } from "@/components/ui/confirm";
+import { formatDate, deadlineMin, todayIso } from "@/lib/utils";
 
 interface Delay {
   id: string;
@@ -330,9 +332,10 @@ function exportCsv(rows: InstallationListItem[]) {
 }
 
 export default function InstallationTrackerPage() {
-  const { user, canWrite } = useUser();
+  const { user, can } = useUser();
   const [installations, setInstallations] = useState<InstallationListItem[]>([]);
   const [installPage, setInstallPage] = useState(1);
+  const sort = useSortState();
   const [selected, setSelected] = useState<Installation | null>(null);
   // The open job lives in the address bar. It used to live only in React
   // state, so the URL read /installation-tracker whatever was on screen:
@@ -412,7 +415,7 @@ export default function InstallationTrackerPage() {
   const [clientOptions, setClientOptions] = useState<Option[]>([]);
   const [handoverClient, setHandoverClient] = useState("");
 
-  const isManager = canWrite("sites");
+  const isManager = can("assign_installation");
   // Step actions on desktop are super-admin only; the assigned installer
   // works the steps from the mobile app (backend enforces both).
   const [trackFilter, setTrackFilter] = useState("");
@@ -488,7 +491,7 @@ export default function InstallationTrackerPage() {
 
   async function removeJob() {
     if (!selected) return;
-    const ok = confirm(
+    const ok = await confirmAction(
       `Remove ${selected.device_code}'s installation at ${selected.site_name ?? "this site"}? ` +
       "Its steps and photos go with it. Use this for a job opened by mistake."
     );
@@ -603,7 +606,7 @@ export default function InstallationTrackerPage() {
   }
 
   async function removeStep(stepId: string) {
-    if (!selected || !confirm("Remove this step from the checklist?")) return;
+    if (!selected || !(await confirmAction("Remove this step from the checklist?"))) return;
     try {
       await api.delete(`/sites/installation-steps/${stepId}/`);
       await loadDetail(selected.id);
@@ -963,8 +966,7 @@ export default function InstallationTrackerPage() {
       !activeDone &&
       !offPath &&
       user != null &&
-      (["super_admin", "group_head", "ops_manager", "supervisor"].includes(user.role) ||
-        user.id === selected.installed_by);
+      (can("activate_asset") || user.id === selected.installed_by);
     const activeStatus = activeDone ? "completed" : customDone && !offPath ? "in_progress" : "not_started";
     const handoverDone = !!selected.handover;
     const handoverStatus = handoverDone ? "completed" : activeDone ? "in_progress" : "not_started";
@@ -973,8 +975,7 @@ export default function InstallationTrackerPage() {
       stepsReadyForHandover &&
       activeDone &&
       user != null &&
-      (["super_admin", "group_head", "ops_manager", "supervisor"].includes(user.role) ||
-        user.id === selected.installed_by);
+      can("close_installation");
     const fixedSteps = [
       {
         key: "active",
@@ -1804,7 +1805,7 @@ export default function InstallationTrackerPage() {
               </div>
               <div>
                 <label htmlFor="ei-zone" className={createLabelClass}>Zone</label>
-                <select id="ei-zone" name="zone" defaultValue={selected.zone ?? ""} className={createInputClass} disabled={zoneOptions.length === 0}>
+                <select key={zoneOptions.length} id="ei-zone" name="zone" defaultValue={selected.zone ?? ""} className={createInputClass} disabled={zoneOptions.length === 0}>
                   <option value="">{zoneOptions.length === 0 ? "No zones for this site" : "None"}</option>
                   {zoneOptions.map((z) => (
                     <option key={z.id} value={z.id}>{z.label}</option>
@@ -1818,13 +1819,14 @@ export default function InstallationTrackerPage() {
                   name="installed_at"
                   type="datetime-local"
                   required
+                  max={toLocalInputValue(new Date().toISOString())}
                   defaultValue={toLocalInputValue(selected.installed_at)}
                   className={createInputClass}
                 />
               </div>
               <div>
                 <label htmlFor="ei-due" className={createLabelClass}>Due Date</label>
-                <input id="ei-due" name="due_date" type="date" defaultValue={selected.due_date ?? ""} className={createInputClass} />
+                <input id="ei-due" name="due_date" type="date" min={deadlineMin(selected.due_date)} defaultValue={selected.due_date ?? ""} className={createInputClass} />
               </div>
               <div className="sm:col-span-2">
                 <label htmlFor="ei-position" className={createLabelClass}>Position on site</label>
@@ -1953,6 +1955,7 @@ export default function InstallationTrackerPage() {
                   id="ho-date"
                   name="handover_date"
                   type="date"
+                  max={todayIso()}
                   defaultValue={new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10)}
                   className={createInputClass}
                 />
@@ -2159,21 +2162,21 @@ export default function InstallationTrackerPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
-                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Asset ID</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Asset Name</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Client(s)</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Project</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Site</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Installer</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">POC</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Due Date</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Installed On</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Status</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Progress</th>
+                  <SortTh sort={sort} k="device_code" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Asset ID</SortTh>
+                  <SortTh sort={sort} k="asset_name" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Asset Name</SortTh>
+                  <SortTh sort={sort} k="clients" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Client(s)</SortTh>
+                  <SortTh sort={sort} k="project_name" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Project</SortTh>
+                  <SortTh sort={sort} k="site_name" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Site</SortTh>
+                  <SortTh sort={sort} k="installed_by_name" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Installer</SortTh>
+                  <SortTh sort={sort} k="poc_name" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">POC</SortTh>
+                  <SortTh sort={sort} k="due_date" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Due Date</SortTh>
+                  <SortTh sort={sort} k="completed_at" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Installed On</SortTh>
+                  <SortTh sort={sort} k="health_display" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Status</SortTh>
+                  <SortTh sort={sort} k="progress" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Progress</SortTh>
                 </tr>
               </thead>
               <tbody>
-                {pageSlice(filtered, installPage).map((inst) => {
+                {pageSlice(sortRows(filtered, sort, { asset_name: (i) => i.asset_name || i.device_name, clients: (i) => (i.client_names ?? []).join(", ") }), installPage).map((inst) => {
                   const rowOverdue = inst.due_date && !inst.completed_at && new Date(inst.due_date) < new Date();
                   return (
                     <tr
@@ -2349,13 +2352,14 @@ export default function InstallationTrackerPage() {
                     name="installed_at"
                     type="datetime-local"
                     required
+                    max={toLocalInputValue(new Date().toISOString())}
                     defaultValue={new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)}
                     className={createInputClass}
                   />
                 </div>
                 <div>
                   <label htmlFor="ci-due" className={createLabelClass}>Due Date (optional)</label>
-                  <input id="ci-due" name="due_date" type="date" className={createInputClass} />
+                  <input id="ci-due" name="due_date" type="date" min={todayIso()} className={createInputClass} />
                 </div>
                 <div>
                   <label htmlFor="ci-position" className={createLabelClass}>Position on site</label>

@@ -18,9 +18,11 @@ import { StatusBadge } from "@/components/ui/badge";
 import { Tabs } from "@/components/ui/tabs";
 import { Modal } from "@/components/ui/modal";
 import { Qty } from "@/components/ui/qty";
+import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
+import { confirmAction } from "@/components/ui/confirm";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
-import { formatDate, formatDateTime } from "@/lib/utils";
+import { formatDate, formatDateTime, formatTerm, todayIso } from "@/lib/utils";
 import { useUser } from "@/lib/user-context";
 
 interface Device {
@@ -541,11 +543,15 @@ const MAINT_TYPE_BADGE: Record<string, string> = {
 };
 
 export default function AssetsPage() {
-  const { canWrite } = useUser();
-  const canEdit = canWrite("devices");
+  const { can, canAny } = useUser();
+  const canEdit = can("edit_assets");
+  // Moving an asset through its lifecycle is its own right: the store moves
+  // it into stock and handles RMAs without editing the registry.
+  const canMove = canEdit || canAny("move_asset_stage", "assign_installation", "manage_maintenance");
 
   const [devices, setDevices] = useState<Device[]>([]);
   const [assetPage, setAssetPage] = useState(1);
+  const sort = useSortState();
   const [loading, setLoading] = useState(true);
   const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
   const [selected, setSelected] = useState<DeviceDetail | null>(null);
@@ -967,6 +973,16 @@ export default function AssetsPage() {
     });
   }
 
+  // A vendor-installed asset is put in by the vendor it was bought from:
+  // offer them, with their contact, instead of an empty list to search.
+  useEffect(() => {
+    if (detailView?.source !== "vendor_turnkey" || !suppliers.length) return;
+    const bought = detailView.supplier
+      ?? suppliers.find((v) => v.label === detailView.supply_vendor_name)?.id;
+    setAssignVendorId(detailView.assigned_vendor || bought || "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detailView?.id, suppliers]);
+
   function resetTransition() {
     setTransitionTarget(null);
     setTransitionReason("");
@@ -1243,7 +1259,7 @@ export default function AssetsPage() {
   }
 
   async function handleDelete(device: Device) {
-    if (!confirm(`Delete device "${device.asset_code}"? This cannot be undone.`)) return;
+    if (!(await confirmAction(`Delete device "${device.asset_code}"? This cannot be undone.`))) return;
     try {
       await api.delete(`/assets/devices/${device.id}/`);
       toast.success("Device deleted");
@@ -1339,7 +1355,7 @@ export default function AssetsPage() {
     const vendorWarranty = assetWarranties.find(
       (w) => w.warranty_type === "supplier" || w.warranty_type === "manufacturer",
     );
-    const customerWarranty = assetWarranties.find(
+    const clientWarranty = assetWarranties.find(
       (w) => w.warranty_type === "client" || w.warranty_type === "extended",
     );
 
@@ -1488,7 +1504,7 @@ export default function AssetsPage() {
                     <div>
                       <h4 className="text-sm font-semibold text-foreground mb-3">Asset Lifecycle</h4>
                       <LifecycleStepper requiresProduction={d.requires_production} status={d.status} stageDates={d.stage_dates ?? {}} />
-                      {canEdit && (
+                      {canMove && (
                         <div className="mt-4 rounded-lg border border-border bg-secondary/20 p-3">
                           <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                             Next stage
@@ -1636,7 +1652,7 @@ export default function AssetsPage() {
                                           <input
                                             type="date"
                                             value={maintDue}
-                                            min={new Date().toISOString().slice(0, 10)}
+                                            min={todayIso()}
                                             onChange={(e) => setMaintDue(e.target.value)}
                                             className={`${inputClass} h-9 text-xs`}
                                           />
@@ -2052,7 +2068,7 @@ export default function AssetsPage() {
                                 : "The asset becomes Installed when the checklist there is finished, and Active when the technician activates it."}
                           </p>
                         </div>
-                      ) : canEdit && (d.allowed_transitions ?? []).includes("assigned") ? (
+                      ) : canAny("edit_assets", "assign_installation") && (d.allowed_transitions ?? []).includes("assigned") ? (
                         <div className="space-y-2.5 rounded-xl border border-border p-4">
                           <p className="text-xs text-muted-foreground">
                             {d.current_site
@@ -2130,7 +2146,7 @@ export default function AssetsPage() {
                               <input
                                 id="install_due"
                                 type="date"
-                                min={new Date().toISOString().slice(0, 10)}
+                                min={todayIso()}
                                 value={assignDue}
                                 onChange={(e) => setAssignDue(e.target.value)}
                                 className={`${inputClass} h-9 text-xs`}
@@ -2648,17 +2664,17 @@ export default function AssetsPage() {
                 expired={vendorWarranty.is_expired}
               />
             )}
-            {customerWarranty && (
+            {clientWarranty && (
               <WarrantyCard
-                title="Customer Warranty"
-                duration={getWarrantyDuration(customerWarranty.start_date, customerWarranty.end_date)}
-                detail={customerWarranty.coverage_details || "On-site Warranty"}
-                validTill={customerWarranty.end_date}
+                title="Client Warranty"
+                duration={getWarrantyDuration(clientWarranty.start_date, clientWarranty.end_date)}
+                detail={clientWarranty.coverage_details || "On-site Warranty"}
+                validTill={clientWarranty.end_date}
                 color="#06b6d4"
-                expired={customerWarranty.is_expired}
+                expired={clientWarranty.is_expired}
               />
             )}
-            {!vendorWarranty && !customerWarranty && (
+            {!vendorWarranty && !clientWarranty && (
               <div className="rounded-xl border border-border bg-card p-5 text-center">
                 <Shield className="mx-auto h-8 w-8 text-muted-foreground/30 mb-2" />
                 <p className="text-xs text-muted-foreground">No warranties on file</p>
@@ -2815,10 +2831,22 @@ export default function AssetsPage() {
             <StatTiles
               tiles={[
                 { key: "total", label: "Total Assets", value: devices.length, tone: "primary", active: !filterValues.flag && !filterValues.status, onClick: () => setFilterValues((prev) => ({ ...prev, status: "", flag: "" })) },
-                { key: "operational", label: "Operational", value: devices.filter((d) => ["active", "installed"].includes(d.status)).length, tone: "emerald", active: filterValues.flag === "operational", onClick: () => toggleFlag("operational") },
-                { key: "in_stock", label: "In Stock", value: devices.filter((d) => d.status === "in_stock").length, tone: "default", active: filterValues.status === "in_stock", onClick: () => pickStatus("in_stock") },
+                // One tile per lifecycle stage, in the order an asset moves
+                // through them. Installed and Active are one tile: both mean
+                // the asset is up at the client's site.
+                ...([
+                  ["procured", "Procured"],
+                  ["in_production", "In Production"],
+                  ["in_stock", "In Stock"],
+                  ["assigned", "Assigned"],
+                ] as const).map(([st, label]) => ({
+                  key: st, label, tone: "default" as const, value: devices.filter((d) => d.status === st).length,
+                  active: filterValues.status === st, onClick: () => pickStatus(st),
+                })),
+                { key: "operational", label: "Installed & Active", value: devices.filter((d) => ["active", "installed"].includes(d.status)).length, tone: "emerald", active: filterValues.flag === "operational", onClick: () => toggleFlag("operational") },
                 { key: "maint", label: "Under Maintenance", value: devices.filter((d) => d.status === "under_maintenance").length, tone: "amber", active: filterValues.status === "under_maintenance", onClick: () => pickStatus("under_maintenance") },
-                { key: "warranty_expired", label: "Warranty Expired", value: devices.filter((d) => d.warranty_status === "expired").length, tone: "red", active: filterValues.flag === "warranty_expired" || filterValues.warranty === "expired", onClick: () => toggleFlag("warranty_expired") },
+                { key: "client_property", label: "Client Property", value: devices.filter((d) => d.status === "client_property").length, tone: "violet", active: filterValues.status === "client_property", onClick: () => pickStatus("client_property") },
+                { key: "decommissioned", label: "Decommissioned", value: devices.filter((d) => d.status === "decommissioned").length, tone: "red", active: filterValues.status === "decommissioned", onClick: () => pickStatus("decommissioned") },
               ]}
             />
             <SegmentBar
@@ -2893,19 +2921,19 @@ export default function AssetsPage() {
                       />
                     </th>
                   )}
-                  <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Asset Code</th>
-                  <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Name</th>
-                                    <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Type</th>
-                  <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Status</th>
-                  <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Warranty</th>
-                  <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Project</th>
-                  <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Site</th>
-                  <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Client</th>
+                  <SortTh sort={sort} k="asset_code" className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Asset Code</SortTh>
+                  <SortTh sort={sort} k="display_name" className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Name</SortTh>
+                                    <SortTh sort={sort} k="asset_type_name" className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Type</SortTh>
+                  <SortTh sort={sort} k="status" className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Status</SortTh>
+                  <SortTh sort={sort} k="warranty_status" className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Warranty</SortTh>
+                  <SortTh sort={sort} k="project_name" className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Project</SortTh>
+                  <SortTh sort={sort} k="site_name" className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Site</SortTh>
+                  <SortTh sort={sort} k="client" className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Client</SortTh>
                   <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {pageSlice(filtered, assetPage).map((d) => (
+                {pageSlice(sortRows(filtered, sort, { client: (d) => ((d.client_names ?? []).length ? d.client_names.join(", ") : d.client_name) }), assetPage).map((d) => (
                   <tr key={d.id} onClick={() => openDetail(d)} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
                     {canEdit && (
                       <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
@@ -3294,12 +3322,7 @@ function getWarrantyDuration(start: string, end: string): string {
   const months = (endD.getFullYear() - startD.getFullYear()) * 12 + (endD.getMonth() - startD.getMonth());
   // Under a month it is counted in days — "0 months" tells nobody anything.
   if (months < 1) return `${days} Day${days !== 1 ? "s" : ""}`;
-  if (months >= 12) {
-    const years = Math.floor(months / 12);
-    const rem = months % 12;
-    return rem > 0 ? `${years} Year${years > 1 ? "s" : ""} ${rem} Mo` : `${years} Year${years > 1 ? "s" : ""}`;
-  }
-  return `${months} Month${months !== 1 ? "s" : ""}`;
+  return formatTerm(months);
 }
 
 function EmptyState({ icon, text }: { icon: React.ReactNode; text: string }) {

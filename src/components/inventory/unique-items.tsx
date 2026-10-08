@@ -1,15 +1,18 @@
 "use client";
 
-import { ChevronDown, ChevronRight, Fingerprint, Pencil, Trash2, Upload, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Fingerprint, Info, Pencil, Trash2, Upload, X } from "lucide-react";
 import Link from "next/link";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { StockPlace, StockStatus, money, tdClass, tdCode, tdNum, thClass, thNum } from "@/components/inventory/stock-table";
 import { CopyButton } from "@/components/ui/copy-button";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { Pagination, pageSlice } from "@/components/ui/pagination";
 import { Modal } from "@/components/ui/modal";
 import { Qty } from "@/components/ui/qty";
+import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
+import { confirmAction } from "@/components/ui/confirm";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
@@ -38,6 +41,8 @@ export interface UniqueProduct {
   supplier: string | null;
   supplier_name: string | null;
   in_stock_count: number;
+  /** Where its units on the shelf are kept. */
+  storage_locations?: string[];
   notes: string;
   is_active: boolean;
 }
@@ -47,6 +52,8 @@ interface UnitRow {
   unit_code: string;
   serial_number: string;
   status: string;
+  /** The rack, bin or room it was put in when received. */
+  storage_location?: string;
   batch_number: string;
   grn_number: string | null;
   po_number: string | null;
@@ -66,8 +73,6 @@ interface SpecRow { key: string; value: string }
 const inputClass =
   "flex h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors";
 const labelClass = "text-xs font-medium text-muted-foreground";
-const thClass = "px-5 py-3.5 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground";
-const tdClass = "px-5 py-3.5";
 
 const STATUS_LABELS: Record<string, string> = {
   in_stock: "In Stock", reserved: "Reserved", issued: "Issued", returned: "Returned",
@@ -79,10 +84,12 @@ const WARRANTY_BADGES: Record<string, string> = {
   none: "bg-secondary text-muted-foreground ring-border",
 };
 export function UniqueItems({ openTick = 0 }: { openTick?: number }) {
-  const { canWrite } = useUser();
-  const canEdit = canWrite("inventory");
+  const { can } = useUser();
+  const canEdit = can("manage_stock");
 
   const [products, setProducts] = useState<UniqueProduct[]>([]);
+  const unitSort = useSortState();
+  const sort = useSortState();
   const [uniquePage, setUniquePage] = useState(1);
   const [categories, setCategories] = useState<Ref[]>([]);
   const [brands, setBrands] = useState<Ref[]>([]);
@@ -248,7 +255,7 @@ export function UniqueItems({ openTick = 0 }: { openTick?: number }) {
   }
 
   async function handleDelete(product: UniqueProduct) {
-    if (!confirm(`Delete "${product.name}"? This cannot be undone.`)) return;
+    if (!(await confirmAction(`Delete "${product.name}"? This cannot be undone.`))) return;
     try {
       await api.delete(`/inventory/products/${product.id}/`);
       toast.success("Product deleted");
@@ -311,17 +318,20 @@ export function UniqueItems({ openTick = 0 }: { openTick?: number }) {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
-                  <th className={thClass} />
-                  <th className={thClass}>Code</th>
-                  <th className={thClass}>Component</th>
-                  <th className={thClass}>Make / Model</th>
-                  <th className={thClass}>On Hand</th>
-                  <th className={thClass}>Unit Cost</th>
-                  {canEdit && <th className={thClass}>Actions</th>}
+                  <th className="w-10" />
+                  <SortTh sort={sort} k="type_code" className={thClass}>Code</SortTh>
+                  <SortTh sort={sort} k="name" className={thClass}>Component</SortTh>
+                  <SortTh sort={sort} k="category_name" className={thClass}>Category</SortTh>
+                  <SortTh sort={sort} k="place" className={thClass}>Storage Location</SortTh>
+                  <SortTh sort={sort} k="in_stock_count" className={thNum}>On Hand</SortTh>
+                  <SortTh sort={sort} k="min_stock_level" className={thNum}>Reorder Level</SortTh>
+                  <SortTh sort={sort} k="unit_cost" className={thNum}>Unit Cost (PKR)</SortTh>
+                  <SortTh sort={sort} k="stock" className={thClass}>Status</SortTh>
+                  <th className={thClass}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {pageSlice(filtered, uniquePage).map((p) => (
+                {pageSlice(sortRows(filtered, sort, { place: (p) => (p.storage_locations ?? []).join(", "), stock: (p) => (p.in_stock_count <= 0 ? 0 : p.in_stock_count <= p.min_stock_level ? 1 : 2) }), uniquePage).map((p) => (
                   <Fragment key={p.id}>
                     <tr
                       onClick={() => toggleUnits(p.id)}
@@ -330,25 +340,41 @@ export function UniqueItems({ openTick = 0 }: { openTick?: number }) {
                       <td className="pl-4 text-muted-foreground">
                         {expanded === p.id ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                       </td>
-                      <td className={`${tdClass} font-mono text-foreground`}>
+                      <td className={tdCode}>
                         <span className="inline-flex items-center gap-1">
                           {p.type_code}
                           <CopyButton text={p.type_code} label="Component code" />
                         </span>
                       </td>
-                      <td className={`${tdClass} font-medium text-foreground`}>{p.name}</td>
-                      <td className={`${tdClass} text-muted-foreground`}>
-                        {[p.brand_name, p.model_name].filter(Boolean).join(" ") || "—"}
-                      </td>
                       <td className={tdClass}>
-                        <span className={`font-semibold ${p.in_stock_count === 0 ? "text-muted-foreground" : "text-foreground"}`}>
-                          <Qty value={p.in_stock_count} unit={p.unit} />
-                        </span>
+                        <span className="font-medium text-foreground">{p.name}</span>
+                        {(p.brand_name || p.model_name) && (
+                          <span className="block text-2xs text-muted-foreground">
+                            {[p.brand_name, p.model_name].filter(Boolean).join(" ")}
+                          </span>
+                        )}
                       </td>
-                      <td className={`${tdClass} text-muted-foreground`}>{p.unit_cost ?? "—"}</td>
-                      {canEdit && (
-                        <td className={tdClass} onClick={(e) => e.stopPropagation()}>
-                          <div className="flex items-center gap-1">
+                      <td className={`${tdClass} text-muted-foreground`}>{p.category_name || "—"}</td>
+                      <td className={tdClass}>
+                        <StockPlace places={p.storage_locations ?? []} />
+                      </td>
+                      <td className={`${tdNum} font-semibold text-foreground`}>
+                        <Qty value={p.in_stock_count} unit={p.unit} />
+                      </td>
+                      <td className={`${tdNum} text-muted-foreground`}>{p.min_stock_level}</td>
+                      <td className={`${tdNum} text-muted-foreground`}>{money(p.unit_cost)}</td>
+                      <td className={tdClass}><StockStatus onHand={p.in_stock_count} reorderAt={p.min_stock_level} /></td>
+                      <td className={tdClass} onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => toggleUnits(p.id)}
+                            className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                            title="Serial numbers"
+                          >
+                            <Info className="h-3.5 w-3.5" />
+                          </button>
+                          {canEdit && (
+                          <>
                             <button
                               onClick={() => openEdit(p)}
                               className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
@@ -363,13 +389,14 @@ export function UniqueItems({ openTick = 0 }: { openTick?: number }) {
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
-                          </div>
-                        </td>
-                      )}
+                          </>
+                          )}
+                        </div>
+                      </td>
                     </tr>
                     {expanded === p.id && (
                       <tr className="border-b border-border bg-secondary/20">
-                        <td colSpan={canEdit ? 8 : 7} className="px-8 py-4">
+                        <td colSpan={10} className="px-8 py-4">
                           {Object.keys(p.specifications ?? {}).length > 0 && (
                             <div className="mb-3 flex flex-wrap gap-2">
                               {Object.entries(p.specifications).map(([k, v]) => (
@@ -388,16 +415,16 @@ export function UniqueItems({ openTick = 0 }: { openTick?: number }) {
                             <table className="w-full text-xs">
                               <thead>
                                 <tr className="text-left text-muted-foreground">
-                                  <th className="py-1.5 font-medium">Serial No</th>
-                                  <th className="py-1.5 font-medium">Status</th>
-                                  <th className="py-1.5 font-medium">Batch</th>
-                                  <th className="py-1.5 font-medium">Source</th>
-                                  <th className="py-1.5 font-medium">Warranty</th>
-                                  <th className="py-1.5 font-medium">Storage location</th>
+                                  <SortTh sort={unitSort} k="serial_number" className="py-1.5 font-medium">Serial No</SortTh>
+                                  <SortTh sort={unitSort} k="status" className="py-1.5 font-medium">Status</SortTh>
+                                  <SortTh sort={unitSort} k="batch_number" className="py-1.5 font-medium">Batch</SortTh>
+                                  <SortTh sort={unitSort} k="source" className="py-1.5 font-medium">Source</SortTh>
+                                  <SortTh sort={unitSort} k="warranty_end" className="py-1.5 font-medium">Warranty</SortTh>
+                                  <SortTh sort={unitSort} k="storage_location" className="py-1.5 font-medium">Storage location</SortTh>
                                 </tr>
                               </thead>
                               <tbody>
-                                {(units[p.id] ?? []).map((u) => (
+                                {sortRows((units[p.id] ?? []), unitSort, { source: (u) => u.grn_number || u.notes }).map((u) => (
                                   <tr key={u.id} className="border-t border-border/60">
                                     <td className="py-1.5">
                                       {editingSerial === u.id ? (
@@ -453,7 +480,7 @@ export function UniqueItems({ openTick = 0 }: { openTick?: number }) {
                                             {u.fitted_to_asset.component}
                                           </span>
                                         </Link>
-                                      ) : u.status === "in_stock" ? "On the shelf" : "—"}
+                                      ) : u.storage_location || (u.status === "in_stock" ? "Not recorded" : "—")}
                                     </td>
                                   </tr>
                                 ))}
@@ -507,7 +534,7 @@ export function UniqueItems({ openTick = 0 }: { openTick?: number }) {
             </div>
             <div className="space-y-1.5">
               <label htmlFor="unit" className={labelClass}>Unit of Measure</label>
-              <select id="unit" name="unit" defaultValue={selected?.unit ?? "piece"} className={inputClass}>
+              <select key={uoms.length} id="unit" name="unit" defaultValue={selected?.unit ?? "piece"} className={inputClass}>
                 {/* The units opened under Setup; a legacy unit on an existing product stays selectable. */}
                 {uoms.map((u) => <option key={u.id} value={u.name}>{u.name}{u.symbol ? ` (${u.symbol})` : ""}</option>)}
                 {selected?.unit && !uoms.some((u) => u.name === selected.unit) && <option value={selected.unit}>{selected.unit}</option>}
@@ -519,7 +546,7 @@ export function UniqueItems({ openTick = 0 }: { openTick?: number }) {
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="space-y-1.5">
               <label htmlFor="brand" className={labelClass}>Make</label>
-              <select id="brand" name="brand" defaultValue={selected?.brand ?? ""} className={inputClass}>
+              <select key={brands.length} id="brand" name="brand" defaultValue={selected?.brand ?? ""} className={inputClass}>
                 <option value="">—</option>
                 {brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
               </select>
@@ -532,7 +559,7 @@ export function UniqueItems({ openTick = 0 }: { openTick?: number }) {
               <label htmlFor="category" className={labelClass}>Category *</label>
               {/* What the store searches and reports by. A shelf of
                   uncategorised units is a shelf nobody can find on. */}
-              <select id="category" name="category" required defaultValue={selected?.category ?? ""} className={inputClass}>
+              <select key={categories.length} id="category" name="category" required defaultValue={selected?.category ?? ""} className={inputClass}>
                 <option value="">Select a category…</option>
                 {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>

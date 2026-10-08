@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
+import { confirmAction } from "@/components/ui/confirm";
 
 /** A moment, read as the day with the hour under it. */
 function Stamp({ at }: { at?: string | null }) {
@@ -175,7 +176,7 @@ export function ProductionRoute({
   }
 
   async function remove(step: ProductionStep) {
-    if (!confirm(`Remove step "${step.name}" from the route?`)) return;
+    if (!(await confirmAction(`Remove step "${step.name}" from the route?`))) return;
     try {
       await api.delete(`/assets/production-steps/${step.id}/`);
       toast.success("Step removed");

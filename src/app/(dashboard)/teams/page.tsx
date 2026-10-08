@@ -10,6 +10,8 @@ import { RolesMatrix } from "@/components/teams/roles-matrix";
 import { Modal } from "@/components/ui/modal";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { Tabs } from "@/components/ui/tabs";
+import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
+import { confirmAction } from "@/components/ui/confirm";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
@@ -22,6 +24,7 @@ interface User {
   last_name: string;
   full_name: string;
   role: string;
+  role_label?: string;
   job_title?: string;
   phone: string;
   is_field_staff: boolean;
@@ -43,18 +46,9 @@ function hasLeft(user: User): boolean {
   return !!user.leaving_date && new Date(user.leaving_date).getTime() < Date.now();
 }
 
-const ROLES = [
-  { value: "super_admin", label: "Super Admin" },
-  { value: "group_head", label: "Group Head" },
-  { value: "ops_manager", label: "Operations Head" },
-  { value: "marketing_head", label: "Marketing Head" },
-  { value: "supervisor", label: "Supervisor" },
-  { value: "technician", label: "Technician" },
-  { value: "marketing", label: "Marketing" },
-  { value: "finance", label: "Finance" },
-  { value: "warehouse", label: "Warehouse Staff" },
-  { value: "client_viewer", label: "Client Viewer" },
-];
+/** The roles as Roles & Rights defines them — fetched, so a role written
+ *  there is offered here the moment it exists. */
+interface RoleOption { key: string; label: string; is_active: boolean }
 
 const inputClass =
   "flex h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors";
@@ -67,9 +61,15 @@ const btnPrimary =
   "inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-medium text-foreground transition-all disabled:opacity-50";
 
 export default function TeamsPage() {
-  const { user: me, canWrite } = useUser();
-  const isAdmin = canWrite("users");
+  const { user: me, can } = useUser();
+  // Editing people (role, title, reporting line) and administering logins
+  // (add, remove, reset a password) are two rights; the matrix keeps the
+  // second with the Super Admin.
+  const isAdmin = can("manage_team");
+  const managesLogins = can("manage_logins");
   const [users, setUsers] = useState<User[]>([]);
+  const [roles, setRoles] = useState<RoleOption[]>([]);
+  const sort = useSortState();
   const [loading, setLoading] = useState(true);
   const [modalMode, setModalMode] = useState<"create" | "edit" | "password" | null>(null);
   const [selected, setSelected] = useState<User | null>(null);
@@ -94,7 +94,12 @@ export default function TeamsPage() {
 
   useEffect(() => {
     fetchUsers();
+    api.get("/accounts/roles/", { params: { page_size: 100 } })
+      .then((r) => setRoles(r.data.results ?? r.data))
+      .catch(() => {});
   }, [fetchUsers]);
+  const ROLES = roles.filter((r) => r.is_active).map((r) => ({ value: r.key, label: r.label }));
+  const roleLabel = (key: string) => roles.find((r) => r.key === key)?.label ?? key.replace(/_/g, " ");
 
   function openCreate() {
     setSelected(null);
@@ -218,7 +223,7 @@ export default function TeamsPage() {
   // to the person — the chart is where those reports are moved first.
   async function removeUser(user: User) {
     const who = user.full_name || user.username;
-    const ok = confirm(
+    const ok = await confirmAction(
       `Delete ${who}'s account? Their attendance, chat and project memberships go with it. ` +
       "Tickets and installations they worked on stay, without their name. " +
       "If they have only left, Deactivate keeps everything."
@@ -273,7 +278,7 @@ export default function TeamsPage() {
             <p className="text-muted-foreground">Manage users and their roles</p>
           </div>
         </div>
-        {isAdmin && (
+        {managesLogins && (
           <button onClick={openCreate} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-all">
             <Plus className="h-4 w-4" />
             Add User
@@ -293,7 +298,7 @@ export default function TeamsPage() {
 
       {tab === "roles" ? (
         <div className="rounded-xl border border-border bg-card p-5">
-          <RolesMatrix />
+          <RolesMatrix readOnly={!can("manage_permissions")} />
         </div>
       ) : tab === "chart" ? (
         <div className="rounded-xl border border-border bg-card p-5">
@@ -301,7 +306,7 @@ export default function TeamsPage() {
             Who reports to whom. A person&apos;s title is their place in the
             organisation; the badge is what the system lets them do.
           </p>
-          <Organogram people={users} canEdit={isAdmin} onMove={moveReport} />
+          <Organogram people={users} canEdit={isAdmin} onMove={moveReport} roleLabel={roleLabel} />
         </div>
       ) : (
       <>
@@ -334,13 +339,13 @@ export default function TeamsPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-secondary/50">
-                <th className={thClass}>Name</th>
-                <th className={thClass}>Employee ID</th>
-                <th className={thClass}>Username</th>
-                <th className={thClass}>Email</th>
-                <th className={thClass}>Role</th>
-                <th className={thClass}>Field Staff</th>
-                <th className={thClass}>Status</th>
+                <SortTh sort={sort} k="full_name" className={thClass}>Name</SortTh>
+                <SortTh sort={sort} k="employee_id" className={thClass}>Employee ID</SortTh>
+                <SortTh sort={sort} k="username" className={thClass}>Username</SortTh>
+                <SortTh sort={sort} k="email" className={thClass}>Email</SortTh>
+                <SortTh sort={sort} k="role" className={thClass}>Role</SortTh>
+                <SortTh sort={sort} k="is_field_staff" className={thClass}>Field Staff</SortTh>
+                <SortTh sort={sort} k="is_active" className={thClass}>Status</SortTh>
                 <th className={thClass}>Actions</th>
               </tr>
             </thead>
@@ -359,15 +364,15 @@ export default function TeamsPage() {
                   <td colSpan={8} className="px-5 py-10 text-center text-muted-foreground">{users.length > 0 ? "No users match your filters" : "No users found"}</td>
                 </tr>
               ) : (
-                filtered.map((user) => (
+                sortRows(filtered, sort).map((user) => (
                   <tr key={user.id} onClick={() => openEdit(user)} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
                     <td className={`${tdClass} font-medium text-foreground`}>{user.full_name || "-"}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{user.employee_id || "—"}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{user.username}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{user.email}</td>
                     <td className={tdClass}>
-                      <span className="inline-flex rounded-full bg-teal-500/10 px-2.5 py-0.5 text-xs font-medium capitalize text-primary ring-1 ring-teal-500/20">
-                        {user.role.replace("_", " ")}
+                      <span className="inline-flex rounded-full bg-teal-500/10 px-2.5 py-0.5 text-xs font-medium text-primary ring-1 ring-teal-500/20">
+                        {user.role_label ?? roleLabel(user.role)}
                       </span>
                     </td>
                     <td className={`${tdClass} text-muted-foreground`}>{user.is_field_staff ? "Yes" : "No"}</td>
@@ -397,13 +402,15 @@ export default function TeamsPage() {
                           <button onClick={() => openEdit(user)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground" title="Edit user">
                             <Pencil className="h-3.5 w-3.5" />
                           </button>
-                          <button onClick={() => openResetPassword(user)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-amber-400" title="Reset password">
-                            <RotateCcw className="h-3.5 w-3.5" />
-                          </button>
+                          {managesLogins && (
+                            <button onClick={() => openResetPassword(user)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-amber-400" title="Reset password">
+                              <RotateCcw className="h-3.5 w-3.5" />
+                            </button>
+                          )}
                           <button onClick={() => toggleActive(user)} className={`text-xs font-medium transition-colors ${user.is_active ? "text-red-400/70 hover:text-red-400" : "text-emerald-400/70 hover:text-emerald-400"}`}>
                             {user.is_active ? "Deactivate" : "Activate"}
                           </button>
-                          {user.id !== me?.id && (
+                          {managesLogins && user.id !== me?.id && (
                             <button onClick={() => removeUser(user)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-destructive" title="Delete account">
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
@@ -497,6 +504,9 @@ export default function TeamsPage() {
                       {ROLES.map((r) => (
                         <option key={r.value} value={r.value}>{r.label}</option>
                       ))}
+                      {selected && !ROLES.some((r) => r.value === selected.role) && (
+                        <option value={selected.role}>{roleLabel(selected.role)} (retired)</option>
+                      )}
                     </select>
                   </div>
                   <div className="space-y-1.5">
@@ -548,7 +558,7 @@ export default function TeamsPage() {
                   </div>
                   <div className="space-y-1.5">
                     <label htmlFor="leaving_date" className={labelClass}>Leaving Date</label>
-                    <input id="leaving_date" name="leaving_date" type="date" defaultValue={selected?.leaving_date ?? ""} className={inputClass} />
+                    <input id="leaving_date" name="leaving_date" type="date" min={selected?.join_date ?? undefined} defaultValue={selected?.leaving_date ?? ""} className={inputClass} />
                   </div>
                 </div>
 
@@ -571,7 +581,7 @@ export default function TeamsPage() {
         <PermissionsDialog
           userId={permissionsFor.id}
           userName={permissionsFor.full_name || permissionsFor.username}
-          roleLabel={ROLES.find((r) => r.value === permissionsFor.role)?.label ?? permissionsFor.role}
+          roleLabel={permissionsFor.role_label ?? roleLabel(permissionsFor.role)}
           onClose={() => setPermissionsFor(null)}
           onSaved={fetchUsers}
         />

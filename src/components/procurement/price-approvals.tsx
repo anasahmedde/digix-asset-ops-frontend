@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Modal } from "@/components/ui/modal";
+import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 
@@ -64,6 +65,7 @@ export function PriceApprovals({
   onChanged?: () => void;
 }) {
   const [rows, setRows] = useState<Variance[]>([]);
+  const sort = useSortState();
   const [loading, setLoading] = useState(true);
   const [deciding, setDeciding] = useState<{ row: Variance; approve: boolean } | null>(null);
   const [notes, setNotes] = useState("");
@@ -138,16 +140,16 @@ export function PriceApprovals({
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-secondary/50 text-left text-xs uppercase tracking-wider text-muted-foreground">
-                  <th className="px-4 py-3 font-medium">Line</th>
-                  <th className="px-4 py-3 font-medium">Order</th>
-                  <th className="px-4 py-3 text-right font-medium">Planned</th>
-                  <th className="px-4 py-3 text-right font-medium">Quoted</th>
-                  <th className="px-4 py-3 font-medium">Why</th>
+                  <SortTh sort={sort} k="description" className="px-4 py-3 font-medium">Line</SortTh>
+                  <SortTh sort={sort} k="order_number" className="px-4 py-3 font-medium">Order</SortTh>
+                  <SortTh sort={sort} k="reference_unit_price" className="px-4 py-3 text-right font-medium">Planned</SortTh>
+                  <SortTh sort={sort} k="unit_price" className="px-4 py-3 text-right font-medium">Quoted</SortTh>
+                  <SortTh sort={sort} k="variance_reason" className="px-4 py-3 font-medium">Why</SortTh>
                   <th className="px-4 py-3" />
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => (
+                {sortRows(rows, sort).map((r) => (
                   <tr key={r.id} className="border-b border-border transition-colors hover:bg-secondary/30">
                     <td className="px-4 py-3">
                       <span className="font-medium text-foreground">{r.description}</span>

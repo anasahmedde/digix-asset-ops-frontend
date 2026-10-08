@@ -2,19 +2,25 @@
 
 import {ChevronDown, ChevronRight, Download, PackageCheck, Pencil, Plus, ShoppingCart, Trash2, Upload} from "lucide-react";
 import { Fragment, useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import { Requisitions } from "@/components/procurement/requisitions";
 import { Modal } from "@/components/ui/modal";
 import { FilterBar } from "@/components/ui/filter-bar";
 import {
-  PoLineItems, emptyPoLine, isPoLineEmpty, poLinePayload, poLineTotal, poLinesProblem, usePoOptions,
+  emptyPoLine, isPoLineEmpty, poLinePayload, poLinesProblem, usePoOptions,
   type PoLine, type PoLineKind,
 } from "@/components/procurement/po-line-items";
+import {
+  PurchaseOrderForm, emptyPoForm, paymentChoiceOf, paymentTermsPayload, useStandardPoTerms,
+  type PoFormValues,
+} from "@/components/procurement/purchase-order-form";
 import { Qty } from "@/components/ui/qty";
+import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
+import { confirmAction } from "@/components/ui/confirm";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
-import { CURRENCIES } from "@/lib/currency";
 import { useUser } from "@/lib/user-context";
 import type { Supplier } from "@/types";
 
@@ -72,6 +78,12 @@ interface PurchaseOrder {
   status: POStatus;
   currency: string;
   order_date: string | null;
+  /** How the supplier is paid, from the Setup catalogue. */
+  payment_terms?: string | null;
+  payment_terms_name?: string | null;
+  payment_terms_note?: string;
+  /** The catalogue term, or the terms typed for this deal. */
+  payment_terms_display?: string | null;
   expected_delivery: string | null;
   total_amount: string;
   /** True when the API withheld prices for this user's role. */
@@ -147,32 +159,7 @@ interface GoodsReceipt {
 
 type ItemRow = PoLine;
 
-interface FormState {
-  supplier: string;
-  /** The supplier's particulars for this order, where they differ from the record. */
-  supplier_details: string;
-  currency: string;
-  order_date: string;
-  expected_delivery: string;
-  notes: string;
-  terms: string;
-  items: ItemRow[];
-}
-
 const emptyItem: ItemRow = emptyPoLine;
-
-const emptyForm: FormState = {
-  supplier: "",
-  supplier_details: "",
-  currency: "PKR",
-  order_date: "",
-  expected_delivery: "",
-  notes: "",
-  // Blank on a new order: the server seeds the house standard, which the
-  // edit form then shows for changing.
-  terms: "",
-  items: [{ ...emptyItem }],
-};
 
 const inputClass =
   "flex h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors";
@@ -259,16 +246,19 @@ function parseReceiveErrors(err: unknown): { general: string[]; perLine: Record<
 }
 
 export default function ProcurementPage() {
-  const { canWrite, user } = useUser();
-  const canEdit = canWrite("procurement");
+  const { can } = useUser();
+  // The same three signatures the server checks: raising, approving, cancelling.
+  const canEdit = can("raise_po");
+  const canApprove = can("approve_po");
+  const canCancel = can("cancel_po");
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
+  const sort = useSortState();
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [deviceModels, setDeviceModels] = useState<Option[]>([]);
   const [materialTypes, setMaterialTypes] = useState<Option[]>([]);
   // The three things an order buys: counted stock, serialised units, and
   // assets registered under Assets that are still to be bought.
   const poOptions = usePoOptions();
-  const [showSupplierDetails, setShowSupplierDetails] = useState(false);
   // A draft leaving for approval has to say when the goods are needed by.
   // Asked for right there in the bar, not thrown back as an error.
   const [deliveryAsk, setDeliveryAsk] = useState<{ poId: string; status: POStatus } | null>(null);
@@ -276,7 +266,9 @@ export default function ProcurementPage() {
   const [loading, setLoading] = useState(true);
   const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
   const [selected, setSelected] = useState<PurchaseOrder | null>(null);
-  const [form, setForm] = useState<FormState>(emptyForm);
+  const [form, setForm] = useState<PoFormValues>(emptyPoForm);
+  const standardTerms = useStandardPoTerms();
+  const today = new Date().toLocaleDateString("en-CA");
   const [saving, setSaving] = useState(false);
   const [downloadingPo, setDownloadingPo] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -327,6 +319,13 @@ export default function ProcurementPage() {
   const [receiptsVersion, setReceiptsVersion] = useState(0);
 
   const [tab, setTab] = useState<"orders" | "requisitions">("orders");
+  // A notification lands on the order it is about.
+  const params = useSearchParams();
+  useEffect(() => {
+    const po = params.get("po");
+    if (params.get("tab") === "requisitions") setTab("requisitions");
+    if (po) { setTab("orders"); setExpandedId(po); }
+  }, [params]);
 
   const fetchOrders = useCallback(async () => {
     try {
@@ -389,7 +388,7 @@ export default function ProcurementPage() {
 
   function openCreate() {
     setSelected(null);
-    setForm({ ...emptyForm, items: [{ ...emptyItem }] });
+    setForm({ ...emptyPoForm(standardTerms), items: [{ ...emptyItem }] });
     setModalMode("create");
   }
 
@@ -421,6 +420,8 @@ export default function ProcurementPage() {
         supplier: data.supplier,
         supplier_details: data.supplier_details ?? "",
         currency: data.currency || "PKR",
+        payment_choice: paymentChoiceOf(data),
+        payment_note: data.payment_terms_note ?? "",
         order_date: data.order_date ?? "",
         expected_delivery: data.expected_delivery ?? "",
         notes: data.notes ?? "",
@@ -449,7 +450,6 @@ export default function ProcurementPage() {
             }))
           : [{ ...emptyItem }],
       });
-      setShowSupplierDetails(Boolean(data.supplier_details));
       setModalMode("edit");
     } catch (err: unknown) {
       toast.error(getApiError(err, "Failed to load purchase order"));
@@ -461,12 +461,9 @@ export default function ProcurementPage() {
     setSelected(null);
   }
 
-  /** Name the thing a line buys; the description follows unless typed already. */
-
-  const formTotal = form.items.reduce((sum, it) => sum + poLineTotal(it), 0);
 
   function itemTypeLabel(item: POItem): string {
-    if (item.is_charge) return "Charge";
+    if (item.is_charge) return "Free text";
     if ((item.procured_asset_codes ?? []).length > 0) return "Asset";
     if (item.inventory_unit_type) return "Unique component";
     if (item.inventory_item) return "Generic component";
@@ -476,8 +473,7 @@ export default function ProcurementPage() {
   }
 
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  async function handleSubmit() {
     if (!form.supplier) {
       toast.error("Choose the supplier to buy from");
       return;
@@ -501,6 +497,7 @@ export default function ProcurementPage() {
       supplier: form.supplier,
       supplier_details: form.supplier_details.trim(),
       currency: form.currency,
+      ...paymentTermsPayload(form),
       expected_delivery: form.expected_delivery || null,
       notes: form.notes,
       terms: form.terms,
@@ -524,7 +521,7 @@ export default function ProcurementPage() {
   }
 
   async function handleTransition(po: PurchaseOrder, status: POStatus, expectedDelivery?: string) {
-    if (status === "cancelled" && !confirm(`Cancel PO ${po.po_number}? This cannot be undone.`)) return;
+    if (status === "cancelled" && !(await confirmAction(`Cancel PO ${po.po_number}? This cannot be undone.`))) return;
     // Leaving Draft without a delivery date: ask for it, then go.
     const leavingDraft = po.status === "draft" && status !== "draft" && status !== "cancelled";
     if (leavingDraft && !po.expected_delivery && !expectedDelivery) {
@@ -685,7 +682,7 @@ export default function ProcurementPage() {
   }
 
   async function handleDelete(po: PurchaseOrder) {
-    if (!confirm(`Delete PO "${po.po_number}"? This cannot be undone.`)) return;
+    if (!(await confirmAction(`Delete PO "${po.po_number}"? This cannot be undone.`))) return;
     try {
       await api.delete(`/procurement/purchase-orders/${po.id}/`);
       toast.success("Purchase order deleted");
@@ -696,22 +693,20 @@ export default function ProcurementPage() {
   }
 
   function renderTransitionBar(po: PurchaseOrder) {
-    // Approval is the Group Head's (or the Super Admin's) — the API refuses
-    // anyone else, so the button is not offered to them.
-    const canApprove =
-      user?.capabilities?.includes("approve_spend") ??
-      (user?.role === "group_head" || user?.role === "super_admin");
+    // Each move is offered to whoever holds its signature; the API refuses
+    // anyone else, so nobody is shown a button that only yields an error.
     const actions = (TRANSITIONS[po.status] ?? []).filter((a) =>
-      a.status === "approved" ? canApprove : canEdit
+      a.status === "approved" ? canApprove
+      : a.status === "cancelled" ? canCancel
+      : a.status === "draft" && po.status === "pending_approval" ? canApprove || canEdit
+      : canEdit
     );
-    const receivable = RECEIVABLE_STATUSES.includes(po.status);
-    // An approver who edits nothing else still gets their bar — this guard
-    // ran first and took the Group Head's Approve button away with it.
-    if (!canEdit && !canApprove) return null;
+    const receivable = RECEIVABLE_STATUSES.includes(po.status) && (canEdit || can("receive_goods"));
+    if (actions.length === 0 && !receivable) return null;
     if (actions.length === 0 && !receivable) return null;
     return (
       <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-secondary/30 p-3">
-        {receivable && canEdit && (
+        {receivable && (
           <button
             type="button"
             onClick={() => openReceive(po.id)}
@@ -770,6 +765,7 @@ export default function ProcurementPage() {
               id={`delivery-${po.id}`}
               type="date"
               autoFocus
+              min={today}
               value={deliveryDate}
               onChange={(e) => setDeliveryDate(e.target.value)}
               className="h-8 rounded-lg border border-border bg-card px-2 text-xs text-foreground focus:border-primary/50 focus:outline-none"
@@ -869,20 +865,20 @@ export default function ProcurementPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
-                  <th className={thClass}>PO Number</th>
-                  <th className={thClass}>For</th>
-                  <th className={thClass}>Supplier</th>
-                  <th className={thClass}>Status</th>
-                  <th className={thClass}>Items</th>
-                  <th className={thClass}>Order Date</th>
-                  <th className={thClass}>Required Delivery</th>
-                  <th className={thClass}>Total Amount</th>
-                  <th className={thClass}>Ordered By</th>
+                  <SortTh sort={sort} k="po_number" className={thClass}>PO Number</SortTh>
+                  <SortTh sort={sort} k="for" className={thClass}>For</SortTh>
+                  <SortTh sort={sort} k="supplier_name" className={thClass}>Supplier</SortTh>
+                  <SortTh sort={sort} k="status" className={thClass}>Status</SortTh>
+                  <SortTh sort={sort} k="items" className={thClass}>Items</SortTh>
+                  <SortTh sort={sort} k="order_date" className={thClass}>Order Date</SortTh>
+                  <SortTh sort={sort} k="expected_delivery" className={thClass}>Required Delivery</SortTh>
+                  <SortTh sort={sort} k="total_amount" className={thClass}>Total Amount</SortTh>
+                  <SortTh sort={sort} k="ordered_by_name" className={thClass}>Ordered By</SortTh>
                   <th className={thClass}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((po) => (
+                {sortRows(filtered, sort, { for: (po) => po.raised_for?.label, items: (po) => po.items.length }).map((po) => (
                   <Fragment key={po.id}>
                   <tr onClick={() => setExpandedId((cur) => (cur === po.id ? null : po.id))} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
                     <td className={`${tdClass} font-medium text-foreground`}>
@@ -995,7 +991,20 @@ export default function ProcurementPage() {
                           ) : (
                             <p className="text-sm text-muted-foreground">No line items on this purchase order.</p>
                           )}
-                          {po.notes && <p className="text-sm text-muted-foreground"><span className="font-medium text-foreground">Notes:</span> {po.notes}</p>}
+                          {/* When the supplier gets paid is part of the
+                              order; it prints on the copy they receive. */}
+                          <p className="text-sm text-muted-foreground">
+                            <span className="font-medium text-foreground">Payment terms:</span>{" "}
+                            {po.payment_terms_display ?? "Not set"}
+                          </p>
+                          {/* Each receipt stamps a line of its own into the
+                              notes; a box that collapses newlines ran them
+                              all together into one sentence. */}
+                          {po.notes && (
+                            <p className="whitespace-pre-line text-sm text-muted-foreground">
+                              <span className="font-medium text-foreground">Notes:</span> {po.notes}
+                            </p>
+                          )}
                           <div>
                             <button
                               onClick={() => downloadPurchaseOrder(po)}
@@ -1058,97 +1067,29 @@ export default function ProcurementPage() {
         >
             {modalMode === "edit" && selected && <div className="mb-4">{renderTransitionBar(selected)}</div>}
 
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <label className={labelClass}>PO Number</label>
-                  <div className={`${inputClass} items-center bg-secondary/30 text-muted-foreground`}>
-                    {modalMode === "create" ? "Auto-generated on save" : selected?.po_number}
-                  </div>
-                </div>
-                <div className="space-y-1.5">
-                  <label htmlFor="supplier" className={labelClass}>Supplier *</label>
-                  <select id="supplier" required value={form.supplier} onChange={(e) => setForm({ ...form, supplier: e.target.value })} className={inputClass}>
-                    <option value="">Select supplier…</option>
-                    {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                  </select>
-                  {/* A contact, a quote reference, a delivery address for
-                      this order — printed under the supplier on the PO. */}
-                  {showSupplierDetails ? (
-                    <textarea
-                      id="supplier_details"
-                      rows={2}
-                      value={form.supplier_details}
-                      onChange={(e) => setForm({ ...form, supplier_details: e.target.value })}
-                      placeholder="Contact, quote reference, delivery address for this order"
-                      className={`${inputClass} h-auto py-2`}
-                    />
-                  ) : (
-                    <button type="button" onClick={() => setShowSupplierDetails(true)} className="text-xs font-medium text-primary">
-                      + Supplier details for this order
-                    </button>
-                  )}
-                </div>
-                <div className="space-y-1.5">
-                  <label htmlFor="currency" className={labelClass}>Currency</label>
-                  <select id="currency" value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })} className={inputClass}>
-                    {CURRENCIES.map((c) => <option key={c.code} value={c.code}>{c.code} — {c.name}</option>)}
-                  </select>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <label htmlFor="order_date" className={labelClass}>Order Date</label>
-                    <input id="order_date" type="text" value={form.order_date || "Set when the Group Head approves the order"} disabled className={`${inputClass} bg-secondary/40 text-muted-foreground`} />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label htmlFor="expected_delivery" className={labelClass}>Required Delivery *</label>
-                    <input id="expected_delivery" type="date" required value={form.expected_delivery} onChange={(e) => setForm({ ...form, expected_delivery: e.target.value })} className={inputClass} />
-                  </div>
-                </div>
-              </div>
-
-              {/* Line items — the same editor the Procurement Requests
-                  dialog uses, so an order reads the same however it began. */}
-              <PoLineItems
-                lines={form.items}
-                onChange={(items) => setForm((f) => ({ ...f, items }))}
-                currency={form.currency}
-                options={poOptions}
-                total={formTotal}
-                legacyLabel={(line) =>
-                  line.device_model
-                    ? deviceModels.find((m) => m.id === line.device_model)?.label
-                    : materialTypes.find((m) => m.id === line.material_type)?.label
-                }
-              />
-
-              <div className="space-y-1.5">
-                <label htmlFor="notes" className={labelClass}>Notes</label>
-                <textarea id="notes" rows={3} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className={`${inputClass} h-auto py-2`} />
-              </div>
-
-              <div className="space-y-1.5">
-                <label htmlFor="terms" className={labelClass}>Terms &amp; Conditions</label>
-                <textarea
-                  id="terms"
-                  rows={7}
-                  value={form.terms}
-                  onChange={(e) => setForm({ ...form, terms: e.target.value })}
-                  placeholder="The standard terms are used unless you change them here."
-                  className={`${inputClass} h-auto py-2 font-mono text-xs leading-relaxed`}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Printed on the order the supplier receives. Edit for a deal agreed on different terms.
-                </p>
-              </div>
-
-              <div className="flex justify-end gap-3 pt-2">
-                <button type="button" onClick={closeModal} className="inline-flex h-10 items-center rounded-lg border border-border bg-transparent px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">Cancel</button>
-                <button type="submit" disabled={saving} className="inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-medium text-white transition-all disabled:opacity-50">
-                  {saving ? "Saving..." : modalMode === "create" ? "Create Order" : "Save Changes"}
-                </button>
-              </div>
-            </form>
+            <PurchaseOrderForm
+              value={form}
+              onChange={setForm}
+              suppliers={suppliers}
+              options={poOptions}
+              poNumber={modalMode === "edit" ? selected?.po_number : undefined}
+              // An older order may already carry a date that has passed;
+              // it can be kept, but not moved further back.
+              minDelivery={
+                modalMode === "edit" && selected?.expected_delivery && selected.expected_delivery < today
+                  ? selected.expected_delivery
+                  : today
+              }
+              legacyLabel={(line) =>
+                line.device_model
+                  ? deviceModels.find((m) => m.id === line.device_model)?.label
+                  : materialTypes.find((m) => m.id === line.material_type)?.label
+              }
+              saving={saving}
+              submitLabel={modalMode === "create" ? "Create Order" : "Save Changes"}
+              onSubmit={handleSubmit}
+              onCancel={closeModal}
+            />
           
       </Modal>
       )}
@@ -1372,7 +1313,7 @@ export default function ProcurementPage() {
                               placeholder={"SN-0001\nSN-0002"}
                               className={`${inputClass} h-auto py-2 font-mono text-xs`}
                             />
-                              <label htmlFor={`wty-${r.po_item}`} className={`${labelClass} mt-2 block`}>Vendor warranty (months, from today)</label>
+                              <label htmlFor={`wty-${r.po_item}`} className={`${labelClass} mt-2 block`}>Component warranty (months, from today)</label>
                               <input
                                 id={`wty-${r.po_item}`}
                                 type="number"

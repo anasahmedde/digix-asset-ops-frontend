@@ -12,7 +12,7 @@ import { getApiError } from "@/lib/api-error";
 import { Lightbox } from "@/components/ui/lightbox";
 import { useUser } from "@/lib/user-context";
 import { Modal } from "@/components/ui/modal";
-import { formatDate, formatDateTime } from "@/lib/utils";
+import { formatDate, formatDateTime, todayIso } from "@/lib/utils";
 
 /** A photograph taken on a visit, and what it is a photograph of. */
 export interface VisitPhoto {
@@ -413,7 +413,7 @@ export function CorrectiveVisit({
   /** What this visit has asked the store for. */
   children?: React.ReactNode;
 }) {
-  const { user } = useUser();
+  const { user, can } = useUser();
   const [busy, setBusy] = useState<string | null>(null);
   const [showing, setShowing] = useState<string | null>(null);
   const [assigning, setAssigning] = useState(false);
@@ -609,9 +609,9 @@ export function CorrectiveVisit({
   }
 
   const who = current.assigned_to_name ?? "the technician";
-  /* Whether this visit is this reader's to work on. A super admin holds
-     every role's rights, so it is never told to wait for somebody else. */
-  const mine = current.assigned_to === user?.id || user?.role === "super_admin";
+  /* Whether this visit is this reader's to work on. Somebody who acts for
+     every team is never told to wait for somebody else. */
+  const mine = current.assigned_to === user?.id || can("act_across_teams");
   const waitingOn =
     current.status === "planned" && !current.assigned_to
       ? "Waiting for a technician to be assigned."
@@ -1090,7 +1090,7 @@ export function CorrectiveVisit({
                 </div>
                 <div className="space-y-1">
                   <label htmlFor="review-due" className={label}>Next visit due</label>
-                  <input id="review-due" type="date" value={againOn}
+                  <input id="review-due" type="date" min={todayIso()} value={againOn}
                     onChange={(e) => setAgainOn(e.target.value)} className={field} />
                 </div>
               </div>

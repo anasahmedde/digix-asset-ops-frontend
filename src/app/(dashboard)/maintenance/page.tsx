@@ -12,8 +12,10 @@ import { MultiSelect } from "@/components/ui/multi-select";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { ScheduleDetail } from "@/components/maintenance/schedule-detail";
+import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
+import { confirmAction } from "@/components/ui/confirm";
 import { useUser } from "@/lib/user-context";
-import { formatDate } from "@/lib/utils";
+import { formatDate, deadlineMin } from "@/lib/utils";
 
 interface MaintenanceSchedule {
   id: string;
@@ -127,11 +129,12 @@ function BillingChip({ billable, chargeTo }: { billable: boolean; chargeTo: stri
 }
 
 export default function MaintenancePage() {
-  const { canWrite, canDelete } = useUser();
-  const canEdit = canWrite("maintenance");
+  const { can, canDelete } = useUser();
+  const canEdit = can("manage_maintenance");
   const canRemove = canDelete("maintenance");
   const [schedules, setSchedules] = useState<MaintenanceSchedule[]>([]);
   const [jobPage, setJobPage] = useState(1);
+  const sort = useSortState();
   const [loading, setLoading] = useState(true);
   const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
   const [selected, setSelected] = useState<MaintenanceSchedule | null>(null);
@@ -355,7 +358,7 @@ export default function MaintenancePage() {
   }
 
   async function handleDelete(schedule: MaintenanceSchedule) {
-    if (!confirm(`Delete schedule "${schedule.title}"? This cannot be undone.`))
+    if (!(await confirmAction(`Delete schedule "${schedule.title}"? This cannot be undone.`)))
       return;
     try {
       await api.delete(`/maintenance/schedules/${schedule.id}/`);
@@ -564,22 +567,22 @@ export default function MaintenancePage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border bg-secondary/50">
-                    <th className={thClass}>Title</th>
-                    <th className={thClass}>Type</th>
-                    <th className={thClass}>Frequency</th>
-                    <th className={thClass}>Priority</th>
-                    <th className={thClass}>Next Due</th>
-                    <th className={thClass}>Asset ID</th>
-                    <th className={thClass}>Asset Name</th>
-                    <th className={thClass}>Project</th>
-                    <th className={thClass}>Site</th>
-                    <th className={thClass}>Assigned To</th>
-                    <th className={thClass}>Status</th>
+                    <SortTh sort={sort} k="title" className={thClass}>Title</SortTh>
+                    <SortTh sort={sort} k="maintenance_type" className={thClass}>Type</SortTh>
+                    <SortTh sort={sort} k="frequency" className={thClass}>Frequency</SortTh>
+                    <SortTh sort={sort} k="priority" className={thClass}>Priority</SortTh>
+                    <SortTh sort={sort} k="next_due" className={thClass}>Next Due</SortTh>
+                    <SortTh sort={sort} k="device_code" className={thClass}>Asset ID</SortTh>
+                    <SortTh sort={sort} k="device_name" className={thClass}>Asset Name</SortTh>
+                    <SortTh sort={sort} k="project_name" className={thClass}>Project</SortTh>
+                    <SortTh sort={sort} k="site_name" className={thClass}>Site</SortTh>
+                    <SortTh sort={sort} k="assigned_to_name" className={thClass}>Assigned To</SortTh>
+                    <SortTh sort={sort} k="status" className={thClass}>Status</SortTh>
                     <th className={thClass}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {pageSlice(filtered, jobPage).map((s) => (
+                  {pageSlice(sortRows(filtered, sort, { priority: (s) => ({ critical: 0, high: 1, medium: 2, low: 3 } as Record<string, number>)[s.priority] ?? 4, status: (s) => s.effective_status ?? s.status }), jobPage).map((s) => (
                     <tr
                       key={s.id}
                       onClick={() => openDetail(s.id)}
@@ -830,6 +833,7 @@ export default function MaintenancePage() {
                     name="start_date"
                     type="date"
                     required
+                    min={deadlineMin(selected?.start_date?.split("T")[0])}
                     value={formStart}
                     onChange={(e) => setFormStart(e.target.value)}
                     className={inputClass}

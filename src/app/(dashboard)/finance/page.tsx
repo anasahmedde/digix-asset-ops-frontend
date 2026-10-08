@@ -6,6 +6,8 @@ import { toast } from "sonner";
 
 import { Modal } from "@/components/ui/modal";
 import { FilterBar } from "@/components/ui/filter-bar";
+import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
+import { confirmAction } from "@/components/ui/confirm";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { CURRENCIES, formatCurrency, getCurrency, setCurrency, type CurrencyCode } from "@/lib/currency";
@@ -71,6 +73,7 @@ export default function FinancePage() {
   const { canWrite } = useUser();
   const canEdit = canWrite("finance");
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const sort = useSortState();
   const [loading, setLoading] = useState(true);
   const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
   const [selected, setSelected] = useState<Invoice | null>(null);
@@ -138,7 +141,7 @@ export default function FinancePage() {
   }
 
   async function handleDelete(invoice: Invoice) {
-    if (!confirm(`Delete invoice "${invoice.invoice_number}"? This cannot be undone.`)) return;
+    if (!(await confirmAction(`Delete invoice "${invoice.invoice_number}"? This cannot be undone.`))) return;
     try {
       await api.delete(`/finance/invoices/${invoice.id}/`);
       toast.success("Invoice deleted");
@@ -248,22 +251,22 @@ export default function FinancePage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
-                  <th className={thClass}>Invoice #</th>
-                  <th className={thClass}>Type</th>
-                  <th className={thClass}>Status</th>
-                  <th className={thClass}>Client / Supplier</th>
-                  <th className={thClass}>Cur.</th>
-                  <th className={thClass}>Amount</th>
-                  <th className={thClass}>Tax</th>
-                  <th className={thClass}>Total</th>
-                  <th className={thClass}>Paid</th>
-                  <th className={thClass}>Balance Due</th>
-                  <th className={thClass}>Due Date</th>
+                  <SortTh sort={sort} k="invoice_number" className={thClass}>Invoice #</SortTh>
+                  <SortTh sort={sort} k="invoice_type" className={thClass}>Type</SortTh>
+                  <SortTh sort={sort} k="status" className={thClass}>Status</SortTh>
+                  <SortTh sort={sort} k="party" className={thClass}>Client / Supplier</SortTh>
+                  <SortTh sort={sort} k="currency" className={thClass}>Cur.</SortTh>
+                  <SortTh sort={sort} k="amount" className={thClass}>Amount</SortTh>
+                  <SortTh sort={sort} k="tax_amount" className={thClass}>Tax</SortTh>
+                  <SortTh sort={sort} k="total_amount" className={thClass}>Total</SortTh>
+                  <SortTh sort={sort} k="paid_amount" className={thClass}>Paid</SortTh>
+                  <SortTh sort={sort} k="balance_due" className={thClass}>Balance Due</SortTh>
+                  <SortTh sort={sort} k="due_date" className={thClass}>Due Date</SortTh>
                   <th className={thClass}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((inv) => (
+                {sortRows(filtered, sort, { party: (i) => i.client_name || i.supplier_name }).map((inv) => (
                   <tr key={inv.id} onClick={() => { setSelected(inv); setModalMode("edit"); }} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
                     <td className={`${tdClass} font-medium text-foreground`}>{inv.invoice_number}</td>
                     <td className={tdClass}>
@@ -362,7 +365,7 @@ export default function FinancePage() {
               </div>
               <div className="space-y-1.5">
                 <label htmlFor="due_date" className={labelClass}>Due Date</label>
-                <input id="due_date" name="due_date" type="date" defaultValue={selected?.due_date ?? ""} className={inputClass} />
+                <input id="due_date" name="due_date" type="date" min={selected?.issue_date ?? undefined} defaultValue={selected?.due_date ?? ""} className={inputClass} />
               </div>
               <div className="space-y-1.5">
                 <label htmlFor="notes" className={labelClass}>Notes</label>

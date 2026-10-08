@@ -3,20 +3,23 @@
 import {CalendarPlus, Download, Pencil, Plus, RotateCcw, Shield, Ticket, Trash2} from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import { ComponentWarranties } from "@/components/warranties/component-warranties";
 import { WarrantyClaims } from "@/components/warranties/warranty-claims";
+import { ExtendWarranty, type ExtendTarget } from "@/components/warranties/extend-warranty";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Pagination, pageSlice } from "@/components/ui/pagination";
 import { Modal } from "@/components/ui/modal";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { SearchSelect } from "@/components/ui/search-select";
+import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
+import { confirmAction } from "@/components/ui/confirm";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
-import { formatDate } from "@/lib/utils";
+import { formatDate, formatTerm } from "@/lib/utils";
 
 interface Warranty {
   id: string;
@@ -27,6 +30,9 @@ interface Warranty {
   supplier: string | null;
   component: string | null;
   supplier_name: string | null;
+  /** Whose asset it is, and where it stands. */
+  client_name?: string | null;
+  site_name?: string | null;
   warranty_type: string;
   warranty_type_display?: string;
   status: string;
@@ -36,7 +42,10 @@ interface Warranty {
   start_date: string;
   end_date: string;
   coverage_details: string;
+  /** Ours, handed out on creation (CLW-/VNW-/CPW-…). */
   reference_number: string;
+  /** The vendor's own certificate number. */
+  vendor_reference?: string;
   notes: string;
   is_expired: boolean;
   created_at: string;
@@ -92,9 +101,16 @@ function termLabel(w: { months?: number | null; start_date?: string | null; end_
   return "";
 }
 
+/** The day after a YYYY-MM-DD date: the earliest a warranty can end. */
+function dayAfter(iso?: string | null): string | undefined {
+  if (!iso) return undefined;
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d + 1).toLocaleDateString("en-CA");
+}
+
 const STATUS_LABELS: Record<string, string> = {
   active: "Active",
-  expired: "Warranty Completed",
+  expired: "Expired",
   reissued: "Reissued",
   claimed: "Pending",
   void: "Void",
@@ -137,22 +153,32 @@ function formatLabel(value: string) {
   return value.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-const CLIENT_SIDE_ROLES = ["marketing", "marketing_head", "client_viewer"];
-const SUPPLIER_SIDE_ROLES = ["ops_manager", "supervisor", "technician", "warehouse"];
-
 export default function WarrantiesPage() {
-  const { user, canWrite } = useUser();
-  const canEdit = canWrite("warranties");
-  const role = user?.role ?? "";
-  const clientSideOnly = CLIENT_SIDE_ROLES.includes(role);
-  const supplierSideOnly = SUPPLIER_SIDE_ROLES.includes(role);
-  const seesBoth = !clientSideOnly && !supplierSideOnly;
+  const { can, canAny } = useUser();
+  const canEdit = can("manage_warranties");
+  // Client warranties belong to projects; vendor and component warranties
+  // to the warranty register. Each side shows to whoever may read it.
+  const seesClient = canAny("record_client_warranty", "view_projects");
+  const seesSupplier = can("view_warranties");
+  const clientSideOnly = seesClient && !seesSupplier;
+  const supplierSideOnly = seesSupplier && !seesClient;
+  const seesBoth = seesClient && seesSupplier;
   const router = useRouter();
+  const params = useSearchParams();
   const [warrantySide, setWarrantySide] = useState<WarrantySide>(clientSideOnly ? "client" : "supplier");
+  // A notification lands on the tab it is about.
+  useEffect(() => {
+    const t = params.get("tab");
+    if (t === "client" || t === "supplier" || t === "components" || t === "claims") setWarrantySide(t);
+  }, [params]);
   const [warrantyPage, setWarrantyPage] = useState(1);
+  const sort = useSortState();
   // The warranty being extended, if the Extend dialog is open.
-  const [extendFor, setExtendFor] = useState<Warranty | null>(null);
-  const [extending, setExtending] = useState(false);
+  const [extendFor, setExtendFor] = useState<ExtendTarget | null>(null);
+  // The Component tab keeps its own list; the header's Add opens its form.
+  const [componentAdd, setComponentAdd] = useState(0);
+  // The start typed in the form, so the end can be held to after it.
+  const [formStart, setFormStart] = useState("");
   const [createDevice, setCreateDevice] = useState("");
   const [warranties, setWarranties] = useState<Warranty[]>([]);
   const [devices, setDevices] = useState<DeviceOption[]>([]);
@@ -235,6 +261,7 @@ export default function WarrantiesPage() {
   function closeModal() {
     setModalMode(null);
     setSelected(null);
+    setFormStart("");
   }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -247,7 +274,7 @@ export default function WarrantiesPage() {
       status: fd.get("status"),
       start_date: fd.get("start_date"),
       end_date: fd.get("end_date"),
-      reference_number: fd.get("reference_number"),
+      vendor_reference: fd.get("vendor_reference") ?? "",
       coverage_details: fd.get("coverage_details"),
       notes: fd.get("notes"),
     };
@@ -271,33 +298,6 @@ export default function WarrantiesPage() {
     }
   }
 
-  async function submitExtend(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    if (!extendFor) return;
-    const fd = new FormData(e.currentTarget);
-    const endDate = String(fd.get("end_date") || "");
-    const months = String(fd.get("months") || "");
-    if (!endDate && !months) {
-      toast.error("Give the months to add, or the new expiry date.");
-      return;
-    }
-    setExtending(true);
-    try {
-      await api.post(`/warranties/${extendFor.id}/extend/`, {
-        ...(endDate ? { end_date: endDate } : { months: Number(months) }),
-        reference_number: String(fd.get("reference_number") || ""),
-        notes: String(fd.get("notes") || ""),
-      });
-      toast.success("Warranty extended");
-      setExtendFor(null);
-      fetchWarranties();
-    } catch (err) {
-      toast.error(getApiError(err, "Could not extend the warranty"));
-    } finally {
-      setExtending(false);
-    }
-  }
-
   async function handleReissue(w: Warranty) {
     const raw = window.prompt("Reissue as client warranty for how many months? (3, 6 or 12)", "12");
     if (raw === null) return;
@@ -317,9 +317,9 @@ export default function WarrantiesPage() {
 
   async function handleDelete(w: Warranty) {
     if (
-      !confirm(
+      !(await confirmAction(
         `Delete warranty for "${w.device_code ?? "this device"}"? This cannot be undone.`,
-      )
+      ))
     )
       return;
     try {
@@ -353,9 +353,13 @@ export default function WarrantiesPage() {
           )}
           {/* Claims are raised from inside the Claims tab, against the cover
               being claimed. */}
-          {canEdit && warrantySide !== "claims" && (
+          {canEdit && warrantySide !== "claims" && warrantySide !== "client" && (
             <button
               onClick={() => {
+                if (warrantySide === "components") {
+                  setComponentAdd((n) => n + 1);
+                  return;
+                }
                 setSelected(null);
                 setCreateDevice("");
                 setModalMode("create");
@@ -401,13 +405,12 @@ export default function WarrantiesPage() {
       })()}
 
       {/* Component cover is the unique items' own, listed from inventory. */}
-      {warrantySide === "components" && <ComponentWarranties />}
+      {warrantySide === "components" && <ComponentWarranties addTick={componentAdd} />}
 
       {warrantySide !== "claims" && warrantySide !== "components" && (
       <FilterBar
         filters={[
           { key: "status", label: "Status", options: Object.keys(STATUS_BADGES).map((s) => ({ value: s, label: STATUS_LABELS[s] ?? s })) },
-          { key: "type", label: "Type", options: Object.keys(TYPE_BADGES).map((t) => ({ value: t, label: TYPE_LABELS[t] ?? t })) },
         ]}
         values={filterValues}
         onChange={(k, v) => setFilterValues((prev) => ({ ...prev, [k]: v }))}
@@ -432,10 +435,9 @@ export default function WarrantiesPage() {
             return false;
           }
           if (filterValues.status && w.status !== filterValues.status) return false;
-          if (filterValues.type && w.warranty_type !== filterValues.type) return false;
           if (search) {
             const q = search.toLowerCase();
-            if (!(w.device_code || "").toLowerCase().includes(q) && !(w.device_name || "").toLowerCase().includes(q) && !(w.supplier_name || "").toLowerCase().includes(q) && !(w.reference_number || "").toLowerCase().includes(q)) return false;
+            if (!(w.device_code || "").toLowerCase().includes(q) && !(w.device_name || "").toLowerCase().includes(q) && !(w.supplier_name || "").toLowerCase().includes(q) && !(w.reference_number || "").toLowerCase().includes(q) && !(w.vendor_reference || "").toLowerCase().includes(q)) return false;
           }
           return true;
         });
@@ -455,19 +457,20 @@ export default function WarrantiesPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
-                  <th className={thClass}>Asset ID</th>
-                  <th className={thClass}>Asset Name</th>
-                  <th className={thClass}>Type</th>
-                  <th className={thClass}>Status</th>
-                  <th className={thClass}>Start Date</th>
-                  <th className={thClass}>End Date</th>
-                  <th className={thClass}>Supplier</th>
-                  <th className={thClass}>Reference #</th>
+                  <SortTh sort={sort} k="device_code" className={thClass}>Asset ID</SortTh>
+                  <SortTh sort={sort} k="asset_name" className={thClass}>Asset Name</SortTh>
+                  <SortTh sort={sort} k="status" className={thClass}>Status</SortTh>
+                  <SortTh sort={sort} k="start_date" className={thClass}>Start Date</SortTh>
+                  <SortTh sort={sort} k="end_date" className={thClass}>Valid Till</SortTh>
+                  <SortTh sort={sort} k="months" className={thClass}>Term</SortTh>
+                  <SortTh sort={sort} k="party" className={thClass}>{warrantySide === "client" ? "Client" : "Vendor"}</SortTh>
+                  <SortTh sort={sort} k="reference_number" className={thClass}>Reference #</SortTh>
+                  <SortTh sort={sort} k="site_name" className={thClass}>Site</SortTh>
                   <th className={thClass}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {pageSlice(filtered, warrantyPage).map((w) => (
+                {pageSlice(sortRows(filtered, sort, { asset_name: (w) => w.component_name || w.device_name, party: (w) => (w.warranty_type === "client" ? w.client_name : w.supplier_name) }), warrantyPage).map((w) => (
                   <tr
                     key={w.id}
                     onClick={() => { setSelected(w); setModalMode("edit"); }}
@@ -487,36 +490,35 @@ export default function WarrantiesPage() {
                     </td>
                     <td className={tdClass}>
                       <span
-                        className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${TYPE_BADGES[w.warranty_type] ?? "bg-secondary/500/10 text-muted-foreground ring-gray-500/20"}`}
-                      >
-                        {TYPE_LABELS[w.warranty_type] ?? w.warranty_type_display ?? w.warranty_type}
-                      </span>
-                    </td>
-                    <td className={tdClass}>
-                      <span
                         className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${STATUS_BADGES[w.status] ?? "bg-secondary/500/10 text-muted-foreground ring-gray-500/20"}`}
                       >
-                        {(w.status_display ?? STATUS_LABELS[w.status]) || w.status}{termLabel(w)}
+                        {(w.status_display ?? STATUS_LABELS[w.status]) || w.status}
                       </span>
                     </td>
+                    <td className={`${tdClass} whitespace-nowrap text-muted-foreground`}>{formatDate(w.start_date)}</td>
+                    <td className={`${tdClass} whitespace-nowrap text-muted-foreground`}>{formatDate(w.end_date)}</td>
+                    <td className={`${tdClass} whitespace-nowrap text-muted-foreground`}>{w.months ? formatTerm(w.months) : termLabel(w).replace(" · ", "") || "—"}</td>
                     <td className={`${tdClass} text-muted-foreground`}>
-                      {w.start_date}
+                      {(w.warranty_type === "client" ? w.client_name : w.supplier_name) || "—"}
                     </td>
-                    <td className={`${tdClass} text-muted-foreground`}>
-                      {w.end_date}
+                    <td className={`${tdClass} whitespace-nowrap font-mono text-xs text-muted-foreground`}>
+                      {w.reference_number || "—"}
+                      {w.vendor_reference && (
+                        <span className="block font-sans text-2xs" title="Vendor's reference">Vendor: {w.vendor_reference}</span>
+                      )}
                     </td>
-                    <td className={`${tdClass} text-muted-foreground`}>
-                      {w.supplier_name || "-"}
-                    </td>
-                    <td className={`${tdClass} text-muted-foreground`}>
-                      {w.reference_number || "-"}
-                    </td>
+                    <td className={`${tdClass} text-muted-foreground`}>{w.site_name || "—"}</td>
                     <td className={tdClass} onClick={(e) => e.stopPropagation()}>
                       {canEdit ? (
                         <div className="flex items-center gap-1">
-                          {w.warranty_type !== "client" && ["expired", "active"].includes(w.status) && (
+                          {["expired", "active"].includes(w.status) && (
                             <button
-                              onClick={() => setExtendFor(w)}
+                              onClick={() => setExtendFor({
+                                endpoint: `/warranties/${w.id}/extend/`,
+                                label: w.device_code ?? "",
+                                kind: w.warranty_type === "client" ? "Client" : "Vendor",
+                                currentEnd: w.end_date,
+                              })}
                               className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-primary"
                               title="Extend this warranty"
                             >
@@ -592,7 +594,7 @@ export default function WarrantiesPage() {
                   <label htmlFor="supplier" className={labelClass}>
                     Vendor
                   </label>
-                  <select
+                  <select key={suppliers.length}
                     id="supplier"
                     name="supplier"
                     defaultValue={selected?.supplier ?? ""}
@@ -641,7 +643,7 @@ export default function WarrantiesPage() {
                         </>
                       )}
                       <option value="supplier">Vendor</option>
-                      <option value="client">Client</option>
+                      {selected?.warranty_type === "client" && <option value="client">Client</option>}
                     </select>
                   )}
                 </div>
@@ -656,7 +658,7 @@ export default function WarrantiesPage() {
                     className={inputClass}
                   >
                     <option value="active">Active</option>
-                    <option value="expired">Warranty Completed</option>
+                    <option value="expired">Expired</option>
                     <option value="reissued">Reissued</option>
                     <option value="claimed">Pending</option>
                     <option value="void">Void</option>
@@ -675,6 +677,7 @@ export default function WarrantiesPage() {
                     type="date"
                     required
                     defaultValue={selected?.start_date ?? ""}
+                    onChange={(e) => setFormStart(e.target.value)}
                     className={inputClass}
                   />
                 </div>
@@ -687,23 +690,34 @@ export default function WarrantiesPage() {
                     name="end_date"
                     type="date"
                     required
+                    min={dayAfter(formStart || selected?.start_date)}
                     defaultValue={selected?.end_date ?? ""}
                     className={inputClass}
                   />
                 </div>
               </div>
 
-              <div className="space-y-1.5">
-                <label htmlFor="reference_number" className={labelClass}>
-                  Reference Number
-                </label>
-                <input
-                  id="reference_number"
-                  name="reference_number"
-                  defaultValue={selected?.reference_number ?? ""}
-                  className={inputClass}
-                  placeholder="e.g. WRN-2024-001"
-                />
+              {/* Ours is handed out by the system; the vendor's own number is
+                  typed beside it, so the two are never mistaken. */}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <label className={labelClass}>Reference Number</label>
+                  <p className={`${inputClass} items-center bg-secondary/40 font-mono text-muted-foreground`}>
+                    {selected?.reference_number || "Assigned on save"}
+                  </p>
+                </div>
+                {(selected ? selected.warranty_type !== "client" : warrantySide !== "client") && (
+                  <div className="space-y-1.5">
+                    <label htmlFor="vendor_reference" className={labelClass}>Vendor reference</label>
+                    <input
+                      id="vendor_reference"
+                      name="vendor_reference"
+                      defaultValue={selected?.vendor_reference ?? ""}
+                      className={inputClass}
+                      placeholder="Vendor's warranty certificate no."
+                    />
+                  </div>
+                )}
               </div>
 
               <div className="space-y-1.5">
@@ -757,65 +771,7 @@ export default function WarrantiesPage() {
           
       </Modal>
       )}
-      {/* Extend — same warranty, later expiry, the change on record. */}
-      <Modal
-        open={!!extendFor}
-        onClose={() => setExtendFor(null)}
-        title={extendFor ? `Extend warranty — ${extendFor.device_code ?? ""}` : "Extend warranty"}
-      >
-        {extendFor && (
-          <form onSubmit={submitExtend} className="space-y-4">
-            <div className="grid grid-cols-2 gap-3 rounded-lg border border-border bg-secondary/30 p-3 text-xs">
-              <div>
-                <p className="text-muted-foreground">Type</p>
-                <p className="font-medium text-foreground">{TYPE_LABELS[extendFor.warranty_type] ?? extendFor.warranty_type}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground">Current expiry</p>
-                <p className="font-medium text-foreground">{formatDate(extendFor.end_date)}</p>
-              </div>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <label htmlFor="ext-months" className={labelClass}>Extend by (months)</label>
-                <input id="ext-months" name="months" type="number" min={1} placeholder="e.g. 12" className={inputClass} />
-              </div>
-              <div className="space-y-1.5">
-                <label htmlFor="ext-end" className={labelClass}>…or new expiry date</label>
-                <input id="ext-end" name="end_date" type="date" min={extendFor.end_date} className={inputClass} />
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <label htmlFor="ext-ref" className={labelClass}>Vendor reference</label>
-              <input id="ext-ref" name="reference_number" placeholder="Extension certificate / email ref" className={inputClass} />
-            </div>
-            <div className="space-y-1.5">
-              <label htmlFor="ext-notes" className={labelClass}>Notes</label>
-              <textarea id="ext-notes" name="notes" rows={2} placeholder="What the extension covers" className={`${inputClass} h-auto py-2`} />
-            </div>
-            <p className="text-2xs text-muted-foreground">
-              The warranty keeps its start date and its history — each extension is written onto it
-              and journalled on the asset.
-            </p>
-            <div className="flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setExtendFor(null)}
-                className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={extending}
-                className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
-              >
-                {extending ? "Saving…" : "Extend Warranty"}
-              </button>
-            </div>
-          </form>
-        )}
-      </Modal>
+      <ExtendWarranty target={extendFor} onClose={() => setExtendFor(null)} onDone={fetchWarranties} />
     </div>
   );
 }

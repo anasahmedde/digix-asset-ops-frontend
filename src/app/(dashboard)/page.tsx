@@ -18,6 +18,7 @@ import { StickyNotes } from "@/components/dashboard/sticky-notes";
 import { StatCard } from "@/components/ui/stat-card";
 import { DonutChart } from "@/components/charts/donut-chart";
 import { BarChart } from "@/components/charts/bar-chart";
+import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
 import { useUser } from "@/lib/user-context";
 import { formatDate } from "@/lib/utils";
 
@@ -129,6 +130,7 @@ export default function DashboardPage() {
   const { canWrite } = useUser();
   const canWatch = canWrite("inventory");
   const [highValue, setHighValue] = useState<{ id: string; name: string; type_code: string; in_stock_count: number; unit_cost: string | null }[]>([]);
+  const stockSort = useSortState();
   const [watchedItems, setWatchedItems] = useState<{ id: string; sku: string; material_name: string | null; quantity: number; unit: string | null; unit_cost: string | null; total_value: number | null }[]>([]);
   const [watchOptions, setWatchOptions] = useState<{ products: { id: string; name: string; type_code: string; is_high_value: boolean }[]; items: { id: string; sku: string; material_name: string | null; watch_on_dashboard: boolean }[] }>({ products: [], items: [] });
 
@@ -307,9 +309,12 @@ export default function DashboardPage() {
       </div>
 
       {/* Map (squeezed to half) + summaries column */}
-      <div className="grid gap-6 2xl:grid-cols-[3fr_2fr] [&>*]:min-w-0">
+      {/* items-start: each column keeps its own height. The map used to
+          stretch to match the alerts column, so every new escalation made
+          the map taller. */}
+      <div className="grid items-start gap-6 2xl:grid-cols-[3fr_2fr] [&>*]:min-w-0">
         <div>
-          <div className="rounded-xl border border-border bg-card overflow-hidden h-full flex flex-col">
+          <div className="rounded-xl border border-border bg-card overflow-hidden flex flex-col">
             <div className="flex items-center justify-between px-5 py-4">
               <div>
                 <h2 className="text-base font-semibold text-foreground">Screen Status Map</h2>
@@ -320,7 +325,7 @@ export default function DashboardPage() {
                 Live
               </span>
             </div>
-            <div className="border-t border-border flex-1 min-h-[400px]">
+            <div className="border-t border-border h-[clamp(420px,65vh,640px)]">
               <StatusMap devices={mapDevices} maintenanceSites={maintSites} height="100%" />
             </div>
           </div>
@@ -335,6 +340,8 @@ export default function DashboardPage() {
               </h3>
               <Link href="/tickets" className="text-2xs font-medium text-primary hover:underline">View All</Link>
             </div>
+            {/* Tickets and overdue installs scroll together in one capped box. */}
+            <div className="max-h-80 overflow-y-auto pr-1">
             {escalatedTickets.length > 0 ? (
               <div className="space-y-2">
                 {escalatedTickets.slice(0, 5).map((t) => (
@@ -376,6 +383,7 @@ export default function DashboardPage() {
                 </div>
               </div>
             )}
+            </div>
           </div>
 
           {/* Quick Summary */}
@@ -405,7 +413,7 @@ export default function DashboardPage() {
               </Link>
             </div>
             {alerts.length > 0 ? (
-              <div className="space-y-3">
+              <div className="max-h-64 space-y-3 overflow-y-auto pr-1">
                 {alerts.map((alert) => (
                   <div key={alert.id} className="flex items-start gap-2.5">
                     <AlertCircle
@@ -557,15 +565,15 @@ export default function DashboardPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
-                    <th className="py-2 font-medium">Component</th>
-                    <th className="py-2 text-right font-medium">Qty Available</th>
-                    <th className="py-2 text-right font-medium">Unit Cost</th>
-                    <th className="py-2 text-right font-medium">Amount</th>
+                    <SortTh sort={stockSort} k="name" className="py-2 font-medium">Component</SortTh>
+                    <SortTh sort={stockSort} k="in_stock_count" className="py-2 text-right font-medium">Qty Available</SortTh>
+                    <SortTh sort={stockSort} k="unit_cost" className="py-2 text-right font-medium">Unit Cost</SortTh>
+                    <SortTh sort={stockSort} k="amount" className="py-2 text-right font-medium">Amount</SortTh>
                     {canWatch && <th className="py-2" />}
                   </tr>
                 </thead>
                 <tbody>
-                  {highValue.map((p) => {
+                  {sortRows(highValue, stockSort, { amount: (p) => p.in_stock_count * Number(p.unit_cost ?? 0) }).map((p) => {
                     const amount = Number(p.unit_cost ?? 0) * p.in_stock_count;
                     return (
                       <tr key={`p-${p.id}`} className="border-b border-border/60 last:border-0">

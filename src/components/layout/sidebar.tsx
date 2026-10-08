@@ -44,8 +44,7 @@ interface NavItem {
   name: string;
   href: string;
   icon: React.ComponentType<{ className?: string }>;
-  roles?: string[];
-  /** Shown to anyone holding this capability, whatever their role. */
+  /** Shown to anyone holding this capability; without one, to everybody. */
   capability?: string;
   badge?: number;
   children?: NavItem[];
@@ -53,61 +52,52 @@ interface NavItem {
 
 const navigation: NavItem[] = [
   { name: "Dashboard", href: "/", icon: Gauge },
-  { name: "Assets", href: "/assets", icon: HardDrive, roles: ["super_admin", "group_head", "ops_manager", "technician"] },
-  { name: "Installation Tracker", href: "/installation-tracker", icon: Layers, capability: "edit_installation", roles: ["super_admin", "group_head", "ops_manager", "technician"] },
-  { name: "Maintenance", href: "/maintenance", icon: Wrench, capability: "manage_maintenance", roles: ["super_admin", "group_head", "ops_manager", "technician"] },
+  { name: "Assets", href: "/assets", icon: HardDrive, capability: "view_assets" },
+  { name: "Installation Tracker", href: "/installation-tracker", icon: Layers, capability: "view_installations" },
+  { name: "Maintenance", href: "/maintenance", icon: Wrench, capability: "view_maintenance" },
   { name: "Warranties", href: "/warranties", icon: ShieldCheck, capability: "view_warranties" },
-  { name: "Projects", href: "/projects", icon: ClipboardList, roles: ["super_admin", "group_head", "ops_manager"] },
+  { name: "Projects", href: "/projects", icon: ClipboardList, capability: "view_projects" },
+  { name: "Sites", href: "/sites", icon: MapPin, capability: "view_installations" },
+  { name: "Tickets", href: "/tickets", icon: Ticket, capability: "view_tickets" },
+  { name: "Quotations", href: "/quotations", icon: ReceiptText, capability: "view_quotations" },
+  { name: "Work Orders", href: "/work-orders", icon: ScrollText, capability: "view_work_orders" },
+  { name: "Inventory", href: "/inventory", icon: Package, capability: "view_stock" },
+  { name: "Procurement", href: "/procurement", icon: ShoppingCart, capability: "view_procurement" },
   {
-    name: "Sites", href: "/sites", icon: MapPin, roles: ["super_admin", "group_head", "ops_manager", "technician"],
-  },
-  { name: "Tickets", href: "/tickets", icon: Ticket, roles: ["super_admin", "group_head", "ops_manager", "supervisor", "technician", "marketing", "marketing_head"] },
-  { name: "Quotations", href: "/quotations", icon: ReceiptText, roles: ["super_admin", "group_head", "ops_manager"] },
-  { name: "Work Orders", href: "/work-orders", icon: ScrollText, roles: ["super_admin", "group_head", "ops_manager"] },
-  { name: "Inventory", href: "/inventory", icon: Package, roles: ["super_admin", "group_head", "ops_manager", "warehouse"] },
-  // Item 18: the store and supervisors see purchase orders too — without prices.
-  { name: "Procurement", href: "/procurement", icon: ShoppingCart, roles: ["super_admin", "group_head", "ops_manager", "finance", "warehouse", "supervisor"] },
-  {
-    name: "Reports", href: "/analytics", icon: BarChart3, roles: ["super_admin", "group_head", "ops_manager", "finance"],
+    name: "Reports", href: "/analytics", icon: BarChart3, capability: "view_reports",
     children: [
       { name: "Reports", href: "/reports", icon: BarChart3 },
       { name: "Analytics", href: "/analytics", icon: BarChart3 },
-      { name: "Finance", href: "/finance", icon: CreditCard },
+      { name: "Finance", href: "/finance", icon: CreditCard, capability: "view_finance" },
     ],
   },
-  { name: "Alerts", href: "/alerts", icon: AlertCircle, roles: ["super_admin", "group_head", "ops_manager"] },
-  { name: "Documents", href: "/documents", icon: FileText, roles: ["super_admin", "group_head", "ops_manager"] },
+  { name: "Alerts", href: "/alerts", icon: AlertCircle, capability: "receive_alerts" },
+  { name: "Documents", href: "/documents", icon: FileText, capability: "view_assets" },
   { name: "Attendance", href: "/attendance", icon: Fingerprint, capability: "view_attendance" },
   { name: "Teams", href: "/teams", icon: Users, capability: "view_team" },
-  { name: "Vendors", href: "/suppliers", icon: Truck, roles: ["super_admin", "group_head", "ops_manager"] },
-  { name: "Clients", href: "/clients", icon: Building2, roles: ["super_admin", "group_head", "ops_manager", "client_viewer"] },
+  { name: "Vendors", href: "/suppliers", icon: Truck, capability: "view_suppliers" },
+  { name: "Clients", href: "/clients", icon: Building2, capability: "view_clients" },
   { name: "Chat", href: "/chat", icon: MessageSquare },
-  { name: "Setup", href: "/setup", icon: SlidersHorizontal, roles: ["super_admin", "group_head", "ops_manager"] },
+  { name: "Setup", href: "/setup", icon: SlidersHorizontal, capability: "manage_setup" },
   { name: "Settings", href: "/settings", icon: Settings },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
   const { collapsed, mobileOpen, closeMobile, goHome } = useSidebar();
-  const { user } = useUser();
   const { theme, setTheme } = useTheme();
   const { totalUnread } = useChatUnread();
   const [expandedMenus, setExpandedMenus] = useState<Set<string>>(new Set());
 
-  const role = user?.role ?? "";
-  const capabilities = user?.capabilities ?? [];
+  const { can } = useUser();
+  // The menu reads the same rule as the server: a capability. Rights are
+  // editable per role and per person, so a menu that read role names went
+  // stale the moment somebody's were adjusted.
+  const show = (item: NavItem) => !item.capability || can(item.capability);
 
   const visibleNav = navigation
-    .filter((item) => {
-      // Either answer is enough. A capability is the live rule; rights are
-      // editable per person now, so a menu that read only role names went
-      // stale the moment somebody's were adjusted — an Execution Supervisor
-      // approves parts on maintenance jobs and had no Maintenance link.
-      // The role list stays as the floor for the people a capability misses.
-      const byCapability = item.capability ? capabilities.includes(item.capability) : false;
-      const byRole = item.roles ? Boolean(role) && item.roles.includes(role) : !item.capability;
-      return byCapability || byRole;
-    })
+    .filter(show)
+    .map((item) => (item.children ? { ...item, children: item.children.filter(show) } : item))
     .map((item) =>
       item.name === "Chat" ? { ...item, badge: totalUnread } : item
     );
