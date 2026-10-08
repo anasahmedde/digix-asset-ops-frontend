@@ -12,6 +12,11 @@ export function getApiError(err: unknown, fallback: string): string {
       }
       return "You do not have permission to perform this action.";
     }
+    // A server error page arrives as an HTML string; read as an object it
+    // came out one character at a time ("0: <"). Say something useful instead.
+    if (typeof data === "string") {
+      return resp?.status === 404 ? `${fallback} — that address was not found.` : fallback;
+    }
     if (data) {
       if (typeof data.detail === "string" && data.detail) {
         return data.detail;

@@ -20,9 +20,15 @@ interface CapabilityDef {
   key: string;
   label: string;
   module: string;
+  kind: "view" | "work" | "approve" | "admin";
   description: string;
   sensitive: boolean;
 }
+
+const KINDS: CapabilityDef["kind"][] = ["view", "work", "approve", "admin"];
+const KIND_LABEL: Record<CapabilityDef["kind"], string> = {
+  view: "See", work: "Do", approve: "Approve & decide", admin: "Administer",
+};
 
 interface Override {
   capability: string;
@@ -149,7 +155,7 @@ export function PermissionsDialog({
 
           <div className="max-h-[52vh] space-y-4 overflow-y-auto pr-1">
             {modules.map((mod) => {
-              const rows = catalogue.filter((c) => c.module === mod);
+              const rows = KINDS.flatMap((k) => catalogue.filter((c) => c.module === mod && c.kind === k));
               if (rows.length === 0) return null;
               return (
                 <div key={mod} className="space-y-1.5">
@@ -179,6 +185,9 @@ export function PermissionsDialog({
                           <span className="min-w-0 flex-1">
                             <span className="flex flex-wrap items-center gap-1.5">
                               <span className="text-sm font-medium text-foreground">{c.label}</span>
+                              <span className="rounded bg-secondary px-1.5 py-0.5 text-2xs text-muted-foreground">
+                                {KIND_LABEL[c.kind]}
+                              </span>
                               {c.sensitive && (
                                 <AlertTriangle className="h-3 w-3 text-amber-500" aria-label="Hands over real authority" />
                               )}

@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { Qty } from "@/components/ui/qty";
+import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
 
 /** One inspected delivery line: what arrived, what was accepted, where it went. */
 interface ReceivedLine {
@@ -65,6 +66,7 @@ function kindLabel(k: ReceivedLine["kind"]) {
 
 export function ReceivingLog() {
   const [rows, setRows] = useState<ReceivedLine[]>([]);
+  const sort = useSortState();
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState<string | null>(null);
@@ -166,20 +168,20 @@ export function ReceivingLog() {
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
                   <th className={`${thClass} w-8`}></th>
-                  <th className={thClass}>GRN</th>
-                  <th className={thClass}>Date</th>
-                  <th className={thClass}>Component</th>
-                  <th className={thClass}>Kind</th>
-                  <th className={thClass}>Source</th>
-                  <th className={`${thClass} text-right`}>Received</th>
-                  <th className={`${thClass} text-right`}>Accepted</th>
-                  <th className={`${thClass} text-right`}>Rejected</th>
-                  <th className={thClass}>Filed Into</th>
-                  <th className={thClass}>Inspected By</th>
+                  <SortTh sort={sort} k="grn_number" className={thClass}>GRN</SortTh>
+                  <SortTh sort={sort} k="inspected_at" className={thClass}>Date</SortTh>
+                  <SortTh sort={sort} k="component" className={thClass}>Component</SortTh>
+                  <SortTh sort={sort} k="kind" className={thClass}>Kind</SortTh>
+                  <SortTh sort={sort} k="source" className={thClass}>Source</SortTh>
+                  <SortTh sort={sort} k="quantity" className={`${thClass} text-right`}>Received</SortTh>
+                  <SortTh sort={sort} k="accepted_quantity" className={`${thClass} text-right`}>Accepted</SortTh>
+                  <SortTh sort={sort} k="rejected_quantity" className={`${thClass} text-right`}>Rejected</SortTh>
+                  <SortTh sort={sort} k="filed" className={thClass}>Filed Into</SortTh>
+                  <SortTh sort={sort} k="inspected_by_name" className={thClass}>Inspected By</SortTh>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((r) => {
+                {sortRows(filtered, sort, { component: (r) => r.stocked_name || r.known_component || r.material_name || r.po_item_description, source: (r) => r.supplier_name ?? r.source_display, filed: (r) => r.stocked_code || r.stocked_item_sku }).map((r) => {
                   const isOpen = open === r.id;
                   const rejected = r.inspection_status === "rejected";
                   return (

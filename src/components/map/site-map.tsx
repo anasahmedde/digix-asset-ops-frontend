@@ -7,6 +7,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { MapContainer, Marker, Popup, useMap, ZoomControl } from "react-leaflet";
 
 import { Basemap } from "./basemaps";
+import { mapsLink } from "./location-picker";
 import { pakistanBorder, worldMaskExceptPakistan } from "@/data/pakistan-geo";
 
 interface SitePin {
@@ -180,7 +181,7 @@ function SiteMarker({ site }: { site: SitePin }) {
               <span className="dp-badge" style={{ background: site.is_active ? "#0d9488" : "#94a3b8" }}>
                 {site.is_active ? "Active" : "Inactive"}
               </span>
-              <span className="dp-code">{site.device_count} device{site.device_count !== 1 ? "s" : ""}</span>
+              <span className="dp-code">{site.device_count} asset{site.device_count !== 1 ? "s" : ""}</span>
             </div>
             <div className="dp-title">{site.name}</div>
             <div className="dp-city">{site.city}, {site.country}</div>
@@ -188,6 +189,9 @@ function SiteMarker({ site }: { site: SitePin }) {
               <a href={`/sites?site=${site.id}`} className="dp-link dp-link--primary">
                 <svg viewBox="0 0 20 20" fill="currentColor" className="dp-link-icon"><path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd"/></svg>
                 View Site Details
+              </a>
+              <a href={mapsLink(site.latitude, site.longitude)} target="_blank" rel="noopener noreferrer" className="dp-link">
+                Google Maps
               </a>
             </div>
           </div>

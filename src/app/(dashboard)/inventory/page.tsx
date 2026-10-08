@@ -2,6 +2,7 @@
 
 import { Download, Info, Package, Pencil, Plus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import { IssuanceLog } from "@/components/inventory/issuance-log";
@@ -11,10 +12,13 @@ import { PriceApprovals } from "@/components/procurement/price-approvals";
 import { PendingInspection } from "@/components/inventory/pending-inspection";
 import { ReceivingLog } from "@/components/inventory/receiving-log";
 import { UniqueItems } from "@/components/inventory/unique-items";
+import { StockPlace, StockStatus, money, tdClass, tdCode, tdNum, thClass, thNum } from "@/components/inventory/stock-table";
 import { CopyButton } from "@/components/ui/copy-button";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { Modal } from "@/components/ui/modal";
 import { Qty } from "@/components/ui/qty";
+import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
+import { confirmAction } from "@/components/ui/confirm";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
@@ -57,13 +61,6 @@ interface StockMovement {
 const inputClass =
   "flex h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors";
 const labelClass = "text-xs font-medium text-muted-foreground";
-const thClass = "px-5 py-3.5 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground";
-const tdClass = "px-5 py-3.5";
-
-const LOCATION_BADGES: Record<string, string> = {
-  warehouse: "bg-blue-500/10 text-blue-600 ring-blue-500/20",
-  in_transit: "bg-amber-500/10 text-amber-600 ring-amber-500/20",
-};
 const LOCATION_LABELS: Record<string, string> = { warehouse: "Warehouse", in_transit: "In Transit" };
 
 export default function InventoryPage() {
@@ -71,6 +68,7 @@ export default function InventoryPage() {
   const canEdit = canWrite("inventory");
 
   const [items, setItems] = useState<InventoryItem[]>([]);
+  const sort = useSortState();
   const [categories, setCategories] = useState<Ref[]>([]);
   const [materialTypes, setMaterialTypes] = useState<Ref[]>([]);
   const [units, setUnits] = useState<UnitRef[]>([]);
@@ -96,6 +94,14 @@ export default function InventoryPage() {
   const [tab, setTab] = useState<
     "generic" | "unique" | "low_stock" | "inspection" | "receiving_log" | "requests" | "issuance"
   >("generic");
+  // A notification lands on the tab it is about.
+  const params = useSearchParams();
+  useEffect(() => {
+    const t = params.get("tab");
+    if (t && ["generic", "unique", "low_stock", "inspection", "receiving_log", "requests", "issuance"].includes(t)) {
+      setTab(t as typeof tab);
+    }
+  }, [params]);
   const [pendingCount, setPendingCount] = useState(0);
   // Components at or below their reorder level with no request raised yet.
   const [lowCount, setLowCount] = useState(0);
@@ -251,7 +257,7 @@ export default function InventoryPage() {
 
 
   async function handleDelete(item: InventoryItem) {
-    if (!confirm(`Delete item "${item.sku}"? This cannot be undone.`)) return;
+    if (!(await confirmAction(`Delete item "${item.sku}"? This cannot be undone.`))) return;
     try {
       await api.delete(`/inventory/items/${item.id}/`);
       toast.success("Item deleted");
@@ -388,35 +394,40 @@ export default function InventoryPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
-                  <th className={thClass}>Code</th>
-                  <th className={thClass}>Component</th>
-                  <th className={thClass}>Category</th>
-                  <th className={thClass}>Storage location</th>
-                  <th className={thClass}>On Hand</th>
-                  <th className={thClass}>Reorder Level</th>
-                  <th className={thClass}>Unit Cost</th>
+                  <SortTh sort={sort} k="sku" className={thClass}>Code</SortTh>
+                  <SortTh sort={sort} k="material_name" className={thClass}>Component</SortTh>
+                  <SortTh sort={sort} k="category_name" className={thClass}>Category</SortTh>
+                  <SortTh sort={sort} k="storage_location" className={thClass}>Storage Location</SortTh>
+                  <SortTh sort={sort} k="quantity" className={thNum}>On Hand</SortTh>
+                  <SortTh sort={sort} k="min_stock_level" className={thNum}>Reorder Level</SortTh>
+                  <SortTh sort={sort} k="unit_cost" className={thNum}>Unit Cost (PKR)</SortTh>
+                  <SortTh sort={sort} k="stock" className={thClass}>Status</SortTh>
                   <th className={thClass}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((item) => (
-                  <tr key={item.id} onClick={() => openItemModal("edit", item)} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
-                    <td className={`${tdClass} font-mono text-foreground`}>
+                {sortRows(filtered, sort, { stock: (i) => (i.quantity <= 0 ? 0 : i.quantity <= i.min_stock_level ? 1 : 2) }).map((item) => (
+                  // A click views the line, as it does on unique components;
+                  // changing it is the pencil's job.
+                  <tr key={item.id} onClick={() => openDetails(item)} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
+                    <td className={tdCode}>
                       <span className="inline-flex items-center gap-1">
                         {item.sku}
                         <CopyButton text={item.sku} label="component code" />
                       </span>
                     </td>
-                    <td className={`${tdClass} text-muted-foreground`}>{item.material_name || "-"}</td>
-                    <td className={`${tdClass} text-muted-foreground`}>{item.category_name || "-"}</td>
+                    <td className={`${tdClass} font-medium text-foreground`}>{item.material_name || "—"}</td>
+                    <td className={`${tdClass} text-muted-foreground`}>{item.category_name || "—"}</td>
                     <td className={tdClass}>
-                      <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${LOCATION_BADGES[item.location] ?? "text-muted-foreground ring-gray-500/20"}`}>
-                        {LOCATION_LABELS[item.location] ?? item.location}
-                      </span>
+                      <StockPlace
+                        places={item.storage_location ? [item.storage_location] : []}
+                        note={LOCATION_LABELS[item.location] ?? item.location}
+                      />
                     </td>
-                    <td className={`${tdClass} font-medium ${item.is_low_stock ? "text-red-600" : "text-foreground"}`}><Qty value={item.quantity} unit={item.unit} /></td>
-                    <td className={`${tdClass} text-muted-foreground`}>{item.min_stock_level}</td>
-                    <td className={`${tdClass} text-muted-foreground`}>{item.unit_cost ? item.unit_cost : "-"}</td>
+                    <td className={`${tdNum} font-semibold text-foreground`}><Qty value={item.quantity} unit={item.unit} /></td>
+                    <td className={`${tdNum} text-muted-foreground`}>{item.min_stock_level}</td>
+                    <td className={`${tdNum} text-muted-foreground`}>{money(item.unit_cost)}</td>
+                    <td className={tdClass}><StockStatus onHand={item.quantity} reorderAt={item.min_stock_level} /></td>
                     <td className={tdClass} onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center gap-1">
                         {/* Where this stock came from — open to everyone who can see the line. */}
@@ -487,7 +498,7 @@ export default function InventoryPage() {
               </div>
               <div className="space-y-1.5">
                 <label htmlFor="category" className={labelClass}>Category</label>
-                <select id="category" name="category" defaultValue={selected?.category ?? ""} className={inputClass}>
+                <select key={categories.length} id="category" name="category" defaultValue={selected?.category ?? ""} className={inputClass}>
                   <option value="">Select a category…</option>
                   {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>

@@ -138,9 +138,6 @@ const FULFILMENT_BADGES: Record<string, string> = {
   fulfilled: "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20",
 };
 
-// Who may grant an increase (mirrors the backend).
-const MANAGER_ROLES = ["super_admin", "group_head", "ops_manager"];
-
 /** Stock this line can still claim. Falls back to the shelf for a payload
  *  that predates the figure. */
 const freeStock = (row: { free_quantity?: number | null; available_quantity: number | null }) =>
@@ -176,12 +173,11 @@ const fieldClass =
   "h-9 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none";
 
 export function ProjectRequirements({ projectId }: { projectId: string }) {
-  const { canWrite, user } = useUser();
+  const { can } = useUser();
   const router = useRouter();
-  // Fulfilment writes to asset components, so it follows the devices rule.
-  const canDecide = canWrite("devices") || canWrite("inventory");
-  // Granting more than was planned is a manager's call (the backend agrees).
-  const canApproveIncrease = user != null && MANAGER_ROLES.includes(user.role);
+  const canDecide = can("decide_requirements");
+  // Granting more than was planned is its own signature (the backend agrees).
+  const canApproveIncrease = can("approve_quantity_increase");
 
   const [assets, setAssets] = useState<AssetGroup[]>([]);
   const [totals, setTotals] = useState<Totals | null>(null);

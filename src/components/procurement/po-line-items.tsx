@@ -148,6 +148,7 @@ export const poLineTotal = (line: PoLine) => (Number(line.quantity) || 0) * (Num
 
 const inputClass =
   "flex h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors";
+const captionClass = "block text-2xs font-medium text-muted-foreground";
 const rowInputClass =
   "h-9 rounded-lg border border-border bg-card px-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none";
 
@@ -160,13 +161,10 @@ interface Props {
   legacyLabel?: (line: PoLine) => string | undefined;
   /** Shown above the rows; "Line Items *" on a new order. */
   label?: string;
-  /** A running total under the rows, where the caller wants one. */
-  total?: number;
-  totalLabel?: string;
 }
 
 export function PoLineItems({
-  lines, onChange, currency, options, legacyLabel, label = "Line Items *", total, totalLabel = "Grand Total",
+  lines, onChange, currency, options, legacyLabel, label = "Line Items *",
 }: Props) {
   const patch = (idx: number, changes: Partial<PoLine>) =>
     onChange(lines.map((l, i) => (i === idx ? { ...l, ...changes } : l)));
@@ -205,7 +203,7 @@ export function PoLineItems({
               <option value="generic">Generic component</option>
               <option value="unique">Unique component</option>
               <option value="asset">Asset</option>
-              <option value="charge">Charge (free text)</option>
+              <option value="charge">Free text</option>
               {line.kind === "custom" && <option value="custom">Other (older line)</option>}
             </select>
             {line.kind === "generic" && (
@@ -229,23 +227,38 @@ export function PoLineItems({
             {line.kind === "custom" && legacyLabel?.(line) && (
               <span className="flex-1 truncate text-xs text-muted-foreground">{legacyLabel(line)}</span>
             )}
-            <div className="ml-auto shrink-0 whitespace-nowrap text-right text-xs text-muted-foreground">
-              Line total{" "}
-              <span className="font-medium text-foreground">{currency} {poLineTotal(line).toLocaleString()}</span>
-              {line.received_quantity > 0 && (
-                <span className="ml-2">· Received {line.received_quantity}/{Number(line.quantity) || 0}</span>
-              )}
-            </div>
+            {line.received_quantity > 0 && (
+              <span className="ml-auto shrink-0 whitespace-nowrap text-xs text-muted-foreground">
+                Received {line.received_quantity}/{Number(line.quantity) || 0}
+              </span>
+            )}
           </div>
-          <div className="flex items-center gap-2">
-            <input
-              value={line.description}
-              onChange={(e) => patch(idx, { description: e.target.value })}
-              placeholder={line.kind === "charge" ? "e.g. Delivery charges" : "Description"}
-              className={`${inputClass} min-w-0 flex-1`}
-            />
-            <input type="number" min="1" value={line.quantity} onChange={(e) => patch(idx, { quantity: e.target.value })} placeholder="Qty" className={`${rowInputClass} w-20`} />
-            <input type="number" min="0" step="0.01" value={line.unit_price} onChange={(e) => patch(idx, { unit_price: e.target.value })} placeholder="Unit price" className={`${rowInputClass} w-32`} />
+          {/* Labelled the way an order prints: what, how many, at what each,
+              and what the line comes to. */}
+          <div className="flex items-end gap-2">
+            <label className="min-w-0 flex-1 space-y-1">
+              <span className={captionClass}>Description</span>
+              <input
+                value={line.description}
+                onChange={(e) => patch(idx, { description: e.target.value })}
+                placeholder={line.kind === "charge" ? "Write what this line is for, e.g. delivery" : "Description"}
+                className={`${rowInputClass} w-full`}
+              />
+            </label>
+            <label className="w-20 shrink-0 space-y-1">
+              <span className={captionClass}>Qty</span>
+              <input type="number" min="1" value={line.quantity} onChange={(e) => patch(idx, { quantity: e.target.value })} className={`${rowInputClass} w-full`} />
+            </label>
+            <label className="w-32 shrink-0 space-y-1">
+              <span className={captionClass}>Unit price ({currency})</span>
+              <input type="number" min="0" step="0.01" value={line.unit_price} onChange={(e) => patch(idx, { unit_price: e.target.value })} className={`${rowInputClass} w-full text-right`} />
+            </label>
+            <div className="w-32 shrink-0 space-y-1 text-right">
+              <span className={captionClass}>Amount ({currency})</span>
+              <p className="flex h-9 items-center justify-end text-sm font-medium tabular-nums text-foreground">
+                {poLineTotal(line).toLocaleString()}
+              </p>
+            </div>
             <button
               type="button"
               onClick={() => onChange(lines.filter((_, i) => i !== idx))}
@@ -256,11 +269,6 @@ export function PoLineItems({
           </div>
         </div>
       ))}
-      {total !== undefined && (
-        <div className="text-right text-sm font-medium text-foreground">
-          {totalLabel}: {currency} {total.toLocaleString()}
-        </div>
-      )}
     </div>
   );
 }

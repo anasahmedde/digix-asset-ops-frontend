@@ -9,6 +9,9 @@ import { Modal } from "@/components/ui/modal";
 import { SegmentBar, StatTiles } from "@/components/ui/analytics-strip";
 import { CopyButton } from "@/components/ui/copy-button";
 import { FilterBar } from "@/components/ui/filter-bar";
+import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
+import { confirmAction } from "@/components/ui/confirm";
+import { deadlineMin } from "@/lib/utils";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { CURRENCIES } from "@/lib/currency";
@@ -166,6 +169,7 @@ export default function QuotationsPage() {
   const canEdit = canWrite("quotations");
 
   const [quotations, setQuotations] = useState<Quotation[]>([]);
+  const sort = useSortState();
   const [clients, setClients] = useState<ClientOpt[]>([]);
   const [sites, setSites] = useState<SiteOpt[]>([]);
   const [deviceModels, setDeviceModels] = useState<Option[]>([]);
@@ -429,7 +433,7 @@ export default function QuotationsPage() {
   }
 
   async function handleDelete(q: Quotation) {
-    if (!confirm(`Delete quotation ${q.quote_number}? This cannot be undone.`)) return;
+    if (!(await confirmAction(`Delete quotation ${q.quote_number}? This cannot be undone.`))) return;
     try {
       await api.delete(`/quotations/quotations/${q.id}/`);
       toast.success("Quotation deleted");
@@ -571,18 +575,18 @@ export default function QuotationsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
-                  <th className={thClass}>Quote #</th>
-                  <th className={thClass}>Title</th>
-                  <th className={thClass}>Client</th>
-                  <th className={thClass}>Site</th>
-                  <th className={thClass}>Total</th>
-                  <th className={thClass}>Status</th>
-                  <th className={thClass}>Valid Until</th>
+                  <SortTh sort={sort} k="quote_number" className={thClass}>Quote #</SortTh>
+                  <SortTh sort={sort} k="title" className={thClass}>Title</SortTh>
+                  <SortTh sort={sort} k="client_name" className={thClass}>Client</SortTh>
+                  <SortTh sort={sort} k="site_name" className={thClass}>Site</SortTh>
+                  <SortTh sort={sort} k="total_amount" className={thClass}>Total</SortTh>
+                  <SortTh sort={sort} k="status" className={thClass}>Status</SortTh>
+                  <SortTh sort={sort} k="valid_until" className={thClass}>Valid Until</SortTh>
                   <th className={thClass}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((q) => (
+                {sortRows(filtered, sort).map((q) => (
                   <Fragment key={q.id}>
                     <tr
                       onClick={() => setExpandedId((cur) => (cur === q.id ? null : q.id))}
@@ -777,7 +781,7 @@ export default function QuotationsPage() {
                 </div>
                 <div className="space-y-1.5">
                   <label htmlFor="q-valid" className={labelClass}>Valid Until</label>
-                  <input id="q-valid" type="date" value={form.valid_until} onChange={(e) => setForm({ ...form, valid_until: e.target.value })} className={inputClass} />
+                  <input id="q-valid" type="date" min={deadlineMin(selected?.valid_until)} value={form.valid_until} onChange={(e) => setForm({ ...form, valid_until: e.target.value })} className={inputClass} />
                 </div>
                 <div className="space-y-1.5 sm:col-span-2">
                   <label htmlFor="q-description" className={labelClass}>Description</label>

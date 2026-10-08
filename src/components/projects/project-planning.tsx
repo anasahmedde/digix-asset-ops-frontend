@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Qty } from "@/components/ui/qty";
+import { confirmAction } from "@/components/ui/confirm";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
@@ -102,9 +103,6 @@ interface Boq {
   unpriced_lines: number;
 }
 
-// Who can sign a budget off (mirrors the backend).
-const APPROVER_ROLES = ["super_admin", "group_head", "finance"];
-
 const STATUS_STYLES: Record<Plan["status"], string> = {
   draft: "bg-secondary text-muted-foreground ring-border",
   submitted: "bg-amber-500/10 text-amber-600 ring-amber-500/20",
@@ -138,14 +136,14 @@ export function ProjectPlanning({
   /** Called after a budget decision, so the page can show the new figure. */
   onChanged?: () => void;
 }) {
-  const { user, canWrite } = useUser();
-  const canPlan = canWrite("devices") || canWrite("inventory");
+  const { user, can } = useUser();
+  const canPlan = can("plan_budget");
   const [plan, setPlan] = useState<Plan | null>(null);
   // Nobody approves what they sent up themselves. The API refuses it, so
   // offering the button produced a 403 and no explanation.
   const canApprove =
     user != null &&
-    APPROVER_ROLES.includes(user.role) &&
+    can("approve_budget") &&
     !(plan?.submitted_by_id === user.id && user.role !== "super_admin");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -251,7 +249,7 @@ export function ProjectPlanning({
   }
 
   async function removeLine(id: string) {
-    if (!confirm("Remove this cost from the plan?")) return;
+    if (!(await confirmAction("Remove this cost from the plan?"))) return;
     try {
       await api.delete(`/teams/cost-lines/${id}/`);
       await load();
@@ -796,15 +794,27 @@ export function ProjectPlanning({
                           <td className={`${tdClass} text-right text-foreground`}>{Number(o.quantity)}</td>
                           <td className={`${tdClass} text-right text-foreground`}>{money(o.unit_cost)}</td>
                           <td className={`${tdClass} text-right font-medium text-foreground`}>{money(o.amount)}</td>
-                          {editable && (
+                          {canPlan && (
                             <td className={`${tdClass} text-right`}>
+                              {/* The signature is on the lines the budget was
+                                  approved with. One added while the work was
+                                  running was never in it, so it stays the
+                                  team's to correct or drop. */}
                               <div className="flex items-center justify-end gap-2">
-                                <button onClick={() => setEditingLine(o.id)} title="Edit" className="text-muted-foreground transition-colors hover:text-primary">
-                                  <Pencil className="h-3.5 w-3.5" />
-                                </button>
-                                <button onClick={() => removeLine(o.id)} title="Remove" className="text-muted-foreground transition-colors hover:text-destructive">
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </button>
+                                {editable || Number(o.amount) === 0 ? (
+                                  <>
+                                    <button onClick={() => setEditingLine(o.id)} title="Edit" className="text-muted-foreground transition-colors hover:text-primary">
+                                      <Pencil className="h-3.5 w-3.5" />
+                                    </button>
+                                    <button onClick={() => removeLine(o.id)} title="Remove" className="text-muted-foreground transition-colors hover:text-destructive">
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </button>
+                                  </>
+                                ) : (
+                                  <span className="text-2xs text-muted-foreground" title="The budget was signed off on this line — revise the budget to change it">
+                                    in the signed budget
+                                  </span>
+                                )}
                               </div>
                             </td>
                           )}

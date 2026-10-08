@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Modal } from "@/components/ui/modal";
+import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
@@ -24,9 +25,10 @@ const labelClass = "text-xs font-medium text-muted-foreground";
 /** Delivered work waiting to be inspected: accepted completes the order and
  *  its operations; sent back for rework returns it to the vendor. */
 export function WorkReceiving({ onInspected }: { onInspected?: () => void }) {
-  const { canWrite } = useUser();
-  const canInspect = canWrite("inventory") || canWrite("setup") || canWrite("procurement");
+  const { can } = useUser();
+  const canInspect = can("inspect_work");
   const [rows, setRows] = useState<WorkOrder[]>([]);
+  const sort = useSortState();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [target, setTarget] = useState<WorkOrder | null>(null);
@@ -114,18 +116,18 @@ export function WorkReceiving({ onInspected }: { onInspected?: () => void }) {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
-                  <th className={thClass}>WO #</th>
-                  <th className={thClass}>Work</th>
-                  <th className={thClass}>Vendor</th>
-                  <th className={thClass}>Project</th>
-                  <th className={thClass}>Delivered</th>
-                  <th className={`${thClass} text-right`}>Amount</th>
-                  <th className={thClass}>Previous Inspection</th>
+                  <SortTh sort={sort} k="wo_number" className={thClass}>WO #</SortTh>
+                  <SortTh sort={sort} k="title" className={thClass}>Work</SortTh>
+                  <SortTh sort={sort} k="supplier_name" className={thClass}>Vendor</SortTh>
+                  <SortTh sort={sort} k="project_name" className={thClass}>Project</SortTh>
+                  <SortTh sort={sort} k="delivered_at" className={thClass}>Delivered</SortTh>
+                  <SortTh sort={sort} k="total_amount" className={`${thClass} text-right`}>Amount</SortTh>
+                  <SortTh sort={sort} k="inspection_result" className={thClass}>Previous Inspection</SortTh>
                   {canInspect && <th className={thClass}>Actions</th>}
                 </tr>
               </thead>
               <tbody>
-                {rows.map((wo) => (
+                {sortRows(rows, sort).map((wo) => (
                   <tr key={wo.id} className="border-b border-border transition-colors hover:bg-secondary/30">
                     <td className={`${tdClass} whitespace-nowrap font-mono text-foreground`}>{wo.wo_number}</td>
                     <td className={`${tdClass} text-foreground`}>

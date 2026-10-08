@@ -29,6 +29,7 @@ import { ProjectRequirements } from "@/components/projects/project-requirements"
 import { ProjectBudgetSummary } from "@/components/projects/project-budget-summary";
 import { ProjectPlanning } from "@/components/projects/project-planning";
 import { ProjectActuals } from "@/components/projects/project-actuals";
+import { todayIso } from "@/lib/utils";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { CURRENCIES } from "@/lib/currency";
@@ -42,6 +43,8 @@ import { SearchSelect } from "@/components/ui/search-select";
 import { DonutChart } from "@/components/charts/donut-chart";
 import { BarChart } from "@/components/charts/bar-chart";
 import type { ProjectMapDevice } from "@/components/map/projects-map";
+import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
+import { confirmAction } from "@/components/ui/confirm";
 
 interface ClientOpt { id: string; name: string }
 interface Option { id: string; label: string }
@@ -54,11 +57,6 @@ interface DeviceRow { id: string; asset_code: string; display_name: string | nul
 function siteLabels(rows: { id: string; name: string; city?: string }[]): Option[] {
   return rows.map((s) => ({ id: s.id, label: s.city ? `${s.name} · ${s.city}` : s.name }));
 }
-// Who can be put in charge of a project. Everybody else on the staff list
-// has a job on a project, not the running of it.
-const MANAGER_ROLES = [
-  "super_admin", "group_head", "ops_manager", "marketing_head", "supervisor",
-];
 
 // The phases the work actually goes through, in order. The commercial run-up
 // is one phase to the delivery team. "On Hold" and "Lost" are off-ramps.
@@ -282,9 +280,10 @@ const ProjectsMap = dynamic(() => import("@/components/map/projects-map"), {
 });
 
 export default function ProjectsPage() {
-  const { canWrite } = useUser();
-  const canEdit = canWrite("devices");
+  const { can } = useUser();
+  const canEdit = can("edit_projects");
   const [stats, setStats] = useState<ProjectStats | null>(null);
+  const ongoingSort = useSortState();
   // Every plottable asset, each carrying the project it belongs to.
   const [mapDevices, setMapDevices] = useState<ProjectMapDevice[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -666,7 +665,7 @@ export default function ProjectsPage() {
   }
 
   async function deleteProject(p: ProjectDetail) {
-    const sure = window.confirm(
+    const sure = await confirmAction(
       `Delete project "${p.name}"?\n\nIts scope, milestones, requirements and budget go with it. ` +
       "Assets and stock stay where they are. A project with stock issued, orders or work orders cannot be deleted.",
     );
@@ -726,18 +725,28 @@ export default function ProjectsPage() {
     api.get("/assets/devices/map_data/")
       .then((r) => setMapDevices(r.data.results ?? r.data))
       .catch(() => {});
-    api.get("/accounts/users/", { params: { is_active: true, page_size: 200 } })
-      .then((r) => setManagerOptions(
+    Promise.all([
+      api.get("/accounts/users/", { params: { is_active: true, page_size: 200 } }),
+      api.get("/accounts/roles/", { params: { page_size: 100 } }),
+    ])
+      .then(([r, rs]) => {
+        // Running a project is not everybody's job: a manager is somebody
+        // whose role may edit projects. Read from the roles, so a role
+        // written on the Roles & Rights screen counts too.
+        const managerRoles = new Set(
+          ((rs.data.results ?? rs.data) as { key: string; capabilities: string[] }[])
+            .filter((x) => x.capabilities.includes("edit_projects"))
+            .map((x) => x.key),
+        );
+        setManagerOptions(
         (r.data.results ?? [])
-          // Running a project is not everybody's job. The list was every
-          // active account, so technicians, the warehouse and even a
-          // client's own viewer were being offered as project manager.
-          .filter((u: { role?: string }) => MANAGER_ROLES.includes(u.role ?? ""))
+          .filter((u: { role?: string }) => managerRoles.has(u.role ?? ""))
           .map((u: { id: string; first_name: string; last_name: string; username: string; job_title?: string }) => ({
             id: u.id,
             label: u.first_name || u.last_name ? `${u.first_name} ${u.last_name}`.trim() : u.username,
           })),
-      ))
+        );
+      })
       .catch(() => {});
   }, [fetchAll]);
 
@@ -875,7 +884,7 @@ export default function ProjectsPage() {
           {form.contract_type === "rental" && (
             <div>
               <label className="mb-1 block text-xs font-medium text-muted-foreground">Rental end date</label>
-              <input type="date" value={form.rental_end_date} onChange={(e) => setForm((f) => ({ ...f, rental_end_date: e.target.value }))} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none" />
+              <input type="date" min={form.start_date || undefined} value={form.rental_end_date} onChange={(e) => setForm((f) => ({ ...f, rental_end_date: e.target.value }))} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none" />
             </div>
           )}
         </div>
@@ -893,7 +902,7 @@ export default function ProjectsPage() {
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-muted-foreground">Target date</label>
-            <input type="date" value={form.target_date} onChange={(e) => setForm((f) => ({ ...f, target_date: e.target.value }))} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none" />
+            <input type="date" min={form.start_date || undefined} value={form.target_date} onChange={(e) => setForm((f) => ({ ...f, target_date: e.target.value }))} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none" />
           </div>
         </div>
         <div>
@@ -1437,7 +1446,7 @@ export default function ProjectsPage() {
               {canEdit && (
                 <form onSubmit={addMilestone} className="mt-3 flex gap-2">
                   <input name="ms_title" required placeholder="New milestone" className="h-9 min-w-0 flex-1 rounded-lg border border-border bg-card px-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none" />
-                  <input name="ms_due" type="date" className="h-9 w-32 rounded-lg border border-border bg-card px-2 text-xs text-muted-foreground focus:outline-none" />
+                  <input name="ms_due" type="date" min={detail.start_date && detail.start_date > todayIso() ? detail.start_date : todayIso()} className="h-9 w-32 rounded-lg border border-border bg-card px-2 text-xs text-muted-foreground focus:outline-none" />
                   <button type="submit" className="h-9 rounded-lg bg-primary px-3 text-xs font-medium text-white transition-colors hover:bg-primary/90">Add</button>
                 </form>
               )}
@@ -1637,9 +1646,18 @@ export default function ProjectsPage() {
 
   function daysLeft(targetDate: string | null): string {
     if (!targetDate) return "—";
-    const diff = Math.ceil((new Date(targetDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-    if (diff < 0) return `${Math.abs(diff)} days overdue`;
-    return `${diff} days left`;
+    // Whole local days between today and the target: "2026-10-06" read as
+    // UTC midnight and compared to this instant came out a day short.
+    const [y, m, d] = targetDate.split("-").map(Number);
+    const today = new Date();
+    const diff = Math.round(
+      (new Date(y, m - 1, d).getTime() - new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime())
+      / 86400000,
+    );
+    const days = (n: number) => `${n} day${n === 1 ? "" : "s"}`;
+    if (diff < 0) return `${days(-diff)} overdue`;
+    if (diff === 0) return "Due today";
+    return `${days(diff)} left`;
   }
 
   return (
@@ -1733,18 +1751,18 @@ export default function ProjectsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
-                  <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Project / Sites</th>
-                  <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Phase</th>
-                  <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Progress</th>
-                  <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Health</th>
-                  <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Start Date</th>
-                  <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Target Date</th>
-                  <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Bottlenecks</th>
+                  <SortTh sort={ongoingSort} k="name" className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Project / Sites</SortTh>
+                  <SortTh sort={ongoingSort} k="phase_display" className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Phase</SortTh>
+                  <SortTh sort={ongoingSort} k="progress" className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Progress</SortTh>
+                  <SortTh sort={ongoingSort} k="status_display" className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Health</SortTh>
+                  <SortTh sort={ongoingSort} k="start_date" className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Start Date</SortTh>
+                  <SortTh sort={ongoingSort} k="target_date" className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Target Date</SortTh>
+                  <SortTh sort={ongoingSort} k="bottleneck_count" className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Bottlenecks</SortTh>
                   <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Action</th>
                 </tr>
               </thead>
               <tbody>
-                {ongoing.map((project) => (
+                {sortRows(ongoing, ongoingSort).map((project) => (
                   <tr key={project.id} onClick={() => openProject(project.id)} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
                     <td className="px-5 py-3.5">
                       <div>
