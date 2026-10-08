@@ -11,6 +11,7 @@ import {
   CorrectiveVisit, type CorrectiveVisitRow, type VisitPhoto,
 } from "./corrective-visit";
 import { SearchSelect } from "@/components/ui/search-select";
+import { confirmAction } from "@/components/ui/confirm";
 import { useUser } from "@/lib/user-context";
 import { formatDate, formatDateTime } from "@/lib/utils";
 
@@ -168,7 +169,7 @@ export function ScheduleDetail({
       the visit itself, the same as it does for a breakdown. */
   onEdit?: () => void;
 }) {
-  const { user } = useUser();
+  const { can } = useUser();
   const [parts, setParts] = useState<PartRequest[]>([]);
   const [visits, setVisits] = useState<Visit[]>([]);
   /** This job as the server has it now, not as the list had it. */
@@ -187,9 +188,8 @@ export function ScheduleDetail({
   const [cover, setCover] = useState<{ covered: boolean; label: string; until: string | null } | null>(null);
   const [clientName, setClientName] = useState<string | null>(null);
 
-  const role = user?.role ?? "";
-  const canDecide = ["super_admin", "group_head", "ops_manager", "supervisor"].includes(role);
-  const canAsk = canDecide || role === "technician";
+  const canDecide = can("review_maintenance");
+  const canAsk = canDecide || can("work_maintenance");
 
   const loadParts = useCallback(async () => {
     try {
@@ -372,7 +372,7 @@ export function ScheduleDetail({
     && state !== "completed" && (!schedule.is_active || state === "on_hold");
 
   async function togglePaused() {
-    if (!paused && !confirm(`Pause "${schedule.title}"? No further rounds fall due until it is resumed.`))
+    if (!paused && !(await confirmAction(`Pause "${schedule.title}"? No further rounds fall due until it is resumed.`)))
       return;
     setBusy("schedule");
     try {

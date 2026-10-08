@@ -40,10 +40,12 @@ import { Lightbox } from "@/components/ui/lightbox";
 import { Modal } from "@/components/ui/modal";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { ProgressStepper } from "@/components/ui/progress-stepper";
+import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
+import { confirmAction } from "@/components/ui/confirm";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
-import { formatDateTime, formatDate } from "@/lib/utils";
+import { formatDateTime, formatDate, deadlineMin } from "@/lib/utils";
 import type { TicketAttachment, TicketComment, TicketStatus } from "@/types";
 
 /* ─── Types ────────────────────────────────────────────────────────── */
@@ -343,14 +345,12 @@ function ActivityItem({ comment, onImageClick }: { comment: TicketComment; onIma
 function TicketDetailView({
   ticket: initialTicket,
   currentUserId,
-  currentUserRole,
   onClose,
   onEdit,
   onRefresh,
 }: {
   ticket: TicketItem;
   currentUserId: string;
-  currentUserRole: string;
   onClose: () => void;
   onEdit: () => void;
   onRefresh: () => void;
@@ -370,7 +370,9 @@ function TicketDetailView({
   // Who may do what is the maintenance job's question now. All this page
   // decides is whether the complaint itself may still be edited, and
   // whether it is late.
-  const isAdmin = ["super_admin", "group_head", "ops_manager"].includes(currentUserRole);
+  // Rewriting a ticket is for whoever hands tickets out.
+  const { can } = useUser();
+  const isAdmin = can("assign_ticket");
   const isClosed = ["approved", "closed", "cancelled"].includes(ticket.status);
   const isOverdue = ticket.due_date && new Date(ticket.due_date) < new Date() && !isClosed;
 
@@ -856,6 +858,7 @@ export default function TicketsPage() {
   const searchParams = useSearchParams();
   const [tickets, setTickets] = useState<TicketItem[]>([]);
   const [ticketPage, setTicketPage] = useState(1);
+  const sort = useSortState();
   const [loading, setLoading] = useState(true);
   const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
   const [selected, setSelected] = useState<TicketItem | null>(null);
@@ -1087,7 +1090,7 @@ export default function TicketsPage() {
   }
 
   async function handleDelete(t: TicketItem) {
-    if (!confirm(`Delete ticket "${t.title}"? This cannot be undone.`)) return;
+    if (!(await confirmAction(`Delete ticket "${t.title}"? This cannot be undone.`))) return;
     try { await api.delete(`/tickets/${t.id}/`); toast.success("Ticket deleted"); fetchTickets(); }
     catch (err: unknown) { toast.error(getApiError(err, "Cannot delete — ticket may have linked records")); }
   }
@@ -1099,7 +1102,6 @@ export default function TicketsPage() {
       <TicketDetailView
         ticket={detailTicket}
         currentUserId={user.id}
-        currentUserRole={user.role}
         onClose={closeDetail}
         onEdit={() => { closeDetail(); openEdit(detailTicket); }}
         onRefresh={fetchTickets}
@@ -1223,20 +1225,20 @@ export default function TicketsPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border bg-secondary/50">
-                    <th className={thClass}>Ticket #</th>
-                    <th className={thClass}>Title</th>
-                    <th className={thClass}>Assets</th>
-                    <th className={thClass}>Priority</th>
-                    <th className={thClass}>Status</th>
-                    <th className={thClass}>Category</th>
-                    <th className={thClass}>Site</th>
-                    <th className={thClass}>Assigned To</th>
-                    <th className={thClass}>Due Date</th>
+                    <SortTh sort={sort} k="ticket_number" className={thClass}>Ticket #</SortTh>
+                    <SortTh sort={sort} k="title" className={thClass}>Title</SortTh>
+                    <SortTh sort={sort} k="assets" className={thClass}>Assets</SortTh>
+                    <SortTh sort={sort} k="priority" className={thClass}>Priority</SortTh>
+                    <SortTh sort={sort} k="status" className={thClass}>Status</SortTh>
+                    <SortTh sort={sort} k="category" className={thClass}>Category</SortTh>
+                    <SortTh sort={sort} k="site_name" className={thClass}>Site</SortTh>
+                    <SortTh sort={sort} k="assigned_to_name" className={thClass}>Assigned To</SortTh>
+                    <SortTh sort={sort} k="due_date" className={thClass}>Due Date</SortTh>
                     <th className={thClass}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {pageSlice(filtered, ticketPage).map((t) => (
+                  {pageSlice(sortRows(filtered, sort, { assets: (t) => t.device_code, priority: (t) => ({ critical: 0, high: 1, medium: 2, low: 3 } as Record<string, number>)[t.priority] ?? 4 }), ticketPage).map((t) => (
                     <tr key={t.id} onClick={() => openDetail(t)} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
                       <td className={`${tdClass} whitespace-nowrap font-medium text-primary`}>
                         <span className="inline-flex items-center gap-1">
@@ -1465,7 +1467,7 @@ export default function TicketsPage() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
                   <label htmlFor="issue_type" className={labelClass}>Issue Type *</label>
-                  <select id="issue_type" name="issue_type" required defaultValue={selected?.issue_type ?? ""} className={inputClass}>
+                  <select key={issueTypes.length} id="issue_type" name="issue_type" required defaultValue={selected?.issue_type ?? ""} className={inputClass}>
                     <option value="" disabled>Select issue…</option>
                     {issueTypes.map((it) => <option key={it.id} value={it.id}>{it.name}</option>)}
                   </select>
@@ -1494,7 +1496,7 @@ export default function TicketsPage() {
                   <label htmlFor="due_date" className={labelClass}>
                     Due Date
                   </label>
-                  <input id="due_date" name="due_date" type="date" defaultValue={selected?.due_date ?? ""} className={inputClass} />
+                  <input id="due_date" name="due_date" type="date" min={deadlineMin(selected?.due_date)} defaultValue={selected?.due_date ?? ""} className={inputClass} />
                   {modalMode === "create" && (
                     <p className="text-2xs text-muted-foreground">Auto-set from priority if left empty (critical 24h · high 48h · medium 5bd · low 10bd)</p>
                   )}

@@ -13,6 +13,10 @@ export interface Notification {
   message: string;
   alert?: string | null;
   ticket?: string | null;
+  /** Where the work is: the page that answers this notification. */
+  link?: string;
+  /** What it is about, so a decision clears it: "po:<id>", "wo:<id>", … */
+  ref?: string;
   data: Record<string, unknown>;
   is_read: boolean;
   read_at: string | null;
@@ -43,6 +47,9 @@ export function useNotifications() {
 }
 
 function getNotificationRoute(notif: Notification): string {
+  // The server says where the work is; the switch below is for the
+  // notifications that predate the link.
+  if (notif.link) return notif.link;
   const d = notif.data;
 
   switch (notif.notification_type) {
@@ -72,6 +79,17 @@ function getNotificationRoute(notif: Notification): string {
 }
 
 export { getNotificationRoute };
+
+/** What the toast's button says, by what the notification asks for. */
+const ACTION_LABEL: Record<string, string> = {
+  ticket_review: "Review Now",
+  ticket_assigned: "View Ticket",
+  ticket_update: "View Ticket",
+  approval_requested: "Decide",
+  request_raised: "Answer",
+  work_assigned: "See the job",
+  alert: "View",
+};
 
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -109,32 +127,18 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       setUnreadCount((prev) => prev + 1);
 
       const nType = notification.notification_type;
-      if (nType === "ticket_assigned" || nType === "ticket_update" || nType === "ticket_review") {
-        const route = getNotificationRoute(notification);
-        const label = nType === "ticket_review" ? "Review Now" : "View Ticket";
-        toast(notification.title, {
-          description: notification.message,
-          action: {
-            label,
-            onClick: () => {
-              window.location.href = route;
-            },
-          },
-          duration: 8000,
-        });
-      } else if (nType === "alert") {
+      const route = getNotificationRoute(notification);
+      const open = { label: ACTION_LABEL[nType] ?? "Open", onClick: () => { window.location.href = route; } };
+      if (nType === "alert") {
         const severity = (notification.data?.severity as string) || "info";
         const method = severity === "critical" || severity === "error" ? toast.error : toast.warning;
-        const route = getNotificationRoute(notification);
-        method(notification.title, {
+        method(notification.title, { description: notification.message, action: open, duration: 6000 });
+      } else if (nType !== "digest") {
+        toast(notification.title, {
           description: notification.message,
-          action: {
-            label: "View",
-            onClick: () => {
-              window.location.href = route;
-            },
-          },
-          duration: 6000,
+          action: open,
+          // Something waiting on this person stays up longer than news.
+          duration: notification.is_actionable ? 10000 : 8000,
         });
       }
     });

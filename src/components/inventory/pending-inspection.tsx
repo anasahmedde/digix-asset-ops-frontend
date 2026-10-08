@@ -1,13 +1,13 @@
 "use client";
 
-import { ClipboardCheck, PackageCheck, Undo2 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { PackageCheck, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Modal } from "@/components/ui/modal";
 import { Pagination, pageSlice } from "@/components/ui/pagination";
 import { Qty } from "@/components/ui/qty";
+import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
@@ -42,15 +42,13 @@ interface ReceiptLine {
   rejected_quantity?: number;
   inspection_notes?: string;
   inspected_by_name?: string | null;
+  /** Vendor cover typed by Procurement at inspection, in months. */
+  warranty_months?: number | null;
+  /** Where the stock row it lands on is kept today. */
+  storage_location?: string | null;
   created_at: string;
 }
 interface Ref { id: string; name: string }
-interface UnitRow {
-  serial_number: string;
-  model_name: string;
-  /** Supplier cover on this unit, in months from the day it was received. */
-  warranty_months: string;
-}
 
 const inputClass =
   "flex h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors";
@@ -60,26 +58,15 @@ const labelClass = "text-xs font-medium text-muted-foreground";
 const thClass = "px-5 py-3.5 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground";
 const tdClass = "px-5 py-3.5";
 
-function emptyUnit(serial = ""): UnitRow {
-  return { serial_number: serial, model_name: "", warranty_months: "" };
-}
-
 export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
-  const { canWrite } = useUser();
-  const canInspect = canWrite("inventory");
-  const router = useRouter();
+  const { can } = useUser();
+  const canInspect = can("inspect_goods");
 
   const [lines, setLines] = useState<ReceiptLine[]>([]);
+  const sort = useSortState();
   const [receivingPage, setReceivingPage] = useState(1);
-  const [materialTypes, setMaterialTypes] = useState<Ref[]>([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
 
-  const [active, setActive] = useState<ReceiptLine | null>(null);
-  const [route, setRoute] = useState<"generic" | "unique">("generic");
-  const [accepted, setAccepted] = useState(0);
-  const [notes, setNotes] = useState("");
-  const [units, setUnits] = useState<UnitRow[]>([]);
   const [materialType, setMaterialType] = useState("");
   // Where the storekeeper is putting this delivery.
   const [storageLocation, setStorageLocation] = useState("");
@@ -165,7 +152,6 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
 
   useEffect(() => {
     fetchLines();
-    api.get("/assets/material-types/").then((r) => setMaterialTypes(r.data.results ?? r.data)).catch(() => {});
   }, [fetchLines]);
 
   /** How many units of a line actually go onto the shelf. */
@@ -173,15 +159,12 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
     return line.accepted_quantity ?? line.quantity;
   }
 
-  /** Was this delivery already checked against its order, in Procurement? */
-  function alreadyJudged(line: ReceiptLine): boolean {
-    return line.inspection_status === "passed";
-  }
-
   // ── Receiving: counting in what Procurement already passed ──────────
   const [receiving, setReceiving] = useState<ReceiptLine | null>(null);
   const [tally, setTally] = useState<string[]>([]);
   const [receiveNote, setReceiveNote] = useState("");
+  // Where the goods are put — asked every time, so they can be found again.
+  const [place, setPlace] = useState("");
   const [receiveBusy, setReceiveBusy] = useState(false);
 
   function openReceive(line: ReceiptLine) {
@@ -195,6 +178,7 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
         : [],
     );
     setReceiveNote("");
+    setPlace(line.storage_location ?? "");
     setReceiving(line);
   }
 
@@ -214,7 +198,7 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
     }
     setReceiveBusy(true);
     try {
-      const body: Record<string, unknown> = { notes: receiveNote.trim() };
+      const body: Record<string, unknown> = { notes: receiveNote.trim(), storage_location: place.trim() };
       if (receiving.kind === "unique") {
         body.route = "unique";
         body.units = tally.map((x) => ({ serial_number: x.trim() }));
@@ -233,100 +217,14 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
     }
   }
 
-  function openInspect(line: ReceiptLine) {
-    setActive(line);
-    setAccepted(line.quantity);
-    setNotes("");
-    setMaterialType(line.material_type ?? "");
-    setStorageLocation("");
-    // The order already says what this is; only a hand-typed line is asked.
-    const preset = line.serial_numbers.length > 0;
-    setRoute(line.kind === "unique" || line.kind === "generic" ? line.kind : preset ? "unique" : "generic");
-    setUnits(
-      preset
-        ? line.serial_numbers.map((s) => emptyUnit(s))
-        : Array.from({ length: line.quantity }, () => emptyUnit()),
-    );
-  }
-
-  function setUnitCount(n: number) {
-    setUnits((prev) => {
-      if (n <= prev.length) return prev.slice(0, n);
-      return [...prev, ...Array.from({ length: n - prev.length }, () => emptyUnit())];
-    });
-  }
-
-  function patchUnit(i: number, patch: Partial<UnitRow>) {
-    setUnits((prev) => prev.map((u, j) => (j === i ? { ...u, ...patch } : u)));
-  }
-
-  async function submitInspection() {
-    if (!active) return;
-    const rejected = active.quantity - accepted;
-    setSaving(true);
-    try {
-      const payload: Record<string, unknown> = {
-        accepted_quantity: accepted,
-        rejected_quantity: rejected,
-        notes,
-      };
-      if (accepted > 0) {
-        payload.route = route;
-        if (route === "generic") {
-          payload.generic = {
-            material_type: materialType || null,
-            storage_location: storageLocation.trim(),
-          };
-        } else {
-          payload.units = units.slice(0, accepted).map((u) => ({
-            serial_number: u.serial_number,
-            model_name: u.model_name,
-            has_warranty: !!u.warranty_months,
-            warranty_months: u.warranty_months ? Number(u.warranty_months) : null,
-          }));
-        }
-      }
-      const { data } = await api.post(`/inventory/receipt-lines/${active.id}/inspect/`, payload);
-      const stocked = data.stocked_units?.length ?? 0;
-      const withWarranty = route === "unique" && accepted > 0
-        ? units.slice(0, accepted).filter((u) => u.warranty_months).length
-        : 0;
-      toast.success(
-        accepted === 0
-          ? "Line rejected — nothing stocked"
-          : route === "unique"
-            ? `${stocked} unique component${stocked === 1 ? "" : "s"} added to inventory`
-            : `${accepted} added to generic stock`,
-      );
-      const ready: string[] = data.ready_requests ?? [];
-      if (ready.length > 0) {
-        toast.message(`Bought for a project line — the store issues it against ${ready.join(", ")} in Issue Requests`);
-      }
-      setActive(null);
-      fetchLines();
-      onStocked?.();
-      // Item 23: the receipt ends where the cover it created is kept.
-      if (withWarranty > 0) {
-        toast.message(`${withWarranty} warrant${withWarranty === 1 ? "y" : "ies"} recorded from today — opening Warranties`);
-        router.push("/warranties");
-      }
-    } catch (err) {
-      toast.error(getApiError(err, "Inspection failed"));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  const rejected = active ? active.quantity - accepted : 0;
-
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <p className="max-w-3xl text-sm text-muted-foreground">
-          Everything coming into the store waits here. A purchase delivery was
-          already checked against its order in Procurement — the store counts it onto the shelf and
-          corrects any serial number that does not match the box. Components back from a project or
-          a maintenance job never met an inspector, so they are inspected here.
+          Everything coming into the store waits here, and the store&apos;s one job is to count
+          it onto the shelf. A purchase delivery arrives already checked against its order in
+          Procurement; a part back from a project or a maintenance job is taken in whole. The only
+          thing corrected here is a serial number that does not match the box.
         </p>
         {canInspect && (
           <button
@@ -356,19 +254,19 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
-                  <th className={thClass}>GRN</th>
-                  <th className={thClass}>Source</th>
-                  <th className={thClass}>Component</th>
-                  <th className={thClass}>Item Code</th>
-                  <th className={thClass}>Kind</th>
-                  <th className={thClass}>Received</th>
-                  <th className={thClass}>Batch</th>
-                  <th className={thClass}>Serial Nos</th>
+                  <SortTh sort={sort} k="grn_number" className={thClass}>GRN</SortTh>
+                  <SortTh sort={sort} k="source" className={thClass}>Source</SortTh>
+                  <SortTh sort={sort} k="component" className={thClass}>Component</SortTh>
+                  <SortTh sort={sort} k="component_code" className={thClass}>Item Code</SortTh>
+                  <SortTh sort={sort} k="kind" className={thClass}>Kind</SortTh>
+                  <SortTh sort={sort} k="quantity" className={thClass}>Received</SortTh>
+                  <SortTh sort={sort} k="batch_number" className={thClass}>Batch</SortTh>
+                  <SortTh sort={sort} k="serials" className={thClass}>Serial Nos</SortTh>
                   {canInspect && <th className={thClass}>Actions</th>}
                 </tr>
               </thead>
               <tbody>
-                {pageSlice(lines, receivingPage).map((line) => (
+                {pageSlice(sortRows(lines, sort, { source: (l) => l.supplier_name ?? l.source_display, component: (l) => l.known_component || l.material_name || l.device_model_name || l.po_item_description, serials: (l) => l.serial_numbers.length }), receivingPage).map((line) => (
                   <tr key={line.id} className="border-b border-border transition-colors hover:bg-secondary/30">
                     <td className={`${tdClass} whitespace-nowrap font-mono text-foreground`}>{line.grn_number ?? "—"}</td>
                     <td className={tdClass}>
@@ -429,18 +327,14 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
                     </td>
                     {canInspect && (
                       <td className={tdClass}>
-                        {/* A delivery already judged in Procurement is only
-                            counted in here. Anything else never met an
-                            inspector, so it meets one now. */}
+                        {/* The store counts goods in; it never judges them. A
+                            purchase delivery arrives already judged by
+                            Procurement, and anything else is taken in whole. */}
                         <button
-                          onClick={() => (alreadyJudged(line) ? openReceive(line) : openInspect(line))}
+                          onClick={() => openReceive(line)}
                           className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-primary/90"
                         >
-                          {alreadyJudged(line) ? (
-                            <><PackageCheck className="h-3.5 w-3.5" /> Receive</>
-                          ) : (
-                            <><ClipboardCheck className="h-3.5 w-3.5" /> Inspect</>
-                          )}
+                          <PackageCheck className="h-3.5 w-3.5" /> Receive
                         </button>
                       </td>
                     )}
@@ -470,9 +364,11 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
                 {receiving.po_number ? `${receiving.po_number} · ` : ""}
-                {receiving.supplier_name ?? "—"} · {receiving.accepted_quantity ?? receiving.quantity}{" "}
-                {receiving.unit ?? "piece"} passed inspection
-                {receiving.inspected_by_name ? ` · checked by ${receiving.inspected_by_name}` : ""}
+                {receiving.supplier_name ?? receiving.source_display ?? "—"} ·{" "}
+                {receiving.accepted_quantity ?? receiving.quantity} {receiving.unit ?? "piece"}
+                {receiving.inspection_status === "passed"
+                  ? ` passed inspection${receiving.inspected_by_name ? ` · checked by ${receiving.inspected_by_name}` : ""}`
+                  : " to take in"}
               </p>
               {(receiving.rejected_quantity ?? 0) > 0 && (
                 <p className="mt-1 text-xs text-amber-600">
@@ -481,6 +377,11 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
                   quantity stays owed on the order.
                 </p>
               )}
+              {receiving.warranty_months ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Component warranty {receiving.warranty_months} months — carried onto every unit.
+                </p>
+              ) : null}
             </div>
 
             {receiving.kind === "unique" ? (
@@ -522,6 +423,18 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
             )}
 
             <div className="space-y-1.5">
+              <label htmlFor="receive_place" className={labelClass}>Storage location *</label>
+              <input
+                id="receive_place"
+                value={place}
+                onChange={(e) => setPlace(e.target.value)}
+                maxLength={200}
+                placeholder="e.g. Rack A3, Bin 12"
+                className={inputClass}
+              />
+            </div>
+
+            <div className="space-y-1.5">
               <label htmlFor="receive_note" className={labelClass}>Note (optional)</label>
               <input
                 id="receive_note"
@@ -543,7 +456,7 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
               <button
                 type="button"
                 onClick={submitReceive}
-                disabled={receiveBusy}
+                disabled={receiveBusy || !place.trim()}
                 className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-primary px-5 text-sm font-medium text-white transition-all disabled:opacity-50"
               >
                 <PackageCheck className="h-4 w-4" />
@@ -554,205 +467,6 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
         )}
       </Modal>
 
-      <Modal open={active !== null} onClose={() => setActive(null)} title="Inspect Delivery" size="xl">
-        {active && (
-          <div className="space-y-4">
-            <div className="rounded-xl border border-border bg-secondary/20 p-3 text-xs text-muted-foreground">
-              <span className="font-medium text-foreground">
-                {active.known_component
-                  ?? active.po_item_description
-                  ?? active.material_name
-                  ?? active.device_model_name
-                  ?? "Not named on the delivery"}
-              </span>
-              {" · "}GRN <span className="font-mono">{active.grn_number}</span>
-              {active.po_number && <> · PO <span className="font-mono">{active.po_number}</span></>}
-              {active.batch_number && <> · Batch <span className="font-mono">{active.batch_number}</span></>}
-              {" · "}{active.quantity} received
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="space-y-1.5">
-                <label htmlFor="accepted" className={labelClass}>Accepted</label>
-                <select
-                  id="accepted"
-                  value={accepted}
-                  onChange={(e) => {
-                    const n = Number(e.target.value);
-                    setAccepted(n);
-                    if (route === "unique") setUnitCount(n);
-                  }}
-                  className={inputClass}
-                >
-                  {Array.from({ length: active.quantity + 1 }, (_, n) => n).map((n) => (
-                    <option key={n} value={n}>{n}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <label className={labelClass}>Rejected</label>
-                <p className={`flex h-10 items-center rounded-lg border border-border px-3 text-sm ${rejected > 0 ? "bg-destructive/10 text-destructive" : "bg-secondary/40 text-muted-foreground"}`}>
-                  {rejected}
-                </p>
-              </div>
-              <div className="space-y-1.5">
-                <label htmlFor="route" className={labelClass}>File into</label>
-                {active.kind === "generic" || active.kind === "unique" ? (
-                  // Known from the purchase order: the component was opened in
-                  // inventory before it was ever ordered, so nothing to decide.
-                  <div>
-                    <p id="route" className="flex h-10 items-center rounded-lg border border-border bg-secondary/40 px-3 text-sm text-foreground">
-                      {active.kind === "unique" ? "Unique items" : "Generic stock"}
-                      {active.known_component && (
-                        <span className="ml-1.5 truncate text-muted-foreground">· {active.known_component}</span>
-                      )}
-                    </p>
-                    <p className="mt-1 text-2xs text-muted-foreground">Set by the purchase order line.</p>
-                  </div>
-                ) : (
-                  <select
-                    id="route"
-                    value={route}
-                    disabled={accepted === 0}
-                    onChange={(e) => {
-                      const r = e.target.value as "generic" | "unique";
-                      setRoute(r);
-                      if (r === "unique") setUnitCount(accepted);
-                    }}
-                    className={`${inputClass} disabled:opacity-50`}
-                  >
-                    <option value="generic">Generic stock</option>
-                    <option value="unique">Unique items</option>
-                  </select>
-                )}
-              </div>
-            </div>
-
-            {accepted > 0 && route === "generic" && active.kind === "generic" && (
-              <div className="grid gap-4 rounded-xl border border-border bg-secondary/20 p-4 sm:grid-cols-3">
-                <div className="space-y-1.5 sm:col-span-2">
-                  <label className={labelClass}>Tops up</label>
-                  <p className="flex h-10 items-center rounded-lg border border-border bg-secondary/40 px-3 text-sm text-foreground">
-                    {active.known_component ?? active.material_name ?? "the stock item on the order"}
-                  </p>
-                  <p className="text-2xs text-muted-foreground">The accepted quantity is added to this stock item and journalled against GRN {active.grn_number}.</p>
-                </div>
-                <div className="space-y-1.5">
-                  <label htmlFor="ins_placed" className={labelClass}>Storage location</label>
-                  <input
-                    id="ins_placed"
-                    value={storageLocation}
-                    onChange={(e) => setStorageLocation(e.target.value)}
-                    placeholder="e.g. Rack A3"
-                    className={inputClass}
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* A component already belongs to a category, so naming it once
-                settles both. */}
-            {accepted > 0 && route === "generic" && active.kind !== "generic" && (
-              <div className="grid gap-4 rounded-xl border border-border bg-secondary/20 p-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <label htmlFor="ins_material" className={labelClass}>Component</label>
-                  <select id="ins_material" value={materialType} onChange={(e) => setMaterialType(e.target.value)} className={inputClass}>
-                    <option value="">From the purchase order</option>
-                    {materialTypes.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-                  </select>
-                </div>
-                <div className="space-y-1.5">
-                  <label htmlFor="ins_placed" className={labelClass}>Storage location</label>
-                  <input
-                    id="ins_placed"
-                    value={storageLocation}
-                    onChange={(e) => setStorageLocation(e.target.value)}
-                    placeholder="e.g. Rack A3"
-                    className={inputClass}
-                  />
-                </div>
-              </div>
-            )}
-
-            {accepted > 0 && route === "unique" && (
-              <div className="space-y-2 rounded-xl border border-border bg-secondary/20 p-4">
-                <p className="text-xs text-muted-foreground">
-                  {active.kind === "unique" && active.known_component
-                    ? <>One row per physical unit, filed under <span className="font-medium text-foreground">{active.known_component}</span>. Make, model, technical details, supplier, price and batch come from the product and the purchase order. A warranty term runs from today, the day the unit was received.</>
-                    : <>One row per physical unit. Make, supplier, price and batch are taken from the purchase order. A warranty term runs from today, the day the unit was received.</>}
-                </p>
-                <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
-                  {units.slice(0, accepted).map((u, i) => (
-                    <div key={i} className="grid items-center gap-2 sm:grid-cols-12">
-                      <input
-                        value={u.serial_number}
-                        onChange={(e) => patchUnit(i, { serial_number: e.target.value })}
-                        placeholder={`Serial no ${i + 1} *`}
-                        className={`${smallInput} sm:col-span-4`}
-                      />
-                      {active.kind === "unique" ? (
-                        <p className={`${smallInput} flex items-center bg-secondary/40 text-muted-foreground sm:col-span-3`} title="From the opened product">
-                          {active.known_component}
-                        </p>
-                      ) : (
-                        <input
-                          value={u.model_name}
-                          onChange={(e) => patchUnit(i, { model_name: e.target.value })}
-                          placeholder="Model"
-                          className={`${smallInput} sm:col-span-3`}
-                        />
-                      )}
-                      <div className="flex items-center gap-2 sm:col-span-5">
-                        <input
-                          type="number"
-                          min={1}
-                          max={120}
-                          value={u.warranty_months}
-                          onChange={(e) => patchUnit(i, { warranty_months: e.target.value })}
-                          placeholder="Warranty (months)"
-                          title="Warranty months, counted from today"
-                          className={`${smallInput} w-40`}
-                        />
-                        <span className="text-2xs text-muted-foreground">from today · blank = no warranty</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div className="space-y-1.5">
-              <label htmlFor="ins_notes" className={labelClass}>Inspection notes</label>
-              <textarea
-                id="ins_notes"
-                rows={2}
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder={rejected > 0 ? "Why were items rejected?" : "Optional"}
-                className={`${inputClass} h-auto py-2`}
-              />
-            </div>
-
-            <div className="flex justify-end gap-3 pt-1">
-              <button
-                type="button"
-                onClick={() => setActive(null)}
-                className="inline-flex h-10 items-center rounded-lg border border-border px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={submitInspection}
-                disabled={saving}
-                className="inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-medium text-white transition-all disabled:opacity-50"
-              >
-                {saving ? "Filing…" : accepted === 0 ? "Reject Delivery" : "Accept & File to Inventory"}
-              </button>
-            </div>
-          </div>
-        )}
-      </Modal>
       <Modal open={returnOpen} onClose={() => setReturnOpen(false)} title="Record a return" size="md">
         <form onSubmit={submitReturn} className="space-y-4">
           <p className="text-xs text-muted-foreground">

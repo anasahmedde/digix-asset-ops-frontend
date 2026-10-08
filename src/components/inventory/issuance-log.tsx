@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { Qty } from "@/components/ui/qty";
+import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
 
 /** A store request with at least one hand-over: the log's main record. */
 interface RequestRow {
@@ -120,8 +121,12 @@ function Detail({ label, value, mono = false }: { label: string; value: React.Re
   );
 }
 
+/** A field off either kind of issuance row, for sorting. */
+const f = (r: { row: object }, k: string) => (r.row as Record<string, string | number | null | undefined>)[k];
+
 export function IssuanceLog() {
   const [requests, setRequests] = useState<RequestRow[]>([]);
+  const sort = useSortState();
   const [legacy, setLegacy] = useState<LegacyRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -255,18 +260,18 @@ export function IssuanceLog() {
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
                   <th className={`${thClass} w-8`}></th>
-                  <th className={thClass}>Request</th>
-                  <th className={thClass}>Date</th>
-                  <th className={thClass}>Component</th>
-                  <th className={thClass}>Kind</th>
-                  <th className={thClass}>Issued</th>
-                  <th className={thClass}>For / Received By</th>
-                  <th className={thClass}>For Asset</th>
-                  <th className={thClass}>Issued By</th>
+                  <SortTh sort={sort} k="number" className={thClass}>Request</SortTh>
+                  <SortTh sort={sort} k="date" className={thClass}>Date</SortTh>
+                  <SortTh sort={sort} k="component" className={thClass}>Component</SortTh>
+                  <SortTh sort={sort} k="kind" className={thClass}>Kind</SortTh>
+                  <SortTh sort={sort} k="issued" className={thClass}>Issued</SortTh>
+                  <SortTh sort={sort} k="received_by" className={thClass}>For / Received By</SortTh>
+                  <SortTh sort={sort} k="asset" className={thClass}>For Asset</SortTh>
+                  <SortTh sort={sort} k="issued_by" className={thClass}>Issued By</SortTh>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((r) => {
+                {sortRows(filtered, sort, { component: (r) => f(r, "item_name") || f(r, "unit_type_name") || f(r, "what"), issued: (r) => f(r, "quantity_issued") ?? f(r, "quantity"), received_by: (r) => f(r, "received_by"), asset: (r) => f(r, "asset_code"), issued_by: (r) => f(r, "issued_by_name") }).map((r) => {
                   const forWhat = drawnFor(r);
                   const takenBy = r.kind === "request"
                     ? receivers(r.row)

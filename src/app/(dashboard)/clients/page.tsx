@@ -11,6 +11,8 @@ import {
 import { CopyButton } from "@/components/ui/copy-button";
 import { Pagination, pageSlice } from "@/components/ui/pagination";
 import { FilterBar } from "@/components/ui/filter-bar";
+import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
+import { confirmAction } from "@/components/ui/confirm";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
@@ -40,6 +42,7 @@ export default function ClientsPage() {
 
   const [clients, setClients] = useState<Client[]>([]);
   const [clientPage, setClientPage] = useState(1);
+  const sort = useSortState();
   const [loading, setLoading] = useState(true);
   const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
   const [selected, setSelected] = useState<Client | null>(null);
@@ -81,10 +84,10 @@ export default function ClientsPage() {
   /** Taken off the books without being erased from the history. */
   async function toggleActive(c: Client) {
     const off = c.is_active;
-    if (off && !confirm(
+    if (off && !(await confirmAction(
       `Deactivate ${c.name}? They stay on every record they are already on, `
       + "and stop being offered when something new is raised.",
-    )) return;
+    ))) return;
     try {
       await api.patch(`/clients/${c.id}/`, { is_active: !off });
       toast.success(off ? "Client deactivated" : "Client reactivated");
@@ -129,7 +132,7 @@ export default function ClientsPage() {
   }
 
   async function handleDelete(client: Client) {
-    if (!confirm(`Delete client "${client.name}"? This cannot be undone.`)) return;
+    if (!(await confirmAction(`Delete client "${client.name}"? This cannot be undone.`))) return;
     try {
       await api.delete(`/clients/${client.id}/`);
       toast.success("Client deleted");
@@ -195,17 +198,17 @@ export default function ClientsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
-                  <th className={thClass}>Name</th>
-                  <th className={thClass}>Code</th>
-                  <th className={thClass}>Contact Person</th>
-                  <th className={thClass}>Email</th>
-                  <th className={thClass}>Phone</th>
-                  <th className={thClass}>Status</th>
+                  <SortTh sort={sort} k="name" className={thClass}>Name</SortTh>
+                  <SortTh sort={sort} k="code" className={thClass}>Code</SortTh>
+                  <SortTh sort={sort} k="contact_person" className={thClass}>Contact Person</SortTh>
+                  <SortTh sort={sort} k="contact_email" className={thClass}>Email</SortTh>
+                  <SortTh sort={sort} k="contact_phone" className={thClass}>Phone</SortTh>
+                  <SortTh sort={sort} k="is_active" className={thClass}>Status</SortTh>
                   <th className={thClass}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {pageSlice(filtered, clientPage).map((c) => (
+                {pageSlice(sortRows(filtered, sort), clientPage).map((c) => (
                   <tr key={c.id} onClick={() => { setSelected(c); setModalMode("edit"); }} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
                     <td className={`${tdClass} font-medium text-foreground`}>
                       <span className="inline-flex items-center gap-1">

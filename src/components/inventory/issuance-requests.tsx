@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Modal } from "@/components/ui/modal";
 import { Pagination, pageSlice } from "@/components/ui/pagination";
 import { Qty } from "@/components/ui/qty";
+import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
@@ -55,7 +56,6 @@ interface RequestRow {
 }
 
 // Only the warehouse hands material over (mirrors the backend).
-const STORE_ROLES = ["super_admin", "group_head", "ops_manager", "warehouse"];
 
 const STATUS_BADGES: Record<string, string> = {
   pending: "bg-amber-500/10 text-amber-600 ring-amber-500/20",
@@ -71,10 +71,11 @@ const thClass = "px-3 py-3.5 text-left text-xs font-medium uppercase tracking-wi
 const tdClass = "px-3 py-3.5 align-top";
 
 export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
-  const { user } = useUser();
-  const canIssue = user != null && STORE_ROLES.includes(user.role);
+  const { can } = useUser();
+  const canIssue = can("issue_stock");
 
   const [rows, setRows] = useState<RequestRow[]>([]);
+  const sort = useSortState();
   const [requestPage, setRequestPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -272,20 +273,20 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
-                  <th className={thClass}>Request</th>
-                  <th className={thClass}>Component</th>
-                  <th className={thClass}>Kind</th>
-                  <th className={thClass}>Requested</th>
-                  <th className={thClass}>Issued</th>
-                  <th className={thClass}>On Hand</th>
-                  <th className={thClass}>Project / Asset</th>
-                  <th className={thClass}>For</th>
-                  <th className={thClass}>Status</th>
+                  <SortTh sort={sort} k="request_number" className={thClass}>Request</SortTh>
+                  <SortTh sort={sort} k="component" className={thClass}>Component</SortTh>
+                  <SortTh sort={sort} k="unit_type_name" className={thClass}>Kind</SortTh>
+                  <SortTh sort={sort} k="quantity_requested" className={thClass}>Requested</SortTh>
+                  <SortTh sort={sort} k="quantity_issued" className={thClass}>Issued</SortTh>
+                  <SortTh sort={sort} k="available_quantity" className={thClass}>On Hand</SortTh>
+                  <SortTh sort={sort} k="asset_code" className={thClass}>Project / Asset</SortTh>
+                  <SortTh sort={sort} k="purpose" className={thClass}>For</SortTh>
+                  <SortTh sort={sort} k="status" className={thClass}>Status</SortTh>
                   <th className={thClass}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {pageSlice(filtered, requestPage).map((row) => {
+                {pageSlice(sortRows(filtered, sort, { component: (r) => r.item_sku || r.unit_type_name || r.what }), requestPage).map((row) => {
                   const short = (row.available_quantity ?? 0) < row.outstanding_quantity;
                   const settled = row.status === "fulfilled" || row.status === "cancelled";
                   return (

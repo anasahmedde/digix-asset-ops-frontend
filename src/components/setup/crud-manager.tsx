@@ -5,6 +5,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { Modal } from "@/components/ui/modal";
+import { SortTh, sortRows, useSortState, type Accessors } from "@/components/ui/sortable";
+import { confirmAction } from "@/components/ui/confirm";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
@@ -91,6 +93,7 @@ export function CrudManager<T extends { id: string; [key: string]: unknown }>({
   const canEdit = canWrite(resource);
 
   const [rows, setRows] = useState<T[]>([]);
+  const sort = useSortState();
   const [loading, setLoading] = useState(true);
   const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
   const [selected, setSelected] = useState<T | null>(null);
@@ -168,7 +171,7 @@ export function CrudManager<T extends { id: string; [key: string]: unknown }>({
   }
 
   async function handleDelete(row: T) {
-    if (!confirm(`Delete "${String(row[labelKey])}"? This cannot be undone.`)) return;
+    if (!(await confirmAction(`Delete "${String(row[labelKey])}"? This cannot be undone.`))) return;
     try {
       await api.delete(`${endpoint}${row.id}/`);
       toast.success(`${singular} deleted`);
@@ -177,6 +180,16 @@ export function CrudManager<T extends { id: string; [key: string]: unknown }>({
       toast.error(getApiError(err, "Cannot delete — record may be in use"));
     }
   }
+
+  // Each column sorts by its own field; a related record sorts by its name.
+  const accessors = Object.fromEntries(
+    columns.map((c) => [c.key, (r: T) => {
+      const v = r[c.key];
+      return v && typeof v === "object"
+        ? String((v as { name?: unknown }).name ?? "")
+        : (v as string | number | boolean | null | undefined);
+    }]),
+  ) as Accessors<T>;
 
   const filtered = useMemo(() => {
     return rows.filter((row) => {
@@ -254,13 +267,13 @@ export function CrudManager<T extends { id: string; [key: string]: unknown }>({
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
                   {columns.map((c) => (
-                    <th key={c.key} className={thClass}>{c.label}</th>
+                    <SortTh key={c.key} sort={sort} k={c.key} className={thClass}>{c.label}</SortTh>
                   ))}
                   {canEdit && <th className={thClass}>Actions</th>}
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((row) => (
+                {sortRows(filtered, sort, accessors).map((row) => (
                   <tr
                     key={row.id}
                     onClick={() => canEdit && (setSelected(row), setModalMode("edit"))}

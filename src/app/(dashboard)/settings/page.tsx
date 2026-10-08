@@ -136,7 +136,7 @@ export default function SettingsPage() {
               </div>
               <div className="space-y-1.5">
                 <label className={labelClass}>Role</label>
-                <input value={user.role.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())} disabled className="flex h-10 w-full rounded-lg border border-border bg-secondary/50 px-3 text-sm text-muted-foreground capitalize cursor-not-allowed" />
+                <input value={user.role_label ?? user.role.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())} disabled className="flex h-10 w-full rounded-lg border border-border bg-secondary/50 px-3 text-sm text-muted-foreground capitalize cursor-not-allowed" />
               </div>
             </div>
             <div className="flex justify-end">

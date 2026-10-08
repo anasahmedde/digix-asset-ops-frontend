@@ -5,6 +5,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { Modal } from "@/components/ui/modal";
+import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
+import { todayIso } from "@/lib/utils";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
@@ -34,9 +36,10 @@ const inputClass =
 const labelClass = "text-xs font-medium text-muted-foreground";
 
 export function WorkOrderRequests({ onRaised }: { onRaised?: () => void }) {
-  const { canWrite } = useUser();
-  const canRaise = canWrite("setup") || canWrite("procurement");
+  const { can } = useUser();
+  const canRaise = can("raise_work_order");
   const [rows, setRows] = useState<WorkOrderRequest[]>([]);
+  const sort = useSortState();
   const [vendors, setVendors] = useState<Ref[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -48,6 +51,12 @@ export function WorkOrderRequests({ onRaised }: { onRaised?: () => void }) {
   const [terms, setTerms] = useState("");
   const [notes, setNotes] = useState("");
   const [amounts, setAmounts] = useState<Record<string, string>>({});
+  // When the vendor gets paid is part of the order. The list is the
+  // client's, from Setup.
+  const [paymentTerms, setPaymentTerms] = useState("");
+  // Terms typed for this deal, when no catalogue term fits.
+  const [paymentNote, setPaymentNote] = useState("");
+  const [termOptions, setTermOptions] = useState<{ id: string; name: string }[]>([]);
   // Why an operation is going on above the figure the project planned.
   const [reasons, setReasons] = useState<Record<string, string>>({});
 
@@ -76,6 +85,9 @@ export function WorkOrderRequests({ onRaised }: { onRaised?: () => void }) {
   useEffect(() => {
     fetchRows();
     api.get("/suppliers/", { params: { page_size: 500 } }).then((r) => setVendors(r.data.results ?? r.data)).catch(() => {});
+    api.get("/setup/payment-terms/", { params: { is_active: true } })
+      .then((r) => setTermOptions(r.data.results ?? r.data))
+      .catch(() => {});
   }, [fetchRows]);
 
   function toggle(id: string) {
@@ -122,6 +134,8 @@ export function WorkOrderRequests({ onRaised }: { onRaised?: () => void }) {
         steps: chosen.map((r) => r.step),
         supplier: vendor,
         amounts: filled,
+        payment_terms: paymentTerms === "__other__" ? null : paymentTerms || null,
+        payment_terms_note: paymentTerms === "__other__" ? paymentNote.trim() : "",
         variance_reasons: Object.fromEntries(
           chosen.filter(overPlan).map((r) => [r.step, (reasons[r.step] ?? "").trim()]),
         ),
@@ -210,16 +224,16 @@ export function WorkOrderRequests({ onRaised }: { onRaised?: () => void }) {
                       />
                     </th>
                   )}
-                  <th className={thClass}>Operation</th>
-                  <th className={thClass}>For Asset</th>
-                  <th className={thClass}>Project</th>
-                  <th className={`${thClass} text-right`}>Planned</th>
-                  <th className={thClass}>Requested</th>
+                  <SortTh sort={sort} k="operation" className={thClass}>Operation</SortTh>
+                  <SortTh sort={sort} k="asset_code" className={thClass}>For Asset</SortTh>
+                  <SortTh sort={sort} k="project_name" className={thClass}>Project</SortTh>
+                  <SortTh sort={sort} k="planned_cost" className={`${thClass} text-right`}>Planned</SortTh>
+                  <SortTh sort={sort} k="requested_at" className={thClass}>Requested</SortTh>
                   {canRaise && <th className={thClass}></th>}
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => (
+                {sortRows(rows, sort).map((r) => (
                   <tr key={r.step} className="border-b border-border transition-colors hover:bg-secondary/30">
                     {canRaise && (
                       <td className="px-4 py-3">
@@ -281,12 +295,36 @@ export function WorkOrderRequests({ onRaised }: { onRaised?: () => void }) {
             </div>
             <div className="space-y-1.5">
               <label htmlFor="wor_delivery" className={labelClass}>Required delivery</label>
-              <input id="wor_delivery" type="date" value={expectedDelivery} onChange={(e) => setExpectedDelivery(e.target.value)} className={inputClass} />
+              <input id="wor_delivery" type="date" min={todayIso()} value={expectedDelivery} onChange={(e) => setExpectedDelivery(e.target.value)} className={inputClass} />
               <p className="text-2xs text-muted-foreground">
                 {chosen.some((r) => r.project_target_date)
                   ? "Taken from the date the project is due. Change it if the vendor is held to another."
                   : "No project date to take it from — set the date the vendor is held to."}
               </p>
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="wor_payment_terms" className={labelClass}>Payment terms</label>
+              <select
+                id="wor_payment_terms"
+                value={paymentTerms}
+                onChange={(e) => setPaymentTerms(e.target.value)}
+                className={inputClass}
+              >
+                <option value="">—</option>
+                {termOptions.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                <option value="__other__">Other — type the terms…</option>
+              </select>
+              {paymentTerms === "__other__" && (
+                <input
+                  id="wor_payment_note"
+                  value={paymentNote}
+                  onChange={(e) => setPaymentNote(e.target.value)}
+                  maxLength={200}
+                  placeholder="e.g. 30% on order, balance on commissioning"
+                  className={inputClass}
+                  autoFocus
+                />
+              )}
             </div>
           </div>
 

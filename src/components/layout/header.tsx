@@ -29,6 +29,7 @@ import { Avatar } from "@/components/ui/avatar";
 import { formatDateTime } from "@/lib/utils";
 
 interface User {
+  role_label?: string;
   full_name: string;
   username: string;
   role: string;
@@ -46,8 +47,18 @@ const typeConfig: Record<string, { color: string; label: string; icon: typeof Ti
   ticket_assigned: { color: "bg-amber-500", label: "Ticket", icon: Ticket },
   ticket_update: { color: "bg-blue-500", label: "Update", icon: Ticket },
   ticket_review: { color: "bg-purple-500", label: "Review", icon: Ticket },
+  ticket_escalated: { color: "bg-red-500", label: "Escalated", icon: Ticket },
   alert: { color: "bg-red-500", label: "Alert", icon: AlertCircle },
   maintenance_reminder: { color: "bg-emerald-500", label: "Maint.", icon: Wrench },
+  installation_assigned: { color: "bg-amber-500", label: "Install", icon: Wrench },
+  installation_escalated: { color: "bg-red-500", label: "Escalated", icon: AlertCircle },
+  approval_requested: { color: "bg-amber-500", label: "Approve", icon: AlertCircle },
+  approval_decided: { color: "bg-blue-500", label: "Decided", icon: AlertCircle },
+  request_raised: { color: "bg-amber-500", label: "Request", icon: AlertCircle },
+  request_answered: { color: "bg-blue-500", label: "Answered", icon: AlertCircle },
+  work_assigned: { color: "bg-amber-500", label: "Assigned", icon: Wrench },
+  workflow_update: { color: "bg-blue-500", label: "Update", icon: AlertCircle },
+  digest: { color: "bg-slate-500", label: "Summary", icon: AlertCircle },
 };
 
 function NotificationItem({
@@ -264,8 +275,8 @@ export function Header() {
               <p className="text-sm font-medium leading-none text-foreground">
                 {user.full_name || user.username}
               </p>
-              <p className="mt-0.5 text-2xs capitalize text-muted-foreground">
-                {user.role.replace(/_/g, " ")}
+              <p className="mt-0.5 text-2xs text-muted-foreground">
+                {user.role_label ?? user.role.replace(/_/g, " ")}
               </p>
             </div>
             <Avatar src={user.avatar} name={user.full_name || user.username} size="md" />

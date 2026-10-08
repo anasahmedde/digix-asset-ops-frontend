@@ -11,6 +11,8 @@ import { ContactsEditor, type DraftContact } from "@/components/ui/contacts-edit
 import { Pagination, pageSlice } from "@/components/ui/pagination";
 import { CopyButton } from "@/components/ui/copy-button";
 import { FilterBar } from "@/components/ui/filter-bar";
+import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
+import { confirmAction } from "@/components/ui/confirm";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { formatDate } from "@/lib/utils";
@@ -56,6 +58,7 @@ export default function SitesPage() {
 
   const [sites, setSites] = useState<Site[]>([]);
   const [sitePage, setSitePage] = useState(1);
+  const sort = useSortState();
   const [loading, setLoading] = useState(true);
   const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
   const [selected, setSelected] = useState<SiteDetail | null>(null);
@@ -192,12 +195,18 @@ export default function SitesPage() {
    *  while every asset and visit already recorded there stays put. */
   async function toggleActive(site: Site) {
     const off = site.is_active;
-    if (off && !confirm(
-      `Deactivate ${site.name}? Everything already recorded there stays, `
-      + "and it stops being offered when something new is raised.",
-    )) return;
+    // Assets still standing at the site are the thing most likely to be
+    // forgotten, so they are said first.
+    if (off && !(await confirmAction({
+      title: `Deactivate ${site.name}?`,
+      message: (site.device_count > 0
+        ? `${site.device_count} asset${site.device_count === 1 ? " is" : "s are"} still at this site. `
+        : "")
+        + "Its records stay, but it won't be offered for new work.",
+      confirmLabel: "Deactivate",
+    }))) return;
     try {
-      await api.patch(`/sites/${site.id}/`, { is_active: !off });
+      await api.patch(`/sites/sites/${site.id}/`, { is_active: !off });
       toast.success(off ? "Site deactivated" : "Site reactivated");
       fetchSites();
     } catch (err) {
@@ -206,13 +215,13 @@ export default function SitesPage() {
   }
 
   async function handleDelete(site: Site) {
-    if (!confirm(`Delete site "${site.name}"? This cannot be undone.`)) return;
+    if (!(await confirmAction(`Delete site "${site.name}"? This cannot be undone.`))) return;
     try {
       await api.delete(`/sites/sites/${site.id}/`);
       toast.success("Site deleted");
       fetchSites();
     } catch (err: unknown) {
-      toast.error(getApiError(err, "Cannot delete — site has linked devices or records"));
+      toast.error(getApiError(err, "Cannot delete — site has linked assets or records"));
     }
   }
 
@@ -225,7 +234,7 @@ export default function SitesPage() {
           </div>
           <div>
             <h1 className="text-2xl font-bold text-foreground">Sites</h1>
-            <p className="text-muted-foreground">Manage client sites and device locations</p>
+            <p className="text-muted-foreground">Manage client sites and asset locations</p>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -276,7 +285,7 @@ export default function SitesPage() {
         <div className="rounded-xl border border-border bg-card p-12 text-center">
           <MapPin className="mx-auto h-12 w-12 text-muted-foreground/30" />
           <h3 className="mt-4 text-lg font-semibold text-foreground">No sites found</h3>
-          <p className="mt-2 text-sm text-muted-foreground">{sites.length > 0 ? "Try adjusting your filters." : "Add your first client site to start managing device locations."}</p>
+          <p className="mt-2 text-sm text-muted-foreground">{sites.length > 0 ? "Try adjusting your filters." : "Add your first client site to start managing asset locations."}</p>
         </div>
       ) : view === "map" ? (
         <SiteMap sites={filtered.filter((s): s is typeof s & { latitude: number; longitude: number } => s.latitude != null && s.longitude != null)} />
@@ -286,18 +295,18 @@ export default function SitesPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
-                  <th className={thClass}>Name</th>
-                  <th className={thClass}>Client</th>
-                  <th className={thClass}>City</th>
-                  <th className={thClass}>Country</th>
-                  <th className={thClass}>Added</th>
-                  <th className={thClass}>Devices</th>
-                  <th className={thClass}>Status</th>
+                  <SortTh sort={sort} k="name" className={thClass}>Name</SortTh>
+                  <SortTh sort={sort} k="client_name" className={thClass}>Client</SortTh>
+                  <SortTh sort={sort} k="city" className={thClass}>City</SortTh>
+                  <SortTh sort={sort} k="country" className={thClass}>Country</SortTh>
+                  <SortTh sort={sort} k="created_at" className={thClass}>Added</SortTh>
+                  <SortTh sort={sort} k="device_count" className={thClass}>Assets</SortTh>
+                  <SortTh sort={sort} k="is_active" className={thClass}>Status</SortTh>
                   <th className={thClass}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {pageSlice(filtered, sitePage).map((s) => (
+                {pageSlice(sortRows(filtered, sort), sitePage).map((s) => (
                   <tr key={s.id} onClick={() => openEdit(s)} className="border-b border-border/30 cursor-pointer transition-colors hover:bg-secondary/30">
                     <td className={`${tdClass} font-medium text-foreground`}>
                       <span className="inline-flex items-center gap-1">
@@ -362,7 +371,10 @@ export default function SitesPage() {
                 </div>
                 <div className="space-y-1.5">
                   <label htmlFor="client" className={labelClass}>Client</label>
-                  <select id="client" name="client" defaultValue={selected?.client ?? ""} className={inputClass}>
+                  {/* Remounted once the clients arrive: a default set before its
+                      option existed fell back to "None", and saving the form
+                      then wiped the site's client. */}
+                  <select key={clients.length} id="client" name="client" defaultValue={selected?.client ?? ""} className={inputClass}>
                     <option value="">None</option>
                     {clients.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
                   </select>

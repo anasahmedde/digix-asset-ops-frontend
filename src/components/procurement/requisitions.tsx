@@ -5,13 +5,16 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import {
-  PoLineItems, isPoLineEmpty, poLinePayload, poLineTotal, poLinesProblem, usePoOptions,
-  type PoLine,
+  isPoLineEmpty, poLinePayload, poLinesProblem, usePoOptions,
 } from "@/components/procurement/po-line-items";
+import {
+  PurchaseOrderForm, emptyPoForm, paymentTermsPayload, useStandardPoTerms,
+  type PoFormValues,
+} from "@/components/procurement/purchase-order-form";
 import { Modal } from "@/components/ui/modal";
 import { Qty } from "@/components/ui/qty";
+import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
 import api from "@/lib/api";
-import { CURRENCIES } from "@/lib/currency";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
 
@@ -107,6 +110,7 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
   const canBuy = canWrite("procurement");
 
   const [rows, setRows] = useState<Requisition[]>([]);
+  const sort = useSortState();
   const [suppliers, setSuppliers] = useState<Ref[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -119,21 +123,14 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
   // ordered twice, and made a delivered part look outstanding.
   const [showOrdered, setShowOrdered] = useState(false);
 
-  // The order's own details — asked for up front so the draft is complete.
-  const [supplier, setSupplier] = useState("");
-  const [supplierDetails, setSupplierDetails] = useState("");
-  const [showSupplierDetails, setShowSupplierDetails] = useState(false);
-  const [currency, setCurrency] = useState("PKR");
-  const [expectedDelivery, setExpectedDelivery] = useState("");
-  const [terms, setTerms] = useState("");
-  const [notes, setNotes] = useState("");
+  // The order's own details — the same form the New Purchase Order window
+  // keeps, so the two windows cannot drift apart.
+  const [form, setForm] = useState<PoFormValues>(emptyPoForm);
+  const standardTerms = useStandardPoTerms();
   const [prices, setPrices] = useState<Record<string, string>>({});
   // Why a line is going on above the figure it was planned at. Travels with
   // the order to whoever has to agree it.
   const [reasons, setReasons] = useState<Record<string, string>>({});
-  // Anything else the order needs that no request asked for — freight, a
-  // spare, a charge. Written with the editor the new-order form uses.
-  const [extraLines, setExtraLines] = useState<PoLine[]>([]);
   const poOptions = usePoOptions();
   // Handing a request back to where it came from, with the reason on record.
   const [sendBack, setSendBack] = useState<Requisition | null>(null);
@@ -182,22 +179,14 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
       .filter((d): d is string => !!d)
       .sort()[0];
     // An overdue project would otherwise seed a date in the past.
-    setExpectedDelivery(due && due >= today ? due : "");
+    setForm({ ...emptyPoForm(standardTerms), expected_delivery: due && due >= today ? due : "" });
     setPoModal(true);
   }
 
   function resetModal() {
     setPoModal(false);
-    setSupplier("");
-    setSupplierDetails("");
-    setShowSupplierDetails(false);
-    setCurrency("PKR");
-    setExpectedDelivery("");
-    setTerms("");
-    setNotes("");
     setPrices({});
     setReasons({});
-    setExtraLines([]);
   }
 
   /** Lines going on above what they were planned at. */
@@ -207,12 +196,12 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
   });
 
   async function raisePo() {
-    if (!supplier || chosen.length === 0) return;
-    if (expectedDelivery && expectedDelivery < today) {
+    if (!form.supplier || chosen.length === 0) return;
+    if (form.expected_delivery && form.expected_delivery < today) {
       toast.error("The delivery date has passed — set one the supplier can still meet");
       return;
     }
-    const problem = poLinesProblem(extraLines);
+    const problem = poLinesProblem(form.items);
     if (problem) {
       toast.error(problem);
       return;
@@ -229,18 +218,19 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
         if (id && why) reasonById[id] = why;
       });
       const { data } = await api.post("/procurement/purchase-orders/raise-po/", {
-        supplier,
+        supplier: form.supplier,
         components: chosen.filter((r) => r.kind !== "asset" && r.kind !== "reorder").map((r) => r.component),
         devices: chosen.filter((r) => r.kind === "asset").map((r) => r.device),
         reorders: chosen.filter((r) => r.kind === "reorder").map((r) => r.reorder),
         prices: priceById,
         variance_reasons: reasonById,
-        extra_items: extraLines.filter((l) => !isPoLineEmpty(l)).map(poLinePayload),
-        currency,
-        supplier_details: supplierDetails.trim(),
-        expected_delivery: expectedDelivery || null,
-        terms: terms.trim(),
-        notes: notes.trim(),
+        extra_items: form.items.filter((l) => !isPoLineEmpty(l)).map(poLinePayload),
+        currency: form.currency,
+        ...paymentTermsPayload(form),
+        supplier_details: form.supplier_details.trim(),
+        expected_delivery: form.expected_delivery || null,
+        terms: form.terms.trim(),
+        notes: form.notes.trim(),
       });
       const flagged = overPlan.length;
       toast.success(
@@ -286,7 +276,6 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
     const p = Number(prices[keyOf(r)] ?? 0);
     return sum + (Number.isFinite(p) ? p * r.outstanding_quantity : 0);
   }, 0);
-  const draftTotal = requisitionTotal + extraLines.reduce((sum, l) => sum + poLineTotal(l), 0);
 
   return (
     <div className="space-y-5">
@@ -350,19 +339,19 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
                       />
                     </th>
                   )}
-                  <th className={thClass}>To Buy</th>
-                  <th className={thClass}>Origin</th>
-                  <th className={thClass}>For Asset</th>
-                  <th className={thClass}>Project</th>
-                  <th className={thClass}>Qty</th>
-                  <th className={thClass}>In Stock</th>
-                  <th className={`${thClass} text-right`}>Reference Value (PKR)</th>
-                  <th className={thClass}>Purchase Order</th>
+                  <SortTh sort={sort} k="name" className={thClass}>To Buy</SortTh>
+                  <SortTh sort={sort} k="origin" className={thClass}>Origin</SortTh>
+                  <SortTh sort={sort} k="asset_code" className={thClass}>For Asset</SortTh>
+                  <SortTh sort={sort} k="project_name" className={thClass}>Project</SortTh>
+                  <SortTh sort={sort} k="outstanding_quantity" className={thClass}>Qty</SortTh>
+                  <SortTh sort={sort} k="available_quantity" className={thClass}>In Stock</SortTh>
+                  <SortTh sort={sort} k="reference_unit_price" className={`${thClass} text-right`}>Reference Value (PKR)</SortTh>
+                  <SortTh sort={sort} k="po_number" className={thClass}>Purchase Order</SortTh>
                   {canBuy && <th className={thClass}></th>}
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => {
+                {sortRows(rows, sort, { origin: (r) => originOf(r).name }).map((r) => {
                   const key = keyOf(r);
                   const isAsset = r.kind === "asset";
                   const isReorder = r.kind === "reorder";
@@ -467,241 +456,124 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
         </div>
       )}
 
-      <Modal open={poModal} onClose={resetModal} title="Raise Purchase Order" size="lg">
-        <div className="space-y-4">
-          <p className="text-sm text-muted-foreground">
-            {chosen.length} requested line{chosen.length === 1 ? " goes" : "s go"} on one draft order.
-            Add more below if the order needs them. Prices are fixed once the Group Head approves.
-          </p>
-
-          {/* The same questions, in the same order, as a new purchase order. */}
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <label className={labelClass}>PO Number</label>
-              <div className={`${inputClass} items-center bg-secondary/30 text-muted-foreground`}>
-                Auto-generated on save
+      <Modal open={poModal} onClose={resetModal} title="New Purchase Order" size="wide">
+        <PurchaseOrderForm
+          value={form}
+          onChange={setForm}
+          suppliers={suppliers}
+          options={poOptions}
+          minDelivery={today}
+          deliveryHint={
+            chosen.some((r) => r.project_target_date)
+              ? "Delivery is taken from the date the project is due. Change it if the supplier is held to another."
+              : "No project date to take the delivery from — set the date the supplier is held to."
+          }
+          // What the requests asked for. The line is fixed; the price is not.
+          requestedLines={
+            <div className="space-y-2">
+              <label className={labelClass}>Requested Lines</label>
+              <p className="text-2xs text-muted-foreground">
+                {chosen.length} requested line{chosen.length === 1 ? " goes" : "s go"} on this order.
+                Add more below if it needs them. Prices are fixed once the Group Head approves.
+              </p>
+              <div className="overflow-x-auto rounded-xl border border-border">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-border bg-secondary/50 text-left text-muted-foreground">
+                      <th className="px-3 py-2 font-medium">Line</th>
+                      <th className="px-3 py-2 font-medium">For</th>
+                      <th className="px-3 py-2 text-right font-medium">Qty</th>
+                      <th className="px-3 py-2 text-right font-medium">Reference ({form.currency})</th>
+                      <th className="px-3 py-2 text-right font-medium">Unit price ({form.currency})</th>
+                      <th className="px-3 py-2 text-right font-medium">Amount ({form.currency})</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {chosen.map((r) => {
+                      const key = keyOf(r);
+                      const price = Number(prices[key] ?? 0);
+                      // What the line was planned or last bought at, and how
+                      // far the price being typed has moved from it. Finding
+                      // that out after the order is placed is too late.
+                      const ref = r.reference_unit_price == null
+                        ? null : Number(r.reference_unit_price);
+                      const drift = ref && price ? (price - ref) / ref : 0;
+                      return (
+                        <tr key={key} className="border-b border-border/60 last:border-0">
+                          <td className="px-3 py-2 font-medium text-foreground">{r.name}</td>
+                          <td className="px-3 py-2 font-mono text-muted-foreground">{r.asset_code}</td>
+                          <td className="px-3 py-2 text-right text-foreground"><Qty value={r.outstanding_quantity} unit={r.unit} /></td>
+                          <td className="px-3 py-2 text-right align-top">
+                            <span className="tabular-nums text-foreground">{amount(ref)}</span>
+                            {r.reference_label && (
+                              <span className="block text-2xs text-muted-foreground">{r.reference_label}</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-right align-top">
+                            <input
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              value={prices[key] ?? ""}
+                              onChange={(e) => setPrices((prev) => ({ ...prev, [key]: e.target.value }))}
+                              placeholder={ref ? String(ref) : "last paid"}
+                              aria-label={`Unit price for ${r.name}`}
+                              className="h-8 w-28 rounded-lg border border-border bg-background px-2 text-right text-xs text-foreground focus:border-primary/50 focus:outline-none"
+                            />
+                            {Math.abs(drift) >= 0.005 && (
+                              <span className={`block text-2xs ${drift > 0 ? "text-amber-600" : "text-emerald-600"}`}>
+                                {drift > 0 ? "+" : "−"}{Math.abs(drift * 100).toFixed(0)}%
+                                {drift > 0 ? " over" : " under"} reference
+                              </span>
+                            )}
+                            {/* Over the plan is somebody else's money. The
+                                reason travels with the line to whoever has to
+                                agree it, so ask for it while the quote is in
+                                front of the buyer. */}
+                            {drift > 0 && (
+                              <input
+                                value={reasons[key] ?? ""}
+                                onChange={(e) => setReasons((prev) => ({ ...prev, [key]: e.target.value }))}
+                                placeholder="Why the higher price?"
+                                aria-label={`Reason for the higher price on ${r.name}`}
+                                className="mt-1 h-7 w-44 rounded-lg border border-amber-500/40 bg-background px-2 text-2xs text-foreground focus:border-primary/50 focus:outline-none"
+                              />
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-right align-top tabular-nums text-muted-foreground">
+                            {prices[key] ? (price * r.outstanding_quantity).toLocaleString() : "—"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
-            </div>
-            <div className="space-y-1.5">
-              <label htmlFor="req_supplier" className={labelClass}>Supplier *</label>
-              <select id="req_supplier" value={supplier} onChange={(e) => setSupplier(e.target.value)} className={inputClass}>
-                <option value="">Select supplier…</option>
-                {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-              </select>
-              {showSupplierDetails ? (
-                <textarea
-                  id="req_supplier_details"
-                  rows={2}
-                  value={supplierDetails}
-                  onChange={(e) => setSupplierDetails(e.target.value)}
-                  placeholder="Contact, quote reference, delivery address for this order"
-                  className={`${inputClass} h-auto py-2`}
-                />
-              ) : (
-                <button type="button" onClick={() => setShowSupplierDetails(true)} className="text-xs font-medium text-primary">
-                  + Supplier details for this order
-                </button>
+              <p className="text-2xs text-muted-foreground">
+                Reference is the figure the project budget was approved on, or the last price paid
+                for stock. A blank price falls back to what we last paid for that line, or zero if
+                we never have.
+              </p>
+              {overPlan.length > 0 && (
+                <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-700 dark:text-amber-500">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    {overPlan.length} line{overPlan.length === 1 ? " is" : "s are"} priced above plan.
+                    The draft will be raised, then{" "}
+                    {[...new Set(overPlan.map((r) => originOf(r).name))].join(" and ")} has to agree
+                    the price before this order can go up for the Group Head&apos;s signature.
+                  </span>
+                </div>
               )}
             </div>
-            <div className="space-y-1.5">
-              <label htmlFor="req_currency" className={labelClass}>Currency</label>
-              <select id="req_currency" value={currency} onChange={(e) => setCurrency(e.target.value)} className={inputClass}>
-                {CURRENCIES.map((c) => <option key={c.code} value={c.code}>{c.code} — {c.name}</option>)}
-              </select>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className={labelClass}>Order Date</label>
-                {/* The sentence did not fit the box and was being cut off
-                    mid-word. It reads as a short answer, like PO Number
-                    above it, with the detail underneath. */}
-                <p className={`${inputClass} flex items-center bg-secondary/30 text-muted-foreground`}>
-                  On approval
-                </p>
-                <p className="text-2xs text-muted-foreground">Stamped when the Group Head signs it off.</p>
-              </div>
-              <div className="space-y-1.5">
-                <label htmlFor="req_delivery" className={labelClass}>Required Delivery *</label>
-                {/* A supplier cannot be held to a date that has gone. The
-                    project's own date seeds this, and an overdue project
-                    seeds a date already past — which is how an order came
-                    to be raised against last week. */}
-                <input
-                  id="req_delivery"
-                  type="date"
-                  required
-                  min={today}
-                  value={expectedDelivery}
-                  onChange={(e) => setExpectedDelivery(e.target.value)}
-                  className={inputClass}
-                />
-                {expectedDelivery && expectedDelivery < today && (
-                  <p className="text-2xs font-medium text-destructive">
-                    That date has passed — set one the supplier can still meet.
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
-          <p className="text-2xs text-muted-foreground">
-            {chosen.some((r) => r.project_target_date)
-              ? "Delivery is taken from the date the project is due. Change it if the supplier is held to another."
-              : "No project date to take the delivery from — set the date the supplier is held to."}
-          </p>
-
-          {/* What the requests asked for. The line is fixed; the price is not. */}
-          <div className="space-y-2">
-            <label className={labelClass}>Requested Lines</label>
-            <div className="overflow-x-auto rounded-xl border border-border">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-border bg-secondary/50 text-left text-muted-foreground">
-                    <th className="px-3 py-2 font-medium">Line</th>
-                    <th className="px-3 py-2 font-medium">For</th>
-                    <th className="px-3 py-2 text-right font-medium">Qty</th>
-                    <th className="px-3 py-2 text-right font-medium">Reference</th>
-                    <th className="px-3 py-2 text-right font-medium">Unit price</th>
-                    <th className="px-3 py-2 text-right font-medium">Line total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {chosen.map((r) => {
-                    const key = keyOf(r);
-                    const price = Number(prices[key] ?? 0);
-                    // What the line was planned or last bought at, and how
-                    // far the price being typed has moved from it. Finding
-                    // that out after the order is placed is too late.
-                    const ref = r.reference_unit_price == null
-                      ? null : Number(r.reference_unit_price);
-                    const drift = ref && price ? (price - ref) / ref : 0;
-                    return (
-                      <tr key={key} className="border-b border-border/60 last:border-0">
-                        <td className="px-3 py-2 font-medium text-foreground">{r.name}</td>
-                        <td className="px-3 py-2 font-mono text-muted-foreground">{r.asset_code}</td>
-                        <td className="px-3 py-2 text-right text-foreground"><Qty value={r.outstanding_quantity} unit={r.unit} /></td>
-                        <td className="px-3 py-2 text-right align-top">
-                          <span className="tabular-nums text-foreground">{amount(ref)}</span>
-                          {r.reference_label && (
-                            <span className="block text-2xs text-muted-foreground">{r.reference_label}</span>
-                          )}
-                        </td>
-                        <td className="px-3 py-2 text-right align-top">
-                          <input
-                            type="number"
-                            min={0}
-                            step="0.01"
-                            value={prices[key] ?? ""}
-                            onChange={(e) => setPrices((prev) => ({ ...prev, [key]: e.target.value }))}
-                            placeholder={ref ? String(ref) : "last paid"}
-                            aria-label={`Unit price for ${r.name}`}
-                            className="h-8 w-28 rounded-lg border border-border bg-background px-2 text-right text-xs text-foreground focus:border-primary/50 focus:outline-none"
-                          />
-                          {Math.abs(drift) >= 0.005 && (
-                            <span className={`block text-2xs ${drift > 0 ? "text-amber-600" : "text-emerald-600"}`}>
-                              {drift > 0 ? "+" : "−"}{Math.abs(drift * 100).toFixed(0)}%
-                              {drift > 0 ? " over" : " under"} reference
-                            </span>
-                          )}
-                          {/* Over the plan is somebody else's money. The
-                              reason travels with the line to whoever has to
-                              agree it, so ask for it while the quote is in
-                              front of the buyer. */}
-                          {drift > 0 && (
-                            <input
-                              value={reasons[key] ?? ""}
-                              onChange={(e) => setReasons((prev) => ({ ...prev, [key]: e.target.value }))}
-                              placeholder="Why the higher price?"
-                              aria-label={`Reason for the higher price on ${r.name}`}
-                              className="mt-1 h-7 w-44 rounded-lg border border-amber-500/40 bg-background px-2 text-2xs text-foreground focus:border-primary/50 focus:outline-none"
-                            />
-                          )}
-                        </td>
-                        <td className="px-3 py-2 text-right align-top tabular-nums text-muted-foreground">
-                          {prices[key] ? (price * r.outstanding_quantity).toLocaleString() : "—"}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-            <p className="text-2xs text-muted-foreground">
-              Reference is the figure the project budget was approved on, or the last price paid
-              for stock. A blank price falls back to what we last paid for that line, or zero if
-              we never have.
-            </p>
-            {overPlan.length > 0 && (
-              <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-700 dark:text-amber-500">
-                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                <span>
-                  {overPlan.length} line{overPlan.length === 1 ? " is" : "s are"} priced above plan.
-                  The draft will be raised, then{" "}
-                  {[...new Set(overPlan.map((r) => originOf(r).name))].join(" and ")} has to agree
-                  the price before this order can go up for the Group Head&apos;s signature.
-                </span>
-              </div>
-            )}
-          </div>
-
-          {/* Anything the order needs beyond the requests — same editor as a
-              new purchase order, so both forms write a line the same way. */}
-          <PoLineItems
-            lines={extraLines}
-            onChange={setExtraLines}
-            currency={currency}
-            options={poOptions}
-            label="Additional Line Items"
-          />
-
-          <div className="text-right text-sm font-medium text-foreground">
-            Grand Total: {currency} {draftTotal.toLocaleString()}
-          </div>
-
-          <div className="space-y-1.5">
-            <label htmlFor="req_notes" className={labelClass}>Notes</label>
-            <textarea
-              id="req_notes"
-              rows={3}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Anything the supplier or approver should know"
-              className={`${inputClass} h-auto py-2`}
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <label htmlFor="req_terms" className={labelClass}>Terms &amp; Conditions</label>
-            <textarea
-              id="req_terms"
-              rows={7}
-              value={terms}
-              onChange={(e) => setTerms(e.target.value)}
-              placeholder="The standard terms are used unless you change them here."
-              className={`${inputClass} h-auto py-2 font-mono text-xs leading-relaxed`}
-            />
-            <p className="text-xs text-muted-foreground">
-              Printed on the order the supplier receives. Edit for a deal agreed on different terms.
-            </p>
-          </div>
-
-          <div className="flex justify-end gap-3 pt-2">
-            <button
-              type="button"
-              onClick={resetModal}
-              className="inline-flex h-10 items-center rounded-lg border border-border px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={raisePo}
-              disabled={saving || !supplier || !expectedDelivery || chosen.length === 0}
-              className="inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-medium text-white transition-all disabled:opacity-50"
-            >
-              {saving ? "Raising…" : "Raise draft PO"}
-            </button>
-          </div>
-        </div>
+          }
+          requestedTotal={requisitionTotal}
+          saving={saving}
+          submitLabel="Create Order"
+          canSubmit={chosen.length > 0}
+          onSubmit={raisePo}
+          onCancel={resetModal}
+        />
       </Modal>
 
       {/* Back to where it came from, with the reason on record. */}

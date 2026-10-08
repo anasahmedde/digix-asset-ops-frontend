@@ -28,6 +28,10 @@ const ENTITY_OPTIONS = [
   { value: "material_request", label: "Material Request (MR)" },
   { value: "purchase_requisition", label: "Purchase Requisition (PR)" },
   { value: "inventory_item", label: "Inventory Item (SKU)" },
+  { value: "client_warranty", label: "Client Warranty" },
+  { value: "vendor_warranty", label: "Vendor Warranty" },
+  { value: "component_warranty", label: "Component Warranty" },
+  { value: "warranty_claim", label: "Warranty Claim" },
 ];
 
 const CURRENCY_OPTIONS = ["PKR", "AED", "SAR", "QAR", "USD", "EUR", "GBP"].map((c) => ({ value: c, label: c }));

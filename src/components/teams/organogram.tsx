@@ -134,6 +134,10 @@ interface DragState {
   drop: (targetId: string | null) => void;
 }
 
+/** Names a role key. Custom roles are not in the built-in map, so the page
+ *  that knows them passes a function down. */
+const RoleLabel = createContext<(key: string) => string>((key) => ROLE_LABEL[key] ?? key);
+
 const Drag = createContext<DragState>({
   dragging: null, blocked: new Set(), over: null, saving: null, canEdit: false,
   start: () => {}, end: () => {}, hover: () => {}, drop: () => {},
@@ -193,6 +197,7 @@ function Card({
   onToggle: () => void;
 }) {
   const { handles, className } = useDragHandles(person.id);
+  const roleLabel = useContext(RoleLabel);
   return (
     <div className="relative inline-flex flex-col items-center">
       <div
@@ -212,7 +217,7 @@ function Card({
           {person.job_title || "—"}
         </span>
         <span className={`inline-flex rounded-full px-2 py-0.5 text-2xs font-medium ring-1 ${ROLE_TONE[person.role] ?? "bg-secondary text-muted-foreground ring-border"}`}>
-          {ROLE_LABEL[person.role] ?? person.role}
+          {roleLabel(person.role)}
         </span>
         {!person.is_active && <span className="text-2xs text-muted-foreground">inactive</span>}
       </div>
@@ -238,6 +243,7 @@ function Card({
 /** Somebody with nobody under them, listed under their manager. */
 function LeafCard({ person }: { person: Node }) {
   const { handles, className } = useDragHandles(person.id);
+  const roleLabel = useContext(RoleLabel);
   return (
     <li
       {...handles}
@@ -258,8 +264,8 @@ function LeafCard({ person }: { person: Node }) {
         </span>
       </span>
       <span
-        aria-label={ROLE_LABEL[person.role] ?? person.role}
-        title={ROLE_LABEL[person.role] ?? person.role}
+        aria-label={roleLabel(person.role)}
+        title={roleLabel(person.role)}
         className={`h-2.5 w-2.5 shrink-0 rounded-full ${ROLE_DOT[person.role] ?? "bg-slate-400"}`}
       />
     </li>
@@ -325,8 +331,11 @@ export function Organogram({
   people,
   canEdit = false,
   onMove,
+  roleLabel = (key) => ROLE_LABEL[key] ?? key,
 }: {
   people: OrgPerson[];
+  /** Names a role key; custom roles are not in the built-in map. */
+  roleLabel?: (key: string) => string;
   /** Whether this reader may re-hang people. The server decides for real. */
   canEdit?: boolean;
   /** Called with the person and their new manager (null for the top). Should throw on failure. */
@@ -413,6 +422,7 @@ export function Organogram({
   }
 
   return (
+    <RoleLabel.Provider value={roleLabel}>
     <Drag.Provider value={drag}>
       <div className="space-y-4">
         {drag.canEdit && <TopDropZone />}
@@ -447,5 +457,6 @@ export function Organogram({
         )}
       </div>
     </Drag.Provider>
+    </RoleLabel.Provider>
   );
 }

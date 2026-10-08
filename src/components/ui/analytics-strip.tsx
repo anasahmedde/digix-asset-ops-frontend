@@ -24,7 +24,9 @@ const TILE_TONES: Record<NonNullable<StripTile["tone"]>, { text: string; activeR
 
 export function StatTiles({ tiles }: { tiles: StripTile[] }) {
   return (
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
+    // Tiles share the row however many there are, and wrap evenly when the
+    // screen runs out — a fixed six left nine stranded as six and three.
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-[repeat(auto-fit,minmax(7rem,1fr))]">
       {tiles.map((t) => {
         const tone = TILE_TONES[t.tone ?? "default"];
         return (
@@ -33,12 +35,12 @@ export function StatTiles({ tiles }: { tiles: StripTile[] }) {
             type="button"
             onClick={t.onClick}
             disabled={!t.onClick}
-            className={`rounded-xl border bg-card px-3 py-2.5 text-left transition-all duration-150 ${
+            className={`flex flex-col justify-between gap-1 rounded-xl border bg-card px-3 py-2.5 text-left transition-all duration-150 ${
               t.active ? `ring-2 ${tone.activeRing}` : "border-border"
             } ${t.onClick ? "cursor-pointer hover:-translate-y-0.5 hover:shadow-md" : "cursor-default"}`}
             title={t.onClick ? `Click to ${t.active ? "clear this filter" : "filter the table"}` : undefined}
           >
-            <p className="truncate text-2xs font-semibold uppercase tracking-wider text-muted-foreground">{t.label}</p>
+            <p className="line-clamp-2 text-2xs font-semibold uppercase leading-tight tracking-wide text-muted-foreground">{t.label}</p>
             <p className={`text-xl font-bold ${tone.text}`}>{t.value}</p>
           </button>
         );

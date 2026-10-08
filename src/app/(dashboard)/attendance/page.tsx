@@ -6,9 +6,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { Pagination, pageSlice } from "@/components/ui/pagination";
+import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
-import { formatDateTime } from "@/lib/utils";
+import { formatDateTime, todayIso } from "@/lib/utils";
 
 const AttendanceMap = dynamic(() => import("@/components/map/attendance-map"), {
   ssr: false,
@@ -42,6 +43,7 @@ const selectClass = "h-9 rounded-lg border border-border bg-card px-3 pr-8 text-
 export default function AttendancePage() {
   const [records, setRecords] = useState<AttendanceRow[]>([]);
   const [recordPage, setRecordPage] = useState(1);
+  const sort = useSortState();
   const [users, setUsers] = useState<UserOpt[]>([]);
   const [summary, setSummary] = useState({ count: 0, currently_in: 0 });
   const [loading, setLoading] = useState(true);
@@ -118,7 +120,7 @@ export default function AttendancePage() {
           <option value="check_in">Check In</option>
           <option value="check_out">Check Out</option>
         </select>
-        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={selectClass} />
+        <input type="date" value={date} max={todayIso()} onChange={(e) => setDate(e.target.value)} className={selectClass} />
         {(userId || checkType || date) && (
           <button onClick={() => { setUserId(""); setCheckType(""); setDate(""); }} className="h-9 rounded-lg border border-border bg-card px-3 text-xs font-medium text-muted-foreground hover:text-foreground">Clear</button>
         )}
@@ -142,15 +144,15 @@ export default function AttendancePage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
-                  <th className={thClass}>Staff</th>
-                  <th className={thClass}>Type</th>
-                  <th className={thClass}>Site</th>
-                  <th className={thClass}>Time</th>
+                  <SortTh sort={sort} k="user_name" className={thClass}>Staff</SortTh>
+                  <SortTh sort={sort} k="check_type" className={thClass}>Type</SortTh>
+                  <SortTh sort={sort} k="site_name" className={thClass}>Site</SortTh>
+                  <SortTh sort={sort} k="created_at" className={thClass}>Time</SortTh>
                   <th className={thClass}>Coordinates</th>
                 </tr>
               </thead>
               <tbody>
-                {pageSlice(records, recordPage).map((r) => (
+                {pageSlice(sortRows(records, sort), recordPage).map((r) => (
                   <tr key={r.id} className="border-b border-border transition-colors hover:bg-secondary/30">
                     <td className={`${tdClass} font-medium text-foreground`}>{r.user_name}</td>
                     <td className={tdClass}>

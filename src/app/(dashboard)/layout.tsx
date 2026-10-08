@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { AuthGuard } from "@/components/layout/auth-guard";
 import { Header } from "@/components/layout/header";
 import { Sidebar } from "@/components/layout/sidebar";
+import { ConfirmHost } from "@/components/ui/confirm";
 import { ChatUnreadProvider } from "@/lib/chat-context";
 import { NotificationProvider } from "@/lib/notification-context";
 import { SidebarProvider, useSidebar } from "@/lib/sidebar-context";
@@ -34,6 +35,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
             list: the page is remounted rather than left where it was. */}
         <main key={`${homeKey}-${pathname}`} className="rise-in p-4 sm:p-6">{children}</main>
       </div>
+      <ConfirmHost />
     </div>
   );
 }
