@@ -262,6 +262,7 @@ interface ProjectStats {
 interface Project {
   id: string;
   name: string;
+  client_name?: string | null;
   site_name?: string | null;
   site_names?: string[];
   location: string;
@@ -328,6 +329,8 @@ export default function ProjectsPage() {
   const [contractFilter, setContractFilter] = useState("");
   // A status picked here (or linked from the dashboard) shows every project in it, parked ones too.
   const [statusFilter, setStatusFilter] = useState(search.get("status") ?? "");
+  const [clientFilter, setClientFilter] = useState("");
+  const [siteFilter, setSiteFilter] = useState("");
   /** Which tile is showing. Blank is the default: the work still running. */
   const [tile, setTile] = useState<"" | "all" | "on_track" | "at_risk" | "delayed" | "completed">("");
   // Planning (estimate + budget approval) comes first; execution (stock,
@@ -1648,8 +1651,12 @@ export default function ProjectsPage() {
       : tile
         ? TILE_TESTS[tile](p)
         : !["completed", "on_hold"].includes(p.status);
-    return matches && (!contractFilter || p.contract_type === contractFilter) && (!statusFilter || p.status === statusFilter);
+    return matches && (!contractFilter || p.contract_type === contractFilter) && (!statusFilter || p.status === statusFilter)
+      && (!clientFilter || p.client_name === clientFilter) && (!siteFilter || (p.site_names ?? (p.site_name ? [p.site_name] : [])).includes(siteFilter));
   });
+  // The clients and sites the listed projects actually have, for the filters.
+  const clientOptions = [...new Set(projects.map((p) => p.client_name).filter((n): n is string => !!n))].sort().map((n) => ({ value: n, label: n }));
+  const projectSiteOptions = [...new Set(projects.flatMap((p) => p.site_names ?? (p.site_name ? [p.site_name] : [])))].sort().map((n) => ({ value: n, label: n }));
   const TILE_TITLES: Record<string, string> = {
     all: "All Projects",
     on_track: "On Track",
@@ -1747,11 +1754,13 @@ export default function ProjectsPage() {
           <div className="flex items-center gap-3">
             <FilterBar
               filters={[
+                { key: "client", label: "Client", options: clientOptions },
+                { key: "site", label: "Site", options: projectSiteOptions },
                 { key: "status", label: "Status", options: PROJECT_STATUSES },
                 { key: "contract", label: "Contract", options: CONTRACT_TYPES },
               ]}
-              values={{ status: statusFilter, contract: contractFilter }}
-              onChange={(k, v) => (k === "status" ? setStatusFilter(v) : setContractFilter(v))}
+              values={{ client: clientFilter, site: siteFilter, status: statusFilter, contract: contractFilter }}
+              onChange={(k, v) => ({ client: setClientFilter, site: setSiteFilter, status: setStatusFilter, contract: setContractFilter } as Record<string, (v: string) => void>)[k]?.(v)}
             />
             {/* It used to link to this very page, so it did nothing at all. */}
             <button
