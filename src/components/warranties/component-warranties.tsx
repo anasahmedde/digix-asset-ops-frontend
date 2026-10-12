@@ -8,10 +8,11 @@ import { Modal } from "@/components/ui/modal";
 import { SearchSelect } from "@/components/ui/search-select";
 import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
 import { ExtendWarranty, type ExtendTarget } from "@/components/warranties/extend-warranty";
+import { Coded, WarrantyEdit, type Fact } from "@/components/warranties/warranty-edit";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
-import { formatDate, formatTerm, todayIso } from "@/lib/utils";
+import { formatDate, formatTerm, termBetween, todayIso } from "@/lib/utils";
 
 /** A unique part as the store holds it, with the vendor's cover on it. */
 interface UnitWarranty {
@@ -23,6 +24,9 @@ interface UnitWarranty {
   model_name: string;
   brand_name: string | null;
   status: string;
+  /** Where the part is kept while it is in the store. */
+  location?: string | null;
+  storage_location?: string | null;
   has_warranty: boolean;
   warranty_start: string | null;
   warranty_end: string | null;
@@ -37,6 +41,7 @@ interface UnitWarranty {
   grn_number: string | null;
   installed_in_code: string | null;
   installed_in_name: string | null;
+  installed_in_site?: string | null;
 }
 
 const searchClass =
@@ -52,8 +57,10 @@ const tdClass = "px-5 py-3.5";
 const STATE_BADGES: Record<string, string> = {
   active: "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20",
   expired: "bg-red-500/10 text-red-600 ring-red-500/20",
+  not_started: "bg-sky-500/10 text-sky-600 ring-sky-500/20",
+  ended: "bg-secondary text-muted-foreground ring-border",
 };
-const STATE_LABELS: Record<string, string> = { active: "Active", expired: "Expired" };
+const STATE_LABELS: Record<string, string> = { active: "Active", expired: "Expired", not_started: "Not started", ended: "Ended" };
 
 const partName = (u: UnitWarranty) => u.unit_type_name || u.material_name || u.model_name || "—";
 
@@ -73,6 +80,8 @@ export function ComponentWarranties({ addTick = 0 }: { addTick?: number }) {
   const [extendFor, setExtendFor] = useState<ExtendTarget | null>(null);
   // Recording cover: on a part chosen here (new), or on the row clicked (edit).
   const [recording, setRecording] = useState<UnitWarranty | "new" | null>(null);
+  // The part whose recorded cover is being edited (end date, vendor reference).
+  const [editing, setEditing] = useState<UnitWarranty | null>(null);
 
   const fetchUnits = useCallback(async () => {
     setLoading(true);
@@ -172,7 +181,11 @@ export function ComponentWarranties({ addTick = 0 }: { addTick?: number }) {
               </thead>
               <tbody>
                 {sortRows(filtered, sort, { part: partName, reference: (u) => u.warranty_reference }).map((unit) => (
-                  <tr key={unit.id} className="border-b border-border transition-colors hover:bg-secondary/30">
+                  <tr
+                    key={unit.id}
+                    onClick={() => canEdit && (unit.has_warranty ? setEditing(unit) : setRecording(unit))}
+                    className={`border-b border-border transition-colors hover:bg-secondary/30 ${canEdit ? "cursor-pointer" : ""}`}
+                  >
                     <td className={`${tdClass} whitespace-nowrap font-mono text-foreground`}>{unit.serial_number}</td>
                     <td className={`${tdClass} text-foreground`}>
                       {partName(unit)}
@@ -185,7 +198,7 @@ export function ComponentWarranties({ addTick = 0 }: { addTick?: number }) {
                     </td>
                     <td className={`${tdClass} whitespace-nowrap text-muted-foreground`}>{unit.warranty_start ? formatDate(unit.warranty_start) : "—"}</td>
                     <td className={`${tdClass} whitespace-nowrap text-muted-foreground`}>{unit.warranty_end ? formatDate(unit.warranty_end) : "—"}</td>
-                    <td className={`${tdClass} whitespace-nowrap text-muted-foreground`}>{unit.warranty_months ? formatTerm(unit.warranty_months) : "—"}</td>
+                    <td className={`${tdClass} whitespace-nowrap text-muted-foreground`}>{termBetween(unit.warranty_start, unit.warranty_end, unit.warranty_months)}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{unit.supplier_name || "—"}</td>
                     <td className={`${tdClass} whitespace-nowrap font-mono text-xs text-muted-foreground`}>
                       {unit.warranty_reference || "—"}
@@ -205,7 +218,7 @@ export function ComponentWarranties({ addTick = 0 }: { addTick?: number }) {
                         <span className="rounded-full bg-secondary px-2 py-0.5 text-xs text-muted-foreground">In store</span>
                       )}
                     </td>
-                    <td className={tdClass}>
+                    <td className={tdClass} onClick={(e) => e.stopPropagation()}>
                       {canEdit ? (
                         <div className="flex items-center gap-1">
                           {unit.warranty_end && (
@@ -223,7 +236,7 @@ export function ComponentWarranties({ addTick = 0 }: { addTick?: number }) {
                             </button>
                           )}
                           <button
-                            onClick={() => setRecording(unit)}
+                            onClick={() => (unit.has_warranty ? setEditing(unit) : setRecording(unit))}
                             className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                             title="Edit the cover"
                           >
@@ -243,6 +256,41 @@ export function ComponentWarranties({ addTick = 0 }: { addTick?: number }) {
       )}
 
       <ExtendWarranty target={extendFor} onClose={() => setExtendFor(null)} onDone={fetchUnits} />
+      {editing && (() => {
+        // Fitted into an asset: name it and where it stands. Issued but not
+        // yet fitted: say so, rather than pretend it is still on the shelf.
+        const [where, whereNote]: [React.ReactNode, string] = editing.installed_in_code
+          ? [<>Installed in <Coded code={editing.installed_in_code} name={editing.installed_in_name} /></>,
+             editing.installed_in_site ? `At ${editing.installed_in_site}` : "Asset site not recorded"]
+          : editing.status === "issued"
+            ? ["Issued from the store", "Not yet fitted to an asset"]
+            : [`In store${editing.storage_location || editing.location ? ` · ${editing.storage_location || editing.location}` : ""}`,
+               editing.status.replace(/_/g, " ")];
+        const facts: Fact[] = [
+          { label: "Component", value: partName(editing), note: `S/N ${editing.serial_number}${editing.brand_name ? ` · ${editing.brand_name}` : ""}` },
+          { label: "Vendor", value: editing.supplier_name ?? "", note: "Bought from them — not changed here" },
+          { label: "Location", value: where, note: whereNote, wide: true },
+          { label: "Reference", value: editing.warranty_reference ?? "", mono: true },
+        ];
+        return (
+          <WarrantyEdit
+            title="Edit Component Warranty"
+            facts={facts}
+            startDate={editing.warranty_start}
+            startNote="From the delivery inspection date in Procurement."
+            endDate={editing.warranty_end ?? ""}
+            vendorReference={editing.warranty_vendor_reference ?? ""}
+            onSave={async (payload) => {
+              await api.post(`/inventory/units/${editing.id}/warranty/`, {
+                end_date: payload.end_date, vendor_reference: payload.vendor_reference ?? "",
+              });
+              toast.success(`Warranty updated on ${editing.serial_number}`);
+              fetchUnits();
+            }}
+            onClose={() => setEditing(null)}
+          />
+        );
+      })()}
       {recording && (
         <RecordCover
           unit={recording === "new" ? null : recording}

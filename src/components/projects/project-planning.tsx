@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { Qty } from "@/components/ui/qty";
 import { confirmAction } from "@/components/ui/confirm";
+import { WaitingOn } from "@/components/ui/waiting-on";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
@@ -885,6 +886,7 @@ export function ProjectPlanning({
                 : plan.status === "submitted" && plan.submitted_by
                   ? `Sent for approval by ${plan.submitted_by}${plan.submitted_at ? ` on ${formatDate(plan.submitted_at)}` : ""}.`
                   : "Build the estimate, then send it for approval. Execution opens once it is approved."}
+              {plan.status === "submitted" && <> <WaitingOn refKey={`budget:${projectId}`} /></>}
             </p>
           </div>
 
@@ -915,7 +917,9 @@ export function ProjectPlanning({
             >
               <FileText className="h-3.5 w-3.5" /> {showBoq ? "Hide BOQ" : "Bill of quantities"}
             </button>
-            {editable && (
+            {/* Whoever signs budgets off does not submit one for their own
+                signature; the planner does. A superuser account is the exception. */}
+            {editable && !(can("approve_budget") && user?.role !== "super_admin") && (
               <button
                 onClick={() => run(() => api.post(`/teams/projects/${projectId}/submit-budget/`, {}), "Sent for approval")}
                 disabled={busy || Number(plan.total) <= 0}
@@ -924,7 +928,9 @@ export function ProjectPlanning({
                 <Send className="h-3.5 w-3.5" /> Submit for approval
               </button>
             )}
-            {!plan.is_editable && canPlan && (
+            {/* Approved: the planner may reopen it. Submitted: it is the approver's
+                to send back, so there is nothing to press here. */}
+            {plan.status === "approved" && canPlan && (
               <button
                 onClick={() => run(() => api.post(`/teams/projects/${projectId}/revise-budget/`, {}), "Budget reopened for changes")}
                 disabled={busy}

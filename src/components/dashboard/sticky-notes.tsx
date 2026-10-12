@@ -1,19 +1,21 @@
 "use client";
 
-import { Pin, Send, Trash2 } from "lucide-react";
+import { Check, MessageSquare, Pin, Send, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
+import { cn } from "@/lib/utils";
 import { useUser } from "@/lib/user-context";
 
 /**
- * The dashboard's noticeboard.
+ * The dashboard's notes, as a checklist on an ink card.
  *
- * Two boards, one panel. Only me is private — nobody else ever sees it. Team
+ * Two boards, one panel. Only me is private - nobody else ever sees it. Team
  * is shared and every note is signed. Typing @ offers the people you can tag;
- * tagging somebody on a team note lands in their notifications.
+ * tagging somebody on a team note lands in their notifications. A note is
+ * ticked off when it is dealt with; the counter at the top says how many are.
  */
 interface Note {
   id: string;
@@ -24,6 +26,8 @@ interface Note {
   mine: boolean;
   mentions: string[];
   mentioned_names: string[];
+  done: boolean;
+  done_at: string | null;
   created_at: string;
 }
 
@@ -37,17 +41,10 @@ const BOARDS = [
   { key: "team" as const, label: "Team" },
 ];
 
-/** "3m", "2h", "5 Feb" — a note's age, as short as it can honestly be. */
-function ago(iso: string) {
-  const then = new Date(iso).getTime();
-  const mins = Math.round((Date.now() - then) / 60000);
-  if (mins < 1) return "now";
-  if (mins < 60) return `${mins}m`;
-  const hours = Math.round(mins / 60);
-  if (hours < 24) return `${hours}h`;
-  const days = Math.round(hours / 24);
-  if (days < 7) return `${days}d`;
-  return new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+/** "Sep 13, 08:30" - when the note was written. */
+function stamp(iso: string) {
+  const d = new Date(iso);
+  return `${d.toLocaleDateString(undefined, { day: "numeric", month: "short" })}, ${d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false })}`;
 }
 
 /** Colour the @names so a note reads as addressed, not just written. */
@@ -57,7 +54,7 @@ function withTags(body: string, names: string[]) {
   const parts = body.split(new RegExp(`(@(?:${escaped.join("|")}))`, "g"));
   return parts.map((part, i) =>
     part.startsWith("@") && names.some((n) => part === `@${n}`) ? (
-      <span key={i} className="rounded bg-primary/10 px-1 font-medium text-primary">{part}</span>
+      <span key={i} className="rounded bg-white/15 px-1 font-semibold text-[#dff3eb]">{part}</span>
     ) : (
       <span key={i}>{part}</span>
     ),
@@ -148,67 +145,96 @@ export function StickyNotes() {
     }
   }
 
+  // Ticked off, or back on the list. Shown at once; the server is told.
+  async function toggle(n: Note) {
+    const done = !n.done;
+    setNotes((prev) => prev.map((x) => (x.id === n.id ? { ...x, done, done_at: done ? new Date().toISOString() : null } : x)));
+    try {
+      await api.patch(`/notifications/sticky-notes/${n.id}/`, { done });
+    } catch (err) {
+      setNotes((prev) => prev.map((x) => (x.id === n.id ? { ...x, done: n.done, done_at: n.done_at } : x)));
+      toast.error(getApiError(err, "Could not update the note"));
+    }
+  }
+
+  // Open ones first, newest first; the ticked ones sink below them.
+  const ordered = [...notes].sort((a, b) => Number(a.done) - Number(b.done) || b.created_at.localeCompare(a.created_at));
+  const doneCount = notes.filter((n) => n.done).length;
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-card">
-      <div className="flex items-center gap-2 px-4 pt-4">
-        <Pin className="h-4 w-4 text-primary" />
-        <h3 className="text-sm font-semibold text-foreground">Notes</h3>
-      </div>
-
-      <div className="flex gap-1 px-4 pt-3">
-        {BOARDS.map((b) => (
-          <button
-            key={b.key}
-            type="button"
-            onClick={() => setBoard(b.key)}
-            className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-              board === b.key ? "bg-primary text-white" : "text-muted-foreground hover:bg-secondary"
-            }`}
-          >
-            {b.label}
-          </button>
-        ))}
-      </div>
-
-      <p className="px-4 pt-2 text-2xs text-muted-foreground">
-        {board === "self" ? "Private to you." : "Everyone sees these."}
-      </p>
-
-      <div className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto px-4">
-        {notes.length === 0 && (
-          <p className="py-6 text-center text-xs text-muted-foreground">
-            {board === "self" ? "No notes yet." : "Nothing on the board."}
-          </p>
-        )}
-        {notes.map((n) => (
-          <div key={n.id} className="group rounded-lg border border-border bg-secondary/30 p-3">
-            <div className="mb-1 flex items-center gap-2">
-              {board === "team" && (
-                <span className="text-2xs font-semibold text-foreground">{n.author_name}</span>
-              )}
-              <span className="text-2xs text-muted-foreground">{ago(n.created_at)}</span>
-              {n.mine && (
-                <button
-                  type="button"
-                  onClick={() => remove(n.id)}
-                  aria-label="Delete note"
-                  className="ml-auto text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              )}
-            </div>
-            <p className="whitespace-pre-wrap break-words text-xs text-foreground">
-              {withTags(n.body, n.mentioned_names)}
-            </p>
+    <div className="flex min-h-[16rem] flex-1 flex-col rounded-2xl bg-[#163144] text-white shadow-float">
+      <div className="flex items-start justify-between px-5 pt-5">
+        <div>
+          <h3 className="text-base font-semibold text-white">Notes</h3>
+          <div className="mt-2 flex gap-1">
+            {BOARDS.map((b) => (
+              <button
+                key={b.key}
+                type="button"
+                onClick={() => setBoard(b.key)}
+                className={cn(
+                  "rounded-full px-3 py-1 text-xs font-medium transition-colors",
+                  board === b.key ? "bg-[#dff3eb] text-[#163144]" : "text-white/60 hover:bg-white/10 hover:text-white",
+                )}
+              >
+                {b.label}
+              </button>
+            ))}
           </div>
-        ))}
+        </div>
+        {/* How much of the list is dealt with. */}
+        <p className="text-3xl font-semibold tabular-nums tracking-tight text-white" aria-label={`${doneCount} of ${notes.length} done`}>
+          {doneCount}<span className="text-white/40">/</span>{notes.length}
+        </p>
       </div>
 
-      {/* Pinned to the bottom, the way every message box is: the notes
-          read upward and the place to write one does not move as they
-          pile up. */}
-      <div className="relative mt-auto border-t border-border p-3">
+      <ul className="mt-3 max-h-[24rem] min-h-[4rem] flex-1 space-y-1 overflow-y-auto px-3 pb-2 [scrollbar-width:thin] desk:max-h-none">
+        {notes.length === 0 && (
+          <li className="py-6 text-center text-xs text-white/50">
+            {board === "self" ? "Nothing on your list." : "Nothing on the board."}
+          </li>
+        )}
+        {ordered.map((n) => (
+          <li key={n.id} className="group flex items-center gap-3 rounded-xl px-2 py-2 transition-colors hover:bg-white/5">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-[#163144]">
+              {n.scope === "team" ? <MessageSquare className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className={cn("line-clamp-2 text-sm font-medium [overflow-wrap:anywhere]", n.done ? "text-white/40 line-through" : "text-white")}>
+                {withTags(n.body, n.mentioned_names)}
+              </span>
+              <span className="block text-2xs text-white/45">
+                {board === "team" && n.author_name ? `${n.author_name} · ` : ""}{stamp(n.created_at)}
+              </span>
+            </span>
+            {n.mine && (
+              <button
+                type="button"
+                onClick={() => remove(n.id)}
+                aria-label="Delete note"
+                className="hidden shrink-0 text-white/40 hover:text-red-300 group-hover:block"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => toggle(n)}
+              aria-label={n.done ? "Put it back on the list" : "Tick it off"}
+              aria-pressed={n.done}
+              className={cn(
+                "flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-colors",
+                n.done ? "bg-[#f5c518] text-[#163144]" : "bg-white/10 text-transparent hover:bg-white/20 hover:text-white/60",
+              )}
+            >
+              <Check className="h-3.5 w-3.5" strokeWidth={3} />
+            </button>
+          </li>
+        ))}
+      </ul>
+
+      {/* Pinned to the bottom, the way every message box is. */}
+      <div className="relative mt-auto border-t border-white/10 p-3">
         {suggestions.length > 0 && (
           <div className="absolute bottom-full left-3 right-3 z-10 mb-1 overflow-hidden rounded-lg border border-border bg-card shadow-lg">
             {suggestions.map((p) => (
@@ -234,21 +260,19 @@ export function StickyNotes() {
               if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); post(); }
             }}
             placeholder={board === "team" ? "Note for the team — @ to tag" : "Note to self"}
-            className="flex-1 resize-none rounded-lg border border-border bg-card px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none"
+            className="flex-1 resize-none rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white placeholder:text-white/40 focus:border-[#dff3eb]/50 focus:outline-none"
           />
           <button
             type="button"
             onClick={post}
             disabled={saving || !draft.trim()}
             aria-label="Post note"
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-white transition-all disabled:opacity-40"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#dff3eb] text-[#163144] transition-all disabled:opacity-40"
           >
             <Send className="h-4 w-4" />
           </button>
         </div>
       </div>
-
-
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import { getToken } from "./token-store";
 type MessageHandler = (data: unknown) => void;
 
 export class WebSocketClient {
@@ -12,7 +13,7 @@ export class WebSocketClient {
   constructor(path: string) {
     const protocol = typeof window !== "undefined" && window.location.protocol === "https:" ? "wss:" : "ws:";
     const host = typeof window !== "undefined" ? window.location.host : "localhost:3000";
-    const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+    const token = getToken("access_token");
     this.url = `${protocol}//${host}${path}?token=${token || ""}`;
   }
 

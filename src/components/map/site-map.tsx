@@ -5,6 +5,7 @@ import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { MapContainer, Marker, Popup, useMap, ZoomControl } from "react-leaflet";
+import { useStopOnUnmount } from "@/components/map/stop-on-unmount";
 
 import { Basemap } from "./basemaps";
 import { mapsLink } from "./location-picker";
@@ -34,7 +35,7 @@ function getSiteIcon(isActive: boolean): L.DivIcon {
   const key = isActive ? "site-active" : "site-inactive";
   if (iconCache.has(key)) return iconCache.get(key)!;
 
-  const color = isActive ? "#0d9488" : "#94a3b8";
+  const color = isActive ? "#1b405b" : "#94a3b8";
 
   const html = `<span class="map-dot map-dot--pulse" style="--dot-color:${color}">
   <svg class="map-dot-icon" viewBox="0 0 16 16" fill="white"><path fill-rule="evenodd" d="M8 1a5 5 0 00-5 5c0 3.5 5 9 5 9s5-5.5 5-9a5 5 0 00-5-5zm0 7a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd"/></svg>
@@ -54,6 +55,7 @@ function getSiteIcon(isActive: boolean): L.DivIcon {
 
 function PakistanOverlay() {
   const map = useMap();
+  useStopOnUnmount(map);
   const layersRef = useRef<L.Layer[]>([]);
 
   useEffect(() => {
@@ -105,6 +107,7 @@ function PakistanOverlay() {
 
 function MapSetup({ sites }: { sites: SitePin[] }) {
   const map = useMap();
+  useStopOnUnmount(map);
   const fitted = useRef(false);
 
   useEffect(() => {
@@ -131,6 +134,7 @@ function MapSetup({ sites }: { sites: SitePin[] }) {
 
 function FlyTo({ lat, lng }: { lat: number; lng: number }) {
   const map = useMap();
+  useStopOnUnmount(map);
   useEffect(() => {
     if (lat && lng) {
       try { map.flyTo([lat, lng], 13, { duration: 0.8 }); } catch { /* noop */ }
@@ -141,6 +145,7 @@ function FlyTo({ lat, lng }: { lat: number; lng: number }) {
 
 function HomeButton() {
   const map = useMap();
+  useStopOnUnmount(map);
   const handleHome = useCallback(() => {
     try { map.flyTo(PAKISTAN_CENTER, PAKISTAN_ZOOM, { duration: 0.6 }); } catch { /* noop */ }
   }, [map]);
@@ -178,7 +183,7 @@ function SiteMarker({ site }: { site: SitePin }) {
         <Popup className="device-popup" closeButton={false} autoPan maxWidth={280} minWidth={220}>
           <div className="dp-card">
             <div className="dp-header">
-              <span className="dp-badge" style={{ background: site.is_active ? "#0d9488" : "#94a3b8" }}>
+              <span className="dp-badge" style={{ background: site.is_active ? "#1b405b" : "#94a3b8" }}>
                 {site.is_active ? "Active" : "Inactive"}
               </span>
               <span className="dp-code">{site.device_count} asset{site.device_count !== 1 ? "s" : ""}</span>

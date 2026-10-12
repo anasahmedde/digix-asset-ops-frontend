@@ -185,6 +185,8 @@ const statusIcon: Record<string, React.ReactNode> = {
 };
 
 function formatLabel(value: string) {
+  // The one status whose name is not its key: the office is reviewing it.
+  if (value === "pending_review") return "In Review";
   return value.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
@@ -409,9 +411,11 @@ function TicketDetailView({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-background">
+    // In the page, not over it: the sidebar and header stay where they are,
+    // and the back bar rides just under the header as the ticket scrolls.
+    <div className="-mx-4 -mt-4 flex flex-col sm:-mx-6 sm:-mt-6">
       {/* ── Top bar ──────────────────────────────────────────────── */}
-      <div className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-card px-6">
+      <div className="sticky top-16 z-30 flex h-14 shrink-0 items-center justify-between border-b border-border bg-card/90 px-6 backdrop-blur">
         <div className="flex items-center gap-4">
           <button
             onClick={onClose}
@@ -911,11 +915,11 @@ export default function TicketsPage() {
       // Stat-tile flags → backend ?flag=…; the Closed tile is a plain status.
       const FLAG_PARAM: Record<string, string> = {
         unassigned: "unassigned",
-        sla: "sla_breached",
         overdue: "past_due",
         in_review: "in_review",
       };
       if (filterValues.flag === "closed_only") params.status = "closed";
+      if (filterValues.flag === "in_progress_only") params.status = "in_progress";
       else if (FLAG_PARAM[filterValues.flag]) params.flag = FLAG_PARAM[filterValues.flag];
       const res = await api.get("/tickets/export/", { params, responseType: "blob" });
       const url = URL.createObjectURL(res.data as Blob);
@@ -968,14 +972,19 @@ export default function TicketsPage() {
 
   async function loadFormOptions() {
     try {
-      const [dev, it] = await Promise.all([
-        api.get("/assets/devices/", { params: { page_size: 500, ordering: "asset_code" } }),
+      // A fault is raised on an asset in use: Active, or already under
+      // maintenance (a second fault during a scheduled visit). The server
+      // refuses anything else, so the list offers nothing else.
+      const [live, busy, it] = await Promise.all([
+        api.get("/assets/devices/", { params: { status: "active", page_size: 500, ordering: "asset_code" } }),
+        api.get("/assets/devices/", { params: { status: "under_maintenance", page_size: 500, ordering: "asset_code" } }),
         api.get("/tickets/issue-types/", { params: { is_active: true, page_size: 100 } }),
       ]);
-      const devices = dev.data.results ?? dev.data;
-      setDeviceOptions(devices.map((d: { id: string; asset_code: string; device_model_name?: string; serial_number?: string }) => ({
+      type Dev = { id: string; asset_code: string; device_model_name?: string; status: string };
+      const devices: Dev[] = [...(live.data.results ?? live.data), ...(busy.data.results ?? busy.data)];
+      setDeviceOptions(devices.map((d) => ({
         id: d.id,
-        label: `${d.asset_code}${d.device_model_name ? ` — ${d.device_model_name}` : ""}`,
+        label: `${d.asset_code}${d.device_model_name ? ` — ${d.device_model_name}` : ""}${d.status === "under_maintenance" ? " · under maintenance" : ""}`,
       })));
       setIssueTypes(it.data.results ?? it.data);
     } catch { /* silently fail */ }
@@ -1161,10 +1170,10 @@ export default function TicketsPage() {
               tiles={[
                 { key: "total", label: "Total Tickets", value: tickets.length, tone: "primary", active: !filterValues.flag && !filterValues.status, onClick: () => setFilterValues((prev) => ({ ...prev, status: "", flag: "" })) },
                 { key: "unassigned", label: "Unassigned", value: tickets.filter((t) => isActive(t) && !t.assigned_to).length, tone: "amber", active: filterValues.flag === "unassigned", onClick: () => toggleFlag("unassigned") },
-                { key: "sla", label: "SLA Breached", value: tickets.filter((t) => isActive(t) && (t.escalated || t.is_response_overdue || t.assignment_escalated || t.due_date_escalated)).length, tone: "red", active: filterValues.flag === "sla", onClick: () => toggleFlag("sla") },
-                { key: "overdue", label: "Past Due Date", value: tickets.filter((t) => isActive(t) && t.due_date && t.due_date < todayIso).length, tone: "red", active: filterValues.flag === "overdue", onClick: () => toggleFlag("overdue") },
+                { key: "in_progress", label: "In Progress", value: tickets.filter((t) => t.status === "in_progress").length, tone: "amber", active: filterValues.flag === "in_progress_only", onClick: () => toggleFlag("in_progress_only") },
                 { key: "in_review", label: "In Review", value: tickets.filter((t) => ["pending_review", "pending_ops_approval", "pending_client_approval"].includes(t.status)).length, tone: "violet", active: filterValues.flag === "in_review", onClick: () => toggleFlag("in_review") },
                 { key: "closed", label: "Closed", value: tickets.filter((t) => t.status === "closed").length, tone: "emerald", active: filterValues.flag === "closed_only", onClick: () => toggleFlag("closed_only") },
+                { key: "overdue", label: "Past Due Date", value: tickets.filter((t) => isActive(t) && t.due_date && t.due_date < todayIso).length, tone: "red", active: filterValues.flag === "overdue", onClick: () => toggleFlag("overdue") },
               ]}
             />
             <SegmentBar
@@ -1205,6 +1214,7 @@ export default function TicketsPage() {
           if (filterValues.flag === "overdue" && !(isActive(t) && t.due_date && t.due_date < todayIso)) return false;
           if (filterValues.flag === "in_review" && !["pending_review", "pending_ops_approval", "pending_client_approval"].includes(t.status)) return false;
           if (filterValues.flag === "closed_only" && t.status !== "closed") return false;
+          if (filterValues.flag === "in_progress_only" && t.status !== "in_progress") return false;
           if (search) {
             const q = search.toLowerCase();
             if (!t.title.toLowerCase().includes(q) && !(t.ticket_number || "").toLowerCase().includes(q) && !(t.site_name || "").toLowerCase().includes(q) && !(t.assigned_to_name || "").toLowerCase().includes(q)) return false;

@@ -1,12 +1,12 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import {
   AlertCircle,
   BarChart3,
-  Box,
   Building2,
   ChevronDown,
   ChevronRight,
@@ -88,6 +88,10 @@ export function Sidebar() {
   const { theme, setTheme } = useTheme();
   const { totalUnread } = useChatUnread();
   const [expandedMenus, setExpandedMenus] = useState<Set<string>>(new Set());
+  // The rail unfolds while the pointer (or keyboard focus) is on it. Pinned
+  // open, or open as a drawer on a phone, it stays unfolded.
+  const [hovered, setHovered] = useState(false);
+  const open = !collapsed || hovered || mobileOpen;
 
   const { can } = useUser();
   // The menu reads the same rule as the server: a capability. Rights are
@@ -116,34 +120,40 @@ export function Sidebar() {
     });
   }
 
-  const sidebarWidth = collapsed ? "w-[72px]" : "w-64";
-
   return (
     <aside
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onFocus={() => setHovered(true)}
+      onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setHovered(false); }}
       className={cn(
-        "fixed inset-y-0 left-0 z-50 flex flex-col border-r border-border bg-sidebar/80 backdrop-blur-xl backdrop-saturate-150 transition-transform duration-200",
-        // Always full-width (labels visible) as a drawer on phones; honour collapse on desktop.
+        "glass-pane fixed bottom-3 left-3 top-3 z-50 flex flex-col overflow-hidden rounded-2xl border shadow-float",
+        "transition-[width,transform] duration-200 ease-out",
+        // A drawer on phones, full width; a rail on desktop that unfolds over the page.
         "max-lg:w-64",
-        sidebarWidth,
+        open ? "lg:w-64" : "lg:w-[72px]",
         // Off-canvas on mobile unless opened; always visible on desktop.
-        mobileOpen ? "translate-x-0" : "-translate-x-full",
+        mobileOpen ? "translate-x-0" : "-translate-x-[calc(100%+1rem)]",
         "lg:translate-x-0"
       )}
     >
-      <div className="flex h-16 items-center gap-3 border-b border-border px-4">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary">
-          <Box className="h-5 w-5 text-primary-foreground" />
-        </div>
-        {!collapsed && (
-          <div className="min-w-0">
-            <h1 className="text-lg font-bold leading-none tracking-tight text-foreground">
-              DIGIX
-            </h1>
-          </div>
+      <div className="flex h-16 shrink-0 items-center justify-center px-4">
+        {/* The wordmark, centred: dark ink on the light theme, the light
+            original on dark. Folded to a rail, its D stands in for it. */}
+        {!open ? (
+          <>
+            <Image src="/branding/digix-d-dark.png" alt="DIGIX" width={114} height={133} priority className="h-6 w-auto dark:hidden" />
+            <Image src="/branding/digix-d-light.png" alt="DIGIX" width={114} height={133} priority className="hidden h-6 w-auto dark:block" />
+          </>
+        ) : (
+          <>
+            <Image src="/branding/digix-dark.png" alt="DIGIX" width={553} height={133} priority className="h-6 w-auto dark:hidden" />
+            <Image src="/branding/digix-light.png" alt="DIGIX" width={553} height={133} priority className="hidden h-6 w-auto dark:block" />
+          </>
         )}
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-3 py-4">
+      <nav className="no-scrollbar flex-1 overflow-y-auto px-3 py-4">
         <ul className="space-y-0.5">
           {visibleNav.map((item) => {
             const isActive = checkActive(item.href);
@@ -157,15 +167,16 @@ export function Sidebar() {
                   <>
                     <button
                       onClick={() => toggleExpand(item.name)}
+                      title={open ? undefined : item.name}
                       className={cn(
-                        "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-150",
+                        "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-150",
                         childActive
                           ? "text-primary"
                           : "text-sidebar-foreground hover:bg-secondary hover:text-foreground"
                       )}
                     >
                       <item.icon className="h-[18px] w-[18px] shrink-0" />
-                      {!collapsed && (
+                      {open && (
                         <>
                           <span className="flex-1 text-left">{item.name}</span>
                           {isExpanded ? (
@@ -176,7 +187,7 @@ export function Sidebar() {
                         </>
                       )}
                     </button>
-                    {isExpanded && !collapsed && (
+                    {isExpanded && open && (
                       <ul className="mt-0.5 space-y-0.5 pl-4">
                         {item.children!.map((child) => {
                           const childIsActive = checkActive(child.href);
@@ -186,9 +197,9 @@ export function Sidebar() {
                                 href={child.href}
                                 onClick={closeMobile}
                                 className={cn(
-                                  "flex items-center gap-3 rounded-lg px-3 py-2 text-xs font-medium transition-all duration-150",
+                                  "flex items-center gap-3 rounded-xl px-3 py-2 text-xs font-medium transition-all duration-150",
                                   childIsActive
-                                    ? "bg-primary/10 text-primary"
+                                    ? "bg-primary text-primary-foreground shadow-glow"
                                     : "text-sidebar-foreground hover:bg-secondary hover:text-foreground"
                                 )}
                               >
@@ -209,28 +220,32 @@ export function Sidebar() {
                       // Already in this section: go back to its list.
                       if (isActive) goHome();
                     }}
+                    title={open ? undefined : item.name}
                     className={cn(
-                      "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-150",
+                      "relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-150",
+                      // The section you are in is a filled pill; the rest wait quietly.
                       isActive
-                        ? "bg-primary/10 text-primary"
+                        ? "bg-primary text-primary-foreground shadow-glow"
                         : "text-sidebar-foreground hover:bg-secondary hover:text-foreground"
                     )}
                   >
-                    <item.icon
-                      className={cn("h-[18px] w-[18px] shrink-0", isActive ? "text-primary" : "")}
-                    />
-                    {!collapsed && (
+                    <item.icon className="h-[18px] w-[18px] shrink-0" />
+                    {open ? (
                       <>
-                        <span className="flex-1">{item.name}</span>
+                        <span className="flex-1 whitespace-nowrap">{item.name}</span>
                         {item.badge !== undefined && item.badge > 0 && (
-                          <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-2xs font-bold text-primary-foreground">
+                          <span className={cn(
+                            "flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-2xs font-bold",
+                            isActive ? "bg-primary-foreground/20 text-primary-foreground" : "bg-primary text-primary-foreground",
+                          )}>
                             {item.badge > 99 ? "99+" : item.badge}
                           </span>
                         )}
-                        {isActive && (
-                          <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-                        )}
                       </>
+                    ) : (
+                      item.badge !== undefined && item.badge > 0 && (
+                        <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-primary ring-2 ring-sidebar" />
+                      )
                     )}
                   </Link>
                 )}
@@ -240,18 +255,19 @@ export function Sidebar() {
         </ul>
       </nav>
 
-      <div className="border-t border-border p-3">
+      <div className="shrink-0 border-t border-border/60 p-3">
         <button
           onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-          className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-sidebar-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          title={open ? undefined : "Theme"}
+          className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-sidebar-foreground transition-colors hover:bg-secondary hover:text-foreground"
         >
           {theme === "dark" ? (
             <Sun className="h-[18px] w-[18px] shrink-0" />
           ) : (
             <Moon className="h-[18px] w-[18px] shrink-0" />
           )}
-          {!collapsed && <span>Theme</span>}
-          {!collapsed && (
+          {open && <span className="whitespace-nowrap">{theme === "dark" ? "Light mode" : "Dark mode"}</span>}
+          {open && (
             <ChevronRight className="ml-auto h-3.5 w-3.5" />
           )}
         </button>

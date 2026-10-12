@@ -32,6 +32,18 @@ export function formatTerm(months: number): string {
   return `${years} Year${years > 1 ? "s" : ""}${rem ? ` ${rem} Mo` : ""}`;
 }
 
+/** The term between two dates: whole months when the end falls on the same
+ *  day of the month ("1 Year", "6 Months"), otherwise the days ("394d"). */
+export function termBetween(start?: string | null, end?: string | null, months?: number | null): string {
+  if (!start || !end) return months ? formatTerm(months) : "—";
+  const [sy, sm, sd] = start.slice(0, 10).split("-").map(Number);
+  const [ey, em, ed] = end.slice(0, 10).split("-").map(Number);
+  const whole = (ey - sy) * 12 + (em - sm);
+  if (whole > 0 && sd === ed) return formatTerm(whole);
+  const days = Math.round((Date.UTC(ey, em - 1, ed) - Date.UTC(sy, sm - 1, sd)) / 86400000);
+  return days > 0 ? `${days}d` : "—";
+}
+
 export function formatDateTime(date: string | Date): string {
   return new Intl.DateTimeFormat("en-US", {
     year: "numeric",

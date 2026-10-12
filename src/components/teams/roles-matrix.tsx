@@ -25,6 +25,8 @@ interface CapabilityDef {
   kind: "view" | "work" | "approve" | "admin";
   description: string;
   sensitive: boolean;
+  /** Held by the Super Admin alone; no role or adjustment may grant it. */
+  super_admin_only?: boolean;
 }
 
 // The order the kinds read in, within a module: see it, work on it, sign
@@ -222,12 +224,12 @@ export function RolesMatrix({ readOnly = false }: { readOnly?: boolean }) {
         <table className="w-full border-separate border-spacing-0 text-sm">
           <thead>
             <tr className="border-b border-border bg-secondary/50">
-              <th className="sticky left-0 z-20 min-w-64 border-b border-border bg-secondary px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              <th className="sticky left-0 z-20 w-64 min-w-64 border-b border-border bg-secondary px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Capability
               </th>
               {roles.map((role) => (
-                <th key={role.id} className="min-w-28 border-b border-border px-2 py-3 text-center align-bottom">
-                  <span className="block text-xs font-semibold text-foreground">{role.label}</span>
+                <th key={role.id} className="w-20 min-w-20 border-b border-border px-1.5 py-3 text-center align-bottom">
+                  <span className="block break-words text-xs font-semibold leading-tight text-foreground">{role.label}</span>
                   <span className="block text-2xs font-normal text-muted-foreground">
                     {role.holders} {role.holders === 1 ? "person" : "people"}
                   </span>
@@ -274,29 +276,29 @@ export function RolesMatrix({ readOnly = false }: { readOnly?: boolean }) {
               return (
                 <Fragment key={mod}>
                   <tr className="border-b border-border/60 bg-secondary/20">
-                    <td
-                      colSpan={roles.length + 1}
-                      className="sticky left-0 z-10 border-b border-border/60 bg-secondary/20 px-4 py-1.5 text-2xs font-semibold uppercase tracking-wider text-muted-foreground"
-                    >
+                    <td className="sticky left-0 z-10 border-b border-border/60 bg-secondary px-4 py-1.5 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
                       {mod}
                     </td>
+                    <td colSpan={roles.length} className="border-b border-border/60" />
                   </tr>
                   {rows.map((cap, i) => (
                     <tr key={cap.key} className="group">
-                      <td className="sticky left-0 z-10 border-b border-border/60 bg-card px-4 py-2 group-hover:bg-secondary/20">
+                      <td className="sticky left-0 z-10 border-b border-border/60 bg-card px-4 py-2 group-hover:bg-secondary">
+                        {(i === 0 || rows[i - 1].kind !== cap.kind) && (
+                          <span className="mb-1 block text-2xs font-semibold uppercase tracking-wider text-primary/80">
+                            {KIND_LABEL[cap.kind]}
+                          </span>
+                        )}
                         <span className="flex items-center gap-1.5">
-                          {(i === 0 || rows[i - 1].kind !== cap.kind) && (
-                            <span className="w-24 shrink-0 text-2xs font-semibold uppercase tracking-wider text-primary/80">
-                              {KIND_LABEL[cap.kind]}
-                            </span>
-                          )}
-                          {i > 0 && rows[i - 1].kind === cap.kind && <span className="w-24 shrink-0" />}
                           <span className="text-sm font-medium text-foreground">{cap.label}</span>
                           {cap.sensitive && (
                             <AlertTriangle className="h-3 w-3 shrink-0 text-amber-500" aria-label="Hands over real authority" />
                           )}
+                          {cap.super_admin_only && (
+                            <span className="rounded bg-secondary px-1.5 py-0.5 text-2xs font-medium text-muted-foreground">Administrator only</span>
+                          )}
                         </span>
-                        <span className="block max-w-md pl-[6.375rem] text-2xs leading-snug text-muted-foreground">
+                        <span className="block text-2xs leading-snug text-muted-foreground">
                           {cap.description}
                         </span>
                       </td>
@@ -307,7 +309,7 @@ export function RolesMatrix({ readOnly = false }: { readOnly?: boolean }) {
                             <input
                               type="checkbox"
                               checked={on}
-                              disabled={readOnly}
+                              disabled={readOnly || (!!cap.super_admin_only && role.key !== "super_admin")}
                               onChange={() => toggle(role.id, cap.key)}
                               aria-label={`${cap.label} for ${role.label}`}
                               className="h-4 w-4 rounded border-border accent-[hsl(var(--primary))]"

@@ -24,11 +24,11 @@ export function BarChart({ data, color = "hsl(168 76% 42%)", height = 200, class
     <div className={cn("w-full", className)}>
       <ResponsiveContainer width="100%" height={height}>
         <RechartsBarChart data={data} barSize={28}>
-          <CartesianGrid strokeDasharray="3 3" stroke="hsl(222 15% 18%)" vertical={false} />
+          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
           <XAxis
             dataKey="name"
             tick={{ fill: "hsl(215 15% 55%)", fontSize: 11 }}
-            axisLine={{ stroke: "hsl(222 15% 18%)" }}
+            axisLine={{ stroke: "hsl(var(--border))" }}
             tickLine={false}
           />
           <YAxis
@@ -38,8 +38,8 @@ export function BarChart({ data, color = "hsl(168 76% 42%)", height = 200, class
           />
           <Tooltip
             contentStyle={{
-              backgroundColor: "hsl(222 20% 10%)",
-              border: "1px solid hsl(222 15% 18%)",
+              backgroundColor: "hsl(var(--card))",
+              border: "1px solid hsl(var(--border))",
               borderRadius: "8px",
               color: "hsl(210 20% 90%)",
               fontSize: "12px",

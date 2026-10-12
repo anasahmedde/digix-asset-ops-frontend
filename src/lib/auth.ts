@@ -1,4 +1,5 @@
 import api from "./api";
+import { clearTokens, getToken, saveTokens } from "./token-store";
 
 export interface AuthTokens {
   access: string;
@@ -20,20 +21,19 @@ export interface User {
 
 export async function login(
   username: string,
-  password: string
+  password: string,
+  opts: { tabOnly?: boolean } = {},
 ): Promise<AuthTokens> {
   const { data } = await api.post<AuthTokens>("/auth/token/", {
     username,
     password,
   });
-  localStorage.setItem("access_token", data.access);
-  localStorage.setItem("refresh_token", data.refresh);
+  saveTokens(data.access, data.refresh, { tabOnly: !!opts.tabOnly });
   return data;
 }
 
 export function logout() {
-  localStorage.removeItem("access_token");
-  localStorage.removeItem("refresh_token");
+  clearTokens();
   window.location.href = "/login";
 }
 
@@ -44,5 +44,5 @@ export async function getCurrentUser(): Promise<User> {
 
 export function isAuthenticated(): boolean {
   if (typeof window === "undefined") return false;
-  return !!localStorage.getItem("access_token");
+  return !!getToken("access_token");
 }

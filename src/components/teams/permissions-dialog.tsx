@@ -23,6 +23,8 @@ interface CapabilityDef {
   kind: "view" | "work" | "approve" | "admin";
   description: string;
   sensitive: boolean;
+  /** Held by the Super Admin alone; no adjustment may grant it. */
+  super_admin_only?: boolean;
 }
 
 const KINDS: CapabilityDef["kind"][] = ["view", "work", "approve", "admin"];
@@ -178,7 +180,7 @@ export function PermissionsDialog({
                             id={`cap-${c.key}`}
                             type="checkbox"
                             checked={on}
-                            disabled={readOnly}
+                            disabled={readOnly || (!!c.super_admin_only && !on)}
                             onChange={() => toggle(c.key)}
                             className="mt-0.5 h-4 w-4 shrink-0 rounded border-border accent-[hsl(var(--primary))]"
                           />
@@ -190,6 +192,9 @@ export function PermissionsDialog({
                               </span>
                               {c.sensitive && (
                                 <AlertTriangle className="h-3 w-3 text-amber-500" aria-label="Hands over real authority" />
+                              )}
+                              {c.super_admin_only && (
+                                <span className="rounded bg-secondary px-1.5 py-0.5 text-2xs font-medium text-muted-foreground">Administrator only</span>
                               )}
                               {overridden && (
                                 <span className="rounded-full bg-amber-500/10 px-1.5 py-0.5 text-2xs font-medium text-amber-600">

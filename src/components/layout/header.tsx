@@ -6,7 +6,6 @@ import {
   Calendar,
   Check,
   ChevronRight,
-  Grid3X3,
   LogOut,
   Menu,
   Pin,
@@ -25,6 +24,7 @@ import {
   type Notification,
 } from "@/lib/notification-context";
 import { useSidebar } from "@/lib/sidebar-context";
+import { GlobalSearch } from "@/components/layout/global-search";
 import { Avatar } from "@/components/ui/avatar";
 import { formatDateTime } from "@/lib/utils";
 
@@ -76,7 +76,9 @@ function NotificationItem({
   const route = getNotificationRoute(notif);
 
   function handleClick() {
-    if (!notif.is_read) onMarkRead(notif.id);
+    // Opening a notice that waits on you only takes you there; it clears
+    // when the job moves, or when you acknowledge it on the Alerts page.
+    if (!notif.is_read && !isPinned) onMarkRead(notif.id);
     onClose();
     router.push(route);
   }
@@ -104,6 +106,11 @@ function NotificationItem({
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <p className="text-sm font-medium leading-tight text-foreground">{notif.title}</p>
+          <span className={`shrink-0 rounded px-1.5 py-0.5 text-2xs font-semibold ${
+            isPinned ? "bg-amber-500/15 text-amber-700" : notif.is_actionable ? "bg-emerald-500/10 text-emerald-700" : "bg-secondary text-muted-foreground"
+          }`}>
+            {isPinned ? "Action required" : notif.is_actionable ? "Done" : "For info"}
+          </span>
           {info && (
             <span className={`shrink-0 rounded px-1.5 py-0.5 text-2xs font-bold text-white ${info.color}`}>
               {info.label}
@@ -127,8 +134,19 @@ function NotificationItem({
 export function Header() {
   const [user, setUser] = useState<User | null>(null);
   const [showNotifications, setShowNotifications] = useState(false);
+  // One search over everything: the button, Ctrl/Cmd+K, or "/" outside a field.
+  const [searchOpen, setSearchOpen] = useState(false);
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const typing = (e.target as HTMLElement | null)?.closest("input, textarea, select, [contenteditable]");
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setSearchOpen(true); }
+      else if (e.key === "/" && !typing) { e.preventDefault(); setSearchOpen(true); }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const { toggle, openMobile } = useSidebar();
+  const { collapsed, toggle, openMobile } = useSidebar();
   const { notifications, unreadCount, markRead, markAllRead } = useNotifications();
 
   useEffect(() => {
@@ -151,7 +169,7 @@ export function Header() {
   const otherNotifs = notifications.filter((n) => !(n.is_actionable && !n.is_resolved));
 
   return (
-    <header className="sticky top-0 z-40 flex h-16 items-center justify-between border-b border-border bg-card/75 px-6 backdrop-blur-xl backdrop-saturate-150">
+    <header className="glass-pane sticky top-3 z-40 mx-4 mt-3 flex h-14 items-center justify-between rounded-2xl border px-4 shadow-float sm:mx-6">
       <div className="flex items-center gap-4">
         {/* Mobile: open the drawer */}
         <button
@@ -164,7 +182,7 @@ export function Header() {
         {/* Desktop: collapse the sidebar */}
         <button
           onClick={toggle}
-          aria-label="Collapse sidebar"
+          aria-label={collapsed ? "Pin the menu open" : "Fold the menu to a rail"}
           className="hidden h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground lg:flex"
         >
           <Menu className="h-4 w-4" />
@@ -172,9 +190,10 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-2">
-        <button className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
+        <button onClick={() => setSearchOpen(true)} aria-label="Search everything (Ctrl+K)" title="Search everything (Ctrl+K)" className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
           <Search className="h-4 w-4" />
         </button>
+        <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
 
         <div className="relative" ref={dropdownRef}>
           <button
@@ -259,13 +278,10 @@ export function Header() {
           )}
         </div>
 
-        <button className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
+        <Link href="/?date=today" aria-label="Calendar" title="Calendar" className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
           <Calendar className="h-4 w-4" />
-        </button>
+        </Link>
 
-        <button className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
-          <Grid3X3 className="h-4 w-4" />
-        </button>
 
         <div className="mx-1 h-6 w-px bg-border" />
 

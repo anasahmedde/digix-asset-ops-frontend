@@ -206,7 +206,7 @@ export function Evidence({
   visit: Pick<
     CorrectiveVisitRow,
     "id" | "status" | "started_at" | "completed_at"
-    | "start_latitude" | "start_longitude" | "visit_photos"
+    | "start_latitude" | "start_longitude" | "visit_photos" | "assigned_to"
   >;
   /** Components asked for that the store has not handed over yet. */
   waitingOnStore?: string[];
@@ -216,6 +216,10 @@ export function Evidence({
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [showing, setShowing] = useState<string | null>(null);
+  // Before and After are the technician's record of the site: only the
+  // person this visit was given to takes them (the server says the same).
+  const { user } = useUser();
+  const photographer = Boolean(visit.assigned_to) && visit.assigned_to === user?.id;
   /** What the technician wants said about the next photo they attach. */
   const [caption, setCaption] = useState<Record<string, string>>({ before: "", after: "" });
   const beforeInput = useRef<HTMLInputElement>(null);
@@ -309,7 +313,12 @@ export function Evidence({
           <div key={kind} className="flex flex-col gap-2.5 rounded-lg border border-border p-3">
             <div className="flex items-center justify-between gap-2">
               <p className={label}>{name}</p>
-              {open && (
+              {open && !photographer && (
+                <span className="text-2xs text-muted-foreground">
+                  {visit.assigned_to ? "Taken by the technician on this visit" : "Assign a technician first"}
+                </span>
+              )}
+              {open && photographer && (
                 <>
                   <input ref={ref} id={`visit-${kind}`} type="file" accept="image/*" multiple
                     className="hidden" onChange={(e) => upload(kind, e.target.files)} />
