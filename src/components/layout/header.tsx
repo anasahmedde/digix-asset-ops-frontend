@@ -195,7 +195,8 @@ export function Header() {
         </button>
         <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
 
-        <div className="relative" ref={dropdownRef}>
+        {/* On a phone the panel hangs off the header itself, full width; from sm up it hangs off the bell. */}
+        <div className="sm:relative" ref={dropdownRef}>
           <button
             onClick={() => setShowNotifications((prev) => !prev)}
             className="relative flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
@@ -209,7 +210,7 @@ export function Header() {
           </button>
 
           {showNotifications && (
-            <div className="absolute right-0 top-full mt-2 w-[420px] rounded-xl border border-border bg-card shadow-lg animate-in fade-in slide-in-from-top-2 duration-200">
+            <div className="absolute right-0 top-full mt-2 w-full rounded-xl sm:w-[420px] border border-border bg-card shadow-lg animate-in fade-in slide-in-from-top-2 duration-200">
               <div className="flex items-center justify-between border-b border-border px-4 py-3">
                 <h3 className="text-sm font-semibold text-foreground">Notifications</h3>
                 <div className="flex items-center gap-2">
@@ -225,7 +226,7 @@ export function Header() {
                 </div>
               </div>
 
-              <div className="max-h-[480px] overflow-y-auto">
+              <div className="max-h-[60vh] overflow-y-auto sm:max-h-[480px]">
                 {notifications.length === 0 ? (
                   <div className="px-4 py-8 text-center">
                     <Bell className="mx-auto h-8 w-8 text-muted-foreground/30" />

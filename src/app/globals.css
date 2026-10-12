@@ -176,6 +176,18 @@
   .dark .glass-pane {
     background-image: linear-gradient(170deg, hsl(var(--card) / 0.9) 0%, hsl(var(--card) / 0.66) 100%);
   }
+  /* A panel that floats over the page (the bell, a dropdown list) is read
+     against whatever is under it, so it is solid, not frosted. */
+  .absolute.bg-card.border-border,
+  .fixed.bg-card.border-border,
+  .dark .absolute.bg-card.border-border,
+  .dark .fixed.bg-card.border-border {
+    background-color: hsl(var(--card));
+    background-image: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    border-color: hsl(var(--border));
+  }
   /* A scrollbar in a 72px rail is a stripe through the icons: scroll without one. */
   /* On a phone a header row that cannot fit wraps instead of squeezing the
      title; fixed-width search boxes take the full width; any table scrolls
