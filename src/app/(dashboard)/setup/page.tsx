@@ -37,7 +37,7 @@ const ENTITY_OPTIONS = [
 const CURRENCY_OPTIONS = ["PKR", "AED", "SAR", "QAR", "USD", "EUR", "GBP"].map((c) => ({ value: c, label: c }));
 
 const ROLE_LABELS: Record<string, string> = {
-  super_admin: "Super Admin",
+  super_admin: "Administrator",
   group_head: "Group Head",
   ops_manager: "Operations Head",
   marketing_head: "Marketing Head",
@@ -521,6 +521,7 @@ export default function SetupPage() {
       ) : (
         <>
           <Tabs
+            wrap
             tabs={SECTIONS.map((s) => ({ key: s.key, label: s.label }))}
             active={active}
             onChange={setActive}

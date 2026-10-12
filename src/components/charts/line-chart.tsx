@@ -37,11 +37,11 @@ export function LineChart({
               <stop offset="95%" stopColor={color} stopOpacity={0} />
             </linearGradient>
           </defs>
-          <CartesianGrid strokeDasharray="3 3" stroke="hsl(222 15% 18%)" vertical={false} />
+          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
           <XAxis
             dataKey="name"
             tick={{ fill: "hsl(215 15% 55%)", fontSize: 11 }}
-            axisLine={{ stroke: "hsl(222 15% 18%)" }}
+            axisLine={{ stroke: "hsl(var(--border))" }}
             tickLine={false}
           />
           <YAxis
@@ -51,8 +51,8 @@ export function LineChart({
           />
           <Tooltip
             contentStyle={{
-              backgroundColor: "hsl(222 20% 10%)",
-              border: "1px solid hsl(222 15% 18%)",
+              backgroundColor: "hsl(var(--card))",
+              border: "1px solid hsl(var(--border))",
               borderRadius: "8px",
               color: "hsl(210 20% 90%)",
               fontSize: "12px",
@@ -65,7 +65,7 @@ export function LineChart({
             strokeWidth={2}
             fill="url(#lineGradient)"
             dot={showDots ? { r: 3, fill: color, strokeWidth: 0 } : false}
-            activeDot={{ r: 5, fill: color, strokeWidth: 2, stroke: "hsl(222 20% 10%)" }}
+            activeDot={{ r: 5, fill: color, strokeWidth: 2, stroke: "hsl(var(--card))" }}
           />
         </AreaChart>
       </ResponsiveContainer>

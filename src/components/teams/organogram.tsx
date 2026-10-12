@@ -26,7 +26,7 @@ export interface OrgPerson {
 }
 
 const ROLE_LABEL: Record<string, string> = {
-  super_admin: "Super Admin",
+  super_admin: "Administrator",
   group_head: "Group Head",
   ops_manager: "Operations Head",
   marketing_head: "Marketing Head",

@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
+import { JetBrains_Mono, Urbanist } from "next/font/google";
 import { Toaster } from "sonner";
 
 import { QueryProvider } from "@/lib/query-provider";
@@ -11,7 +11,8 @@ import "./globals.css";
 // and JetBrains Mono is behind SF Mono for the codes that run through it
 // (asset, PO, GRN and component numbers) — one face on every machine instead
 // of whatever monospace the OS has.
-const inter = Inter({ subsets: ["latin"], variable: "--font-sans", display: "swap" });
+// Urbanist is the house face - geometric, light, the one on the brand sheet.
+const urbanist = Urbanist({ subsets: ["latin"], variable: "--font-sans", display: "swap", weight: ["400", "500", "600", "700"] });
 const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono", display: "swap", weight: ["400", "500", "600"] });
 
 export const metadata: Metadata = {
@@ -32,7 +33,7 @@ export default function RootLayout({
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
-      <body className={`${inter.variable} ${mono.variable} font-sans`}>
+      <body className={`${urbanist.variable} ${mono.variable} font-sans`}>
         <ThemeProvider>
           <QueryProvider>
             {children}

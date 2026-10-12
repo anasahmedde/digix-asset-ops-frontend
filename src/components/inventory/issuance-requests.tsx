@@ -1,12 +1,14 @@
 "use client";
 
-import { Download, PackageCheck, Search, Undo2 } from "lucide-react";
+import { Download, PackageCheck, Plus, Search, ShoppingCart, Trash2, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { confirmAction } from "@/components/ui/confirm";
 import { Modal } from "@/components/ui/modal";
 import { Pagination, pageSlice } from "@/components/ui/pagination";
 import { Qty } from "@/components/ui/qty";
+import { SearchSelect } from "@/components/ui/search-select";
 import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
@@ -71,8 +73,91 @@ const thClass = "px-3 py-3.5 text-left text-xs font-medium uppercase tracking-wi
 const tdClass = "px-3 py-3.5 align-top";
 
 export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
-  const { can } = useUser();
+  const { can, canAny } = useUser();
   const canIssue = can("issue_stock");
+  // Putting a line on the queue by hand, and sending a short one to be bought.
+  const canAsk = canAny("manage_stock", "issue_stock", "decide_requirements", "review_maintenance");
+  const canProcure = canAny("manage_stock", "request_material", "decide_requirements", "review_maintenance");
+  const canDiscard = can("cancel_material_request");
+
+  /** A request raised here by hand has nobody to go back to: it is discarded. */
+  async function discard(row: RequestRow) {
+    if (!(await confirmAction(`Discard ${row.request_number}? Nothing has been issued against it.`))) return;
+    try {
+      await api.post(`/inventory/issuance-requests/${row.id}/cancel/`, { reason: "Discarded from the queue" });
+      toast.success(`${row.request_number} discarded`);
+      fetchRows();
+    } catch (err) {
+      toast.error(getApiError(err, "Could not discard the request"));
+    }
+  }
+
+  // A request raised here, not from a job or a project: what, how many, what for.
+  const [newOpen, setNewOpen] = useState(false);
+  const [newKind, setNewKind] = useState<"generic" | "unique">("generic");
+  // The picker names the component; what the shelf holds is shown under
+  // it once one is chosen, so the list stays readable.
+  const [stock, setStock] = useState<{ id: string; label: string; kind: "generic" | "unique"; onHand: number; unit: string; where: string }[]>([]);
+  const [draft, setDraft] = useState({ component: "", quantity: "1", purpose: "" });
+  const [creating, setCreating] = useState(false);
+  useEffect(() => {
+    // Read the shelf fresh each time the dialog opens: the figures move.
+    if (!newOpen) return;
+    Promise.all([
+      api.get("/inventory/items/", { params: { page_size: 500 } }),
+      api.get("/inventory/products/", { params: { page_size: 500 } }),
+    ]).then(([items, products]) => {
+      type Item = { id: string; sku: string; material_name?: string | null; quantity: number; unit?: string; storage_location?: string; location?: string };
+      type Product = { id: string; name: string; type_code: string; in_stock_count: number; storage_locations?: string[] };
+      setStock([
+        ...((items.data.results ?? items.data) as Item[]).map((it) => ({
+          id: it.id, kind: "generic" as const, label: `${it.material_name ?? it.sku} · ${it.sku}`,
+          onHand: it.quantity, unit: it.unit ?? "piece",
+          // The bin, and the place kind when the stock is not on the warehouse shelf.
+          where: [it.storage_location, it.location === "in_transit" ? "in transit to site" : ""].filter(Boolean).join(" · "),
+        })),
+        ...((products.data.results ?? products.data) as Product[]).map((p) => ({
+          id: p.id, kind: "unique" as const, label: `${p.name} · ${p.type_code}`,
+          onHand: p.in_stock_count, unit: "piece", where: (p.storage_locations ?? []).join(", "),
+        })),
+      ]);
+    }).catch(() => {});
+  }, [newOpen]);
+
+  async function submitNew(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const qty = Number(draft.quantity) || 0;
+    if (!draft.component) { toast.error("Pick the component"); return; }
+    if (qty < 1) { toast.error("Ask for at least one"); return; }
+    if (!draft.purpose.trim()) { toast.error("Say what it is for"); return; }
+    setCreating(true);
+    try {
+      const { data } = await api.post("/inventory/issuance-requests/", {
+        [newKind === "unique" ? "unit_type" : "item"]: draft.component,
+        quantity_requested: qty, purpose: draft.purpose.trim(), source: "other",
+      });
+      toast.success(`${data.request_number} is on the store's queue`);
+      setNewOpen(false);
+      setDraft({ component: "", quantity: "1", purpose: "" });
+      fetchRows();
+    } catch (err) {
+      toast.error(getApiError(err, "Could not raise the request"));
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  /** The shelf cannot cover a request: buy the shortfall for it. */
+  async function procure(row: RequestRow) {
+    try {
+      const { data } = await api.post(`/inventory/issuance-requests/${row.id}/procure/`, {});
+      const short = Math.max(row.outstanding_quantity - (row.available_quantity ?? 0), 0);
+      toast.success(`Procurement request raised for ${short} ${row.unit ?? ""} of ${data.what ?? row.what} — Procurement › Procurement Requests`);
+      fetchRows();
+    } catch (err) {
+      toast.error(getApiError(err, "Could not raise the procurement request"));
+    }
+  }
 
   const [rows, setRows] = useState<RequestRow[]>([]);
   const sort = useSortState();
@@ -223,11 +308,22 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
           Everything waiting on the store. Projects and maintenance both ask here, and material only
           leaves once it is issued — in full, or in part with the balance left owed.
         </p>
-        {waiting > 0 && (
-          <span className="rounded-full bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-600 ring-1 ring-amber-500/20">
-            {waiting} awaiting issue
-          </span>
-        )}
+        <div className="flex items-center gap-3">
+          {waiting > 0 && (
+            <span className="rounded-full bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-600 ring-1 ring-amber-500/20">
+              {waiting} awaiting issue
+            </span>
+          )}
+          {canAsk && (
+            <button
+              type="button"
+              onClick={() => setNewOpen(true)}
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-medium text-white"
+            >
+              <Plus className="h-3.5 w-3.5" /> New issue request
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
@@ -401,7 +497,30 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                               <Download className="h-3.5 w-3.5" />
                             </button>
                           )}
-                          {canIssue && !settled && (
+                          {canProcure && !settled && !row.awaiting_procurement
+                            && row.available_quantity != null && row.available_quantity < row.outstanding_quantity && (
+                            <button
+                              onClick={() => procure(row)}
+                              title={`Short by ${row.outstanding_quantity - (row.available_quantity ?? 0)} — buy it through Procurement`}
+                              aria-label="Raise procurement for the shortfall"
+                              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-amber-500/40 text-amber-700 transition-colors hover:bg-amber-500/10"
+                            >
+                              <ShoppingCart className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                          {/* Raised by hand: nothing to send it back to. */}
+                          {row.source === "other" && !row.asset_code && !row.maintenance_title ? (
+                            canDiscard && !settled && row.quantity_issued === 0 && (
+                              <button
+                                onClick={() => discard(row)}
+                                title="Discard this request"
+                                aria-label="Discard this request"
+                                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:border-destructive/40 hover:text-destructive"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            )
+                          ) : canIssue && !settled && (
                             <button
                               onClick={() => { setBackFor(row); setBackNote(""); }}
                               title="Send this request back to whoever raised it"
@@ -453,11 +572,12 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                 ` ${backFor.quantity_issued} ${backFor.unit ?? "piece"} already issued stays issued.`}
             </div>
             <div className="space-y-1.5">
-              <label htmlFor="back-note" className={labelClass}>Why (optional)</label>
+              <label htmlFor="back-note" className={labelClass}>Why</label>
               <textarea
                 id="back-note"
                 rows={2}
                 value={backNote}
+                required
                 onChange={(e) => setBackNote(e.target.value)}
                 placeholder="e.g. Not in stock until Thursday — decide again or procure"
                 className={`${inputClass} h-auto py-2`}
@@ -481,6 +601,63 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
             </div>
           </form>
         )}
+      </Modal>
+
+      <Modal open={newOpen} onClose={() => setNewOpen(false)} title="New issue request" size="md">
+        <form onSubmit={submitNew} className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            A request raised here follows the same road as one from a job: the store issues what it has, and what it lacks can be bought.
+          </p>
+          <div className="grid gap-4 sm:grid-cols-[9rem_1fr] [&>*]:min-w-0">
+            <div className="space-y-1.5">
+              <label htmlFor="mr-kind" className={labelClass}>Kind</label>
+              <select id="mr-kind" value={newKind} onChange={(e) => { setNewKind(e.target.value as "generic" | "unique"); setDraft((d) => ({ ...d, component: "" })); }} className={inputClass}>
+                <option value="generic">Generic stock</option>
+                <option value="unique">Unique component</option>
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <label className={labelClass}>Component *</label>
+              <SearchSelect
+                options={stock.filter((o) => o.kind === newKind)}
+                value={draft.component}
+                onChange={(v) => setDraft((d) => ({ ...d, component: v }))}
+                placeholder="Search stock…"
+              />
+              {(() => {
+                const picked = stock.find((o) => o.id === draft.component);
+                if (!picked) return null;
+                const short = (Number(draft.quantity) || 0) > picked.onHand;
+                return (
+                  <p className="text-xs text-muted-foreground">
+                    <span className="block font-medium text-foreground">{picked.label}</span>
+                    <span className={short ? "text-amber-600" : undefined}>
+                      In stock: <span className="font-medium">{picked.onHand} {picked.unit}</span>
+                      {picked.onHand > 0 && picked.where ? ` · ${picked.where}` : ""}
+                      {short ? " — short; the balance can be sent to Procurement after raising" : ""}
+                    </span>
+                  </p>
+                );
+              })()}
+            </div>
+          </div>
+          {/* No project here: a project's material is asked for from the
+              project itself, where the requirement is decided. */}
+          <div className="grid gap-4 sm:grid-cols-[9rem_1fr] [&>*]:min-w-0">
+            <div className="space-y-1.5">
+              <label htmlFor="mr-qty" className={labelClass}>Quantity *</label>
+              <input id="mr-qty" type="number" min={1} value={draft.quantity} onChange={(e) => setDraft((d) => ({ ...d, quantity: e.target.value }))} className={inputClass} />
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="mr-purpose" className={labelClass}>What for *</label>
+              <input id="mr-purpose" value={draft.purpose} onChange={(e) => setDraft((d) => ({ ...d, purpose: e.target.value }))} placeholder="e.g. Site office rewire" className={inputClass} />
+            </div>
+          </div>
+          <div className="flex justify-end gap-3">
+            <button type="button" onClick={() => setNewOpen(false)} className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary">Cancel</button>
+            <button type="submit" disabled={creating} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{creating ? "Raising…" : "Raise request"}</button>
+          </div>
+        </form>
       </Modal>
 
       <Modal

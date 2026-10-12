@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { WaitingOn } from "@/components/ui/waiting-on";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import {
@@ -18,6 +19,8 @@ import { formatDate, formatDateTime } from "@/lib/utils";
 /** A part a technician has asked for on this job, and the answer given. */
 interface PartRequest {
   id: string;
+  /** Whether the viewer is the one who answers this line: the asker's own supervisor or someone acting for every team. */
+  decidable_by_me?: boolean;
   item: string | null;
   unit_type: string | null;
   name: string;
@@ -103,6 +106,8 @@ interface StockOption {
 /** The job as the list knows it — the detail fills in the rest itself. */
 export interface ScheduleSummary {
   id: string;
+  /** Who the job was given to; the parts form is theirs. */
+  assigned_to?: string | null;
   title: string;
   maintenance_type: string;
   frequency: string;
@@ -111,7 +116,7 @@ export interface ScheduleSummary {
   ticket_description?: string | null;
   ticket_raised_at?: string | null;
   /** Whoever last worked on this asset, on any job. */
-  last_technician_on_asset?: { name: string; when: string | null } | null;
+  last_technician_on_asset?: { name: string; when: string | null; job?: string | null } | null;
   status: string;
   status_display?: string;
   effective_status?: string;
@@ -169,7 +174,7 @@ export function ScheduleDetail({
       the visit itself, the same as it does for a breakdown. */
   onEdit?: () => void;
 }) {
-  const { can } = useUser();
+  const { can, user } = useUser();
   const [parts, setParts] = useState<PartRequest[]>([]);
   const [visits, setVisits] = useState<Visit[]>([]);
   /** This job as the server has it now, not as the list had it. */
@@ -189,7 +194,10 @@ export function ScheduleDetail({
   const [clientName, setClientName] = useState<string | null>(null);
 
   const canDecide = can("review_maintenance");
-  const canAsk = canDecide || can("work_maintenance");
+  // A technician asks for parts on their own job only - the one given to
+  // them, or whose open round is theirs; the office asks on any.
+  const actsForEveryone = canDecide || can("manage_maintenance") || can("assign_maintenance") || can("act_across_teams");
+  const canAsk = actsForEveryone || (can("work_maintenance") && (schedule.assigned_to === user?.id || visits.some((v) => v.status === "planned" || v.status === "in_progress" ? v.assigned_to === user?.id : false)));
 
   const loadParts = useCallback(async () => {
     try {
@@ -223,6 +231,17 @@ export function ScheduleDetail({
     loadVisits();
     loadParts();
   }, [schedule.updated_at, loadLive, loadVisits, loadParts]);
+
+  // Somebody else's move - a request raised, a decision given, a round
+  // started - shows without a reload: polled while open, and re-read the
+  // moment this tab is looked at again.
+  useEffect(() => {
+    const tick = () => { if (document.visibilityState === "visible") { loadParts(); loadVisits(); loadLive(); } };
+    const id = setInterval(tick, 15000);
+    document.addEventListener("visibilitychange", tick);
+    window.addEventListener("focus", tick);
+    return () => { clearInterval(id); document.removeEventListener("visibilitychange", tick); window.removeEventListener("focus", tick); };
+  }, [loadParts, loadVisits, loadLive]);
 
   // Who can be put on a round. A schedule comes round every month and whoever
   // is free attends, so the list is the technicians, not one name.
@@ -272,16 +291,26 @@ export function ScheduleDetail({
     api.get(`/assets/devices/${schedule.device}/`)
       .then(({ data }) => setClientName(data.client_name ?? null))
       .catch(() => {});
-    api.get("/warranties/", { params: { device: schedule.device, status: "active", page_size: 100 } })
+    // Covered means a client warranty whose derived status is Active - the
+    // same reading the visit's "billable" flag and the Warranties screens
+    // use. A vendor's cover is noted but does not make the work free to the
+    // client; a client warranty that has not started yet does not either.
+    api.get("/warranties/", { params: { device: schedule.device, page_size: 100 } })
       .then(({ data }) => {
-        const list: { warranty_type: string; warranty_type_display?: string; end_date?: string }[] =
+        const list: { warranty_type: string; warranty_type_display?: string; status: string; status_display?: string; end_date?: string }[] =
           data.results ?? data;
-        const client = list.find((w) => w.warranty_type === "client");
-        const any = client ?? list[0];
+        const client = list.find((w) => w.warranty_type === "client" && w.status === "active");
+        const pending = list.find((w) => w.warranty_type === "client" && w.status !== "active");
+        const vendor = list.find((w) => w.warranty_type !== "client" && w.status === "active");
         setCover({
           covered: Boolean(client),
-          label: any?.warranty_type_display ?? any?.warranty_type ?? "",
-          until: any?.end_date ?? null,
+          label: client
+            ? "Client warranty"
+            : [
+                pending ? `Client warranty ${(pending.status_display ?? pending.status).toLowerCase()}` : null,
+                vendor ? `${vendor.warranty_type_display ?? "Vendor"} warranty to ${vendor.end_date ? formatDate(vendor.end_date) : "—"} (the vendor's, not the client's)` : null,
+              ].filter(Boolean).join(" · "),
+          until: client?.end_date ?? null,
         });
       })
       .catch(() => {});
@@ -502,7 +531,7 @@ export function ScheduleDetail({
                               {line.decision_note}
                             </span>
                           )}
-                          {canDecide ? (
+                          {(line.decidable_by_me ?? canDecide) ? (
                             <div className="flex flex-wrap items-center gap-1.5">
                               <input
                                 type="number"
@@ -530,7 +559,7 @@ export function ScheduleDetail({
                             </div>
                           ) : (
                             <div className="flex items-center gap-2">
-                              <span className="text-2xs text-muted-foreground">Waiting on a supervisor</span>
+                              <WaitingOn refKey={`part:${line.id}`} prefix="Waiting on" className="text-2xs" />
                               {canAsk && (
                                 <button
                                   onClick={() => withdraw(line)}
@@ -717,7 +746,7 @@ export function ScheduleDetail({
                     {schedule.last_technician_on_asset.name}
                     {schedule.last_technician_on_asset.when && (
                       <span className="block text-2xs text-muted-foreground">
-                        {formatDate(schedule.last_technician_on_asset.when)}
+                        {formatDate(schedule.last_technician_on_asset.when)}{schedule.last_technician_on_asset.job ? ` · on "${schedule.last_technician_on_asset.job}"` : ""}
                       </span>
                     )}
                   </>
@@ -740,7 +769,7 @@ export function ScheduleDetail({
                     {schedule.last_technician_on_asset.name}
                     {schedule.last_technician_on_asset.when && (
                       <span className="block text-2xs text-muted-foreground">
-                        {formatDate(schedule.last_technician_on_asset.when)}
+                        {formatDate(schedule.last_technician_on_asset.when)}{schedule.last_technician_on_asset.job ? ` · on "${schedule.last_technician_on_asset.job}"` : ""}
                       </span>
                     )}
                   </>
@@ -755,15 +784,17 @@ export function ScheduleDetail({
               <span className="text-muted-foreground">Checking…</span>
             ) : cover.covered ? (
               <span className="font-medium text-emerald-600">
-                Under warranty
+                Under client warranty
                 <span className="block text-xs font-normal text-muted-foreground">
                   {[cover.label, cover.until ? `to ${formatDate(cover.until)}` : null].filter(Boolean).join(" · ")}
                 </span>
               </span>
             ) : (
               <span className="font-medium text-amber-600">
-                Not under warranty
-                <span className="block text-xs font-normal text-muted-foreground">Work is billable to the client.</span>
+                Not under client warranty
+                <span className="block text-xs font-normal text-muted-foreground">
+                  Work is billable to the client.{cover.label ? ` ${cover.label}.` : ""}
+                </span>
               </span>
             )}
           </Field>

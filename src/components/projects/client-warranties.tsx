@@ -6,7 +6,7 @@ import { toast } from "sonner";
 
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
-import { formatDate, formatTerm } from "@/lib/utils";
+import { formatDate, formatTerm, termBetween } from "@/lib/utils";
 import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
 
 /** One asset on the order, and the cover the client has on it. */
@@ -21,10 +21,11 @@ interface Row {
   warranty: {
     id: string;
     reference_number?: string;
-    months: number;
+    months: number | null;
     start_date: string;
     end_date: string;
     status: string;
+    status_display?: string;
   } | null;
 }
 
@@ -211,8 +212,16 @@ export function ClientWarranties({
                     </td>
                     <td className="px-3 py-2">
                       {r.warranty ? (
-                        <span className="inline-flex rounded-full bg-emerald-500/10 px-2 py-0.5 text-2xs font-medium text-emerald-600 ring-1 ring-emerald-500/20">
-                          {formatTerm(r.warranty.months)}
+                        <span
+                          title={r.warranty.status_display ?? r.warranty.status}
+                          className={`inline-flex rounded-full px-2 py-0.5 text-2xs font-medium ring-1 ${
+                            r.warranty.status === "active"
+                              ? "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20"
+                              : "bg-secondary text-muted-foreground ring-border"
+                          }`}
+                        >
+                          {termBetween(r.warranty.start_date, r.warranty.end_date, r.warranty.months)}
+                          {r.warranty.status !== "active" && ` · ${r.warranty.status_display ?? r.warranty.status}`}
                         </span>
                       ) : null}
                       {r.warranty?.reference_number ? (

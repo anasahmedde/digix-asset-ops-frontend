@@ -1,7 +1,7 @@
 "use client";
 
-import { Download, Info, Package, Pencil, Plus, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { ChevronDown, ChevronRight, Download, Info, Package, Pencil, Plus, Trash2 } from "lucide-react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
@@ -21,6 +21,7 @@ import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
 import { confirmAction } from "@/components/ui/confirm";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
+import { formatDate } from "@/lib/utils";
 import { useUser } from "@/lib/user-context";
 
 interface InventoryItem {
@@ -34,8 +35,14 @@ interface InventoryItem {
   min_stock_level: number;
   location: string;
   storage_location: string;
+  /** Every bin that still holds some of it, one batch each. */
+  storage_locations?: string[];
   unit: string | null;
   unit_cost: string | null;
+  /** What the last delivery cost. */
+  latest_cost?: string | null;
+  /** What is on the shelf is worth, batch by batch at what each cost. */
+  total_value: number | null;
   notes: string;
   is_low_stock: boolean;
   created_at: string;
@@ -61,10 +68,13 @@ interface StockMovement {
 const inputClass =
   "flex h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors";
 const labelClass = "text-xs font-medium text-muted-foreground";
-const LOCATION_LABELS: Record<string, string> = { warehouse: "Warehouse", in_transit: "In Transit" };
 
 export default function InventoryPage() {
-  const { canWrite } = useUser();
+  const { canWrite, canAny } = useUser();
+  // Whoever does not work the store - the field, the office looking things
+  // up - sees what is on the shelf and nothing else: no receiving, no
+  // issuing, no logs, no actions on a line.
+  const worksStore = canAny("manage_stock", "receive_goods", "issue_stock", "inspect_goods");
   const canEdit = canWrite("inventory");
 
   const [items, setItems] = useState<InventoryItem[]>([]);
@@ -82,8 +92,29 @@ export default function InventoryPage() {
   const [detailsFor, setDetailsFor] = useState<InventoryItem | null>(null);
   const [movements, setMovements] = useState<StockMovement[]>([]);
   const [movementsLoading, setMovementsLoading] = useState(false);
+  // What is on the shelf batch by batch: where each sits and what it cost.
+  interface Batch {
+    id: string; batch_number: string; kind: string; received_at: string;
+    grn_number: string | null; po_number: string | null; supplier_name: string | null;
+    storage_location: string; quantity_in: number; unit_cost: string | number | null;
+    remaining: number; value: number | null;
+  }
+  const [batchesOf, setBatchesOf] = useState<Record<string, Batch[]>>({});
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  async function toggleBatches(item: InventoryItem) {
+    if (expanded === item.id) { setExpanded(null); return; }
+    setExpanded(item.id);
+    if (batchesOf[item.id]) return;
+    try {
+      const { data } = await api.get(`/inventory/items/${item.id}/batches/`);
+      setBatchesOf((prev) => ({ ...prev, [item.id]: data }));
+    } catch (err) {
+      toast.error(getApiError(err, "Could not load the batches"));
+    }
+  }
   const [saving, setSaving] = useState(false);
-  const [filterValues, setFilterValues] = useState<Record<string, string>>({ location: "", category: "", lowStock: "" });
+  const [filterValues, setFilterValues] = useState<Record<string, string>>({ category: "", lowStock: "" });
   const [search, setSearch] = useState("");
   const [exporting, setExporting] = useState(false);
   // The Add button for the unique tab lives in the page header with the
@@ -98,10 +129,10 @@ export default function InventoryPage() {
   const params = useSearchParams();
   useEffect(() => {
     const t = params.get("tab");
-    if (t && ["generic", "unique", "low_stock", "inspection", "receiving_log", "requests", "issuance"].includes(t)) {
+    if (t && (worksStore ? ["generic", "unique", "low_stock", "inspection", "receiving_log", "requests", "issuance"] : ["generic", "unique"]).includes(t)) {
       setTab(t as typeof tab);
     }
-  }, [params]);
+  }, [params, worksStore]);
   const [pendingCount, setPendingCount] = useState(0);
   // Components at or below their reorder level with no request raised yet.
   const [lowCount, setLowCount] = useState(0);
@@ -120,7 +151,6 @@ export default function InventoryPage() {
     try {
       const params: Record<string, string> = {};
       if (search) params.search = search;
-      if (filterValues.location) params.location = filterValues.location;
       if (filterValues.category) params.category = filterValues.category;
       if (filterValues.lowStock === "low") params.low_stock = "true";
       else if (filterValues.lowStock === "ok") params.low_stock = "false";
@@ -187,9 +217,7 @@ export default function InventoryPage() {
     setMovements([]);
     setMovementsLoading(true);
     try {
-      const { data } = await api.get("/inventory/movements/", {
-        params: { item: item.id, page_size: 200, ordering: "-created_at" },
-      });
+      const { data } = await api.get("/inventory/movements/", { params: { item: item.id, page_size: 200, ordering: "-created_at" } });
       const rows: StockMovement[] = data.results ?? data;
       setMovements([...rows].sort((a, b) => b.created_at.localeCompare(a.created_at)));
     } catch (err) {
@@ -268,7 +296,6 @@ export default function InventoryPage() {
   }
 
   const filtered = useMemo(() => items.filter((item) => {
-    if (filterValues.location && item.location !== filterValues.location) return false;
     if (filterValues.category && item.category !== filterValues.category) return false;
     if (filterValues.lowStock === "low" && !item.is_low_stock) return false;
     if (filterValues.lowStock === "ok" && item.is_low_stock) return false;
@@ -293,9 +320,11 @@ export default function InventoryPage() {
         </div>
         {(tab === "generic" || tab === "unique") && (
           <div className="flex items-center gap-2">
+            {worksStore && (
             <button onClick={exportExcel} disabled={exporting} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-60">
               <Download className="h-4 w-4" /> {exporting ? "Exporting…" : "Export Excel"}
             </button>
+            )}
             {canEdit && (
               <button
                 onClick={() => (tab === "unique" ? setUniqueOpenTick((t) => t + 1) : openItemModal("create", null))}
@@ -317,7 +346,7 @@ export default function InventoryPage() {
           { key: "receiving_log", label: "Receiving Log" },
           { key: "requests", label: "Issue Requests" },
           { key: "issuance", label: "Issuance Log" },
-        ] as const).map((t) => (
+        ] as const).filter((t) => worksStore || t.key === "generic" || t.key === "unique").map((t) => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
@@ -342,7 +371,7 @@ export default function InventoryPage() {
         ))}
       </div>
 
-      {tab === "unique" && <UniqueItems openTick={uniqueOpenTick} />}
+      {tab === "unique" && <UniqueItems openTick={uniqueOpenTick} viewOnly={!worksStore} />}
 
       {tab === "requests" && <IssuanceRequests onIssued={fetchItems} />}
 
@@ -367,7 +396,6 @@ export default function InventoryPage() {
       <>
       <FilterBar
         filters={[
-          { key: "location", label: "Location", options: Object.entries(LOCATION_LABELS).map(([v, l]) => ({ value: v, label: l })) },
           { key: "category", label: "Category", options: categories.map((c) => ({ value: c.id, label: c.name })) },
           { key: "lowStock", label: "Stock Level", options: [{ value: "low", label: "Low Stock" }, { value: "ok", label: "OK" }] },
         ]}
@@ -394,22 +422,27 @@ export default function InventoryPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
+                  <th className="w-10" />
                   <SortTh sort={sort} k="sku" className={thClass}>Code</SortTh>
                   <SortTh sort={sort} k="material_name" className={thClass}>Component</SortTh>
                   <SortTh sort={sort} k="category_name" className={thClass}>Category</SortTh>
                   <SortTh sort={sort} k="storage_location" className={thClass}>Storage Location</SortTh>
                   <SortTh sort={sort} k="quantity" className={thNum}>On Hand</SortTh>
                   <SortTh sort={sort} k="min_stock_level" className={thNum}>Reorder Level</SortTh>
-                  <SortTh sort={sort} k="unit_cost" className={thNum}>Unit Cost (PKR)</SortTh>
+                  <SortTh sort={sort} k="latest_cost" className={thNum}>Latest Cost (PKR)</SortTh>
                   <SortTh sort={sort} k="stock" className={thClass}>Status</SortTh>
-                  <th className={thClass}>Actions</th>
+                  {worksStore && <th className={thClass}>Actions</th>}
                 </tr>
               </thead>
               <tbody>
                 {sortRows(filtered, sort, { stock: (i) => (i.quantity <= 0 ? 0 : i.quantity <= i.min_stock_level ? 1 : 2) }).map((item) => (
-                  // A click views the line, as it does on unique components;
-                  // changing it is the pencil's job.
-                  <tr key={item.id} onClick={() => openDetails(item)} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
+                  // A click opens the batches under the row, as it does on
+                  // unique components; changing the line is the pencil's job.
+                  <Fragment key={item.id}>
+                  <tr onClick={() => toggleBatches(item)} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
+                    <td className="pl-4 text-muted-foreground">
+                      {expanded === item.id ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                    </td>
                     <td className={tdCode}>
                       <span className="inline-flex items-center gap-1">
                         {item.sku}
@@ -420,18 +453,19 @@ export default function InventoryPage() {
                     <td className={`${tdClass} text-muted-foreground`}>{item.category_name || "—"}</td>
                     <td className={tdClass}>
                       <StockPlace
-                        places={item.storage_location ? [item.storage_location] : []}
-                        note={LOCATION_LABELS[item.location] ?? item.location}
+                        onHand={item.quantity}
+                        places={item.storage_locations ?? (item.storage_location ? [item.storage_location] : [])}
                       />
                     </td>
                     <td className={`${tdNum} font-semibold text-foreground`}><Qty value={item.quantity} unit={item.unit} /></td>
                     <td className={`${tdNum} text-muted-foreground`}>{item.min_stock_level}</td>
-                    <td className={`${tdNum} text-muted-foreground`}>{money(item.unit_cost)}</td>
+                    <td className={`${tdNum} text-muted-foreground`}>{money(item.latest_cost ?? item.unit_cost)}</td>
                     <td className={tdClass}><StockStatus onHand={item.quantity} reorderAt={item.min_stock_level} /></td>
+                    {worksStore && (
                     <td className={tdClass} onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center gap-1">
-                        {/* Where this stock came from — open to everyone who can see the line. */}
-                        <button onClick={() => openDetails(item)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground" title="Details">
+                        {/* Where this stock came from — open to everyone who works the store. */}
+                        <button onClick={() => openDetails(item)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground" title="Stock history">
                           <Info className="h-3.5 w-3.5" />
                         </button>
                         {canEdit && (
@@ -446,7 +480,72 @@ export default function InventoryPage() {
                         )}
                       </div>
                     </td>
+                    )}
                   </tr>
+                  {expanded === item.id && (() => {
+                    const lots = batchesOf[item.id];
+                    const live = (lots ?? []).filter((b) => b.remaining > 0);
+                    const traced = live.reduce((n, b) => n + b.remaining, 0);
+                    const value = live.reduce((n, b) => n + (b.value ?? 0), 0);
+                    const untraced = item.quantity - traced;
+                    return (
+                      <tr className="border-b border-border bg-secondary/20">
+                        <td colSpan={10} className="px-8 py-4">
+                          {!lots ? (
+                            <p className="text-xs text-muted-foreground">Loading batches…</p>
+                          ) : live.length === 0 ? (
+                            <p className="text-xs text-muted-foreground">
+                              Nothing on the shelf from a recorded delivery — batches arrive through goods receipt and inspection.
+                            </p>
+                          ) : (
+                            <table className="w-full text-xs">
+                              <thead>
+                                <tr className="text-left text-muted-foreground">
+                                  <th className="py-1.5 font-medium">Batch</th>
+                                  <th className="py-1.5 font-medium">Received</th>
+                                  <th className="py-1.5 font-medium">Source</th>
+                                  <th className="py-1.5 font-medium">Storage location</th>
+                                  <th className="py-1.5 pr-6 text-right font-medium">Received qty</th>
+                                  <th className="py-1.5 pr-6 text-right font-medium">On shelf</th>
+                                  <th className="py-1.5 pr-6 text-right font-medium">Unit cost (PKR)</th>
+                                  <th className="py-1.5 text-right font-medium">Value (PKR)</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {live.map((b) => (
+                                  <tr key={b.id} className="border-t border-border/60">
+                                    <td className="py-1.5 font-mono text-foreground">{b.batch_number || "—"}</td>
+                                    <td className="py-1.5 whitespace-nowrap text-muted-foreground">{formatDate(b.received_at)}</td>
+                                    <td className="py-1.5 font-mono text-muted-foreground">
+                                      {[b.grn_number, b.po_number].filter(Boolean).join(" · ") || (b.kind === "opening" ? "Opening stock" : "Entered by hand")}
+                                      {b.supplier_name && <span className="block font-sans text-2xs text-muted-foreground">{b.supplier_name}</span>}
+                                    </td>
+                                    <td className="py-1.5 text-foreground">{b.storage_location || <span className="text-muted-foreground">Not recorded</span>}</td>
+                                    <td className="py-1.5 pr-6 text-right text-muted-foreground">{b.quantity_in}</td>
+                                    <td className="py-1.5 pr-6 text-right font-medium text-foreground">{b.remaining} {item.unit}</td>
+                                    <td className="py-1.5 pr-6 text-right text-muted-foreground">{money(b.unit_cost)}</td>
+                                    <td className="py-1.5 text-right font-medium text-foreground">{money(b.value)}</td>
+                                  </tr>
+                                ))}
+                                <tr className="border-t border-border font-medium text-foreground">
+                                  <td colSpan={5} className="py-1.5 text-xs font-normal text-muted-foreground">
+                                    Oldest batch is issued first.{untraced > 0 ? ` ${untraced} ${item.unit} on hand predate batch records.` : ""}
+                                  </td>
+                                  <td className="py-1.5 pr-6 text-right">{traced} {item.unit}</td>
+                                  <td />
+                                  <td className="py-1.5 text-right">{money(value)}</td>
+                                </tr>
+                              </tbody>
+                            </table>
+                          )}
+                          <p className="mt-2 text-2xs text-muted-foreground">
+                            What the store is holding, delivery by delivery, each at the cost it was bought for and in the bin it was put.
+                          </p>
+                        </td>
+                      </tr>
+                    );
+                  })()}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
@@ -557,7 +656,7 @@ export default function InventoryPage() {
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
               <span className="font-mono text-foreground">{detailsFor.sku}</span> · in stock{" "}
-              <strong className="text-foreground">{detailsFor.quantity}</strong>
+              <strong className="text-foreground">{detailsFor.quantity} {detailsFor.unit}</strong>
               {detailsFor.category_name ? ` · ${detailsFor.category_name}` : ""}
             </p>
             {movementsLoading ? (

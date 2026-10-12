@@ -65,7 +65,7 @@ export default function SitesPage() {
   const [saving, setSaving] = useState(false);
   const [clients, setClients] = useState<Option[]>([]);
   const [view, setView] = useState<"list" | "map">("list");
-  const [filterValues, setFilterValues] = useState<Record<string, string>>({ status: "", country: "" });
+  const [filterValues, setFilterValues] = useState<Record<string, string>>({ status: "", client: "", city: "" });
   const [search, setSearch] = useState("");
   // Address, city and country are controlled so that dropping a pin can
   // fill them in. They stay editable — the pin gives a starting point, and
@@ -257,7 +257,9 @@ export default function SitesPage() {
       <FilterBar
         filters={[
           { key: "status", label: "Status", options: [{ value: "active", label: "Active" }, { value: "inactive", label: "Inactive" }] },
-          { key: "country", label: "Country", options: [...new Set(sites.map((s) => s.country).filter(Boolean))].sort().map((c) => ({ value: c, label: c })) },
+          // Clients and cities come from the sites themselves, so the list only offers what exists.
+          { key: "client", label: "Client", options: Object.entries(Object.fromEntries(sites.filter((s) => s.client && s.client_name).map((s) => [s.client as string, s.client_name as string]))).sort((a, b) => a[1].localeCompare(b[1])).map(([value, label]) => ({ value, label })) },
+          { key: "city", label: "City", options: [...new Set(sites.map((s) => s.city).filter(Boolean))].sort().map((c) => ({ value: c, label: c })) },
         ]}
         values={filterValues}
         onChange={(k, v) => setFilterValues((prev) => ({ ...prev, [k]: v }))}
@@ -270,7 +272,8 @@ export default function SitesPage() {
         const filtered = sites.filter((s) => {
           if (filterValues.status === "active" && !s.is_active) return false;
           if (filterValues.status === "inactive" && s.is_active) return false;
-          if (filterValues.country && s.country !== filterValues.country) return false;
+          if (filterValues.client && s.client !== filterValues.client) return false;
+          if (filterValues.city && s.city !== filterValues.city) return false;
           if (search) {
             const q = search.toLowerCase();
             if (!s.name.toLowerCase().includes(q) && !(s.city || "").toLowerCase().includes(q) && !s.country.toLowerCase().includes(q)) return false;
@@ -307,7 +310,7 @@ export default function SitesPage() {
               </thead>
               <tbody>
                 {pageSlice(sortRows(filtered, sort), sitePage).map((s) => (
-                  <tr key={s.id} onClick={() => openEdit(s)} className="border-b border-border/30 cursor-pointer transition-colors hover:bg-secondary/30">
+                  <tr key={s.id} onClick={() => canEdit && openEdit(s)} className="border-b border-border/30 cursor-pointer transition-colors hover:bg-secondary/30">
                     <td className={`${tdClass} font-medium text-foreground`}>
                       <span className="inline-flex items-center gap-1">
                         {s.name}

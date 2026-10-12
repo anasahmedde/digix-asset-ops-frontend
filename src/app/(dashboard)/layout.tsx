@@ -16,7 +16,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen">
       <Sidebar />
       {/* Mobile backdrop when the drawer is open */}
       {mobileOpen && (
@@ -27,13 +27,13 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
         />
       )}
       <div
-        className="transition-all duration-200 lg:pl-[var(--sidebar-w)]"
+        className="transition-[padding] duration-200 lg:pl-[calc(var(--sidebar-w)+0.75rem)]"
         style={{ ["--sidebar-w" as string]: collapsed ? "72px" : "256px" }}
       >
         <Header />
         {/* A section's link, clicked from inside that section, lands on its
             list: the page is remounted rather than left where it was. */}
-        <main key={`${homeKey}-${pathname}`} className="rise-in p-4 sm:p-6">{children}</main>
+        <main key={`${homeKey}-${pathname}`} className="rise-in p-4 pb-[calc(1rem+var(--bottom-gap))] sm:p-6 sm:pb-[calc(1.5rem+var(--bottom-gap))]">{children}</main>
       </div>
       <ConfirmHost />
     </div>

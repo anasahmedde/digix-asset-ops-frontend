@@ -5,6 +5,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import api from "@/lib/api";
+import { formatDate } from "@/lib/utils";
 import { getApiError } from "@/lib/api-error";
 import { Qty } from "@/components/ui/qty";
 import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
@@ -67,8 +68,8 @@ type LogRow =
 
 const inputClass =
   "flex h-10 w-full rounded-lg border border-border bg-card pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors";
-const thClass = "px-5 py-3.5 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground";
-const tdClass = "px-5 py-3.5";
+const thClass = "px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground";
+const tdClass = "px-4 py-3 align-top";
 
 /** Everyone who took material against a request, in order, once each. */
 function receivers(r: RequestRow): string[] {
@@ -260,14 +261,12 @@ export function IssuanceLog() {
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
                   <th className={`${thClass} w-8`}></th>
-                  <SortTh sort={sort} k="number" className={thClass}>Request</SortTh>
-                  <SortTh sort={sort} k="date" className={thClass}>Date</SortTh>
-                  <SortTh sort={sort} k="component" className={thClass}>Component</SortTh>
-                  <SortTh sort={sort} k="kind" className={thClass}>Kind</SortTh>
+                  <SortTh sort={sort} k="number" className={`${thClass} w-36`}>Request</SortTh>
+                  <SortTh sort={sort} k="date" className={`${thClass} w-28`}>Date</SortTh>
+                  <SortTh sort={sort} k="component" className={`${thClass} min-w-[12rem]`}>Component</SortTh>
+                  <SortTh sort={sort} k="kind" className={`${thClass} w-32`}>Kind</SortTh>
                   <SortTh sort={sort} k="issued" className={thClass}>Issued</SortTh>
-                  <SortTh sort={sort} k="received_by" className={thClass}>For / Received By</SortTh>
-                  <SortTh sort={sort} k="asset" className={thClass}>For Asset</SortTh>
-                  <SortTh sort={sort} k="issued_by" className={thClass}>Issued By</SortTh>
+                  <SortTh sort={sort} k="received_by" className={`${thClass} min-w-[16rem]`}>For</SortTh>
                 </tr>
               </thead>
               <tbody>
@@ -295,7 +294,7 @@ export function IssuanceLog() {
                             </span>
                           )}
                         </td>
-                        <td className={`${tdClass} text-muted-foreground`}>{new Date(r.date).toLocaleDateString()}</td>
+                        <td className={`${tdClass} whitespace-nowrap text-muted-foreground`}>{formatDate(r.date)}</td>
                         <td className={`${tdClass} text-foreground`}>
                           {r.kind === "request" ? (r.row.unit_type_name ?? r.row.item_name ?? r.row.what) : (r.row.item_name ?? "—")}
                           {r.kind === "request" && r.row.unit_type_code && (
@@ -309,7 +308,7 @@ export function IssuanceLog() {
                             <span className="inline-flex whitespace-nowrap rounded-full bg-secondary px-2 py-0.5 text-2xs font-medium text-muted-foreground">Generic stock</span>
                           )}
                         </td>
-                        <td className={`${tdClass} font-medium text-foreground`}>
+                        <td className={`${tdClass} whitespace-nowrap font-medium text-foreground`}>
                           {r.kind === "request" ? (
                             <>
                               <Qty value={r.row.quantity_issued} unit={r.row.unit} />
@@ -329,43 +328,39 @@ export function IssuanceLog() {
                           )}
                         </td>
                         <td className={tdClass}>
-                          {/* What it was drawn for, then who actually took it. */}
+                          {/* What it was drawn for, the asset it went into, and
+                              who actually took it - one column, three lines. */}
                           {forWhat ? (
-                            <span className="inline-flex items-center gap-2">
-                              <span className="text-foreground">{forWhat.name}</span>
+                            <span className="text-foreground">
                               {forWhat.kind && (
-                                <span className="rounded-full bg-secondary px-2 py-0.5 text-2xs font-medium uppercase tracking-wider text-muted-foreground">
+                                <span className="mr-2 rounded-full bg-secondary px-1.5 py-0.5 align-middle text-2xs font-medium uppercase tracking-wider text-muted-foreground">
                                   {forWhat.kind}
                                 </span>
                               )}
+                              {forWhat.name}
                             </span>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                          <span className="block text-2xs text-muted-foreground">
-                            {takenBy.length ? takenBy.join(", ") : "Nobody named"}
-                          </span>
-                        </td>
-                        <td className={tdClass}>
-                          {r.kind === "request" && r.row.asset_code ? (
-                            <>
-                              <span className="block font-mono text-xs text-foreground">{r.row.asset_code}</span>
-                              {r.row.asset_name && (
-                                <span className="block text-2xs text-muted-foreground">{r.row.asset_name}</span>
-                              )}
-                            </>
                           ) : (
                             <span className="text-muted-foreground">
                               {r.kind === "request" ? (r.row.purpose || "—") : (r.row.reason || r.row.notes || "—")}
                             </span>
                           )}
+                          {r.kind === "request" && r.row.asset_code && (
+                            <span className="block text-xs text-muted-foreground">
+                              <span className="font-mono text-primary">{r.row.asset_code}</span>
+                              {r.row.asset_name && ` — ${r.row.asset_name}`}
+                            </span>
+                          )}
+                          <span className="block text-2xs text-muted-foreground">
+                            {r.row.issued_by_name ? `Issued by ${r.row.issued_by_name}` : "Issuer not recorded"}
+                            {" · "}
+                            {takenBy.length ? `received by ${takenBy.join(", ")}` : "nobody named"}
+                          </span>
                         </td>
-                        <td className={`${tdClass} text-muted-foreground`}>{r.row.issued_by_name ?? "—"}</td>
                       </tr>
 
                       {isOpen && (
                         <tr className="border-b border-border bg-secondary/20">
-                          <td colSpan={9} className="px-6 py-4">
+                          <td colSpan={7} className="px-6 py-4">
                             {r.kind === "request" ? (
                               <div className="space-y-4">
                                 <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-4">

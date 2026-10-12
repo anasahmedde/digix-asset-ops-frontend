@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { ComponentWarranties } from "@/components/warranties/component-warranties";
 import { WarrantyClaims } from "@/components/warranties/warranty-claims";
 import { ExtendWarranty, type ExtendTarget } from "@/components/warranties/extend-warranty";
+import { Coded, WarrantyEdit, type Fact } from "@/components/warranties/warranty-edit";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Pagination, pageSlice } from "@/components/ui/pagination";
 import { Modal } from "@/components/ui/modal";
@@ -19,7 +20,7 @@ import { confirmAction } from "@/components/ui/confirm";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
-import { formatDate, formatTerm } from "@/lib/utils";
+import { formatDate, termBetween } from "@/lib/utils";
 
 interface Warranty {
   id: string;
@@ -86,20 +87,12 @@ const tdClass = "px-5 py-3.5";
 const STATUS_BADGES: Record<string, string> = {
   active: "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20",
   expired: "bg-red-500/10 text-red-600 ring-red-500/20",
+  not_started: "bg-sky-500/10 text-sky-600 ring-sky-500/20",
+  ended: "bg-secondary text-muted-foreground ring-border",
   reissued: "bg-blue-500/10 text-blue-600 ring-blue-500/20",
   claimed: "bg-amber-500/10 text-amber-600 ring-amber-500/20",
   void: "bg-secondary/500/10 text-muted-foreground ring-gray-500/20",
 };
-
-/** Item 23: a term under a month reads in days — "0mo" tells nobody anything. */
-function termLabel(w: { months?: number | null; start_date?: string | null; end_date?: string | null }): string {
-  if (w.months) return ` · ${w.months}mo`;
-  if (w.start_date && w.end_date) {
-    const days = Math.round((new Date(w.end_date).getTime() - new Date(w.start_date).getTime()) / 86400000);
-    if (days > 0) return ` · ${days}d`;
-  }
-  return "";
-}
 
 /** The day after a YYYY-MM-DD date: the earliest a warranty can end. */
 function dayAfter(iso?: string | null): string | undefined {
@@ -111,6 +104,8 @@ function dayAfter(iso?: string | null): string | undefined {
 const STATUS_LABELS: Record<string, string> = {
   active: "Active",
   expired: "Expired",
+  not_started: "Not started",
+  ended: "Ended",
   reissued: "Reissued",
   claimed: "Pending",
   void: "Void",
@@ -178,7 +173,6 @@ export default function WarrantiesPage() {
   // The Component tab keeps its own list; the header's Add opens its form.
   const [componentAdd, setComponentAdd] = useState(0);
   // The start typed in the form, so the end can be held to after it.
-  const [formStart, setFormStart] = useState("");
   const [createDevice, setCreateDevice] = useState("");
   const [warranties, setWarranties] = useState<Warranty[]>([]);
   const [devices, setDevices] = useState<DeviceOption[]>([]);
@@ -261,7 +255,6 @@ export default function WarrantiesPage() {
   function closeModal() {
     setModalMode(null);
     setSelected(null);
-    setFormStart("");
   }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -272,7 +265,6 @@ export default function WarrantiesPage() {
       supplier: fd.get("supplier") || null,
       warranty_type: fd.get("warranty_type"),
       status: fd.get("status"),
-      start_date: fd.get("start_date"),
       end_date: fd.get("end_date"),
       vendor_reference: fd.get("vendor_reference") ?? "",
       coverage_details: fd.get("coverage_details"),
@@ -497,7 +489,7 @@ export default function WarrantiesPage() {
                     </td>
                     <td className={`${tdClass} whitespace-nowrap text-muted-foreground`}>{formatDate(w.start_date)}</td>
                     <td className={`${tdClass} whitespace-nowrap text-muted-foreground`}>{formatDate(w.end_date)}</td>
-                    <td className={`${tdClass} whitespace-nowrap text-muted-foreground`}>{w.months ? formatTerm(w.months) : termLabel(w).replace(" · ", "") || "—"}</td>
+                    <td className={`${tdClass} whitespace-nowrap text-muted-foreground`}>{termBetween(w.start_date, w.end_date, w.months)}</td>
                     <td className={`${tdClass} text-muted-foreground`}>
                       {(w.warranty_type === "client" ? w.client_name : w.supplier_name) || "—"}
                     </td>
@@ -563,23 +555,15 @@ export default function WarrantiesPage() {
       );
       })()}
 
-      {modalMode && (
-        <Modal open onClose={closeModal} title={modalMode === "create" ? "Add New Warranty" : "Edit Warranty"} size="md">
+      {modalMode === "create" && (
+        <Modal open onClose={closeModal} title="Add New Warranty" size="md">
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
                   <label htmlFor="device" className={labelClass}>
                     Device
                   </label>
-                  {modalMode === "edit" && selected ? (
-                    <div className="flex h-10 w-full items-center rounded-lg border border-border bg-secondary/40 px-3 text-sm text-foreground">
-                      <span className="truncate">
-                        {selected.device_code || "—"}
-                        {selected.device_name ? ` — ${selected.device_name}` : ""}
-                      </span>
-                    </div>
-                  ) : (
-                    <SearchSelect
+                  <SearchSelect
                       options={devices.map((d) => ({ id: d.id, label: d.display_name ? `${d.asset_code} — ${d.display_name}` : d.asset_code }))}
                       value={createDevice}
                       onChange={setCreateDevice}
@@ -587,7 +571,6 @@ export default function WarrantiesPage() {
                       required
                       placeholder="Search device by code or name…"
                     />
-                  )}
                 </div>
                 {((modalMode === "create" && warrantySide === "supplier") || (selected != null && selected.warranty_type !== "client")) && (
                 <div className="space-y-1.5">
@@ -657,12 +640,10 @@ export default function WarrantiesPage() {
                     defaultValue={selected?.status ?? "active"}
                     className={inputClass}
                   >
-                    <option value="active">Active</option>
-                    <option value="expired">Expired</option>
-                    <option value="reissued">Reissued</option>
-                    <option value="claimed">Pending</option>
+                    <option value="active">Valid</option>
                     <option value="void">Void</option>
                   </select>
+                  <p className="text-2xs text-muted-foreground">Active, Expired and Pending are read from the dates and the asset.</p>
                 </div>
               </div>
 
@@ -671,15 +652,22 @@ export default function WarrantiesPage() {
                   <label htmlFor="start_date" className={labelClass}>
                     Start Date
                   </label>
+                  {/* Not typed: the client's cover runs from the asset's activation,
+                      the vendor's from the delivery inspection in Procurement. */}
                   <input
                     id="start_date"
-                    name="start_date"
                     type="date"
-                    required
-                    defaultValue={selected?.start_date ?? ""}
-                    onChange={(e) => setFormStart(e.target.value)}
-                    className={inputClass}
+                    disabled
+                    value={selected?.start_date ?? ""}
+                    readOnly
+                    placeholder="Set on save"
+                    className={`${inputClass} bg-secondary/40 text-muted-foreground`}
                   />
+                  <p className="text-2xs text-muted-foreground">
+                    {(selected?.warranty_type ?? (warrantySide === "client" ? "client" : "supplier")) === "client"
+                      ? "From the day the asset went active with the client."
+                      : "From the delivery inspection date in Procurement."}
+                  </p>
                 </div>
                 <div className="space-y-1.5">
                   <label htmlFor="end_date" className={labelClass}>
@@ -690,7 +678,7 @@ export default function WarrantiesPage() {
                     name="end_date"
                     type="date"
                     required
-                    min={dayAfter(formStart || selected?.start_date)}
+                    min={dayAfter(selected?.start_date)}
                     defaultValue={selected?.end_date ?? ""}
                     className={inputClass}
                   />
@@ -771,6 +759,40 @@ export default function WarrantiesPage() {
           
       </Modal>
       )}
+      {modalMode === "edit" && selected && (() => {
+        const isClient = selected.warranty_type === "client";
+        const facts: Fact[] = [
+          { label: "Asset", value: <Coded code={selected.device_code} name={selected.device_name} />, wide: true },
+          isClient
+            ? { label: "Client", value: selected.client_name ?? "" }
+            : { label: "Vendor", value: selected.supplier_name ?? "", note: "Bought from them — not changed here" },
+          { label: "Site", value: selected.site_name ?? "" },
+          ...(isClient ? [] : [{ label: "Client", value: selected.client_name ?? "" }]),
+          { label: "Reference", value: selected.reference_number, mono: true },
+        ];
+        return (
+          <WarrantyEdit
+            title={isClient ? "Edit Client Warranty" : "Edit Vendor Warranty"}
+            facts={facts}
+            startDate={selected.start_date}
+            startNote={isClient
+              ? "From the day the asset went active with the client."
+              : "From the delivery inspection date in Procurement."}
+            endDate={selected.end_date}
+            endNote={isClient ? "Move it only when DIGIX extends the cover given to the client; the term follows." : undefined}
+            status={selected.status}
+            vendorReference={isClient ? undefined : (selected.vendor_reference ?? "")}
+            coverage={selected.coverage_details ?? ""}
+            notes={selected.notes ?? ""}
+            onSave={async (payload) => {
+              await api.patch(`/warranties/${selected.id}/`, payload);
+              toast.success("Warranty updated");
+              fetchWarranties();
+            }}
+            onClose={closeModal}
+          />
+        );
+      })()}
       <ExtendWarranty target={extendFor} onClose={() => setExtendFor(null)} onDone={fetchWarranties} />
     </div>
   );

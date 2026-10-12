@@ -209,7 +209,7 @@ export default function ClientsPage() {
               </thead>
               <tbody>
                 {pageSlice(sortRows(filtered, sort), clientPage).map((c) => (
-                  <tr key={c.id} onClick={() => { setSelected(c); setModalMode("edit"); }} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
+                  <tr key={c.id} onClick={() => { if (!canEdit) return; setSelected(c); setModalMode("edit"); }} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
                     <td className={`${tdClass} font-medium text-foreground`}>
                       <span className="inline-flex items-center gap-1">
                         {c.name}

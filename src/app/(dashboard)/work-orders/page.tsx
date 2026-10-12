@@ -10,8 +10,9 @@ import { Modal } from "@/components/ui/modal";
 import { WorkOrderRequests } from "@/components/work-orders/work-order-requests";
 import { WorkReceiving } from "@/components/work-orders/work-receiving";
 import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
-import { confirmAction } from "@/components/ui/confirm";
+import { confirmAction, askReason } from "@/components/ui/confirm";
 import { deadlineMin } from "@/lib/utils";
+import { WaitingOn } from "@/components/ui/waiting-on";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
@@ -322,8 +323,21 @@ export default function WorkOrdersPage() {
   }
 
   async function handleTransition(id: string, status: WorkOrderStatus) {
+    const current = detail[id] ?? orders.find((o) => o.id === id);
+    // Going back, or off: the reason goes on the order and to whoever raised it.
+    let notes: string | undefined;
+    if (status === "cancelled" || (status === "draft" && current && current.status !== "draft")) {
+      const why = await askReason({
+        title: status === "cancelled" ? `Cancel ${current?.wo_number ?? "this work order"}?` : `Send ${current?.wo_number ?? "this work order"} back to draft?`,
+        message: status === "cancelled" ? "This cannot be undone." : "Whoever raised it will see your reason and fix the order.",
+        danger: true,
+        confirmLabel: status === "cancelled" ? "Cancel order" : "Send back",
+      });
+      if (why === null) return;
+      notes = why;
+    }
     try {
-      const { data } = await api.post(`/work-orders/${id}/transition/`, { status });
+      const { data } = await api.post(`/work-orders/${id}/transition/`, { status, ...(notes ? { notes } : {}) });
       toast.success(
         status === "delivered" ? `${data.wo_number} delivered — inspect it under Work Receiving`
         : status === "approved" ? `${data.wo_number} approved`
@@ -641,7 +655,7 @@ export default function WorkOrdersPage() {
                                   )}
                                   {moves.length > 0 && <span className="text-xs font-medium text-muted-foreground">Advance status:</span>}
                                   {wo.status === "pending_approval" && !canApprove && (
-                                    <span className="text-2xs text-muted-foreground">Waiting for the Group Head to approve.</span>
+                                    <WaitingOn refKey={`wo:${wo.id}`} capability="approve_work_order" prefix="Waiting on" className="text-2xs" />
                                   )}
                                   {moves.map((m) => {
                                     // A quote above the project's plan is the
@@ -690,7 +704,7 @@ export default function WorkOrdersPage() {
               <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-secondary/30 p-3">
                 <span className="text-xs font-medium text-muted-foreground">Advance status:</span>
                 {selected.status === "pending_approval" && !canApprove && (
-                  <span className="text-2xs text-muted-foreground">Waiting for the Group Head to approve.</span>
+                  <WaitingOn refKey={`wo:${selected.id}`} capability="approve_work_order" prefix="Waiting on" className="text-2xs" />
                 )}
                 {movesFor(selected.status, canApprove, canEdit).map((s) => {
                   const held = s === "pending_approval" && unagreedOn(selected).length > 0;

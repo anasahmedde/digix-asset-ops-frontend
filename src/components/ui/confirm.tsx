@@ -24,9 +24,11 @@ export interface ConfirmAsk {
   confirmLabel?: string;
   /** Red for something that removes or stops; worked out when left out. */
   danger?: boolean;
+  /** Ask for a reason as well; the box cannot be confirmed without one. */
+  reason?: { placeholder?: string };
 }
 
-type Pending = ConfirmAsk & { resolve: (ok: boolean) => void };
+type Pending = ConfirmAsk & { resolve: (ok: boolean, text?: string) => void };
 let show: ((p: Pending) => void) | null = null;
 
 const DANGER = /^(delete|remove|cancel|deactivate|withdraw|pause|discard)\b/i;
@@ -46,11 +48,25 @@ export function confirmAction(ask: ConfirmAsk | string): Promise<boolean> {
   return new Promise((resolve) => show!({ ...a, resolve }));
 }
 
+/** "Send it back - why?" Everything that goes back or is refused asks this
+ *  way, so the reason lands on the record and with the person it goes
+ *  back to. Resolves to the reason, or null when they think better of it. */
+export function askReason(ask: ConfirmAsk | string): Promise<string | null> {
+  const a = read(ask);
+  const reason = a.reason ?? { placeholder: "Why - it goes on the record and to whoever it goes back to." };
+  if (!show) {
+    const text = window.prompt([a.title, a.message].filter(Boolean).join("\n\n"), "");
+    return Promise.resolve(text && text.trim() ? text.trim() : null);
+  }
+  return new Promise((resolve) => show!({ ...a, reason, resolve: (ok, text) => resolve(ok && text && text.trim() ? text.trim() : null) }));
+}
+
 /** Mounted once, in the dashboard shell. */
 export function ConfirmHost() {
   const [pending, setPending] = useState<Pending | null>(null);
+  const [text, setText] = useState("");
   useEffect(() => {
-    show = setPending;
+    show = (p) => { setText(""); setPending(p); };
     return () => { show = null; };
   }, []);
   // Escape answers this box only: caught first, so the dialog it was asked
@@ -75,9 +91,10 @@ export function ConfirmHost() {
   // "Cancel PO-001?" would offer two buttons both reading Cancel.
   const backLabel = verb === "Cancel" ? "Keep it" : "Cancel";
   const close = (ok: boolean) => {
-    pending.resolve(ok);
+    pending.resolve(ok, text);
     setPending(null);
   };
+  const needsReason = !!pending.reason && !text.trim();
 
   return (
     <Modal open onClose={() => close(false)} size="xs">
@@ -95,6 +112,17 @@ export function ConfirmHost() {
             )}
           </div>
         </div>
+        {pending.reason && (
+          <textarea
+            autoFocus
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={3}
+            placeholder={pending.reason.placeholder}
+            aria-label="Reason"
+            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none"
+          />
+        )}
         <div className="flex justify-end gap-2">
           <button
             type="button"
@@ -105,9 +133,10 @@ export function ConfirmHost() {
           </button>
           <button
             type="button"
-            autoFocus
+            autoFocus={!pending.reason}
+            disabled={needsReason}
             onClick={() => close(true)}
-            className={`inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium text-white transition-colors ${
+            className={`inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium text-white transition-colors disabled:opacity-50 ${
               danger ? "bg-red-600 hover:bg-red-700" : "bg-primary hover:bg-primary/90"
             }`}
           >

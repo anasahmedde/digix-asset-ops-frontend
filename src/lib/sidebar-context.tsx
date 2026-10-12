@@ -3,6 +3,7 @@
 import { createContext, useContext, useState } from "react";
 
 interface SidebarContextValue {
+  /** Folded to an icon rail that unfolds under the pointer; false pins it open. */
   collapsed: boolean;
   toggle: () => void;
   mobileOpen: boolean;
@@ -25,7 +26,7 @@ const SidebarContext = createContext<SidebarContextValue>({
 });
 
 export function SidebarProvider({ children }: { children: React.ReactNode }) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [homeKey, setHomeKey] = useState(0);
   return (

@@ -8,6 +8,7 @@ import {
   useMap,
   ZoomControl,
 } from "react-leaflet";
+import { useStopOnUnmount } from "@/components/map/stop-on-unmount";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { Basemap, BasemapSwitcher, DEFAULT_BASEMAP, type BasemapStyle } from "./basemaps";
@@ -18,7 +19,7 @@ const STATUS_META: Record<string, { color: string; label: string; pulse?: boolea
   installed:          { color: "#06b6d4", label: "Installed",          pulse: true },
   in_stock:           { color: "#6366f1", label: "In Stock" },
   under_maintenance:  { color: "#f59e0b", label: "Under Maintenance",  pulse: true },
-  client_property:    { color: "#14b8a6", label: "Client Property" },
+  client_property:    { color: "#5c8aa3", label: "Client Property" },
   procured:           { color: "#8b5cf6", label: "In Procurement" },
   assigned:           { color: "#3b82f6", label: "Assigned" },
   decommissioned:     { color: "#ef4444", label: "Decommissioned" },
@@ -151,6 +152,8 @@ export interface MaintenanceSite {
 
 interface StatusMapProps {
   devices: MapDevice[];
+  /** Every asset on the register, pins or not - so the chip agrees with the tile. */
+  totalDevices?: number;
   maintenanceSites?: MaintenanceSite[];
   height?: string;
   className?: string;
@@ -158,6 +161,7 @@ interface StatusMapProps {
 
 function CountryLock({ country }: { country: string }) {
   const map = useMap();
+  useStopOnUnmount(map);
   const prevCountryRef = useRef(country);
 
   useEffect(() => {
@@ -178,6 +182,7 @@ function CountryLock({ country }: { country: string }) {
 
 function MapInit({ country }: { country: string }) {
   const map = useMap();
+  useStopOnUnmount(map);
   const done = useRef(false);
 
   useEffect(() => {
@@ -202,6 +207,7 @@ function MapInit({ country }: { country: string }) {
 
 function FlyTo({ lat, lng }: { lat: number; lng: number }) {
   const map = useMap();
+  useStopOnUnmount(map);
   useEffect(() => {
     if (lat && lng) {
       try { map.flyTo([lat, lng], 13, { duration: 0.8 }); } catch { /* noop */ }
@@ -212,6 +218,7 @@ function FlyTo({ lat, lng }: { lat: number; lng: number }) {
 
 function HomeButton({ country }: { country: string }) {
   const map = useMap();
+  useStopOnUnmount(map);
   const handleHome = useCallback(() => {
     const cfg = COUNTRY_CONFIGS[country];
     const center = cfg?.center ?? DEFAULT_CENTER;
@@ -389,7 +396,7 @@ function MaintenanceMarker({ site }: { site: MaintenanceSite }) {
 
 type ActiveLayer = "devices" | "issues" | "maintenance";
 
-export default function StatusMap({ devices, maintenanceSites = [], height = "500px", className }: StatusMapProps) {
+export default function StatusMap({ devices, totalDevices, maintenanceSites = [], height = "500px", className }: StatusMapProps) {
   const [activeLayer, setActiveLayer] = useState<ActiveLayer>("devices");
   const [selectedCountry, setSelectedCountry] = useState(DEFAULT_COUNTRY);
   const [showLegend, setShowLegend] = useState(false);
@@ -416,6 +423,18 @@ export default function StatusMap({ devices, maintenanceSites = [], height = "50
     () => devices.filter((d) => d.current_site__country === selectedCountry && hasCoords(d)),
     [devices, selectedCountry],
   );
+  // An asset with no site pin yet is counted, but cannot be placed.
+  const unplaced = useMemo(
+    () => Math.max((totalDevices ?? devices.length) - filteredDevices.length, 0),
+    [totalDevices, devices.length, filteredDevices.length],
+  );
+  // The maintenance layer is the assets whose status is Under Maintenance -
+  // the same count as the dashboard tile - each with its schedules attached.
+  const maintDevices = useMemo(
+    () => filteredDevices.filter((d) => d.status === "under_maintenance"),
+    [filteredDevices],
+  );
+  const maintPositions = useMemo(() => spreadPositions(maintDevices), [maintDevices]);
 
   const filteredMaint = useMemo(
     () => maintenanceSites.filter((s) => s.site__country === selectedCountry),
@@ -486,8 +505,11 @@ export default function StatusMap({ devices, maintenanceSites = [], height = "50
         {activeLayer === "issues" && issueDevices.map((device) => (
           <DeviceMarker key={`issue-${device.id}`} device={device} position={issuePositions.get(device.id)} maint={maintFor(device)} issueMode />
         ))}
-        {activeLayer === "maintenance" && filteredMaint.map((site) => (
-          <MaintenanceMarker key={`maint-${site.id}`} site={site} />
+        {activeLayer === "maintenance" && maintDevices.map((device) => (
+          <DeviceMarker key={`maint-${device.id}`} device={device} position={maintPositions.get(device.id)} maint={maintFor(device)} />
+        ))}
+        {activeLayer === "maintenance" && filteredMaint.filter((s) => !s.device).map((site) => (
+          <MaintenanceMarker key={`maint-site-${site.id}`} site={site} />
         ))}
       </MapContainer>
 
@@ -517,7 +539,9 @@ export default function StatusMap({ devices, maintenanceSites = [], height = "50
         >
           <span className="map-layer-dot" style={{ background: "#22c55e" }} />
           Devices
-          <span className="map-layer-count">{filteredDevices.length}</span>
+          <span className="map-layer-count" title={unplaced ? `${unplaced} without a site pin yet, so not on the map` : undefined}>
+            {filteredDevices.length + unplaced}{unplaced ? ` (${filteredDevices.length} on map)` : ""}
+          </span>
         </button>
         <button
           onClick={() => setActiveLayer("issues")}
@@ -528,14 +552,15 @@ export default function StatusMap({ devices, maintenanceSites = [], height = "50
           Issues
           <span className="map-layer-count">{issueDevices.length}</span>
         </button>
-        {(filteredMaint.length > 0 || maintenanceSites.length > 0) && (
+        {(maintDevices.length > 0 || maintenanceSites.length > 0) && (
           <button
             onClick={() => setActiveLayer("maintenance")}
             className={`map-layer-chip ${activeLayer === "maintenance" ? "map-layer-chip--active-warn" : ""}`}
+            title="Assets whose status is Under Maintenance"
           >
             <span className="map-layer-dot" style={{ background: "#f59e0b" }} />
             Maintenance
-            <span className="map-layer-count">{filteredMaint.length}</span>
+            <span className="map-layer-count">{maintDevices.length}</span>
           </button>
         )}
         <button

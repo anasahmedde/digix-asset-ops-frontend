@@ -13,12 +13,15 @@ import { useCallback, useEffect, useState } from "react";
 
 import { Qty } from "@/components/ui/qty";
 import api from "@/lib/api";
+import { getApiError } from "@/lib/api-error";
+import { toast } from "sonner";
 import { AssignedTicketsBanner } from "@/components/ui/assigned-tickets-banner";
 import { StickyNotes } from "@/components/dashboard/sticky-notes";
+import { DeskClock } from "@/components/dashboard/desk-clock";
+import { ListTile } from "@/components/dashboard/list-tile";
 import { StatCard } from "@/components/ui/stat-card";
 import { DonutChart } from "@/components/charts/donut-chart";
 import { BarChart } from "@/components/charts/bar-chart";
-import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
 import { useUser } from "@/lib/user-context";
 import { formatDate } from "@/lib/utils";
 
@@ -99,6 +102,8 @@ interface TicketLite {
   priority: string;
   escalated: boolean;
   is_response_overdue: boolean;
+  assigned_to: string | null;
+  due_date: string | null;
 }
 
 interface ProjectLite {
@@ -127,10 +132,13 @@ export default function DashboardPage() {
   const [escalatedInstalls, setEscalatedInstalls] = useState<EscalatedInstallLite[]>([]);
   // Item 1: the components the user has chosen to watch as in-hand stock —
   // unique products by their units, generic items by their quantity.
-  const { canWrite } = useUser();
+  const { canWrite, user } = useUser();
+  // The page greets the person by the hour, the way a desk does.
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+  const firstName = user?.first_name || user?.full_name?.split(" ")[0] || user?.username || "";
   const canWatch = canWrite("inventory");
   const [highValue, setHighValue] = useState<{ id: string; name: string; type_code: string; in_stock_count: number; unit_cost: string | null }[]>([]);
-  const stockSort = useSortState();
   const [watchedItems, setWatchedItems] = useState<{ id: string; sku: string; material_name: string | null; quantity: number; unit: string | null; unit_cost: string | null; total_value: number | null }[]>([]);
   const [watchOptions, setWatchOptions] = useState<{ products: { id: string; name: string; type_code: string; is_high_value: boolean }[]; items: { id: string; sku: string; material_name: string | null; watch_on_dashboard: boolean }[] }>({ products: [], items: [] });
 
@@ -158,13 +166,17 @@ export default function DashboardPage() {
     try {
       if (kind === "product") await api.patch(`/inventory/products/${id}/`, { is_high_value: on });
       else await api.patch(`/inventory/items/${id}/`, { watch_on_dashboard: on });
+      const named = kind === "product"
+        ? watchOptions.products.find((p) => p.id === id)?.name
+        : watchOptions.items.find((it) => it.id === id)?.material_name;
+      toast.success(on ? `${named ?? "Component"} added to In-Hand Stock` : `${named ?? "Component"} removed from the watchlist`);
       loadWatched();
       setWatchOptions((prev) => ({
         products: prev.products.map((p) => (p.id === id ? { ...p, is_high_value: on } : p)),
         items: prev.items.map((it) => (it.id === id ? { ...it, watch_on_dashboard: on } : it)),
       }));
-    } catch {
-      /* the list simply stays as it was */
+    } catch (err) {
+      toast.error(getApiError(err, "Could not update the watchlist"));
     }
   }
   const [loading, setLoading] = useState(true);
@@ -227,28 +239,40 @@ export default function DashboardPage() {
     { name: "In Stock", value: inStock, color: "#6366f1" },
     { name: "Pipeline", value: pipeline, color: "#8b5cf6" },
     { name: "Under Maintenance", value: underMaint, color: "#f59e0b" },
-    { name: "Client Property", value: clientProperty, color: "#14b8a6" },
+    { name: "Client Property", value: clientProperty, color: "#5c8aa3" },
     { name: "Out of Service", value: outOfService, color: "#ef4444" },
   ].filter((d) => d.value > 0);
 
   const escalatedTickets = tickets.filter((t) => t.escalated || t.is_response_overdue);
-  const openStatuses = ["open"];
-  const workingStatuses = ["in_progress", "blocked", "on_hold", "alignment_pending"];
-  const reviewStatuses = ["pending_review", "pending_ops_approval", "pending_client_approval"];
+  const countOf = (list: { status: string }[], ...statuses: string[]) =>
+    list.filter((x) => statuses.includes(x.status)).length;
+  // The same six tiles the Tickets screen shows, counted the same way.
+  const ticketActive = (t: TicketLite) => !["closed", "approved", "rejected", "cancelled"].includes(t.status);
+  const todayIso = new Date().toLocaleDateString("en-CA");
+  const TICKET_TILES: { key: string; label: string; value: number; cls: string }[] = [
+    { key: "unassigned", label: "Unassigned", value: tickets.filter((t) => ticketActive(t) && !t.assigned_to).length, cls: "bg-amber-500/10 text-amber-600" },
+    { key: "in_progress", label: "In Progress", value: countOf(tickets, "in_progress"), cls: "bg-amber-500/10 text-amber-600" },
+    { key: "in_review", label: "In Review", value: countOf(tickets, "pending_review", "pending_ops_approval", "pending_client_approval"), cls: "bg-purple-500/10 text-purple-600" },
+    { key: "closed", label: "Closed", value: countOf(tickets, "closed"), cls: "bg-emerald-500/10 text-emerald-600" },
+    { key: "overdue", label: "Past Due Date", value: tickets.filter((t) => ticketActive(t) && !!t.due_date && t.due_date < todayIso).length, cls: "bg-red-500/10 text-red-600" },
+  ];
   const ticketSummary = {
-    open: tickets.filter((t) => openStatuses.includes(t.status)).length,
-    inProgress: tickets.filter((t) => workingStatuses.includes(t.status)).length,
-    review: tickets.filter((t) => reviewStatuses.includes(t.status)).length,
-    closed: tickets.filter((t) => ["closed", "approved"].includes(t.status)).length,
+    openWorkload: tickets.filter(ticketActive).length,
     escalated: escalatedTickets.length,
   };
 
+  // The same statuses the Projects module uses.
+  const PROJECT_STATUSES: { key: string; label: string; cls: string }[] = [
+    { key: "planning", label: "Planning", cls: "bg-sky-500/10 text-sky-600" },
+    { key: "on_track", label: "On Track", cls: "bg-emerald-500/10 text-emerald-600" },
+    { key: "at_risk", label: "At Risk", cls: "bg-amber-500/10 text-amber-600" },
+    { key: "delayed", label: "Delayed", cls: "bg-red-500/10 text-red-600" },
+    { key: "on_hold", label: "On Hold", cls: "bg-slate-500/10 text-slate-600" },
+    { key: "completed", label: "Completed", cls: "bg-primary/10 text-primary" },
+  ];
   const projectSummary = {
     total: projects.length,
-    onTrack: projects.filter((p) => p.status === "on_track").length,
-    atRisk: projects.filter((p) => p.status === "at_risk").length,
-    delayed: projects.filter((p) => p.status === "delayed").length,
-    completed: projects.filter((p) => p.status === "completed").length,
+    completed: countOf(projects, "completed"),
     avgProgress: projects.length > 0 ? Math.round(projects.reduce((a, p) => a + (p.progress ?? 0), 0) / projects.length) : 0,
   };
 
@@ -265,16 +289,16 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <AssignedTicketsBanner />
 
       <div>
-        <h1 className="text-2xl font-bold text-foreground">Main Dashboard</h1>
-        <p className="text-sm text-muted-foreground">Asset Overview</p>
+        <h1 className="text-2xl font-bold text-foreground">{greeting}{firstName ? `, ${firstName}` : ""} 👋</h1>
+        <p className="text-sm text-muted-foreground">Here is how your assets, projects and tickets stand right now.</p>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_19rem]">
-        <div className="order-1 min-w-0 space-y-6">
+      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_18rem]">
+      <div className="min-w-0 space-y-4">
 
       {ticketSummary.escalated > 0 && (
         <Link href="/tickets" className="flex items-center gap-3 rounded-xl border border-red-500/30 bg-red-500/5 px-4 py-3 transition-colors hover:bg-red-500/10">
@@ -312,9 +336,9 @@ export default function DashboardPage() {
       {/* items-start: each column keeps its own height. The map used to
           stretch to match the alerts column, so every new escalation made
           the map taller. */}
-      <div className="grid items-start gap-6 2xl:grid-cols-[3fr_2fr] [&>*]:min-w-0">
-        <div>
-          <div className="rounded-xl border border-border bg-card overflow-hidden flex flex-col">
+      <div className="grid gap-4 2xl:grid-cols-[3fr_2fr] [&>*]:min-w-0">
+        <div className="h-full">
+          <div className="flex h-full flex-col overflow-hidden rounded-xl border border-border bg-card">
             <div className="flex items-center justify-between px-5 py-4">
               <div>
                 <h2 className="text-base font-semibold text-foreground">Screen Status Map</h2>
@@ -325,66 +349,52 @@ export default function DashboardPage() {
                 Live
               </span>
             </div>
-            <div className="border-t border-border h-[clamp(420px,65vh,640px)]">
-              <StatusMap devices={mapDevices} maintenanceSites={maintSites} height="100%" />
+            {/* The map fills whatever the summaries beside it leave: Leaflet
+                needs a definite height, which the absolutely placed inner box
+                takes from the flex item once it is laid out. */}
+            <div className="relative min-h-[22rem] flex-1 border-t border-border">
+              <div className="absolute inset-0">
+                <StatusMap devices={mapDevices} totalDevices={stats?.total} maintenanceSites={maintSites} height="100%" />
+              </div>
             </div>
           </div>
         </div>
 
         <div className="space-y-4">
           {/* Escalation Alerts — always on top of the summaries column */}
-          <div className="rounded-xl border border-red-500/30 bg-card p-5">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="inline-flex items-center gap-2 text-sm font-semibold text-red-500">
-                <AlertCircle className="h-4 w-4" /> Escalation Alerts
-              </h3>
-              <Link href="/tickets" className="text-2xs font-medium text-primary hover:underline">View All</Link>
-            </div>
-            {/* Tickets and overdue installs scroll together in one capped box. */}
-            <div className="max-h-80 overflow-y-auto pr-1">
-            {escalatedTickets.length > 0 ? (
-              <div className="space-y-2">
-                {escalatedTickets.slice(0, 5).map((t) => (
-                  <Link key={t.id} href="/tickets" className="flex items-center justify-between gap-2 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 transition-colors hover:bg-red-500/10">
-                    <div className="min-w-0">
-                      <p className="truncate text-xs font-medium text-foreground">{t.ticket_number} — {t.title}</p>
-                      <p className="text-2xs text-red-500">
-                        {t.escalated ? "Escalated" : "Response overdue"}{t.priority ? ` · ${t.priority}` : ""}
-                      </p>
-                    </div>
-                    <span className="shrink-0 text-2xs font-semibold text-red-500">→</span>
-                  </Link>
-                ))}
-                {escalatedTickets.length > 5 && (
-                  <p className="text-center text-2xs text-muted-foreground">+{escalatedTickets.length - 5} more</p>
-                )}
-              </div>
-            ) : (
-              escalatedInstalls.length === 0 && (
-                <p className="text-xs text-muted-foreground">No escalations — all tickets and installations within SLA</p>
-              )
-            )}
-            {escalatedInstalls.length > 0 && (
-              <div className={escalatedTickets.length > 0 ? "mt-3 border-t border-red-500/20 pt-3" : ""}>
-                <p className="mb-2 text-2xs font-semibold uppercase tracking-wider text-red-500">Overdue Installations</p>
-                <div className="space-y-2">
-                  {escalatedInstalls.map((inst) => (
-                    <Link key={inst.id} href="/installation-tracker" className="flex items-center justify-between gap-2 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 transition-colors hover:bg-red-500/10">
-                      <div className="min-w-0">
-                        <p className="truncate text-xs font-medium text-foreground">{inst.device_code} — {inst.site_name}</p>
-                        <p className="text-2xs text-red-500">
-                          {Object.keys(inst.escalation_state ?? {}).some((k) => k.endsWith(":2")) ? "Escalated — L2" : "Escalated"}
-                          {inst.due_date ? ` · due ${formatDate(inst.due_date)}` : ""}
-                        </p>
-                      </div>
-                      <span className="shrink-0 text-2xs font-semibold text-red-500">→</span>
-                    </Link>
-                  ))}
-                </div>
-              </div>
-            )}
-            </div>
-          </div>
+          <ListTile
+            title="Escalation Alerts"
+            icon={<AlertCircle className="h-4 w-4" />}
+            tone="alert"
+            count={escalatedTickets.length + escalatedInstalls.length}
+            preview={3}
+            empty="No escalations — all tickets and installations within SLA"
+            rows={[
+              ...escalatedTickets.map((t) => (
+                <Link key={`t-${t.id}`} href={`/tickets?open=${t.id}`} className="flex items-center justify-between gap-2 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 transition-colors hover:bg-red-500/10">
+                  <div className="min-w-0">
+                    <p className="truncate text-xs font-medium text-foreground">{t.ticket_number} — {t.title}</p>
+                    <p className="text-2xs text-red-500">
+                      {t.escalated ? "Escalated" : "Response overdue"}{t.priority ? ` · ${t.priority}` : ""}
+                    </p>
+                  </div>
+                  <span className="shrink-0 text-2xs font-semibold text-red-500">→</span>
+                </Link>
+              )),
+              ...escalatedInstalls.map((inst) => (
+                <Link key={`i-${inst.id}`} href={`/installation-tracker?installation=${inst.id}`} className="flex items-center justify-between gap-2 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 transition-colors hover:bg-red-500/10">
+                  <div className="min-w-0">
+                    <p className="truncate text-xs font-medium text-foreground">{inst.device_code} — {inst.site_name}</p>
+                    <p className="text-2xs text-red-500">
+                      Installation {Object.keys(inst.escalation_state ?? {}).some((k) => k.endsWith(":2")) ? "escalated — L2" : "escalated"}
+                      {inst.due_date ? ` · due ${formatDate(inst.due_date)}` : ""}
+                    </p>
+                  </div>
+                  <span className="shrink-0 text-2xs font-semibold text-red-500">→</span>
+                </Link>
+              )),
+            ]}
+          />
 
           {/* Quick Summary */}
           <div className="rounded-xl border border-border bg-card p-5">
@@ -405,50 +415,46 @@ export default function DashboardPage() {
           </div>
 
           {/* Recent Alerts */}
-          <div className="rounded-xl border border-border bg-card p-5">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-foreground">Recent Alerts</h3>
-              <Link href="/alerts" className="text-2xs font-medium text-primary hover:underline">
-                View All
-              </Link>
-            </div>
-            {alerts.length > 0 ? (
-              <div className="max-h-64 space-y-3 overflow-y-auto pr-1">
-                {alerts.map((alert) => (
-                  <div key={alert.id} className="flex items-start gap-2.5">
-                    <AlertCircle
-                      className="mt-0.5 h-4 w-4 shrink-0"
-                      style={{
-                        color:
-                          alert.severity === "critical" ? "#ef4444" :
-                          alert.severity === "error" ? "#f97316" :
-                          alert.severity === "warning" ? "#f59e0b" : "#3b82f6",
-                      }}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-xs font-medium text-foreground truncate">
-                        {alert.device_code && `Screen ID: ${alert.device_code}`}
-                      </p>
-                      <p className="text-2xs text-muted-foreground truncate">{alert.title}</p>
-                      {alert.site_name && (
-                        <p className="text-2xs text-muted-foreground">{alert.site_name}{alert.site_city ? `, ${alert.site_city}` : ""}</p>
-                      )}
-                    </div>
-                    <span className="shrink-0 text-2xs text-muted-foreground">
-                      {new Date(alert.created_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
-                    </span>
-                  </div>
-                ))}
+          <ListTile
+            title="Recent Alerts"
+            count={alerts.length}
+            preview={4}
+            empty="No recent alerts"
+            action={<Link href="/alerts" className="text-2xs font-medium text-muted-foreground hover:underline">Alerts page</Link>}
+            rows={alerts.map((alert) => (
+              <div key={alert.id} className="flex items-start gap-2.5 rounded-lg px-1 py-1">
+                <AlertCircle
+                  className="mt-0.5 h-4 w-4 shrink-0"
+                  style={{
+                    color:
+                      alert.severity === "critical" ? "#ef4444" :
+                      alert.severity === "error" ? "#f97316" :
+                      alert.severity === "warning" ? "#f59e0b" : "#3b82f6",
+                  }}
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-xs font-medium text-foreground">
+                    {alert.device_code ? `Screen ID: ${alert.device_code}` : alert.title}
+                  </p>
+                  {alert.device_code && <p className="truncate text-2xs text-muted-foreground">{alert.title}</p>}
+                  {alert.site_name && (
+                    <p className="text-2xs text-muted-foreground">{alert.site_name}{alert.site_city ? `, ${alert.site_city}` : ""}</p>
+                  )}
+                </div>
+                <span className="shrink-0 text-2xs text-muted-foreground">
+                  {new Date(alert.created_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                </span>
               </div>
-            ) : (
-              <p className="text-xs text-muted-foreground">No recent alerts</p>
-            )}
-          </div>
+            ))}
+          />
         </div>
       </div>
 
-      {/* Project and ticket summaries, and the stock being watched */}
-      <div className="grid gap-6 md:grid-cols-2 2xl:grid-cols-3 [&>*]:min-w-0">
+      {/* Project and ticket summaries, and the stock being watched */}      {/* Project and ticket summaries, and the stock being watched */}
+      {/* items-start: each card is as tall as its own content. A long notes
+          board used to stretch the row and leave the summaries hanging in
+          empty space; the board scrolls inside its own cap instead. */}
+      <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-[1fr_1fr_1.4fr] [&>*]:min-w-0">
         {/* Project Summary */}
         <div className="rounded-xl border border-border bg-card p-5">
           <div className="flex items-center justify-between mb-3">
@@ -468,16 +474,11 @@ export default function DashboardPage() {
           <div className="mb-3 h-2 overflow-hidden rounded-full bg-secondary">
             <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${projectSummary.avgProgress}%` }} />
           </div>
-          <div className="space-y-2">
-            {[
-              { label: "On Track", value: projectSummary.onTrack, cls: "bg-emerald-500/10 text-emerald-600" },
-              { label: "At Risk", value: projectSummary.atRisk, cls: "bg-amber-500/10 text-amber-600" },
-              { label: "Delayed", value: projectSummary.delayed, cls: "bg-red-500/10 text-red-600" },
-              { label: "Completed", value: projectSummary.completed, cls: "bg-primary/10 text-primary" },
-            ].map((row) => (
-              <Link key={row.label} href="/projects" className="flex items-center justify-between rounded-lg border border-border/60 px-3 py-2 transition-colors hover:border-primary/40 hover:bg-primary/5">
-                <span className="text-xs font-medium text-foreground">{row.label}</span>
-                <span className={`rounded-full px-2 py-0.5 text-2xs font-semibold ${row.cls}`}>{row.value}</span>
+          <div className="grid grid-cols-2 gap-2">
+            {PROJECT_STATUSES.map((row) => (
+              <Link key={row.key} href={`/projects?status=${row.key}`} className="flex items-center justify-between rounded-lg border border-border/60 px-3 py-2 transition-colors hover:border-primary/40 hover:bg-primary/5">
+                <span className="whitespace-nowrap text-xs font-medium text-foreground">{row.label}</span>
+                <span className={`ml-2 shrink-0 rounded-full px-2 py-0.5 text-2xs font-semibold tabular-nums ${row.cls}`}>{countOf(projects, row.key)}</span>
               </Link>
             ))}
           </div>
@@ -492,41 +493,56 @@ export default function DashboardPage() {
           <div className="mb-3 flex items-end justify-between rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5">
             <div>
               <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">Open Workload</p>
-              <p className="text-lg font-bold text-foreground">{ticketSummary.open + ticketSummary.inProgress + ticketSummary.review}</p>
+              <p className="text-lg font-bold text-foreground">{ticketSummary.openWorkload}</p>
             </div>
             <div className="text-right text-2xs text-muted-foreground">
               <p>{tickets.length} total tickets</p>
               {ticketSummary.escalated > 0 && <p className="font-semibold text-red-500">{ticketSummary.escalated} escalated</p>}
             </div>
           </div>
-          <div className="space-y-2">
-            {[
-              { label: "Open", value: ticketSummary.open, href: "/tickets?status=open", cls: "bg-blue-500/10 text-blue-600" },
-              { label: "In Progress", value: ticketSummary.inProgress, href: "/tickets?status=in_progress", cls: "bg-amber-500/10 text-amber-600" },
-              { label: "Pending Review / Approval", value: ticketSummary.review, href: "/tickets?status=pending_review", cls: "bg-purple-500/10 text-purple-600" },
-              { label: "Closed / Approved", value: ticketSummary.closed, href: "/tickets?status=closed", cls: "bg-emerald-500/10 text-emerald-600" },
-            ].map((row) => (
-              <Link key={row.label} href={row.href} className="flex items-center justify-between rounded-lg border border-border/60 px-3 py-2 transition-colors hover:border-primary/40 hover:bg-primary/5">
-                <span className="text-xs font-medium text-foreground">{row.label}</span>
-                <span className={`rounded-full px-2 py-0.5 text-2xs font-semibold ${row.cls}`}>{row.value}</span>
+          <div className="grid grid-cols-2 gap-2">
+            {TICKET_TILES.map((row) => (
+              <Link key={row.key} href="/tickets" className="flex items-center justify-between rounded-lg border border-border/60 px-3 py-2 transition-colors hover:border-primary/40 hover:bg-primary/5">
+                <span className="whitespace-nowrap text-xs font-medium text-foreground">{row.label}</span>
+                <span className={`ml-2 shrink-0 rounded-full px-2 py-0.5 text-2xs font-semibold tabular-nums ${row.cls}`}>{row.value}</span>
               </Link>
             ))}
           </div>
         </div>
 
-          {/* In-hand stock: the components the user has chosen to watch,
-              with what they are worth on the shelf. */}
-        <div className="rounded-xl border border-border bg-card p-5">
-          <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <div>
-              <h3 className="text-sm font-semibold text-foreground">In-Hand Stock</h3>
-              <p className="text-xs text-muted-foreground">
-                {inStock} asset{inStock === 1 ? "" : "s"} ready to install
-                {highValue.length + watchedItems.length > 0 ? ", plus the components you are watching" : ""}
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
-              {canWatch && (
+        {/* In-hand stock: the components the user has chosen to watch,
+            with what they are worth on the shelf. */}
+        {(() => {
+          // Highest value in hand first, unique and generic together; what
+          // has no price yet sits at the bottom.
+          const rowsAll = [
+            ...highValue.map((p) => ({
+              key: `p-${p.id}`, name: p.name, code: `${p.type_code} · unique`, qty: <Qty value={p.in_stock_count} unit="piece" />,
+              unit: p.unit_cost ? Number(p.unit_cost).toLocaleString() : "—",
+              value: p.unit_cost ? Number(p.unit_cost) * p.in_stock_count : null,
+              unwatch: () => setWatch("product", p.id, false),
+            })),
+            ...watchedItems.map((it) => ({
+              key: `i-${it.id}`, name: it.material_name ?? it.sku, code: `${it.sku} · generic`, qty: <Qty value={it.quantity} unit={it.unit} />,
+              unit: it.unit_cost ? Number(it.unit_cost).toLocaleString() : "—",
+              value: it.total_value != null ? Number(it.total_value) : null,
+              unwatch: () => setWatch("item", it.id, false),
+            })),
+          ]
+            .sort((a, b) => (b.value ?? -1) - (a.value ?? -1))
+            .map((r) => ({ ...r, amount: r.value != null ? r.value.toLocaleString() : "—" }));
+          const totalValue = highValue.reduce((sum, p) => sum + Number(p.unit_cost ?? 0) * p.in_stock_count, 0)
+            + watchedItems.reduce((sum, it) => sum + Number(it.total_value ?? 0), 0);
+          return (
+            <ListTile
+              fill
+              title="In-Hand Stock"
+              subtitle={`${inStock} asset${inStock === 1 ? "" : "s"} ready to install${rowsAll.length > 0 ? ", plus the components you are watching" : ""}`}
+              count={rowsAll.length}
+              preview={6}
+              empty="No components on the watchlist yet. Pick one from “Watch…” to see its quantity and value here."
+              footer={rowsAll.length > 0 ? <>Total value in hand: <span className="font-semibold text-foreground">{totalValue.toLocaleString()}</span></> : undefined}
+              action={canWatch ? (
                 <select
                   value=""
                   onChange={(e) => {
@@ -534,9 +550,9 @@ export default function DashboardPage() {
                     if (kind === "product" || kind === "item") setWatch(kind, id, true);
                   }}
                   aria-label="Add a component to in-hand stock"
-                  className="h-8 rounded-lg border border-border bg-background px-2 text-xs text-foreground focus:border-primary/50 focus:outline-none"
+                  className="h-7 max-w-[11rem] rounded-lg border border-border bg-background px-2 text-2xs text-foreground focus:border-primary/50 focus:outline-none"
                 >
-                  <option value="">+ Watch a component…</option>
+                  <option value="">+ Watch…</option>
                   <optgroup label="Unique components">
                     {watchOptions.products.filter((p) => !p.is_high_value).map((p) => (
                       <option key={p.id} value={`product:${p.id}`}>{p.name} · {p.type_code}</option>
@@ -548,105 +564,35 @@ export default function DashboardPage() {
                     ))}
                   </optgroup>
                 </select>
-              )}
-              <Link href="/inventory" className="text-xs font-medium text-primary hover:underline">
-                Open inventory
-              </Link>
-            </div>
-          </div>
-
-          {highValue.length + watchedItems.length === 0 ? (
-            <p className="mt-4 rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
-              No components on the watchlist yet. Pick one from &ldquo;Watch a component&rdquo; to see its
-              quantity and value here.
-            </p>
-          ) : (
-            <div className="mt-4 overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
-                    <SortTh sort={stockSort} k="name" className="py-2 font-medium">Component</SortTh>
-                    <SortTh sort={stockSort} k="in_stock_count" className="py-2 text-right font-medium">Qty Available</SortTh>
-                    <SortTh sort={stockSort} k="unit_cost" className="py-2 text-right font-medium">Unit Cost</SortTh>
-                    <SortTh sort={stockSort} k="amount" className="py-2 text-right font-medium">Amount</SortTh>
-                    {canWatch && <th className="py-2" />}
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortRows(highValue, stockSort, { amount: (p) => p.in_stock_count * Number(p.unit_cost ?? 0) }).map((p) => {
-                    const amount = Number(p.unit_cost ?? 0) * p.in_stock_count;
-                    return (
-                      <tr key={`p-${p.id}`} className="border-b border-border/60 last:border-0">
-                        <td className="py-2 text-foreground">
-                          {p.name}
-                          <span className="block font-mono text-2xs text-muted-foreground">{p.type_code} · unique</span>
-                        </td>
-                        <td className="py-2 text-right font-medium text-foreground"><Qty value={p.in_stock_count} unit="piece" /></td>
-                        <td className="py-2 text-right text-muted-foreground">
-                          {p.unit_cost ? Number(p.unit_cost).toLocaleString() : "—"}
-                        </td>
-                        <td className="py-2 text-right font-medium text-foreground">
-                          {p.unit_cost ? amount.toLocaleString() : "—"}
-                        </td>
-                        {canWatch && (
-                          <td className="py-2 text-right">
-                            <button onClick={() => setWatch("product", p.id, false)} title="Stop watching" className="text-xs text-muted-foreground hover:text-destructive">×</button>
-                          </td>
-                        )}
-                      </tr>
-                    );
-                  })}
-                  {watchedItems.map((it) => (
-                    <tr key={`i-${it.id}`} className="border-b border-border/60 last:border-0">
-                      <td className="py-2 text-foreground">
-                        {it.material_name ?? it.sku}
-                        <span className="block font-mono text-2xs text-muted-foreground">{it.sku} · generic</span>
-                      </td>
-                      <td className="py-2 text-right font-medium text-foreground"><Qty value={it.quantity} unit={it.unit} /></td>
-                      <td className="py-2 text-right text-muted-foreground">
-                        {it.unit_cost ? Number(it.unit_cost).toLocaleString() : "—"}
-                      </td>
-                      <td className="py-2 text-right font-medium text-foreground">
-                        {it.total_value != null ? Number(it.total_value).toLocaleString() : "—"}
-                      </td>
-                      {canWatch && (
-                        <td className="py-2 text-right">
-                          <button onClick={() => setWatch("item", it.id, false)} title="Stop watching" className="text-xs text-muted-foreground hover:text-destructive">×</button>
-                        </td>
-                      )}
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t border-border">
-                    <td colSpan={3} className="py-2 text-right text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                      Total value in hand
-                    </td>
-                    <td className="py-2 text-right font-semibold text-foreground">
-                      {(
-                        highValue.reduce((sum, p) => sum + Number(p.unit_cost ?? 0) * p.in_stock_count, 0) +
-                        watchedItems.reduce((sum, it) => sum + Number(it.total_value ?? 0), 0)
-                      ).toLocaleString()}
-                    </td>
-                    {canWatch && <td />}
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          )}
-        </div>
+              ) : undefined}
+              rows={rowsAll.map((r) => (
+                <div key={r.key} className="flex items-center gap-3 rounded-lg border border-border/60 px-3 py-1.5">
+                  <div className="min-w-0 flex-1 truncate text-xs">
+                    <span className="font-medium text-foreground">{r.name}</span>
+                    <span className="ml-2 font-mono text-2xs text-muted-foreground">{r.code}</span>
+                  </div>
+                  <div className="shrink-0 whitespace-nowrap text-right text-xs">
+                    <span className="font-medium text-foreground">{r.qty}</span>
+                    <span className="ml-2 text-muted-foreground" title="Unit cost → value in hand">{r.unit} → <span className="font-medium text-foreground">{r.amount}</span></span>
+                  </div>
+                  {canWatch && (
+                    <button onClick={r.unwatch} title="Stop watching" className="shrink-0 text-xs text-muted-foreground hover:text-destructive">×</button>
+                  )}
+                </div>
+              ))}
+            />
+          );
+        })()}
       </div>
 
-        </div>
+      </div>
 
-        {/* The board runs down the right and comes with you as the page
-            scrolls. It is as tall as its notes and no taller than the
-            screen: a fixed screen-tall panel pushed the box you write in
-            below the fold on a short display, which is where it was
-            least findable. */}
-        <aside className="order-2 flex max-h-[calc(100vh-9rem)] min-h-[20rem] flex-col self-start lg:sticky lg:top-[5.5rem]">
-          <StickyNotes />
-        </aside>
+      {/* The desk and the notes: the right-hand column on a wide screen, coming along
+          as the page scrolls - a pad on the desk, not a card in the grid. */}
+      <aside className="order-first grid gap-4 self-start md:grid-cols-2 xl:order-none xl:flex xl:flex-col desk:sticky desk:top-[5.5rem] desk:h-[calc(100dvh-10.5rem-var(--bottom-gap))] desk:overflow-y-auto desk:[scrollbar-width:thin]">
+        <DeskClock />
+        <StickyNotes />
+      </aside>
       </div>
 
     </div>
