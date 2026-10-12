@@ -71,6 +71,9 @@ const inputClass =
 const labelClass = "text-xs font-medium text-muted-foreground";
 
 interface Props {
+  /** The order has left Draft: everything but the notes is a record now. */
+  locked?: boolean;
+  lockedNote?: string;
   value: PoFormValues;
   onChange: (value: PoFormValues) => void;
   suppliers: { id: string; name: string }[];
@@ -94,6 +97,7 @@ interface Props {
 export function PurchaseOrderForm({
   value, onChange, suppliers, options, poNumber, minDelivery, deliveryHint, requestedLines,
   requestedTotal = 0, legacyLabel, saving, submitLabel, canSubmit = true, onSubmit, onCancel,
+  locked = false, lockedNote,
 }: Props) {
   const set = (changes: Partial<PoFormValues>) => onChange({ ...value, ...changes });
   const [showSupplierDetails, setShowSupplierDetails] = useState(Boolean(value.supplier_details));
@@ -114,6 +118,14 @@ export function PurchaseOrderForm({
       }}
       className="space-y-4"
     >
+      {locked && (
+        <p className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-700">
+          {lockedNote ?? "This order has left Draft. What was agreed stays as signed; only the notes can change. Send it back to Draft to edit it."}
+        </p>
+      )}
+      {/* A disabled fieldset greys every control inside it at once, the
+          lines and their buttons included; the notes sit outside it. */}
+      <fieldset disabled={locked} className="min-w-0 space-y-4 disabled:opacity-70">
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-1.5">
           <label className={labelClass}>PO Number</label>
@@ -222,6 +234,7 @@ export function PurchaseOrderForm({
       <div className="text-right text-sm font-medium text-foreground">
         Grand Total: {value.currency} {total.toLocaleString()}
       </div>
+      </fieldset>
 
       <div className="space-y-1.5">
         <label htmlFor="po_notes" className={labelClass}>Notes</label>
@@ -235,7 +248,7 @@ export function PurchaseOrderForm({
         />
       </div>
 
-      <div className="space-y-1.5">
+      <fieldset disabled={locked} className="min-w-0 space-y-1.5 disabled:opacity-70">
         <label htmlFor="po_terms" className={labelClass}>Terms &amp; Conditions</label>
         <textarea
           id="po_terms"
@@ -244,10 +257,12 @@ export function PurchaseOrderForm({
           onChange={(e) => set({ terms: e.target.value })}
           className={`${inputClass} h-auto py-2 font-mono text-xs leading-relaxed`}
         />
-        <p className="text-xs text-muted-foreground">
-          Starts from the house standard. Edit for a deal agreed on different terms.
-        </p>
-      </div>
+        {!locked && (
+          <p className="text-xs text-muted-foreground">
+            Starts from the house standard. Edit for a deal agreed on different terms.
+          </p>
+        )}
+      </fieldset>
 
       <div className="flex justify-end gap-3 pt-2">
         <button

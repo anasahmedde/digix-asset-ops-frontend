@@ -926,7 +926,7 @@ export default function QuotationsPage() {
               <button
                 type="button"
                 onClick={confirmTransition}
-                disabled={transitioning}
+                disabled={transitioning || (pendingTransition?.status === "rejected" && !transitionNote.trim())}
                 className={`inline-flex h-10 items-center rounded-lg px-5 text-sm font-medium text-white transition-all disabled:opacity-50 ${
                   ["rejected", "expired"].includes(pendingTransition.status) ? "bg-red-600 hover:bg-red-500" : "bg-primary"
                 }`}

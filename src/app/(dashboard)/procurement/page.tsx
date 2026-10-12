@@ -18,7 +18,8 @@ import {
 } from "@/components/procurement/purchase-order-form";
 import { Qty } from "@/components/ui/qty";
 import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
-import { confirmAction } from "@/components/ui/confirm";
+import { askReason, confirmAction } from "@/components/ui/confirm";
+import { WaitingOn } from "@/components/ui/waiting-on";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
@@ -521,7 +522,18 @@ export default function ProcurementPage() {
   }
 
   async function handleTransition(po: PurchaseOrder, status: POStatus, expectedDelivery?: string) {
-    if (status === "cancelled" && !(await confirmAction(`Cancel PO ${po.po_number}? This cannot be undone.`))) return;
+    // Going back, or off: the reason goes on the order and to whoever raised it.
+    let notes: string | undefined;
+    if (status === "cancelled" || (status === "draft" && po.status !== "draft")) {
+      const why = await askReason({
+        title: status === "cancelled" ? `Cancel PO ${po.po_number}?` : `Send PO ${po.po_number} back to draft?`,
+        message: status === "cancelled" ? "This cannot be undone." : "Whoever raised it will see your reason and fix the order.",
+        danger: true,
+        confirmLabel: status === "cancelled" ? "Cancel PO" : "Send back",
+      });
+      if (why === null) return;
+      notes = why;
+    }
     // Leaving Draft without a delivery date: ask for it, then go.
     const leavingDraft = po.status === "draft" && status !== "draft" && status !== "cancelled";
     if (leavingDraft && !po.expected_delivery && !expectedDelivery) {
@@ -532,6 +544,7 @@ export default function ProcurementPage() {
     try {
       await api.post(`/procurement/purchase-orders/${po.id}/transition/`, {
         status,
+        ...(notes ? { notes } : {}),
         ...(expectedDelivery ? { expected_delivery: expectedDelivery } : {}),
       });
       setDeliveryAsk(null);
@@ -1059,8 +1072,11 @@ export default function ProcurementPage() {
         <Modal open onClose={closeModal} title={modalMode === "create" ? "New Purchase Order" : `Edit ${selected?.po_number}`} size="wide"
           headerExtra={
             modalMode === "edit" && selected ? (
-              <span className={`inline-flex shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${STATUS_BADGES[selected.status] ?? ""}`}>
-                {statusLabel(selected.status)}
+              <span className="flex shrink-0 items-center gap-2">
+                <span className={`inline-flex shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${STATUS_BADGES[selected.status] ?? ""}`}>
+                  {statusLabel(selected.status)}
+                </span>
+                {selected.status === "pending_approval" && <WaitingOn refKey={`po:${selected.id}`} capability="approve_po" />}
               </span>
             ) : null
           }
@@ -1073,6 +1089,10 @@ export default function ProcurementPage() {
               suppliers={suppliers}
               options={poOptions}
               poNumber={modalMode === "edit" ? selected?.po_number : undefined}
+              locked={modalMode === "edit" && selected != null && selected.status !== "draft"}
+              lockedNote={selected && selected.status !== "draft"
+                ? `This order is ${statusLabel(selected.status)}; only its notes can change now.${selected.status === "pending_approval" ? " Use “Back to Draft” on the order to edit it." : ""}`
+                : undefined}
               // An older order may already carry a date that has passed;
               // it can be kept, but not moved further back.
               minDelivery={

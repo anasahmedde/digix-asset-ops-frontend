@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import api from "@/lib/api";
+import { getToken } from "@/lib/token-store";
 import { getApiError } from "@/lib/api-error";
 import { useChatUnread } from "@/lib/chat-context";
 import { WebSocketClient } from "@/lib/websocket";
@@ -66,7 +67,7 @@ export default function ChatPage() {
 
   const currentUserId = typeof window !== "undefined" ? (() => {
     try {
-      const token = localStorage.getItem("access_token");
+      const token = getToken("access_token");
       if (!token) return null;
       const payload = JSON.parse(atob(token.split(".")[1]));
       return payload.user_id;
@@ -240,7 +241,10 @@ export default function ChatPage() {
   });
 
   return (
-    <div className="flex h-[calc(100vh-7rem)] overflow-hidden rounded-xl border border-border bg-card">
+    // dvh, not vh: on a phone the browser bar and on a small window the
+    // taskbar eat into 100vh, which left the composer below the fold. The
+    // page padding is 1rem on small screens and 1.5rem from sm up.
+    <div className="flex h-[calc(100dvh-6rem-var(--bottom-gap))] overflow-hidden rounded-xl border border-border bg-card sm:h-[calc(100dvh-7rem-var(--bottom-gap))]">
       {/* Room List */}
       <div className="flex w-80 shrink-0 flex-col border-r border-border">
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
@@ -336,7 +340,7 @@ export default function ChatPage() {
       </div>
 
       {/* Chat Area */}
-      <div className="flex flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col">
         {!activeRoom ? (
           <div className="flex flex-1 flex-col items-center justify-center">
             <MessageSquare className="h-16 w-16 text-muted-foreground/20" />
@@ -363,7 +367,7 @@ export default function ChatPage() {
             </div>
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto px-5 py-4">
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
               {loadingMessages ? (
                 <div className="flex items-center justify-center py-12">
                   <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
@@ -415,7 +419,7 @@ export default function ChatPage() {
             </div>
 
             {/* Input */}
-            <div className="border-t border-border px-5 py-3">
+            <div className="shrink-0 border-t border-border px-5 py-3">
               <div className="flex items-center gap-2">
                 <input
                   value={newMessage}

@@ -13,11 +13,15 @@ interface TabsProps {
   active: string;
   onChange: (key: string) => void;
   className?: string;
+  /** Wrap onto more lines instead of scrolling - for a strip with many tabs. */
+  wrap?: boolean;
 }
 
-export function Tabs({ tabs, active, onChange, className }: TabsProps) {
+export function Tabs({ tabs, active, onChange, className, wrap = false }: TabsProps) {
   return (
-    <div className={cn("no-scrollbar flex overflow-x-auto overflow-y-hidden border-b border-border", className)}>
+    // A long strip wraps onto a second line when asked; otherwise it scrolls,
+    // and the last tab is never quietly cut off behind a hidden scrollbar.
+    <div className={cn(wrap ? "flex flex-wrap" : "no-scrollbar flex overflow-x-auto overflow-y-hidden", "border-b border-border", className)}>
       {tabs.map((tab) => (
         <button
           key={tab.key}

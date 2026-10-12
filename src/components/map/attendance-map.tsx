@@ -3,6 +3,7 @@
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { MapContainer, Marker, Popup, ZoomControl, useMap } from "react-leaflet";
+import { useStopOnUnmount } from "@/components/map/stop-on-unmount";
 
 import { Basemap } from "./basemaps";
 
@@ -35,6 +36,7 @@ function dot(checkType: string): L.DivIcon {
 
 function FitBounds({ points }: { points: AttendancePoint[] }) {
   const map = useMap();
+  useStopOnUnmount(map);
   const coords = points
     .map((p) => [parseFloat(p.latitude ?? ""), parseFloat(p.longitude ?? "")] as [number, number])
     .filter(([a, b]) => !isNaN(a) && !isNaN(b));

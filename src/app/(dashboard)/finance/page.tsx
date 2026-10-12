@@ -267,7 +267,7 @@ export default function FinancePage() {
               </thead>
               <tbody>
                 {sortRows(filtered, sort, { party: (i) => i.client_name || i.supplier_name }).map((inv) => (
-                  <tr key={inv.id} onClick={() => { setSelected(inv); setModalMode("edit"); }} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
+                  <tr key={inv.id} onClick={() => { if (!canEdit) return; setSelected(inv); setModalMode("edit"); }} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
                     <td className={`${tdClass} font-medium text-foreground`}>{inv.invoice_number}</td>
                     <td className={tdClass}>
                       <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${typeBadge[inv.invoice_type] ?? "bg-secondary/500/10 text-muted-foreground ring-gray-500/20"}`}>

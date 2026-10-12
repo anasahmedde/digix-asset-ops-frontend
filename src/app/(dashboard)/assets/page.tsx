@@ -2824,7 +2824,7 @@ export default function AssetsPage() {
         const STATUS_HEX: Record<string, string> = {
           procured: "#8b5cf6", in_transit: "#ec4899", in_production: "#eab308", in_stock: "#6366f1", assigned: "#3b82f6",
           installed: "#06b6d4", active: "#22c55e", under_maintenance: "#f59e0b",
-          client_property: "#14b8a6", decommissioned: "#ef4444", lost_stolen: "#dc2626", rma: "#f97316",
+          client_property: "#5c8aa3", decommissioned: "#ef4444", lost_stolen: "#dc2626", rma: "#f97316",
         };
         return (
           <div className="space-y-3 rounded-xl border border-border bg-card p-4">
@@ -3141,7 +3141,14 @@ export default function AssetsPage() {
             )}
           </div>
 
-          {assetSource === "vendor_turnkey" && (
+          {/* Nobody knows the vendor when the asset is registered: the purchase
+              order names it when it is placed. The block is for correcting it later. */}
+          {assetSource === "vendor_turnkey" && modalMode !== "edit" && (
+            <p className="rounded-lg border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+              The vendor is set from the purchase order once it is placed.
+            </p>
+          )}
+          {assetSource === "vendor_turnkey" && modalMode === "edit" && (
             <div className="border-t border-border pt-4">
               <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Vendor Installation Details

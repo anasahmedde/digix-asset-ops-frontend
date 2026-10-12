@@ -4,6 +4,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { useEffect, useMemo, useState } from "react";
 import { MapContainer, Marker, Popup, ZoomControl, useMap } from "react-leaflet";
+import { useStopOnUnmount } from "@/components/map/stop-on-unmount";
 
 import { Basemap, BasemapSwitcher, DEFAULT_BASEMAP, type BasemapStyle } from "./basemaps";
 import { CountryHighlight } from "./country-highlight";
@@ -37,7 +38,7 @@ const STATUS_COLOR: Record<string, string> = {
   installed: "#06b6d4",
   in_stock: "#6366f1",
   under_maintenance: "#f59e0b",
-  client_property: "#14b8a6",
+  client_property: "#5c8aa3",
   procured: "#8b5cf6",
   assigned: "#3b82f6",
   decommissioned: "#ef4444",
@@ -116,6 +117,7 @@ function spread(devices: ProjectMapDevice[]): Map<string, [number, number]> {
 /** Frame the chosen project; show the whole country when none is chosen. */
 function FrameOn({ points }: { points: [number, number][] }) {
   const map = useMap();
+  useStopOnUnmount(map);
   useEffect(() => {
     if (points.length === 0) {
       map.flyToBounds(PAKISTAN_BOUNDS, { padding: [16, 16], duration: 0.6 });

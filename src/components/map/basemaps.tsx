@@ -2,6 +2,8 @@
 
 import { TileLayer } from "react-leaflet";
 
+import { useTheme } from "@/lib/theme-context";
+
 /**
  * The ground every map is drawn on.
  *
@@ -29,6 +31,18 @@ export const DEFAULT_BASEMAP: BasemapStyle = "map";
  * own, so a label layer goes over the top; the road map already has them.
  */
 export function Basemap({ style = DEFAULT_BASEMAP }: { style?: BasemapStyle }) {
+  const { resolved } = useTheme();
+  const dark = resolved === "dark";
+  // After dark the road map and the plain ground both go to Esri's dark canvas:
+  // the same keyless host as the daytime tiles (Carto's dark tiles now want a key).
+  if (dark && style !== "satellite") {
+    return (
+      <>
+        <TileLayer url={`${ESRI}/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}`} attribution={ATTRIBUTION} maxZoom={16} />
+        <TileLayer url={`${ESRI}/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}`} maxZoom={16} />
+      </>
+    );
+  }
   if (style === "satellite") {
     return (
       <>

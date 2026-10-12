@@ -3,6 +3,7 @@
 import L from "leaflet";
 import { useEffect, useRef } from "react";
 import { useMap } from "react-leaflet";
+import { useStopOnUnmount } from "@/components/map/stop-on-unmount";
 
 import { pakistanBorder, worldMaskExceptPakistan } from "@/data/pakistan-geo";
 
@@ -16,6 +17,7 @@ import { pakistanBorder, worldMaskExceptPakistan } from "@/data/pakistan-geo";
  */
 export function CountryHighlight({ country = "Pakistan" }: { country?: string }) {
   const map = useMap();
+  useStopOnUnmount(map);
   const layers = useRef<L.Layer[]>([]);
 
   useEffect(() => {
@@ -30,11 +32,11 @@ export function CountryHighlight({ country = "Pakistan" }: { country?: string })
       }).addTo(map);
 
       const glow = L.geoJSON(pakistanBorder as never, {
-        style: () => ({ color: "#0d9488", weight: 7, opacity: 0.1, fillColor: "transparent", fillOpacity: 0, interactive: false }),
+        style: () => ({ color: "#1b405b", weight: 7, opacity: 0.1, fillColor: "transparent", fillOpacity: 0, interactive: false }),
       }).addTo(map);
 
       const border = L.geoJSON(pakistanBorder as never, {
-        style: () => ({ color: "#0d9488", weight: 2, opacity: 0.75, fillColor: "transparent", fillOpacity: 0, interactive: false }),
+        style: () => ({ color: "#1b405b", weight: 2, opacity: 0.75, fillColor: "transparent", fillOpacity: 0, interactive: false }),
       }).addTo(map);
 
       layers.current = [mask, glow, border];

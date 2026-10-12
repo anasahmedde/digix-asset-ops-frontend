@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MapContainer, Marker, useMapEvents, useMap } from "react-leaflet";
+import { useStopOnUnmount } from "@/components/map/stop-on-unmount";
 
 import { Basemap } from "./basemaps";
 import L from "leaflet";
@@ -115,8 +116,9 @@ function DraggableMarker({
 
 function FlyTo({ lat, lng }: { lat: number; lng: number }) {
   const map = useMap();
+  useStopOnUnmount(map);
   useEffect(() => {
-    map.flyTo([lat, lng], 14, { duration: 0.8 });
+    try { map.flyTo([lat, lng], 14, { duration: 0.8 }); } catch { /* map gone */ }
   }, [lat, lng, map]);
   return null;
 }

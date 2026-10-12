@@ -129,7 +129,7 @@ function BillingChip({ billable, chargeTo }: { billable: boolean; chargeTo: stri
 }
 
 export default function MaintenancePage() {
-  const { can, canDelete } = useUser();
+  const { can, canDelete, user } = useUser();
   const canEdit = can("manage_maintenance");
   const canRemove = canDelete("maintenance");
   const [schedules, setSchedules] = useState<MaintenanceSchedule[]>([]);
@@ -278,7 +278,7 @@ export default function MaintenancePage() {
     if (!scheduleId) return;
     autoOpenedRef.current = true;
     const found = schedules.find((s) => s.id === scheduleId);
-    if (found) openEdit(found);
+    if (found) openDetail(found.id);
   }, [searchParams, loading, schedules]);
 
   function closeModal() {
@@ -532,6 +532,8 @@ export default function MaintenancePage() {
           filters={[
             { key: "frequency", label: "Frequency", options: Object.entries(FREQ_LABEL).map(([v, l]) => ({ value: v, label: l })) },
             { key: "status", label: "Status", options: [["active", "Active"], ["pending", "Pending"], ["in_process", "In progress"], ["on_hold", "Paused"], ["overdue", "Over Due"], ["completed", "Completed"]].map(([v, l]) => ({ value: v, label: l })) },
+            // A technician's own work, or nobody's yet.
+            { key: "assignee", label: "Assigned", options: [{ value: "me", label: "Assigned to me" }, { value: "none", label: "Unassigned" }] },
           ]}
           values={filterValues}
           onChange={(k, v) => setFilterValues((prev) => ({ ...prev, [k]: v }))}
@@ -545,6 +547,8 @@ export default function MaintenancePage() {
             if (s.maintenance_type !== kind) return false;
             if (filterValues.frequency && s.frequency !== filterValues.frequency) return false;
             if (filterValues.status && (s.effective_status || s.status) !== filterValues.status) return false;
+            if (filterValues.assignee === "me" && s.assigned_to !== user?.id) return false;
+            if (filterValues.assignee === "none" && s.assigned_to) return false;
             if (search) {
               const q = search.toLowerCase();
               if (!s.title.toLowerCase().includes(q) && !(s.site_name || "").toLowerCase().includes(q) && !(s.device_code || "").toLowerCase().includes(q) && !(s.assigned_to_name || "").toLowerCase().includes(q)) return false;
@@ -638,8 +642,9 @@ export default function MaintenancePage() {
                         {s.site_name || "-"}
                       </td>
                       <td className={`${tdClass} text-muted-foreground`}>
-                        {/* Who is going next, not who usually goes. */}
-                        {s.next_visit_assignee || s.assigned_to_name || "-"}
+                        {/* Who is going next - and nobody, when the next round is still to be given out. */}
+                        {s.next_visit_assignee
+                          || (["completed", "on_hold"].includes(s.effective_status || s.status) ? (s.assigned_to_name || "-") : <span className="italic">To be assigned</span>)}
                         {(s.vendor_names ?? []).length > 0 && (
                           <span className="block text-xs">Vendors: {s.vendor_names.join(", ")}</span>
                         )}

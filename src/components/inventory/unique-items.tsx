@@ -32,6 +32,8 @@ export interface UniqueProduct {
   specifications: Record<string, string>;
   unit: string;
   unit_cost: string | null;
+  /** What the last unit received cost. */
+  latest_cost?: string | null;
   min_stock_level: number;
   /** Counted in the dashboard's in-hand stock figure (chosen on the dashboard). */
   is_high_value: boolean;
@@ -55,6 +57,8 @@ interface UnitRow {
   /** The rack, bin or room it was put in when received. */
   storage_location?: string;
   batch_number: string;
+  /** What this unit cost on its own delivery. */
+  purchase_price?: string | null;
   grn_number: string | null;
   po_number: string | null;
   supplier_name: string | null;
@@ -83,9 +87,9 @@ const WARRANTY_BADGES: Record<string, string> = {
   expired: "bg-red-500/10 text-red-600 ring-red-500/20",
   none: "bg-secondary text-muted-foreground ring-border",
 };
-export function UniqueItems({ openTick = 0 }: { openTick?: number }) {
+export function UniqueItems({ openTick = 0, viewOnly = false }: { openTick?: number; viewOnly?: boolean }) {
   const { can } = useUser();
-  const canEdit = can("manage_stock");
+  const canEdit = can("manage_stock") && !viewOnly;
 
   const [products, setProducts] = useState<UniqueProduct[]>([]);
   const unitSort = useSortState();
@@ -325,9 +329,9 @@ export function UniqueItems({ openTick = 0 }: { openTick?: number }) {
                   <SortTh sort={sort} k="place" className={thClass}>Storage Location</SortTh>
                   <SortTh sort={sort} k="in_stock_count" className={thNum}>On Hand</SortTh>
                   <SortTh sort={sort} k="min_stock_level" className={thNum}>Reorder Level</SortTh>
-                  <SortTh sort={sort} k="unit_cost" className={thNum}>Unit Cost (PKR)</SortTh>
+                  <SortTh sort={sort} k="latest_cost" className={thNum}>Latest Cost (PKR)</SortTh>
                   <SortTh sort={sort} k="stock" className={thClass}>Status</SortTh>
-                  <th className={thClass}>Actions</th>
+                  {!viewOnly && <th className={thClass}>Actions</th>}
                 </tr>
               </thead>
               <tbody>
@@ -356,15 +360,16 @@ export function UniqueItems({ openTick = 0 }: { openTick?: number }) {
                       </td>
                       <td className={`${tdClass} text-muted-foreground`}>{p.category_name || "—"}</td>
                       <td className={tdClass}>
-                        <StockPlace places={p.storage_locations ?? []} />
+                        <StockPlace places={p.storage_locations ?? []} onHand={p.in_stock_count} />
                       </td>
                       <td className={`${tdNum} font-semibold text-foreground`}>
                         <Qty value={p.in_stock_count} unit={p.unit} />
                       </td>
                       <td className={`${tdNum} text-muted-foreground`}>{p.min_stock_level}</td>
-                      <td className={`${tdNum} text-muted-foreground`}>{money(p.unit_cost)}</td>
+                      <td className={`${tdNum} text-muted-foreground`}>{money(p.latest_cost ?? p.unit_cost)}</td>
                       <td className={tdClass}><StockStatus onHand={p.in_stock_count} reorderAt={p.min_stock_level} /></td>
-                      <td className={tdClass} onClick={(e) => e.stopPropagation()}>
+                      {!viewOnly && (
+                    <td className={tdClass} onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center gap-1">
                           <button
                             onClick={() => toggleUnits(p.id)}
@@ -393,6 +398,7 @@ export function UniqueItems({ openTick = 0 }: { openTick?: number }) {
                           )}
                         </div>
                       </td>
+                    )}
                     </tr>
                     {expanded === p.id && (
                       <tr className="border-b border-border bg-secondary/20">
@@ -418,6 +424,7 @@ export function UniqueItems({ openTick = 0 }: { openTick?: number }) {
                                   <SortTh sort={unitSort} k="serial_number" className="py-1.5 font-medium">Serial No</SortTh>
                                   <SortTh sort={unitSort} k="status" className="py-1.5 font-medium">Status</SortTh>
                                   <SortTh sort={unitSort} k="batch_number" className="py-1.5 font-medium">Batch</SortTh>
+                                  <SortTh sort={unitSort} k="purchase_price" className="py-1.5 pr-6 text-right font-medium">Cost (PKR)</SortTh>
                                   <SortTh sort={unitSort} k="source" className="py-1.5 font-medium">Source</SortTh>
                                   <SortTh sort={unitSort} k="warranty_end" className="py-1.5 font-medium">Warranty</SortTh>
                                   <SortTh sort={unitSort} k="storage_location" className="py-1.5 font-medium">Storage location</SortTh>
@@ -457,6 +464,7 @@ export function UniqueItems({ openTick = 0 }: { openTick?: number }) {
                                     </td>
                                     <td className="py-1.5 text-muted-foreground">{STATUS_LABELS[u.status] ?? u.status}</td>
                                     <td className="py-1.5 font-mono text-muted-foreground">{u.batch_number || "—"}</td>
+                                    <td className="py-1.5 pr-6 text-right text-muted-foreground">{money(u.purchase_price ?? null)}</td>
                                     <td className="py-1.5 font-mono text-muted-foreground">
                                       {[u.grn_number, u.po_number].filter(Boolean).join(" · ") || (u.notes?.startsWith("Opening stock") ? "Opening stock" : "Entered by hand")}
                                       {u.supplier_name && (

@@ -75,6 +75,15 @@ const CONTRACT_TYPES = [
   { value: "sold", label: "Sold Outright" },
   { value: "rental", label: "Rental" },
 ];
+// The statuses a project moves through, as the dashboard summary lists them.
+const PROJECT_STATUSES = [
+  { value: "planning", label: "Planning" },
+  { value: "on_track", label: "On Track" },
+  { value: "at_risk", label: "At Risk" },
+  { value: "delayed", label: "Delayed" },
+  { value: "on_hold", label: "On Hold" },
+  { value: "completed", label: "Completed" },
+];
 const emptyForm = {
   name: "", description: "", status: "planning", phase: "planning",
   client: "", site: "", sites: [] as string[], manager: "", start_date: "", target_date: "",
@@ -317,6 +326,8 @@ export default function ProjectsPage() {
   const [scopeComponents, setScopeComponents] = useState<Option[]>([]);
   const [addingScope, setAddingScope] = useState(false);
   const [contractFilter, setContractFilter] = useState("");
+  // A status picked here (or linked from the dashboard) shows every project in it, parked ones too.
+  const [statusFilter, setStatusFilter] = useState(search.get("status") ?? "");
   /** Which tile is showing. Blank is the default: the work still running. */
   const [tile, setTile] = useState<"" | "all" | "on_track" | "at_risk" | "delayed" | "completed">("");
   // Planning (estimate + budget approval) comes first; execution (stock,
@@ -730,12 +741,15 @@ export default function ProjectsPage() {
       api.get("/accounts/roles/", { params: { page_size: 100 } }),
     ])
       .then(([r, rs]) => {
-        // Running a project is not everybody's job: a manager is somebody
-        // whose role may edit projects. Read from the roles, so a role
-        // written on the Roles & Rights screen counts too.
+        // A project can be run by anyone on the staff except a technician -
+        // operations, marketing and their teams alike. Not the Super Admin,
+        // who administers the system rather than the work, and not the
+        // external logins (client viewers, vendors). Read from the roles,
+        // so one written on Roles & Rights counts too.
+        const NOT_MANAGERS = new Set(["technician", "super_admin", "client_viewer", "vendor"]);
         const managerRoles = new Set(
           ((rs.data.results ?? rs.data) as { key: string; capabilities: string[] }[])
-            .filter((x) => x.capabilities.includes("edit_projects"))
+            .filter((x) => !NOT_MANAGERS.has(x.key))
             .map((x) => x.key),
         );
         setManagerOptions(
@@ -1629,12 +1643,12 @@ export default function ProjectsPage() {
     completed: (p) => p.status === "completed",
   };
   const ongoing = projects.filter((p) => {
-    const matches = searching
+    const matches = searching || statusFilter
       ? true
       : tile
         ? TILE_TESTS[tile](p)
         : !["completed", "on_hold"].includes(p.status);
-    return matches && (!contractFilter || p.contract_type === contractFilter);
+    return matches && (!contractFilter || p.contract_type === contractFilter) && (!statusFilter || p.status === statusFilter);
   });
   const TILE_TITLES: Record<string, string> = {
     all: "All Projects",
@@ -1685,12 +1699,14 @@ export default function ProjectsPage() {
               className="h-10 w-80 rounded-lg border border-border bg-card pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none"
             />
           </div>
+          {can("edit_projects") && (
           <button
             onClick={() => { setEditingId(null); setForm(emptyForm); setModalOpen(true); }}
             className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-all hover:opacity-90"
           >
             <Plus className="h-4 w-4" /> New Project
           </button>
+          )}
         </div>
       </div>
 
@@ -1730,9 +1746,12 @@ export default function ProjectsPage() {
           </h2>
           <div className="flex items-center gap-3">
             <FilterBar
-              filters={[{ key: "contract", label: "Contract", options: CONTRACT_TYPES }]}
-              values={{ contract: contractFilter }}
-              onChange={(_, v) => setContractFilter(v)}
+              filters={[
+                { key: "status", label: "Status", options: PROJECT_STATUSES },
+                { key: "contract", label: "Contract", options: CONTRACT_TYPES },
+              ]}
+              values={{ status: statusFilter, contract: contractFilter }}
+              onChange={(k, v) => (k === "status" ? setStatusFilter(v) : setContractFilter(v))}
             />
             {/* It used to link to this very page, so it did nothing at all. */}
             <button
@@ -1754,7 +1773,7 @@ export default function ProjectsPage() {
                   <SortTh sort={ongoingSort} k="name" className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Project / Sites</SortTh>
                   <SortTh sort={ongoingSort} k="phase_display" className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Phase</SortTh>
                   <SortTh sort={ongoingSort} k="progress" className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Progress</SortTh>
-                  <SortTh sort={ongoingSort} k="status_display" className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Health</SortTh>
+                  <SortTh sort={ongoingSort} k="status_display" className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Status</SortTh>
                   <SortTh sort={ongoingSort} k="start_date" className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Start Date</SortTh>
                   <SortTh sort={ongoingSort} k="target_date" className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Target Date</SortTh>
                   <SortTh sort={ongoingSort} k="bottleneck_count" className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Bottlenecks</SortTh>
@@ -1857,7 +1876,7 @@ export default function ProjectsPage() {
           </div>
 
           <div className="rounded-xl border border-border bg-card p-5">
-            <h3 className="mb-4 text-sm font-semibold text-foreground">Projects by Health</h3>
+            <h3 className="mb-4 text-sm font-semibold text-foreground">Projects by Status</h3>
             <BarChart data={healthData} height={180} />
           </div>
 

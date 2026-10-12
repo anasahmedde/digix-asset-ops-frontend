@@ -2,7 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowRight, ChevronLeft, ChevronRight, ClipboardList, Eye, EyeOff, Shield, Zap } from "lucide-react";
+import Image from "next/image";
+import { ArrowRight, ChevronLeft, ChevronRight, Eye, EyeOff, Shield, Zap } from "lucide-react";
 
 import { isAuthenticated, login } from "@/lib/auth";
 
@@ -80,7 +81,9 @@ export default function LoginPage() {
     const username = formData.get("username") as string;
     const password = formData.get("password") as string;
     try {
-      await login(username, password);
+      // "This tab only" keeps the login in the tab, so another account can
+      // be open in the next tab - incognito windows all share one login.
+      await login(username, password, { tabOnly: formData.get("tab_only") === "on" });
       router.push("/");
     } catch (err: unknown) {
       let msg: string | undefined;
@@ -115,14 +118,9 @@ export default function LoginPage() {
         {/* Content overlay */}
         <div className="relative z-20 flex h-full flex-col justify-between p-10">
           {/* Top — Logo */}
-          <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/15 backdrop-blur-sm border border-white/20">
-              <ClipboardList className="h-6 w-6 text-white" />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold text-white tracking-tight">DIGIX</h1>
-              <p className="text-2xs text-teal-200/80">Asset Management Platform</p>
-            </div>
+          <div>
+            <Image src="/branding/digix-light.png" alt="DIGIX" width={553} height={133} priority className="h-8 w-auto" />
+            <p className="mt-2 text-2xs text-teal-200/80">Asset Management Platform</p>
           </div>
 
           {/* Middle — Slide text */}
@@ -186,11 +184,9 @@ export default function LoginPage() {
       {/* Right — Login Form */}
       <div className="flex flex-1 flex-col">
         {/* Mobile logo */}
-        <div className="flex items-center gap-3 p-6 lg:hidden">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-teal-600">
-            <ClipboardList className="h-5 w-5 text-white" />
-          </div>
-          <span className="text-lg font-bold text-foreground">DIGIX</span>
+        <div className="p-6 lg:hidden">
+          <Image src="/branding/digix-dark.png" alt="DIGIX" width={553} height={133} priority className="h-7 w-auto dark:hidden" />
+          <Image src="/branding/digix-light.png" alt="DIGIX" width={553} height={133} priority className="hidden h-7 w-auto dark:block" />
         </div>
 
         <div className="flex flex-1 items-center justify-center px-6 py-12 sm:px-12 lg:px-16">
@@ -252,6 +248,11 @@ export default function LoginPage() {
                   </button>
                 </div>
               </div>
+
+              <label htmlFor="tab_only" className="flex cursor-pointer items-start gap-2 text-xs text-muted-foreground">
+                <input id="tab_only" name="tab_only" type="checkbox" className="mt-0.5 h-3.5 w-3.5 rounded border-border accent-[hsl(var(--primary))]" />
+                <span>Sign in on this tab only <span className="text-muted-foreground/70">— for using several accounts side by side; the login ends when the tab closes.</span></span>
+              </label>
 
               <button
                 type="submit"

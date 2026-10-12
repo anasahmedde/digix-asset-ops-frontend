@@ -44,8 +44,8 @@ export function DonutChart({
             </Pie>
             <Tooltip
               contentStyle={{
-                backgroundColor: "hsl(222 20% 10%)",
-                border: "1px solid hsl(222 15% 18%)",
+                backgroundColor: "hsl(var(--card))",
+                border: "1px solid hsl(var(--border))",
                 borderRadius: "8px",
                 color: "hsl(210 20% 90%)",
                 fontSize: "12px",

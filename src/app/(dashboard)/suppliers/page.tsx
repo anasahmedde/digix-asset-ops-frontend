@@ -212,7 +212,7 @@ export default function SuppliersPage() {
               </thead>
               <tbody>
                 {pageSlice(sortRows(filtered, sort), vendorPage).map((s) => (
-                  <tr key={s.id} onClick={() => { setSelected(s); setModalMode("edit"); }} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
+                  <tr key={s.id} onClick={() => { if (!canEdit) return; setSelected(s); setModalMode("edit"); }} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
                     <td className={`${tdClass} font-medium text-foreground`}>{s.name}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{s.code}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{s.contact_person || "-"}</td>

@@ -36,12 +36,17 @@ export function StockStatus({ onHand, reorderAt }: { onHand: number; reorderAt: 
 }
 
 /** Where the stock is kept, with anything else worth knowing underneath. */
-export function StockPlace({ places, note }: { places: string[]; note?: string }) {
+/** Where the stock is kept. A place is only a place while something is on
+ *  it: with nothing on hand the remembered bin is not shown as if it held
+ *  stock, and the row says so instead. */
+export function StockPlace({ places, note, onHand }: { places: string[]; note?: string; onHand?: number }) {
+  const empty = onHand !== undefined && onHand <= 0;
+  const shown = empty ? [] : places;
   return (
     <div className="min-w-0">
-      <span className={places.length ? "text-foreground" : "text-muted-foreground"}>
-        {places.length ? places.slice(0, 2).join(", ") : "Not recorded"}
-        {places.length > 2 && <span className="text-muted-foreground"> +{places.length - 2} more</span>}
+      <span className={shown.length ? "text-foreground" : "text-muted-foreground"}>
+        {empty ? "Nothing on the shelf" : shown.length ? shown.slice(0, 2).join(", ") : "Not recorded"}
+        {shown.length > 2 && <span className="text-muted-foreground"> +{shown.length - 2} more</span>}
       </span>
       {note && <span className="block text-2xs text-muted-foreground">{note}</span>}
     </div>

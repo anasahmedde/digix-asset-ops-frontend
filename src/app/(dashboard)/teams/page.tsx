@@ -1,6 +1,6 @@
 "use client";
 
-import {Pencil, Plus, RotateCcw, ShieldCheck, Trash2, Users} from "lucide-react";
+import { KeyRound, Pencil, Plus, Power, RotateCcw, ShieldCheck, Trash2, Users } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -15,6 +15,7 @@ import { confirmAction } from "@/components/ui/confirm";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
+import { formatDate } from "@/lib/utils";
 
 interface User {
   id: string;
@@ -30,6 +31,8 @@ interface User {
   is_field_staff: boolean;
   is_active: boolean;
   date_joined: string;
+  /** When the login was last used; never, for an account nobody has opened. */
+  last_login?: string | null;
   employee_id?: string;
   cnic?: string;
   join_date?: string | null;
@@ -71,7 +74,7 @@ export default function TeamsPage() {
   const [roles, setRoles] = useState<RoleOption[]>([]);
   const sort = useSortState();
   const [loading, setLoading] = useState(true);
-  const [modalMode, setModalMode] = useState<"create" | "edit" | "password" | null>(null);
+  const [modalMode, setModalMode] = useState<"create" | "edit" | "password" | "login" | null>(null);
   const [selected, setSelected] = useState<User | null>(null);
   const [saving, setSaving] = useState(false);
   const [filterValues, setFilterValues] = useState<Record<string, string>>({ role: "", status: "" });
@@ -116,6 +119,33 @@ export default function TeamsPage() {
   function openResetPassword(user: User) {
     setSelected(user);
     setModalMode("password");
+  }
+
+  // The login itself: its name, address and role.
+  function openLogin(user: User) {
+    setSelected(user);
+    setModalMode("login");
+  }
+
+  async function handleLogin(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!selected) return;
+    setSaving(true);
+    const fd = new FormData(e.currentTarget);
+    try {
+      await api.patch(`/accounts/users/${selected.id}/`, {
+        username: fd.get("username"),
+        email: fd.get("email"),
+        role: fd.get("role"),
+      });
+      toast.success("Account updated");
+      closeModal();
+      fetchUsers();
+    } catch (err: unknown) {
+      toast.error(getApiError(err, "Could not update the account"));
+    } finally {
+      setSaving(false);
+    }
   }
 
   function closeModal() {
@@ -257,6 +287,8 @@ export default function TeamsPage() {
   }
 
   async function toggleActive(user: User) {
+    const who = user.full_name || user.username;
+    if (user.is_active && !(await confirmAction(`Deactivate ${who}'s account? They will not be able to sign in until it is switched back on.`))) return;
     try {
       await api.patch(`/accounts/users/${user.id}/`, { is_active: !user.is_active });
       toast.success(`User ${user.is_active ? "deactivated" : "activated"}`);
@@ -291,12 +323,87 @@ export default function TeamsPage() {
           { key: "people", label: "Employees", count: users.length },
           { key: "chart", label: "Organogram" },
           { key: "roles", label: "Roles & Rights" },
+          // Logins are the Super Admin's: the tab is only there for whoever holds that right.
+          ...(managesLogins ? [{ key: "accounts", label: "Accounts", count: users.filter((u) => !u.is_active).length || undefined }] : []),
         ]}
         active={tab}
         onChange={setTab}
       />
 
-      {tab === "roles" ? (
+      {tab === "accounts" && managesLogins ? (
+      <div className="rounded-xl border border-border bg-card overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
+          <p className="text-xs text-muted-foreground">
+            Every login on the system. Rename it, change its role, reset its password, switch it off
+            when somebody leaves, or remove it outright. Only the Administrator sees this.
+          </p>
+          <button onClick={openCreate} className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-xs font-medium text-white">
+            <Plus className="h-3.5 w-3.5" />
+            Add account
+          </button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-secondary/50">
+                <SortTh sort={sort} k="username" className={thClass}>Username</SortTh>
+                <SortTh sort={sort} k="full_name" className={thClass}>Name</SortTh>
+                <SortTh sort={sort} k="email" className={thClass}>Email</SortTh>
+                <SortTh sort={sort} k="role" className={thClass}>Role</SortTh>
+                <SortTh sort={sort} k="is_active" className={thClass}>Status</SortTh>
+                <SortTh sort={sort} k="last_login" className={thClass}>Last sign-in</SortTh>
+                <SortTh sort={sort} k="date_joined" className={thClass}>Created</SortTh>
+                <th className={thClass}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortRows(users, sort).map((user) => (
+                <tr key={user.id} className="border-b border-border transition-colors hover:bg-secondary/30">
+                  <td className={`${tdClass} font-mono text-foreground`}>
+                    {user.username}
+                    {user.id === me?.id && <span className="ml-2 rounded bg-secondary px-1.5 py-0.5 text-2xs text-muted-foreground">you</span>}
+                  </td>
+                  <td className={`${tdClass} text-foreground`}>{user.full_name || "—"}</td>
+                  <td className={`${tdClass} text-muted-foreground`}>{user.email || "—"}</td>
+                  <td className={tdClass}>
+                    <span className="inline-flex rounded-full bg-teal-500/10 px-2.5 py-0.5 text-xs font-medium text-primary ring-1 ring-teal-500/20">
+                      {user.role_label ?? roleLabel(user.role)}
+                    </span>
+                  </td>
+                  <td className={tdClass}>
+                    <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${user.is_active ? "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20" : "bg-red-500/10 text-red-600 ring-red-500/20"}`}>
+                      {user.is_active ? "Active" : "Inactive"}
+                    </span>
+                  </td>
+                  <td className={`${tdClass} text-muted-foreground`}>{user.last_login ? formatDate(user.last_login) : "Never"}</td>
+                  <td className={`${tdClass} text-muted-foreground`}>{formatDate(user.date_joined)}</td>
+                  <td className={tdClass}>
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => openLogin(user)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground" title="Edit login">
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      <button onClick={() => openResetPassword(user)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-amber-500" title="Reset password">
+                        <KeyRound className="h-3.5 w-3.5" />
+                      </button>
+                      {user.id !== me?.id && (
+                        <>
+                          <button onClick={() => toggleActive(user)} className={`flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary ${user.is_active ? "hover:text-red-500" : "hover:text-emerald-500"}`} title={user.is_active ? "Deactivate account" : "Activate account"}>
+                            <Power className="h-3.5 w-3.5" />
+                          </button>
+                          <button onClick={() => removeUser(user)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-destructive" title="Delete account">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      ) : tab === "roles" ? (
         <div className="rounded-xl border border-border bg-card p-5">
           <RolesMatrix readOnly={!can("manage_permissions")} />
         </div>
@@ -365,7 +472,7 @@ export default function TeamsPage() {
                 </tr>
               ) : (
                 sortRows(filtered, sort).map((user) => (
-                  <tr key={user.id} onClick={() => openEdit(user)} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
+                  <tr key={user.id} onClick={() => isAdmin && openEdit(user)} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
                     <td className={`${tdClass} font-medium text-foreground`}>{user.full_name || "-"}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{user.employee_id || "—"}</td>
                     <td className={`${tdClass} text-muted-foreground`}>{user.username}</td>
@@ -403,16 +510,8 @@ export default function TeamsPage() {
                             <Pencil className="h-3.5 w-3.5" />
                           </button>
                           {managesLogins && (
-                            <button onClick={() => openResetPassword(user)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-amber-400" title="Reset password">
+                            <button onClick={() => { setTab("accounts"); }} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-amber-500" title="Manage login on the Accounts tab">
                               <RotateCcw className="h-3.5 w-3.5" />
-                            </button>
-                          )}
-                          <button onClick={() => toggleActive(user)} className={`text-xs font-medium transition-colors ${user.is_active ? "text-red-400/70 hover:text-red-400" : "text-emerald-400/70 hover:text-emerald-400"}`}>
-                            {user.is_active ? "Deactivate" : "Activate"}
-                          </button>
-                          {managesLogins && user.id !== me?.id && (
-                            <button onClick={() => removeUser(user)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-destructive" title="Delete account">
-                              <Trash2 className="h-3.5 w-3.5" />
                             </button>
                           )}
                         </>
@@ -440,11 +539,40 @@ export default function TeamsPage() {
               ? "Add New User"
               : modalMode === "edit"
                 ? "Edit User"
-                : `Reset Password — ${selected?.username}`
+                : modalMode === "login"
+                  ? `Edit login — ${selected?.username}`
+                  : `Reset Password — ${selected?.username}`
           }
           size="md"
         >
-            {modalMode === "password" ? (
+            {modalMode === "login" ? (
+              <form onSubmit={handleLogin} className="space-y-4">
+                <div className="space-y-1.5">
+                  <label htmlFor="login_username" className={labelClass}>Username</label>
+                  <input id="login_username" name="username" required defaultValue={selected?.username ?? ""} className={inputClass} autoComplete="off" />
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="login_email" className={labelClass}>Email</label>
+                  <input id="login_email" name="email" type="email" required defaultValue={selected?.email ?? ""} className={inputClass} />
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="login_role" className={labelClass}>Role</label>
+                  <select id="login_role" name="role" required defaultValue={selected?.role ?? "technician"} disabled={selected?.id === me?.id} className={`${inputClass} disabled:bg-secondary disabled:text-muted-foreground`}>
+                    {ROLES.map((r) => (
+                      <option key={r.value} value={r.value}>{r.label}</option>
+                    ))}
+                    {selected && !ROLES.some((r) => r.value === selected.role) && (
+                      <option value={selected.role}>{roleLabel(selected.role)} (retired)</option>
+                    )}
+                  </select>
+                  {selected?.id === me?.id && <p className="text-xs text-muted-foreground">Nobody changes their own role.</p>}
+                </div>
+                <div className="flex justify-end gap-3 pt-2">
+                  <button type="button" onClick={closeModal} className={btnSecondary}>Cancel</button>
+                  <button type="submit" disabled={saving} className={btnPrimary}>{saving ? "Saving..." : "Save login"}</button>
+                </div>
+              </form>
+            ) : modalMode === "password" ? (
               <form onSubmit={handleResetPassword} className="space-y-4">
                 <div className="space-y-1.5">
                   <label htmlFor="new_password" className={labelClass}>New Password</label>
@@ -487,7 +615,7 @@ export default function TeamsPage() {
 
                 <div className="space-y-1.5">
                   <label htmlFor="email" className={labelClass}>Email</label>
-                  <input id="email" name="email" type="email" required defaultValue={selected?.email ?? ""} className={inputClass} />
+                  <input id="email" name="email" type="email" required defaultValue={selected?.email ?? ""} disabled={modalMode === "edit" && !managesLogins} className={`${inputClass} disabled:bg-secondary disabled:text-muted-foreground`} />
                 </div>
 
                 {modalMode === "create" && (
