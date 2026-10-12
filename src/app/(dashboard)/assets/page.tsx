@@ -632,6 +632,7 @@ export default function AssetsPage() {
   const [labelLoading, setLabelLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkLabelLoading, setBulkLabelLoading] = useState(false);
   const [transitionTarget, setTransitionTarget] = useState<string | null>(null);
   // Assigning opens the asset's installation job, and a job happens somewhere.
@@ -1141,6 +1142,49 @@ export default function AssetsPage() {
   }
 
   // WF-05 polish: one PDF with one label per page for every checked row,
+  // The ticked rows, deleted one by one; a device with linked records stays
+  // and is named, the rest go.
+  async function deleteSelected() {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    if (!(await confirmAction(`Delete ${ids.length} selected asset${ids.length === 1 ? "" : "s"}? This cannot be undone.`))) return;
+    setBulkBusy(true);
+    const kept: string[] = [];
+    for (const id of ids) {
+      try {
+        await api.delete(`/assets/devices/${id}/`);
+      } catch {
+        kept.push(devices.find((d) => d.id === id)?.asset_code ?? id);
+      }
+    }
+    setBulkBusy(false);
+    setSelectedIds(new Set());
+    const gone = ids.length - kept.length;
+    if (gone) toast.success(`${gone} asset${gone === 1 ? "" : "s"} deleted`);
+    if (kept.length) toast.error(`Kept (linked records): ${kept.join(", ")}`);
+    fetchDevices();
+  }
+
+  // The same Excel as Export, cut to the ticked rows.
+  async function exportSelected() {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    setBulkBusy(true);
+    try {
+      const { data } = await api.get("/assets/devices/export/", { params: { ids: ids.join(",") }, responseType: "blob" });
+      const url = URL.createObjectURL(new Blob([data]));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `assets-selected-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast.error(getApiError(err, "Export failed"));
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
   // opened in a new tab (mirrors the backend cap of 200 ids per batch).
   async function printBulkLabels() {
     const ids = Array.from(selectedIds);
@@ -2791,15 +2835,6 @@ export default function AssetsPage() {
           >
             <Download className="h-4 w-4" /> {exporting ? "Exporting…" : "Export Excel"}
           </button>
-          {canEdit && selectedIds.size > 0 && (
-            <button
-              onClick={printBulkLabels}
-              disabled={bulkLabelLoading}
-              className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-60"
-            >
-              <Printer className="h-4 w-4" /> {bulkLabelLoading ? "Generating…" : `Print labels (${selectedIds.size})`}
-            </button>
-          )}
           {canEdit && (
             <button onClick={openCreate} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">
               <Plus className="h-4 w-4" /> Register Asset
@@ -2807,6 +2842,27 @@ export default function AssetsPage() {
           )}
         </div>
       </div>
+
+      {/* What the ticked rows can have done to them, all at once. */}
+      {selectedIds.size > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-primary/30 bg-primary/5 px-4 py-2.5 text-sm">
+          <span className="font-medium text-foreground">{selectedIds.size} selected</span>
+          {canEdit && (
+            <button onClick={printBulkLabels} disabled={bulkLabelLoading || bulkBusy} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-60">
+              <Printer className="h-3.5 w-3.5" /> {bulkLabelLoading ? "Generating…" : "Print labels"}
+            </button>
+          )}
+          <button onClick={exportSelected} disabled={bulkBusy} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-60">
+            <Download className="h-3.5 w-3.5" /> Export selected
+          </button>
+          {can("delete_assets") && (
+            <button onClick={deleteSelected} disabled={bulkBusy} className="inline-flex items-center gap-1.5 rounded-lg border border-destructive/40 bg-card px-3 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-60">
+              <Trash2 className="h-3.5 w-3.5" /> {bulkBusy ? "Working…" : "Delete selected"}
+            </button>
+          )}
+          <button onClick={() => setSelectedIds(new Set())} className="ml-auto text-xs text-muted-foreground hover:text-foreground">Clear</button>
+        </div>
+      )}
 
       {(() => {
         // One tile, one answer. The tiles and the status bar are ways of
