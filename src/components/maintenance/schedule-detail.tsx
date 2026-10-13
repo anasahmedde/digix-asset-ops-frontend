@@ -83,6 +83,8 @@ interface Visit {
   visit_photos: VisitPhoto[];
   has_before_photo: boolean;
   has_after_photo: boolean;
+  /** When the phone scanned the asset's label on site, if it did. */
+  asset_verified_at: string | null;
   /** What the parts used are worth, and what it came to in the end. */
   component_costs: {
     part_request: string; description: string; quantity: string;
@@ -919,6 +921,9 @@ export function ScheduleDetail({
                             closed by {v.performed_by_name}
                           </span>
                         )}
+                        <span className={`block text-2xs ${v.asset_verified_at ? "text-emerald-600" : "text-muted-foreground"}`}>
+                          {v.asset_verified_at ? "asset scanned on site" : "asset not scanned"}
+                        </span>
                       </td>
                       <td className="px-3 py-2.5 text-muted-foreground">
                         {v.record_notes || v.remarks || (v.status === "completed" ? "—" : v.status_display)}

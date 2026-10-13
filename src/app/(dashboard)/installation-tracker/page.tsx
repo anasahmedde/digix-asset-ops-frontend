@@ -961,11 +961,15 @@ export default function InstallationTrackerPage() {
     // not something this screen can take live.
     const offPath = ["under_maintenance", "client_property", "decommissioned", "lost_stolen", "rma"]
       .includes(selected.device_status);
+    // The installer records their own work from the phone, at the asset,
+    // after scanning its label. The desktop offers them nothing to press.
+    const fieldOnly = user?.role === "technician";
     const canActivate =
       customDone &&
       !activeDone &&
       !offPath &&
       user != null &&
+      !fieldOnly &&
       (can("activate_asset") || user.id === selected.installed_by);
     const activeStatus = activeDone ? "completed" : customDone && !offPath ? "in_progress" : "not_started";
     const handoverDone = !!selected.handover;
@@ -1404,7 +1408,7 @@ export default function InstallationTrackerPage() {
                       )}
                     </div>
                     {/* The installer, their supervisor, or a platform admin. */}
-                    {selected.can_advance && !closedOut && (
+                    {selected.can_advance && !closedOut && user?.role !== "technician" && (
                       <div className="mt-3 flex flex-wrap gap-1.5 border-t border-border pt-3">
                         {step.status !== "in_progress" && step.status !== "completed" && (
                           <button disabled={updatingStep === step.id} onClick={() => updateStep(step.id, "in_progress")} className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 px-2 py-1 text-2xs font-medium text-amber-600 transition-colors hover:bg-amber-500/20 disabled:opacity-50">
