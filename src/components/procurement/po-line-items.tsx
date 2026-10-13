@@ -235,8 +235,10 @@ export function PoLineItems({
           </div>
           {/* Labelled the way an order prints: what, how many, at what each,
               and what the line comes to. */}
-          <div className="flex items-end gap-2">
-            <label className="min-w-0 flex-1 space-y-1">
+          {/* One row from sm up; on a phone the description takes its own
+              line and the figures share the next. */}
+          <div className="flex flex-wrap items-end gap-2 sm:flex-nowrap">
+            <label className="min-w-0 grow basis-full space-y-1 sm:basis-0">
               <span className={captionClass}>Description</span>
               <input
                 value={line.description}
@@ -245,15 +247,15 @@ export function PoLineItems({
                 className={`${rowInputClass} w-full`}
               />
             </label>
-            <label className="w-20 shrink-0 space-y-1">
+            <label className="w-16 shrink-0 space-y-1 sm:w-20">
               <span className={captionClass}>Qty</span>
               <input type="number" min="1" value={line.quantity} onChange={(e) => patch(idx, { quantity: e.target.value })} className={`${rowInputClass} w-full`} />
             </label>
-            <label className="w-32 shrink-0 space-y-1">
+            <label className="min-w-0 flex-1 space-y-1 sm:w-32 sm:flex-none">
               <span className={captionClass}>Unit price ({currency})</span>
               <input type="number" min="0" step="0.01" value={line.unit_price} onChange={(e) => patch(idx, { unit_price: e.target.value })} className={`${rowInputClass} w-full text-right`} />
             </label>
-            <div className="w-32 shrink-0 space-y-1 text-right">
+            <div className="w-24 shrink-0 space-y-1 text-right sm:w-32">
               <span className={captionClass}>Amount ({currency})</span>
               <p className="flex h-9 items-center justify-end text-sm font-medium tabular-nums text-foreground">
                 {poLineTotal(line).toLocaleString()}

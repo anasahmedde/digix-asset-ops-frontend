@@ -1236,7 +1236,7 @@ export default function TicketsPage() {
                 <thead>
                   <tr className="border-b border-border bg-secondary/50">
                     <SortTh sort={sort} k="ticket_number" className={thClass}>Ticket #</SortTh>
-                    <SortTh sort={sort} k="title" className={thClass}>Title</SortTh>
+                    <SortTh sort={sort} k="title" className={`${thClass} min-w-[14rem]`}>Title</SortTh>
                     <SortTh sort={sort} k="assets" className={thClass}>Assets</SortTh>
                     <SortTh sort={sort} k="priority" className={thClass}>Priority</SortTh>
                     <SortTh sort={sort} k="status" className={thClass}>Status</SortTh>

@@ -1019,18 +1019,21 @@ export default function InstallationTrackerPage() {
 
     return (
       <div className="space-y-6">
-        <div className="flex items-center gap-3">
+        {/* On a phone the actions drop under the title instead of running
+            off the right edge. */}
+        <div className="flex flex-wrap items-center gap-3">
           <button
             onClick={closeJob}
-            className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            aria-label="Back to all installations"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
           >
             <ArrowLeft className="h-4 w-4" />
           </button>
-          <div>
-            <h1 className="text-2xl font-bold text-foreground">Asset Installation Tracker</h1>
+          <div className="min-w-0 flex-1">
+            <h1 className="text-xl font-bold text-foreground sm:text-2xl">Asset Installation Tracker</h1>
             <p className="text-sm text-muted-foreground">Track installation progress in different stages</p>
           </div>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto">
             {isManager && !selected.handover && (
               <button
                 onClick={removeJob}
@@ -1060,10 +1063,13 @@ export default function InstallationTrackerPage() {
         </div>
 
         {/* Asset Header Card */}
-        <div className="rounded-xl border border-border bg-card p-5">
-          <div className="flex gap-5">
-            <DeviceImage src={selected.device_image} alt={selected.device_code} size="xl" />
-            <div className="flex-1 min-w-0">
+        <div className="rounded-xl border border-border bg-card p-4 sm:p-5">
+          {/* Picture, facts, progress side by side where there is room;
+              stacked on a phone, where side by side left the facts a column
+              too narrow for a single word. */}
+          <div className="flex flex-col gap-5 sm:flex-row">
+            <DeviceImage src={selected.device_image} alt={selected.device_code} size="xl" className="h-32 w-32 shrink-0 sm:h-40 sm:w-40" />
+            <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-3">
                 <Link href={`/assets?device=${selected.device}`} className="text-sm font-medium text-primary hover:underline">
                   Asset ID: {selected.device_code}
@@ -1112,7 +1118,8 @@ export default function InstallationTrackerPage() {
                   </span>
                 )}
               </div>
-              <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+              {/* As many columns as fit, never one narrower than a name. */}
+              <div className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-4 break-words text-sm [&>div]:min-w-0">
                 <div>
                   <p className="text-xs text-muted-foreground">Site Name</p>
                   <Link href={`/sites?site=${selected.site}`} className="font-medium text-primary hover:underline">{selected.site_name}</Link>
@@ -1193,12 +1200,12 @@ export default function InstallationTrackerPage() {
                 </div>
               </div>
             </div>
-            <div className="shrink-0 text-right">
+            <div className="shrink-0 sm:text-right">
               <p className="text-xs text-muted-foreground">Overall Progress</p>
               {/* Green on a job that is on hold would be a lie, so the bar
                   reads the same verdict as the badge. */}
               <p className={`text-3xl font-bold ${healthStyle(selected.health).text}`}>{selected.progress}%</p>
-              <div className="mt-2 h-2 w-32 overflow-hidden rounded-full bg-secondary">
+              <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-secondary sm:w-32">
                 <div
                   className={`h-full rounded-full transition-all ${healthStyle(selected.health).bar}`}
                   style={{ width: `${selected.progress}%` }}
@@ -1348,15 +1355,17 @@ export default function InstallationTrackerPage() {
         </div>
 
         {/* Step Detail Cards + Timeline */}
-        <div className="grid gap-6 lg:grid-cols-3">
-          <div className="lg:col-span-2">
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-6 xl:grid-cols-3">
+          <div className="xl:col-span-2">
+            {/* As many cards a row as fit at 12rem each: three on a wide
+                screen, one on a phone. */}
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(12rem,1fr))] gap-4">
               {selected.steps.map((step) => {
                 const stepDelays = delaysByStep.get(step.id) ?? [];
                 return (
                   <div key={step.id} className="rounded-xl border border-border bg-card p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <h4 className="text-sm font-semibold text-foreground">
+                    <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
+                      <h4 className="min-w-0 text-sm font-semibold text-foreground">
                         {step.step_number}. {step.step_type_display}
                       </h4>
                       <StatusBadge status={step.status} label={step.status_display} />
@@ -1467,8 +1476,8 @@ export default function InstallationTrackerPage() {
                         : "border-dashed border-border bg-card"
                   }`}
                 >
-                  <div className="mb-2 flex items-center justify-between">
-                    <h4 className="text-sm font-semibold text-foreground">
+                  <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
+                    <h4 className="min-w-0 text-sm font-semibold text-foreground">
                       {f.number}. {f.label}
                     </h4>
                     <StatusBadge status={f.status} label={f.statusLabel} />
@@ -2167,9 +2176,9 @@ export default function InstallationTrackerPage() {
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
                   <SortTh sort={sort} k="device_code" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Asset ID</SortTh>
-                  <SortTh sort={sort} k="asset_name" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Asset Name</SortTh>
-                  <SortTh sort={sort} k="clients" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Client(s)</SortTh>
-                  <SortTh sort={sort} k="project_name" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Project</SortTh>
+                  <SortTh sort={sort} k="asset_name" className="min-w-[11rem] px-4 py-3 text-left text-xs font-medium text-muted-foreground">Asset Name</SortTh>
+                  <SortTh sort={sort} k="clients" className="min-w-[10rem] px-4 py-3 text-left text-xs font-medium text-muted-foreground">Client(s)</SortTh>
+                  <SortTh sort={sort} k="project_name" className="min-w-[10rem] px-4 py-3 text-left text-xs font-medium text-muted-foreground">Project</SortTh>
                   <SortTh sort={sort} k="site_name" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Site</SortTh>
                   <SortTh sort={sort} k="installed_by_name" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Installer</SortTh>
                   <SortTh sort={sort} k="poc_name" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">POC</SortTh>

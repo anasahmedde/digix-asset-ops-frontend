@@ -1,6 +1,6 @@
 "use client";
 
-import { MessageSquare, Plus, Search, Send, Users } from "lucide-react";
+import { ArrowLeft, MessageSquare, Plus, Search, Send, Users } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -245,8 +245,9 @@ export default function ChatPage() {
     // taskbar eat into 100vh, which left the composer below the fold. The
     // page padding is 1rem on small screens and 1.5rem from sm up.
     <div className="flex h-[calc(100dvh-6rem-var(--bottom-gap))] overflow-hidden rounded-xl border border-border bg-card sm:h-[calc(100dvh-7rem-var(--bottom-gap))]">
-      {/* Room List */}
-      <div className="flex w-80 shrink-0 flex-col border-r border-border">
+      {/* Room List. On a phone there is room for one pane: the list until a
+          conversation is open, then the conversation with a way back. */}
+      <div className={`${activeRoom ? "hidden md:flex" : "flex"} w-full shrink-0 flex-col border-border md:w-80 md:border-r`}>
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <div className="flex items-center gap-2">
             <MessageSquare className="h-4 w-4 text-primary" />
@@ -340,7 +341,7 @@ export default function ChatPage() {
       </div>
 
       {/* Chat Area */}
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className={`${activeRoom ? "flex" : "hidden md:flex"} min-w-0 flex-1 flex-col`}>
         {!activeRoom ? (
           <div className="flex flex-1 flex-col items-center justify-center">
             <MessageSquare className="h-16 w-16 text-muted-foreground/20" />
@@ -350,7 +351,14 @@ export default function ChatPage() {
         ) : (
           <>
             {/* Chat header */}
-            <div className="flex items-center gap-3 border-b border-border px-5 py-3">
+            <div className="flex items-center gap-3 border-b border-border px-3 py-3 sm:px-5">
+              <button
+                onClick={() => setActiveRoom(null)}
+                aria-label="Back to conversations"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground md:hidden"
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </button>
               {activeRoom.room_type === "group" ? (
                 <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10">
                   <Users className="h-4 w-4 text-primary" />
@@ -358,16 +366,16 @@ export default function ChatPage() {
               ) : (
                 <Avatar name={getRoomDisplayName(activeRoom)} size="md" />
               )}
-              <div>
-                <p className="text-sm font-semibold text-foreground">{getRoomDisplayName(activeRoom)}</p>
-                <p className="text-2xs text-muted-foreground">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-foreground">{getRoomDisplayName(activeRoom)}</p>
+                <p className="truncate text-2xs text-muted-foreground">
                   {activeRoom.participant_names.join(", ")}
                 </p>
               </div>
             </div>
 
             {/* Messages */}
-            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+            <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-5">
               {loadingMessages ? (
                 <div className="flex items-center justify-center py-12">
                   <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
@@ -383,7 +391,7 @@ export default function ChatPage() {
                     const isMe = msg.sender === currentUserId;
                     return (
                       <div key={msg.id} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
-                        <div className={`flex max-w-[70%] items-end gap-2 ${isMe ? "flex-row-reverse" : ""}`}>
+                        <div className={`flex max-w-[85%] items-end gap-2 sm:max-w-[70%] ${isMe ? "flex-row-reverse" : ""}`}>
                           {!isMe && <Avatar name={msg.sender_name} src={msg.sender_avatar} size="sm" />}
                           <div>
                             {!isMe && (
