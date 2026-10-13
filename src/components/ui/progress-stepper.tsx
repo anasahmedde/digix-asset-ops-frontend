@@ -58,7 +58,8 @@ export function ProgressStepper({ steps, className }: ProgressStepperProps) {
     <div className={cn("sm:no-scrollbar sm:overflow-x-auto sm:overflow-y-hidden sm:pb-1", className)}>
       <ol
         className="flex flex-col sm:min-w-[var(--rail-min)] sm:flex-row"
-        style={{ ["--rail-min" as string]: `${steps.length * 104}px` }}
+        // 84px a step before the rail scrolls: eight steps fit a tablet.
+        style={{ ["--rail-min" as string]: `${steps.length * 84}px` }}
       >
         {steps.map((step, i) => {
           const next = steps[i + 1];
@@ -110,7 +111,7 @@ export function ProgressStepper({ steps, className }: ProgressStepperProps) {
               <span className="flex min-w-0 flex-col pt-1 sm:items-center sm:pt-0">
                 <span
                   className={cn(
-                    "text-sm font-medium leading-tight sm:mt-2 sm:max-w-24 sm:text-xs",
+                    "text-sm font-medium leading-tight sm:mt-2 sm:max-w-full sm:text-xs",
                     step.status === "pending" || step.status === "skipped" ? "text-muted-foreground" : "text-foreground",
                   )}
                 >
