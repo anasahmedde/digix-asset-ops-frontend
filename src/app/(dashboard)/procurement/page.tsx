@@ -819,7 +819,7 @@ export default function ProcurementPage() {
         )}
       </div>
 
-      <div className="flex gap-1 border-b border-border">
+      <div className="no-scrollbar flex gap-1 overflow-x-auto border-b border-border">
         {([
           { key: "orders", label: "Purchase Orders" },
           { key: "requisitions", label: "Procurement Requests" },
@@ -827,7 +827,7 @@ export default function ProcurementPage() {
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={`-mb-px border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
+            className={`-mb-px shrink-0 whitespace-nowrap border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
               tab === t.key
                 ? "border-primary text-foreground"
                 : "border-transparent text-muted-foreground hover:text-foreground"

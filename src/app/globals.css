@@ -176,7 +176,41 @@
   .dark .glass-pane {
     background-image: linear-gradient(170deg, hsl(var(--card) / 0.9) 0%, hsl(var(--card) / 0.66) 100%);
   }
+  /* A panel that floats over the page (the bell, a dropdown list) is read
+     against whatever is under it, so it is solid, not frosted. */
+  .absolute.bg-card.border-border,
+  .fixed.bg-card.border-border,
+  .dark .absolute.bg-card.border-border,
+  .dark .fixed.bg-card.border-border {
+    background-color: hsl(var(--card));
+    background-image: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    border-color: hsl(var(--border));
+  }
   /* A scrollbar in a 72px rail is a stripe through the icons: scroll without one. */
+  /* On a phone a header row that cannot fit wraps instead of squeezing the
+     title; fixed-width search boxes take the full width; any table scrolls
+     sideways inside its own box rather than being cut off. */
+  @media (max-width: 640px) {
+    main .flex.items-center.justify-between,
+    main .flex.items-start.justify-between {
+      flex-wrap: wrap;
+      row-gap: 0.75rem;
+    }
+    main .w-64, main .w-72, main .w-80, main .w-96,
+    main input[type="search"] {
+      width: 100%;
+      max-width: 100%;
+    }
+    main h1 {
+      min-width: 0;
+    }
+    main :is(div, section):has(> table) {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+  }
   /* After dark the primary is mint, so a primary button's hard-coded white
      text takes the ink the token says. */
   .dark .bg-primary.text-white,

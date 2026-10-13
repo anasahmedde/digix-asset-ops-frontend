@@ -1,7 +1,7 @@
 "use client";
 
 import { BarChart3, Download, FileSpreadsheet } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import api from "@/lib/api";
@@ -9,6 +9,7 @@ import { getApiError } from "@/lib/api-error";
 import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
 
 interface Column { key: string; label: string }
+interface Option { id: string; label: string }
 interface ReportData {
   type: string;
   columns: Column[];
@@ -19,6 +20,7 @@ interface ReportData {
 
 const REPORT_TYPES = [
   { value: "assets", label: "Assets" },
+  { value: "visits", label: "Maintenance Visits" },
   { value: "tickets", label: "Tickets" },
   { value: "work_orders", label: "Work Orders" },
   { value: "inventory", label: "Inventory" },
@@ -48,6 +50,27 @@ export default function ReportsPage() {
   const [dateTo, setDateTo] = useState("");
   const [loading, setLoading] = useState(false);
   const [report, setReport] = useState<ReportData | null>(null);
+  // Visits: who, where, which project, and whether to roll the rows up.
+  const [technician, setTechnician] = useState("");
+  const [site, setSite] = useState("");
+  const [project, setProject] = useState("");
+  const [groupBy, setGroupBy] = useState("");
+  const [people, setPeople] = useState<Option[]>([]);
+  const [sites, setSites] = useState<Option[]>([]);
+  const [projects, setProjects] = useState<Option[]>([]);
+
+  useEffect(() => {
+    if (type !== "visits" || people.length) return;
+    Promise.allSettled([
+      api.get("/accounts/users/", { params: { role: "technician", is_active: true, page_size: 200 } }),
+      api.get("/sites/sites/", { params: { page_size: 1000 } }),
+      api.get("/teams/projects/", { params: { page_size: 1000 } }),
+    ]).then(([u, s, p]) => {
+      if (u.status === "fulfilled") setPeople((u.value.data.results ?? u.value.data).map((x: { id: string; first_name: string; last_name: string; username: string }) => ({ id: x.id, label: `${x.first_name} ${x.last_name}`.trim() || x.username })));
+      if (s.status === "fulfilled") setSites((s.value.data.results ?? s.value.data).map((x: { id: string; name: string }) => ({ id: x.id, label: x.name })));
+      if (p.status === "fulfilled") setProjects((p.value.data.results ?? p.value.data).map((x: { id: string; name: string }) => ({ id: x.id, label: x.name })));
+    });
+  }, [type, people.length]);
 
   async function generate() {
     setLoading(true);
@@ -55,6 +78,12 @@ export default function ReportsPage() {
       const params: Record<string, string> = { type };
       if (dateFrom) params.date_from = dateFrom;
       if (dateTo) params.date_to = dateTo;
+      if (type === "visits") {
+        if (technician) params.technician = technician;
+        if (site) params.site = site;
+        if (project) params.project = project;
+        if (groupBy) params.group_by = groupBy;
+      }
       const { data } = await api.get<ReportData>("/reports/generate/", { params });
       setReport(data);
     } catch (err) {
@@ -96,6 +125,40 @@ export default function ReportsPage() {
             {REPORT_TYPES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
           </select>
         </div>
+        {type === "visits" && (
+          <>
+            <div className="space-y-1.5">
+              <label className={labelClass}>Technician</label>
+              <select value={technician} onChange={(e) => setTechnician(e.target.value)} className={`${inputClass} w-44`}>
+                <option value="">All</option>
+                {people.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <label className={labelClass}>Site</label>
+              <select value={site} onChange={(e) => setSite(e.target.value)} className={`${inputClass} w-44`}>
+                <option value="">All</option>
+                {sites.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <label className={labelClass}>Project</label>
+              <select value={project} onChange={(e) => setProject(e.target.value)} className={`${inputClass} w-44`}>
+                <option value="">All</option>
+                {projects.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <label className={labelClass}>Group by</label>
+              <select value={groupBy} onChange={(e) => setGroupBy(e.target.value)} className={`${inputClass} w-40`}>
+                <option value="">Each visit</option>
+                <option value="technician">Technician</option>
+                <option value="site">Site</option>
+                <option value="project">Project</option>
+              </select>
+            </div>
+          </>
+        )}
         <div className="space-y-1.5">
           <label className={labelClass}>From</label>
           <input type="date" max={dateTo || undefined} value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className={inputClass} />
