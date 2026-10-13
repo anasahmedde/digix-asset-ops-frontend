@@ -446,7 +446,7 @@ export default function MaintenancePage() {
                 <div className="mb-2 flex items-center gap-2">
                   <CalendarClock className="h-4 w-4 text-blue-600" />
                   <p className="text-sm font-semibold text-foreground">Upcoming planned maintenance</p>
-                  <span className="ml-auto rounded-full bg-blue-500/10 px-2 py-0.5 text-2xs font-semibold text-blue-600">{upcoming.length} in 7 days</span>
+                  <span className="ml-auto shrink-0 whitespace-nowrap rounded-full bg-blue-500/10 px-2 py-0.5 text-2xs font-semibold text-blue-600">{upcoming.length} in 7 days</span>
                 </div>
                 {upcoming.length === 0 ? (
                   <p className="text-xs text-muted-foreground">No preventive visits due this week.</p>
@@ -468,7 +468,7 @@ export default function MaintenancePage() {
                 <div className="mb-2 flex items-center gap-2">
                   <AlertTriangle className={`h-4 w-4 ${late.length ? "text-red-600" : "text-muted-foreground"}`} />
                   <p className="text-sm font-semibold text-foreground">Corrective maintenance past due</p>
-                  <span className={`ml-auto rounded-full px-2 py-0.5 text-2xs font-semibold ${late.length ? "bg-red-500/10 text-red-600" : "bg-secondary text-muted-foreground"}`}>{late.length} overdue</span>
+                  <span className={`ml-auto shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-2xs font-semibold ${late.length ? "bg-red-500/10 text-red-600" : "bg-secondary text-muted-foreground"}`}>{late.length} overdue</span>
                 </div>
                 {late.length === 0 ? (
                   <p className="text-xs text-muted-foreground">Every repair is within the date it was promised by.</p>

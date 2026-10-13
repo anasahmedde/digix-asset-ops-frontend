@@ -112,7 +112,7 @@ const STATUS_STYLES: Record<Plan["status"], string> = {
 };
 
 const money = (v: string | number | null | undefined) =>
-  `PKR ${new Intl.NumberFormat("en-PK", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(v ?? 0))}`;
+  `PKR\u00A0${new Intl.NumberFormat("en-PK", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(v ?? 0))}`;
 
 const thClass = "px-3 py-2 text-left text-2xs font-medium uppercase tracking-wider text-muted-foreground";
 const tdClass = "px-3 py-2";
@@ -409,8 +409,8 @@ export function ProjectPlanning({
 
         {/* ── Asset Development Cost: the parts plus the work, asset by asset ── */}
         <div>
-          <div className="mb-2 flex items-end justify-between">
-            <div>
+          <div className="mb-2 flex flex-wrap items-end justify-between gap-x-6 gap-y-1">
+            <div className="min-w-0 grow basis-72">
               <h4 className="text-sm font-semibold text-foreground">Asset Development Cost</h4>
               <p className="text-2xs text-muted-foreground">
                 What it takes to build each asset: its components, priced at the last procured price (or the
@@ -703,8 +703,8 @@ export function ProjectPlanning({
 
         {/* ── Overheads: the user's own cost types ── */}
         <div>
-          <div className="mb-2 flex items-end justify-between">
-            <div>
+          <div className="mb-2 flex flex-wrap items-end justify-between gap-x-6 gap-y-1">
+            <div className="min-w-0 grow basis-72">
               <h4 className="text-sm font-semibold text-foreground">Overheads</h4>
               <p className="text-2xs text-muted-foreground">
                 Travelling, labour, transport — name the cost type however your team slices it.

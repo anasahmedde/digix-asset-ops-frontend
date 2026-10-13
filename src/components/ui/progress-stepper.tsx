@@ -49,30 +49,42 @@ const STATUS_LABEL: Record<StepStatus, string> = {
  * A process drawn as a rail: each segment fills once the step before it is
  * done, so how far along the job is reads at a glance. The step being worked
  * carries a soft halo; a blocked step turns the rail red at that point.
+ *
+ * Across the page from sm up; down the page on a phone, where a sideways
+ * rail of eight steps left most of them off the edge with nothing to say so.
  */
 export function ProgressStepper({ steps, className }: ProgressStepperProps) {
   return (
-    <div className={cn("no-scrollbar overflow-x-auto overflow-y-hidden pb-1", className)}>
-      <ol className="flex min-w-max" style={{ minWidth: `${steps.length * 104}px` }}>
+    <div className={cn("sm:no-scrollbar sm:overflow-x-auto sm:overflow-y-hidden sm:pb-1", className)}>
+      <ol
+        className="flex flex-col sm:min-w-[var(--rail-min)] sm:flex-row"
+        style={{ ["--rail-min" as string]: `${steps.length * 104}px` }}
+      >
         {steps.map((step, i) => {
           const next = steps[i + 1];
           // The segment leaving this node: solid once this step is done,
           // red where the next step is stuck, dashed past a skipped one.
           const segment =
             step.status === "skipped"
-              ? "border-t-2 border-dashed border-border bg-transparent"
+              ? "border-dashed border-border bg-transparent max-sm:border-l-2 sm:border-t-2"
               : step.status === "completed"
                 ? next?.status === "on_hold" ? "bg-red-400" : "bg-primary"
                 : "bg-border";
           return (
-            <li key={step.key} className="relative flex flex-1 flex-col items-center px-1 text-center">
+            <li
+              key={step.key}
+              className="relative flex gap-3 pb-5 last:pb-0 sm:flex-1 sm:flex-col sm:items-center sm:gap-0 sm:px-1 sm:pb-0 sm:text-center"
+            >
               {next && (
                 <span
                   aria-hidden
-                  className={cn("absolute left-1/2 top-[17px] h-0.5 w-full", segment)}
+                  className={cn(
+                    "absolute bottom-0 left-[17px] top-9 w-0.5 sm:bottom-auto sm:left-1/2 sm:top-[17px] sm:h-0.5 sm:w-full",
+                    segment,
+                  )}
                 />
               )}
-              <span className="relative flex h-9 w-9 items-center justify-center">
+              <span className="relative flex h-9 w-9 shrink-0 items-center justify-center">
                 {step.status === "in_progress" && (
                   <span aria-hidden className="absolute inset-0 rounded-full bg-primary/25 motion-safe:animate-ping" />
                 )}
@@ -95,18 +107,20 @@ export function ProgressStepper({ steps, className }: ProgressStepperProps) {
                   )}
                 </span>
               </span>
-              <span
-                className={cn(
-                  "mt-2 max-w-24 text-xs font-medium leading-tight",
-                  step.status === "pending" || step.status === "skipped" ? "text-muted-foreground" : "text-foreground",
+              <span className="flex min-w-0 flex-col pt-1 sm:items-center sm:pt-0">
+                <span
+                  className={cn(
+                    "text-sm font-medium leading-tight sm:mt-2 sm:max-w-24 sm:text-xs",
+                    step.status === "pending" || step.status === "skipped" ? "text-muted-foreground" : "text-foreground",
+                  )}
+                >
+                  {step.label}
+                </span>
+                <span className={cn("mt-0.5 text-2xs", STATUS_TEXT[step.status])}>{STATUS_LABEL[step.status]}</span>
+                {step.meta && (
+                  <span className="mt-0.5 text-2xs tabular-nums text-muted-foreground">{step.meta}</span>
                 )}
-              >
-                {step.label}
               </span>
-              <span className={cn("mt-0.5 text-2xs", STATUS_TEXT[step.status])}>{STATUS_LABEL[step.status]}</span>
-              {step.meta && (
-                <span className="mt-0.5 text-2xs tabular-nums text-muted-foreground">{step.meta}</span>
-              )}
             </li>
           );
         })}

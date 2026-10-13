@@ -189,6 +189,18 @@
     border-color: hsl(var(--border));
   }
   /* A scrollbar in a 72px rail is a stripe through the icons: scroll without one. */
+  /* Nothing in a grid cell can force its column wider than the screen: a
+     tab strip, a stepper or a table that is too wide scrolls or wraps
+     inside the cell instead of pushing the whole page sideways. :where()
+     keeps it below any width a component sets for itself. */
+  main :where(.grid > *) {
+    min-width: 0;
+  }
+  /* A long name or code wraps inside its own box rather than running into
+     the next column. */
+  main {
+    overflow-wrap: break-word;
+  }
   /* On a phone a header row that cannot fit wraps instead of squeezing the
      title; fixed-width search boxes take the full width; any table scrolls
      sideways inside its own box rather than being cut off. */
@@ -210,6 +222,42 @@
       overflow-x: auto;
       -webkit-overflow-scrolling: touch;
     }
+    /* The buttons beside a page title drop to the next line whole, rather
+       than each squeezing its label onto two lines. */
+    main .flex.justify-between > .flex:has(> button, > a) {
+      flex-wrap: wrap;
+    }
+    main .flex.justify-between > .flex:has(> button, > a) > :is(button, a) {
+      white-space: nowrap;
+    }
+    /* Safari on an iPhone zooms the page into any field set smaller than
+       16px, and leaves it zoomed after typing: fields are 16px on a phone. */
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+    select,
+    textarea {
+      font-size: 16px !important;
+    }
+  }
+  /* Below a laptop a list table is given the width its columns need and
+     scrolls inside its own box, instead of every column being squeezed to
+     its longest word: a code like PO-2026-00068 no longer breaks over
+     three lines, and a title is not set one word to a line. */
+  @media (max-width: 1023px) {
+    main th,
+    main td:first-child {
+      white-space: nowrap;
+    }
+    main table:has(> thead th:nth-child(4)) {
+      min-width: 40rem;
+    }
+    main table:has(> thead th:nth-child(7)) {
+      min-width: 56rem;
+    }
+  }
+  /* A status pill in a table is one phrase, never broken over two lines:
+     the table scrolls sideways for the room it needs. */
+  main :where(td span.rounded-full) {
+    white-space: nowrap;
   }
   /* After dark the primary is mint, so a primary button's hard-coded white
      text takes the ink the token says. */

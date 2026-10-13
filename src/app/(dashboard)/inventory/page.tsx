@@ -424,7 +424,7 @@ export default function InventoryPage() {
                 <tr className="border-b border-border bg-secondary/50">
                   <th className="w-10" />
                   <SortTh sort={sort} k="sku" className={thClass}>Code</SortTh>
-                  <SortTh sort={sort} k="material_name" className={thClass}>Component</SortTh>
+                  <SortTh sort={sort} k="material_name" className={`${thClass} min-w-[11rem]`}>Component</SortTh>
                   <SortTh sort={sort} k="category_name" className={thClass}>Category</SortTh>
                   <SortTh sort={sort} k="storage_location" className={thClass}>Storage Location</SortTh>
                   <SortTh sort={sort} k="quantity" className={thNum}>On Hand</SortTh>

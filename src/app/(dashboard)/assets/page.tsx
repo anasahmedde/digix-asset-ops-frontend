@@ -391,13 +391,15 @@ function LifecycleStepper({ status, stageDates, requiresProduction = true }: { s
     <div className="pb-1">
       {/* Room under the rail for the maintenance detour, only when there is
           one to show. */}
-      <ol className={`flex items-start ${detour ? "pb-14" : ""}`}>
+      {/* Across the page from sm up; down it on a phone, where nine steps
+          side by side left each about a word's width. */}
+      <ol className={`flex flex-col sm:flex-row sm:items-start ${detour ? "sm:pb-14" : ""}`}>
         {stages.map((s, i) => {
           const date = shortDate(stageDates[s.stage]);
           const isLast = i === stages.length - 1;
           const next = stages[i + 1];
           return (
-            <li key={s.stage} className="relative flex min-w-0 flex-1 basis-0 flex-col items-center px-0.5 text-center">
+            <li key={s.stage} className="relative flex gap-3 pb-4 last:pb-0 sm:min-w-0 sm:flex-1 sm:basis-0 sm:flex-col sm:items-center sm:gap-0 sm:px-0.5 sm:pb-0 sm:text-center">
               {/* The line runs between node centres, behind them. An end
                   state hangs off a dashed segment: it is not the next step
                   for every asset, and nothing comes back from it. */}
@@ -406,12 +408,12 @@ function LifecycleStepper({ status, stageDates, requiresProduction = true }: { s
                   aria-hidden
                   className={
                     next?.spur
-                      ? "absolute left-1/2 top-[17px] w-full border-t-2 border-dashed border-border"
-                      : `absolute left-1/2 top-[17px] h-0.5 w-full ${s.filled ? "bg-primary" : "bg-border"}`
+                      ? "absolute bottom-0 left-[17px] top-9 border-l-2 border-dashed border-border sm:bottom-auto sm:left-1/2 sm:top-[17px] sm:w-full sm:border-l-0 sm:border-t-2"
+                      : `absolute bottom-0 left-[17px] top-9 w-0.5 sm:bottom-auto sm:left-1/2 sm:top-[17px] sm:h-0.5 sm:w-full ${s.filled ? "bg-primary" : "bg-border"}`
                   }
                 />
               )}
-              <span className="relative flex h-9 w-9 items-center justify-center">
+              <span className="relative flex h-9 w-9 shrink-0 items-center justify-center">
                 {s.current && !s.spur && (
                   <span aria-hidden className="absolute inset-0 rounded-full bg-primary/25 motion-safe:animate-ping" />
                 )}
@@ -431,45 +433,48 @@ function LifecycleStepper({ status, stageDates, requiresProduction = true }: { s
                   {s.reached && !s.current ? <Check className="h-4 w-4" strokeWidth={3} /> : i + 1}
                 </span>
               </span>
-              <span
-                lang="en"
-                className={`mt-2 hyphens-auto break-words [overflow-wrap:anywhere] max-w-full text-2xs font-medium leading-tight ${
-                  s.reached || s.current ? "text-foreground" : "text-muted-foreground"
-                }`}
-              >
-                {label(s.stage)}
-              </span>
-              <span
-                className={`mt-0.5 max-w-full break-words text-2xs leading-tight ${
-                  s.current ? "font-semibold text-primary" : s.reached ? "text-primary" : "text-muted-foreground"
-                }`}
-              >
-                {s.state}
-              </span>
-              {s.reached && date && (
+              <span className="flex min-w-0 flex-col pt-1 sm:items-center sm:pt-0">
                 <span
-                  className="mt-0.5 text-2xs tabular-nums text-muted-foreground"
-                  title={stageDates[s.stage] ? new Date(stageDates[s.stage]).toLocaleString() : undefined}
+                  lang="en"
+                  className={`max-w-full text-sm font-medium leading-tight sm:mt-2 sm:hyphens-auto sm:break-words sm:text-2xs sm:[overflow-wrap:anywhere] ${
+                    s.reached || s.current ? "text-foreground" : "text-muted-foreground"
+                  }`}
                 >
-                  {date}
+                  {label(s.stage)}
                 </span>
-              )}
+                <span
+                  className={`mt-0.5 max-w-full break-words text-2xs leading-tight ${
+                    s.current ? "font-semibold text-primary" : s.reached ? "text-primary" : "text-muted-foreground"
+                  }`}
+                >
+                  {s.state}
+                </span>
+                {s.reached && date && (
+                  <span
+                    className="mt-0.5 text-2xs tabular-nums text-muted-foreground"
+                    title={stageDates[s.stage] ? new Date(stageDates[s.stage]).toLocaleString() : undefined}
+                  >
+                    {date}
+                  </span>
+                )}
 
-              {/* Maintenance: a detour hanging below Active, clear of the rail.
-                  The asset comes back from it, so it is not on the line. */}
-              {s.stage === "active" && detour && (
-                <span className="absolute left-1/2 top-full z-10 flex w-28 -translate-x-1/2 flex-col items-center">
-                  <span aria-hidden className={`h-4 border-l-2 border-dashed ${inMaintenance ? "border-amber-500" : "border-border"}`} />
-                  <span className={`mt-1 rounded-full px-2.5 py-1 text-2xs font-semibold leading-tight ring-1 ${
-                    inMaintenance ? "bg-amber-500/10 text-amber-600 ring-amber-500/30" : "bg-secondary text-muted-foreground ring-border"
-                  }`}>
-                    {inMaintenance ? "Under maintenance" : "Last maintenance"}
+                {/* Maintenance: a detour hanging below Active, clear of the
+                    rail. The asset comes back from it, so it is not on the
+                    line. On a phone it sits under Active's own words. */}
+                {s.stage === "active" && detour && (
+                  <span className="mt-1.5 flex flex-wrap items-center gap-1.5 sm:absolute sm:left-1/2 sm:top-full sm:z-10 sm:mt-0 sm:w-28 sm:-translate-x-1/2 sm:flex-col sm:flex-nowrap sm:gap-0">
+                    <span aria-hidden className={`hidden h-4 border-l-2 border-dashed sm:block ${inMaintenance ? "border-amber-500" : "border-border"}`} />
+                    <span className={`rounded-full px-2.5 py-1 text-2xs font-semibold leading-tight ring-1 sm:mt-1 ${
+                      inMaintenance ? "bg-amber-500/10 text-amber-600 ring-amber-500/30" : "bg-secondary text-muted-foreground ring-border"
+                    }`}>
+                      {inMaintenance ? "Under maintenance" : "Last maintenance"}
+                    </span>
+                    <span className="text-2xs tabular-nums text-muted-foreground sm:mt-0.5">
+                      {inMaintenance ? `since ${shortDate(stageDates.under_maintenance) ?? "—"}` : shortDate(stageDates.under_maintenance)}
+                    </span>
                   </span>
-                  <span className="mt-0.5 text-2xs tabular-nums text-muted-foreground">
-                    {inMaintenance ? `since ${shortDate(stageDates.under_maintenance) ?? "—"}` : shortDate(stageDates.under_maintenance)}
-                  </span>
-                </span>
-              )}
+                )}
+              </span>
             </li>
           );
         })}
@@ -1406,12 +1411,12 @@ export default function AssetsPage() {
     return (
       <div className="space-y-6">
         {/* Top bar */}
-        <div className="flex items-center gap-3">
-          <button onClick={() => router.push("/assets")} className="flex h-9 items-center gap-2 rounded-lg border border-border px-3 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
+        <div className="flex flex-wrap items-center gap-3">
+          <button onClick={() => router.push("/assets")} className="flex h-9 shrink-0 items-center gap-2 rounded-lg border border-border px-3 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
             <ArrowLeft className="h-4 w-4" />
             Back to Assets
           </button>
-          <div className="ml-auto flex gap-2">
+          <div className="ml-auto flex flex-wrap justify-end gap-2">
             {canEdit && (
               <button onClick={() => generateLabel(d.id, "qr")} disabled={labelLoading} className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-60">
                 <QrCode className="h-4 w-4" /> {labelLoading ? "Generating…" : "QR Label"}
@@ -1426,9 +1431,11 @@ export default function AssetsPage() {
         </div>
 
         {/* Hero Header — Image + Metadata Grid + Quick Overview */}
-        <div className="grid gap-6 lg:grid-cols-4">
+        {/* Main and side columns from xl: at 1024 the open sidebar left the
+            main column too narrow for its tables and facts. */}
+        <div className="grid gap-6 xl:grid-cols-4">
           {/* Image + Name */}
-          <div className="lg:col-span-3">
+          <div className="xl:col-span-3">
             <div className="rounded-xl border border-border bg-card overflow-hidden">
               <div className="flex flex-col sm:flex-row gap-6 p-6">
                 {/* Device image */}
@@ -1478,7 +1485,8 @@ export default function AssetsPage() {
                       </span>
                     )}
                   </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-6 gap-y-3">
+                  {/* As many columns as fit, none narrower than a label. */}
+                  <div className="grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-x-6 gap-y-3">
                     <div className="flex items-end gap-1">
                       <MetaField label="Asset ID" value={d.asset_code} mono />
                       <CopyButton text={d.asset_code} label="asset code" className="mb-0.5" />
@@ -1527,8 +1535,8 @@ export default function AssetsPage() {
         </div>
 
         {/* Tabs + Content */}
-        <div className="grid gap-6 lg:grid-cols-4">
-          <div className="lg:col-span-3">
+        <div className="grid gap-6 xl:grid-cols-4">
+          <div className="xl:col-span-3">
             <div className="rounded-xl border border-border bg-card overflow-hidden">
               <Tabs
                 tabs={[
@@ -3333,12 +3341,15 @@ function InfoCard({ label, value }: { label: string; value: string | null | unde
 
 function OverviewRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: string | null | undefined }) {
   return (
-    <div className="flex items-center justify-between">
+    // The value sits to the right of its label while there is room, and
+    // drops under it when the column is narrow (a laptop with the sidebar
+    // open gives this card a quarter of the page).
+    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5">
       <div className="flex items-center gap-2.5">
         {icon}
         <span className="text-xs text-muted-foreground">{label}</span>
       </div>
-      <span className="text-sm font-semibold text-foreground">{value || "—"}</span>
+      <span className="ml-auto text-right text-sm font-semibold text-foreground">{value || "—"}</span>
     </div>
   );
 }

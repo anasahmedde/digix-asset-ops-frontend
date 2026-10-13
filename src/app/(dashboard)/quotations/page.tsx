@@ -576,7 +576,7 @@ export default function QuotationsPage() {
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
                   <SortTh sort={sort} k="quote_number" className={thClass}>Quote #</SortTh>
-                  <SortTh sort={sort} k="title" className={thClass}>Title</SortTh>
+                  <SortTh sort={sort} k="title" className={`${thClass} min-w-[12rem]`}>Title</SortTh>
                   <SortTh sort={sort} k="client_name" className={thClass}>Client</SortTh>
                   <SortTh sort={sort} k="site_name" className={thClass}>Site</SortTh>
                   <SortTh sort={sort} k="total_amount" className={thClass}>Total</SortTh>
@@ -839,13 +839,14 @@ export default function QuotationsPage() {
                         <span className="font-medium text-foreground">{form.currency} {rowTotal(it).toLocaleString()}</span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    {/* On a phone the description takes its own line. */}
+                    <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
                       <input
                         value={it.description}
                         onChange={(e) => updateItem(idx, { description: e.target.value })}
                         disabled={itemsLocked}
                         placeholder="Description"
-                        className={`${inputClass} min-w-0 flex-1 disabled:opacity-50`}
+                        className={`${inputClass} min-w-0 grow basis-full disabled:opacity-50 sm:basis-0`}
                       />
                       <input
                         type="number"
@@ -854,7 +855,7 @@ export default function QuotationsPage() {
                         onChange={(e) => updateItem(idx, { quantity: e.target.value })}
                         disabled={itemsLocked}
                         placeholder="Qty"
-                        className={`${rowInputClass} w-20 disabled:opacity-50`}
+                        className={`${rowInputClass} w-20 shrink-0 disabled:opacity-50`}
                       />
                       <input
                         type="number"
@@ -864,7 +865,7 @@ export default function QuotationsPage() {
                         onChange={(e) => updateItem(idx, { unit_price: e.target.value })}
                         disabled={itemsLocked}
                         placeholder="Unit price"
-                        className={`${rowInputClass} w-32 disabled:opacity-50`}
+                        className={`${rowInputClass} min-w-0 flex-1 disabled:opacity-50 sm:w-32 sm:flex-none`}
                       />
                       {!itemsLocked && (
                         <button type="button" onClick={() => removeItem(idx)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:text-destructive">
