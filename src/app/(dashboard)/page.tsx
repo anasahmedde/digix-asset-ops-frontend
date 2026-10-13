@@ -477,7 +477,7 @@ export default function DashboardPage() {
           <div className="grid grid-cols-2 gap-2">
             {PROJECT_STATUSES.map((row) => (
               <Link key={row.key} href={`/projects?status=${row.key}`} className="flex items-center justify-between rounded-lg border border-border/60 px-3 py-2 transition-colors hover:border-primary/40 hover:bg-primary/5">
-                <span className="whitespace-nowrap text-xs font-medium text-foreground">{row.label}</span>
+                <span className="min-w-0 truncate text-xs font-medium text-foreground">{row.label}</span>
                 <span className={`ml-2 shrink-0 rounded-full px-2 py-0.5 text-2xs font-semibold tabular-nums ${row.cls}`}>{countOf(projects, row.key)}</span>
               </Link>
             ))}
@@ -503,7 +503,7 @@ export default function DashboardPage() {
           <div className="grid grid-cols-2 gap-2">
             {TICKET_TILES.map((row) => (
               <Link key={row.key} href="/tickets" className="flex items-center justify-between rounded-lg border border-border/60 px-3 py-2 transition-colors hover:border-primary/40 hover:bg-primary/5">
-                <span className="whitespace-nowrap text-xs font-medium text-foreground">{row.label}</span>
+                <span className="min-w-0 truncate text-xs font-medium text-foreground">{row.label}</span>
                 <span className={`ml-2 shrink-0 rounded-full px-2 py-0.5 text-2xs font-semibold tabular-nums ${row.cls}`}>{row.value}</span>
               </Link>
             ))}

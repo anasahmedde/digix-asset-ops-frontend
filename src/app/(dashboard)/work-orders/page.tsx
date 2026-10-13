@@ -469,7 +469,7 @@ export default function WorkOrdersPage() {
                 <tr className="border-b border-border bg-secondary/50">
                   <th className={`${thClass} w-8`}></th>
                   <SortTh sort={sort} k="wo_number" className={thClass}>WO #</SortTh>
-                  <SortTh sort={sort} k="title" className={thClass}>Title</SortTh>
+                  <SortTh sort={sort} k="title" className={`${thClass} min-w-[12rem]`}>Title</SortTh>
                   <SortTh sort={sort} k="for" className={thClass}>For</SortTh>
                   <SortTh sort={sort} k="order_type_display" className={thClass}>Type</SortTh>
                   <SortTh sort={sort} k="supplier_name" className={thClass}>Vendor</SortTh>
@@ -785,10 +785,10 @@ export default function WorkOrdersPage() {
                   <button type="button" onClick={addItem} className="text-xs font-medium text-primary">+ Add item</button>
                 </div>
                 {form.items.map((it, idx) => (
-                  <div key={idx} className="flex items-center gap-2">
-                    <input value={it.description} onChange={(e) => updateItem(idx, "description", e.target.value)} placeholder="Description" className={`${inputClass} flex-1`} />
-                    <input type="number" value={it.quantity} onChange={(e) => updateItem(idx, "quantity", e.target.value)} placeholder="Qty" className={`${rowInputClass} w-20`} />
-                    <input type="number" step="0.01" value={it.unit_price} onChange={(e) => updateItem(idx, "unit_price", e.target.value)} placeholder="Unit price" className={`${rowInputClass} w-32`} />
+                  <div key={idx} className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
+                    <input value={it.description} onChange={(e) => updateItem(idx, "description", e.target.value)} placeholder="Description" className={`${inputClass} min-w-0 grow basis-full sm:basis-0`} />
+                    <input type="number" value={it.quantity} onChange={(e) => updateItem(idx, "quantity", e.target.value)} placeholder="Qty" className={`${rowInputClass} w-20 shrink-0`} />
+                    <input type="number" step="0.01" value={it.unit_price} onChange={(e) => updateItem(idx, "unit_price", e.target.value)} placeholder="Unit price" className={`${rowInputClass} min-w-0 flex-1 sm:w-32 sm:flex-none`} />
                     <button type="button" onClick={() => removeItem(idx)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:text-destructive">
                       <Trash2 className="h-4 w-4" />
                     </button>

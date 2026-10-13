@@ -13,7 +13,7 @@ interface Actuals {
 }
 
 const money = (v: string | number | null | undefined) =>
-  `PKR ${new Intl.NumberFormat("en-PK", { maximumFractionDigits: 0 }).format(Number(v ?? 0))}`;
+  `PKR\u00A0${new Intl.NumberFormat("en-PK", { maximumFractionDigits: 0 }).format(Number(v ?? 0))}`;
 
 /**
  * Where the project stands against the figure that was signed off: what was

@@ -19,9 +19,10 @@ interface TabsProps {
 
 export function Tabs({ tabs, active, onChange, className, wrap = false }: TabsProps) {
   return (
-    // A long strip wraps onto a second line when asked; otherwise it scrolls,
-    // and the last tab is never quietly cut off behind a hidden scrollbar.
-    <div className={cn(wrap ? "flex flex-wrap" : "no-scrollbar flex overflow-x-auto overflow-y-hidden", "border-b border-border", className)}>
+    // A long strip wraps onto a second line when asked, and always on a
+    // phone, where a scrolling strip hid its last tabs with nothing to say
+    // they were there. From sm up it scrolls.
+    <div className={cn(wrap ? "flex flex-wrap" : "no-scrollbar flex flex-wrap sm:flex-nowrap sm:overflow-x-auto sm:overflow-y-hidden", "border-b border-border", className)}>
       {tabs.map((tab) => (
         <button
           key={tab.key}

@@ -950,23 +950,24 @@ export default function ProjectsPage() {
     const offRamp = OFF_RAMP_PHASES.find((ph) => ph.value === d.phase);
     return (
       <div className="space-y-6">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <button
             onClick={closeProject}
-            className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            aria-label="Back to all projects"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
           >
             <ArrowLeft className="h-4 w-4" />
           </button>
-          <div>
-            <h1 className="inline-flex items-center gap-2 text-2xl font-bold text-foreground">
+          <div className="min-w-0 flex-1">
+            <h1 className="inline-flex max-w-full items-center gap-2 break-words text-xl font-bold text-foreground sm:text-2xl">
               {d.name}
               <CopyButton text={d.name} label="project name" />
             </h1>
-            <p className="text-sm text-muted-foreground">
+            <p className="break-words text-sm text-muted-foreground">
               {d.client_name ? `${d.client_name} · ` : ""}{(d.site_names ?? []).join(", ") || d.site_name || ""}
             </p>
           </div>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto">
             <ContractBadge contractType={d.contract_type} rentalEndDate={d.rental_end_date} />
             <StatusBadge status={d.status} label={d.status_display} />
             {canEdit && (
@@ -1068,9 +1069,11 @@ export default function ProjectsPage() {
         </div>
 
         {/* Info strip */}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-7">
+        {/* Two rows of four on a tablet or beside the sidebar; one row of
+            seven only where each tile still has room for a name. */}
+        <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-4 xl:grid-cols-7">
           {/* Where the order is. It spans two so a list of sites has room. */}
-          <div className="rounded-xl border border-border bg-card px-4 py-3 sm:col-span-2 lg:col-span-2">
+          <div className="rounded-xl border border-border bg-card px-4 py-3 sm:col-span-2">
             <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
               Location{(d.site_names ?? []).length > 1 ? ` · ${(d.site_names ?? []).length} sites` : ""}
             </p>
@@ -1141,8 +1144,8 @@ export default function ProjectsPage() {
           ))}
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-3">
-          <div className={`min-w-0 space-y-6 ${projectTab === "execution" ? "lg:col-span-2" : "lg:col-span-3"}`}>
+        <div className="grid gap-6 xl:grid-cols-3">
+          <div className={`min-w-0 space-y-6 ${projectTab === "execution" ? "xl:col-span-2" : "xl:col-span-3"}`}>
             {projectTab === "planning" && (
               <>
             {/* Scope */}

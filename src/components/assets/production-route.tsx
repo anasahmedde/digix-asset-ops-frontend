@@ -196,7 +196,7 @@ export function ProductionRoute({
             ? `${readOnlyReason ?? "This asset"} — the vendor builds it, so there is no in-house route to run.`
             : "The operations this asset is built through, in order. Where each one happens is the project's call, taken in Execution."}
         </p>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           {locked && (
             <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-2xs font-medium text-amber-700 ring-1 ring-amber-500/20">
               Route fixed — in execution

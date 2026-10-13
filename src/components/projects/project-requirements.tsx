@@ -412,7 +412,7 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
       )}
 
       {totals && (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(8rem,1fr))] gap-3">
           {[
             { label: "Required", value: totals.required },
             { label: "Issued", value: totals.issued },
