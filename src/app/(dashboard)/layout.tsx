@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation";
 
 import { AuthGuard } from "@/components/layout/auth-guard";
+import { FieldAppNotice } from "@/components/layout/field-app-notice";
 import { Header } from "@/components/layout/header";
 import { Sidebar } from "@/components/layout/sidebar";
 import { ConfirmHost } from "@/components/ui/confirm";
@@ -31,6 +32,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
         style={{ ["--sidebar-w" as string]: collapsed ? "72px" : "256px" }}
       >
         <Header />
+        <FieldAppNotice />
         {/* A section's link, clicked from inside that section, lands on its
             list: the page is remounted rather than left where it was. */}
         <main key={`${homeKey}-${pathname}`} className="rise-in p-4 pb-[calc(1rem+var(--bottom-gap))] sm:p-6 sm:pb-[calc(1.5rem+var(--bottom-gap))]">{children}</main>
