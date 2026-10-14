@@ -61,7 +61,7 @@ const tdClass = "px-5 py-3.5";
 const btnSecondary =
   "inline-flex h-10 items-center rounded-lg border border-border bg-transparent px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground";
 const btnPrimary =
-  "inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-medium text-foreground transition-all disabled:opacity-50";
+  "inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-medium text-primary-foreground transition-all disabled:opacity-50";
 
 export default function TeamsPage() {
   const { user: me, can } = useUser();

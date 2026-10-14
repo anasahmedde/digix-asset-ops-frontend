@@ -265,6 +265,18 @@
   .dark [class*="bg-primary/"].text-white {
     color: hsl(var(--primary-foreground));
   }
+  /* Neutral status pills (Draft, Closed, On hold, Low) are set in the -600
+     grey of their scale, which on the dark ground read as nothing: after dark
+     they take the light end of it. */
+  .dark .text-slate-600,
+  .dark .text-gray-600,
+  .dark .text-zinc-600 {
+    color: hsl(215 20% 72%);
+  }
+  .dark .text-slate-700,
+  .dark .text-gray-700 {
+    color: hsl(215 20% 80%);
+  }
   /* After dark the map's ground and its controls go dark with it. */
   .dark .leaflet-container {
     background: hsl(204 45% 8%) !important;

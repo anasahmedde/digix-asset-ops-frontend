@@ -155,7 +155,7 @@ function HomeButton() {
       <div className="leaflet-control">
         <button
           onClick={handleHome}
-          className="flex h-8 w-8 items-center justify-center rounded-lg bg-white border border-gray-200 text-gray-700 shadow-md hover:bg-gray-50 transition-colors"
+          className="flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-card text-foreground shadow-md transition-colors hover:bg-secondary"
           title="Reset to Pakistan"
         >
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
