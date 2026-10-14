@@ -196,11 +196,11 @@ export default function SettingsPage() {
               onClick={() => handleCurrencyChange(c.code)}
               className={`flex items-center gap-3 rounded-lg border p-4 text-left transition-all ${
                 activeCurrency === c.code
-                  ? "border-teal-500 bg-teal-50/50 ring-1 ring-teal-500/30"
-                  : "border-border hover:border-gray-300 hover:bg-secondary/50"
+                  ? "border-primary bg-primary/10 ring-1 ring-primary/30"
+                  : "border-border hover:border-primary/40 hover:bg-secondary/50"
               }`}
             >
-              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-secondary text-base font-semibold text-gray-700">
+              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-secondary text-base font-semibold text-foreground">
                 {c.symbol}
               </span>
               <div>
@@ -232,7 +232,7 @@ export default function SettingsPage() {
               onClick={() => handleThemeChange(opt.value)}
               className={`flex items-center gap-3 rounded-lg border p-4 text-left transition-all ${
                 theme === opt.value
-                  ? "border-teal-500 bg-teal-50/50 ring-1 ring-teal-500/30 dark:bg-teal-500/10"
+                  ? "border-primary bg-primary/10 ring-1 ring-primary/30"
                   : "border-border hover:border-gray-300 hover:bg-secondary/50 dark:border-[hsl(222,15%,20%)] dark:hover:border-[hsl(222,15%,25%)] dark:hover:bg-card/5"
               }`}
             >

@@ -278,7 +278,7 @@ export default function AnalyticsPage() {
                 <div key={status} className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className={`h-2.5 w-2.5 rounded-full ${getStatusColor(status)}`} />
-                    <span className="text-sm text-gray-700">{formatLabel(status)}</span>
+                    <span className="text-sm text-foreground">{formatLabel(status)}</span>
                   </div>
                   <span className="text-sm font-semibold text-foreground">{count}</span>
                 </div>
@@ -295,7 +295,7 @@ export default function AnalyticsPage() {
               <div key={status} className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span className={`h-2.5 w-2.5 rounded-full ${getStatusColor(status)}`} />
-                  <span className="text-sm text-gray-700">{formatLabel(status)}</span>
+                  <span className="text-sm text-foreground">{formatLabel(status)}</span>
                 </div>
                 <span className="text-sm font-semibold text-foreground">{count}</span>
               </div>
@@ -314,7 +314,7 @@ export default function AnalyticsPage() {
                 <div key={status} className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className={`h-2.5 w-2.5 rounded-full ${getStatusColor(status)}`} />
-                    <span className="text-sm text-gray-700">{formatLabel(status)}</span>
+                    <span className="text-sm text-foreground">{formatLabel(status)}</span>
                   </div>
                   <span className="text-sm font-semibold text-foreground">{count}</span>
                 </div>

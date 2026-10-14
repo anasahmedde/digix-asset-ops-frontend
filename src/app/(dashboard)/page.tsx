@@ -344,7 +344,7 @@ export default function DashboardPage() {
                 <h2 className="text-base font-semibold text-foreground">Screen Status Map</h2>
                 <p className="text-xs text-muted-foreground">Live status of screens across Pakistan</p>
               </div>
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-3 py-1 text-2xs font-medium text-emerald-400">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-3 py-1 text-2xs font-medium text-emerald-700 dark:text-emerald-400">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
                 Live
               </span>
