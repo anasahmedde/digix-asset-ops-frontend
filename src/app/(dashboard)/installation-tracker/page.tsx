@@ -592,12 +592,14 @@ export default function InstallationTrackerPage() {
     setDragStep(null);
     setDropAt(null);
     if (!selected || !held) return;
-    const ids = selected.steps.map((s) => s.id);
+    const ids = selected.steps.filter((s) => s.step_type !== "handover").map((s) => s.id);
     const from = ids.indexOf(held);
     if (from < 0 || from === target) return;
     ids.splice(target, 0, ids.splice(from, 1)[0]);
+    // Handover is done last, whatever order the rest are in.
+    const last = selected.steps.filter((s) => s.step_type === "handover").map((s) => s.id);
     try {
-      await api.post(`/sites/installations/${selected.id}/reorder-steps/`, { steps: ids });
+      await api.post(`/sites/installations/${selected.id}/reorder-steps/`, { steps: [...ids, ...last] });
       await loadDetail(selected.id);
       toast.success("Step moved");
     } catch (err) {
@@ -915,7 +917,13 @@ export default function InstallationTrackerPage() {
   }
 
   if (selected) {
-    const stepperSteps = selected.steps.map((s) => ({
+    // Handover is the last stage of every job and is shown once, at the end:
+    // it completes when the signed handover is recorded. A Handover item in
+    // the checklist was shown here as an ordinary step as well, so the
+    // desktop listed Handover twice and numbered the list differently from
+    // the phone. The checklist is the work before it, numbered 1..n on both.
+    const workSteps = selected.steps.filter((s) => s.step_type !== "handover");
+    const stepperSteps = workSteps.map((s) => ({
       key: s.id,
       label: s.step_type_display,
       status: stepperStatus(s.status),
@@ -948,7 +956,7 @@ export default function InstallationTrackerPage() {
       .every((s) => s.status === "completed" || s.status === "skipped");
     // The last two steps of every installation, after whatever the
     // technician laid out: the asset goes live, then it is handed over.
-    const customDone = selected.steps.length > 0 && stepsReadyForHandover;
+    const customDone = workSteps.length > 0 && stepsReadyForHandover;
     const activeDone =
       ["active", "under_maintenance", "client_property", "decommissioned"].includes(selected.device_status) ||
       !!selected.handover;
@@ -983,7 +991,7 @@ export default function InstallationTrackerPage() {
     const fixedSteps = [
       {
         key: "active",
-        number: selected.steps.length + 1,
+        number: workSteps.length + 1,
         label: "Active",
         status: activeStatus,
         statusLabel: activeDone ? "Completed" : activeStatus === "in_progress" ? "Ready" : "Pending",
@@ -1001,7 +1009,7 @@ export default function InstallationTrackerPage() {
       },
       {
         key: "handover",
-        number: selected.steps.length + 2,
+        number: workSteps.length + 2,
         label: "Handover",
         status: handoverStatus,
         statusLabel: handoverDone ? "Completed" : handoverStatus === "in_progress" ? "Ready" : "Pending",
@@ -1297,7 +1305,7 @@ export default function InstallationTrackerPage() {
                 Drag a step to move it. They run in the order shown.
               </p>
               <div className="flex flex-wrap gap-1.5">
-                {selected.steps.map((step, i) => (
+                {workSteps.map((step, i) => (
                   <span
                     key={step.id}
                     draggable
@@ -1315,7 +1323,7 @@ export default function InstallationTrackerPage() {
                     }`}
                   >
                     <GripVertical className="h-3 w-3 text-muted-foreground" />
-                    {step.step_number}. {step.step_type_display}
+                    {i + 1}. {step.step_type_display}
                     <button
                       onClick={() => removeStep(step.id)}
                       title="Remove step"
@@ -1360,13 +1368,13 @@ export default function InstallationTrackerPage() {
             {/* As many cards a row as fit at 12rem each: three on a wide
                 screen, one on a phone. */}
             <div className="grid grid-cols-[repeat(auto-fill,minmax(12rem,1fr))] gap-4">
-              {selected.steps.map((step) => {
+              {workSteps.map((step, idx) => {
                 const stepDelays = delaysByStep.get(step.id) ?? [];
                 return (
                   <div key={step.id} className="rounded-xl border border-border bg-card p-4">
                     <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
                       <h4 className="min-w-0 text-sm font-semibold text-foreground">
-                        {step.step_number}. {step.step_type_display}
+                        {idx + 1}. {step.step_type_display}
                       </h4>
                       <StatusBadge status={step.status} label={step.status_display} />
                     </div>
@@ -1446,7 +1454,7 @@ export default function InstallationTrackerPage() {
                           );
                         })()}
                         {step.status !== "on_hold" && step.status !== "completed" && (
-                          <button onClick={() => { setDelayCause("client"); setDelayFor({ stepId: step.id, label: `${step.step_number}. ${step.step_type_display}`, hold: true }); }} className="inline-flex items-center gap-1 rounded-md bg-orange-500/10 px-2 py-1 text-2xs font-medium text-orange-500 transition-colors hover:bg-orange-500/20">
+                          <button onClick={() => { setDelayCause("client"); setDelayFor({ stepId: step.id, label: `${idx + 1}. ${step.step_type_display}`, hold: true }); }} className="inline-flex items-center gap-1 rounded-md bg-orange-500/10 px-2 py-1 text-2xs font-medium text-orange-500 transition-colors hover:bg-orange-500/20">
                             <Pause className="h-3 w-3" /> Hold
                           </button>
                         )}
@@ -1455,7 +1463,7 @@ export default function InstallationTrackerPage() {
                             <RotateCcw className="h-3 w-3" /> Reset
                           </button>
                         )}
-                        <button onClick={() => setDelayFor({ stepId: step.id, label: `${step.step_number}. ${step.step_type_display}` })} className="inline-flex items-center gap-1 rounded-md bg-red-500/10 px-2 py-1 text-2xs font-medium text-red-500 transition-colors hover:bg-red-500/20">
+                        <button onClick={() => setDelayFor({ stepId: step.id, label: `${idx + 1}. ${step.step_type_display}` })} className="inline-flex items-center gap-1 rounded-md bg-red-500/10 px-2 py-1 text-2xs font-medium text-red-500 transition-colors hover:bg-red-500/20">
                           <AlertTriangle className="h-3 w-3" /> Flag Delay
                         </button>
                       </div>
@@ -1650,7 +1658,7 @@ export default function InstallationTrackerPage() {
                   completed: "success", in_progress: "primary", on_hold: "danger", skipped: "muted",
                 };
                 const items: TimelineItem[] = [
-                  ...selected.steps
+                  ...workSteps
                     .filter((st) => st.status !== "not_started")
                     .map((st) => ({
                       key: `step-${st.id}`,
