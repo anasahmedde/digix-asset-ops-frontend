@@ -357,6 +357,16 @@ function LifecycleStepper({ status, stageDates, requiresProduction = true }: { s
     ? TRACK_MAIN.length - 1
     : (TRACK_MAIN as readonly string[]).indexOf(status);
   const detour = inMaintenance || !!stageDates.under_maintenance;
+  // Where the asset is now is a state it is in, not work under way: an
+  // installed, live, handed-over asset read "Active · In Progress". It reads
+  // "Active since 6 Oct" now, and the other stages the same way.
+  const since = (stage: string) => {
+    const d = shortDate(stageDates[stage]);
+    return d ? `${label(stage)} ${stage === "decommissioned" ? "on" : "since"} ${d}` : label(stage);
+  };
+  // Being live, or with the client, or retired, is where an asset arrives,
+  // so it is drawn as reached rather than as a step being worked.
+  const settled = (stage: string) => stage === "active" || (TRACK_END as readonly string[]).includes(stage);
 
   // One list, so the rail is laid out in one pass and the end states keep
   // their place on it without a second row.
@@ -371,7 +381,7 @@ function LifecycleStepper({ status, stageDates, requiresProduction = true }: { s
         current,
         // Solid up to where the asset has got; the rest of the line is grey.
         filled: mainIdx >= 0 && i < mainIdx,
-        state: current ? "In Progress" : reached ? "Completed" : "Not Started",
+        state: current ? since(stage) : reached ? "Completed" : "Not Started",
       };
     }),
     ...TRACK_END.map((stage) => {
@@ -382,7 +392,7 @@ function LifecycleStepper({ status, stageDates, requiresProduction = true }: { s
         reached: current || !!stageDates[stage],
         current,
         filled: false,
-        state: current ? "In Progress" : stageDates[stage] ? "Completed" : "Not Started",
+        state: current ? since(stage) : stageDates[stage] ? "Completed" : "Not Started",
       };
     }),
   ];
@@ -414,7 +424,7 @@ function LifecycleStepper({ status, stageDates, requiresProduction = true }: { s
                 />
               )}
               <span className="relative flex h-9 w-9 shrink-0 items-center justify-center">
-                {s.current && !s.spur && (
+                {s.current && !s.spur && !settled(s.stage) && (
                   <span aria-hidden className="absolute inset-0 rounded-full bg-primary/25 motion-safe:animate-ping" />
                 )}
                 <span
@@ -430,7 +440,7 @@ function LifecycleStepper({ status, stageDates, requiresProduction = true }: { s
                           : "border-border bg-card text-muted-foreground"
                   }`}
                 >
-                  {s.reached && !s.current ? <Check className="h-4 w-4" strokeWidth={3} /> : i + 1}
+                  {s.reached && (!s.current || settled(s.stage)) ? <Check className="h-4 w-4" strokeWidth={3} /> : i + 1}
                 </span>
               </span>
               <span className="flex min-w-0 flex-col pt-1 sm:items-center sm:pt-0">
@@ -449,7 +459,8 @@ function LifecycleStepper({ status, stageDates, requiresProduction = true }: { s
                 >
                   {s.state}
                 </span>
-                {s.reached && date && (
+                {/* The current stage carries its date in its own words. */}
+                {s.reached && date && !s.current && (
                   <span
                     className="mt-0.5 text-2xs tabular-nums text-muted-foreground"
                     title={stageDates[s.stage] ? new Date(stageDates[s.stage]).toLocaleString() : undefined}

@@ -188,7 +188,7 @@ export default function FinancePage() {
           <select
             value={currency}
             onChange={(e) => { setCurrency(e.target.value as CurrencyCode); setCurrencyState(e.target.value as CurrencyCode); }}
-            className="h-10 rounded-lg border border-border bg-card px-3 text-sm text-gray-700 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+            className="h-10 rounded-lg border border-border bg-card px-3 text-sm text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
           >
             {CURRENCIES.map((c) => (
               <option key={c.code} value={c.code}>{c.code} — {c.name}</option>
