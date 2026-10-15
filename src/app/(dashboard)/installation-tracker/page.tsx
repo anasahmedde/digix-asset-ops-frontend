@@ -124,10 +124,11 @@ interface Installation {
     step_number: number;
     status: string;
     status_display: string;
-    assigned_team: string;
     description: string;
     started_at: string | null;
     completed_at: string | null;
+    /** Who pressed Start, and who pressed Complete - on the phone, on site. */
+    started_by_name?: string | null;
     completed_by_name?: string | null;
   }[];
   photos: {
@@ -365,7 +366,6 @@ export default function InstallationTrackerPage() {
   // A vendor is either a registered supplier or one named by hand.
   const [editVendorManual, setEditVendorManual] = useState(false);
   const [supplierOptions, setSupplierOptions] = useState<Option[]>([]);
-  const [zoneOptions, setZoneOptions] = useState<Option[]>([]);
   const [editVendor, setEditVendor] = useState("");
   const [editOpen, setEditOpen] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
@@ -621,10 +621,6 @@ export default function InstallationTrackerPage() {
     setEditVendor(selected.vendor ?? "");
     setEditOpen(true);
     loadFormOptions();
-    api
-      .get("/sites/zones/", { params: { site: selected.site, page_size: 200 } })
-      .then(({ data }) => setZoneOptions((data.results ?? []).map((z: { id: string; name: string }) => ({ id: z.id, label: z.name }))))
-      .catch(() => setZoneOptions([]));
   }
 
   async function handleEditSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -635,12 +631,17 @@ export default function InstallationTrackerPage() {
     try {
       await api.patch(`/sites/installations/${selected.id}/`, {
         installed_by: fd.get("installed_by") || null,
-        vendor: fd.get("vendor") || null,
-        external_vendor_name: fd.get("external_vendor_name") || "",
-        external_vendor_contact: fd.get("external_vendor_contact") || "",
+        // Only a Vendor Supplied & Installed asset has an outside crew; on the
+        // other routes our own technician installs it and there is no vendor.
+        ...(selected.device_source === "vendor_turnkey"
+          ? {
+              vendor: fd.get("vendor") || null,
+              external_vendor_name: fd.get("external_vendor_name") || "",
+              external_vendor_contact: fd.get("external_vendor_contact") || "",
+            }
+          : { vendor: null, external_vendor_name: "", external_vendor_contact: "" }),
         installed_at: new Date(String(fd.get("installed_at"))).toISOString(),
         due_date: fd.get("due_date") || null,
-        zone: fd.get("zone") || null,
         position_label: fd.get("position_label") || "",
         notes: fd.get("notes") || "",
       });
@@ -1032,7 +1033,7 @@ export default function InstallationTrackerPage() {
                   )}
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground">Location</p>
+                  <p className="text-xs text-muted-foreground">Location at site</p>
                   <p className="font-medium text-foreground">{selected.position_label || selected.site_city || "—"}</p>
                 </div>
                 <div>
@@ -1228,16 +1229,25 @@ export default function InstallationTrackerPage() {
                       <StatusBadge status={step.status} label={step.status_display} />
                     </div>
                     <div className="space-y-1.5 text-xs">
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Date</span>
-                        <span className="text-foreground">
-                          {step.completed_at ? formatDate(step.completed_at) : step.started_at ? formatDate(step.started_at) : "—"}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Team</span>
-                        <span className="text-foreground">{step.assigned_team || "—"}</span>
-                      </div>
+                      {/* Who pressed Start and who pressed Complete, on site from
+                          the field app, and when. A step not reached yet has
+                          neither, and says so rather than showing a date. */}
+                      {([
+                        ["Started by", step.status === "not_started" ? null : step.started_at, step.started_by_name],
+                        ["Completed by", step.status === "completed" ? step.completed_at : null, step.completed_by_name],
+                      ] as const).map(([what, when, who]) => (
+                        <div key={what} className="flex justify-between gap-2">
+                          <span className="shrink-0 text-muted-foreground">{what}</span>
+                          <span className="min-w-0 text-right text-foreground">
+                            {when ? (
+                              <>
+                                {who || "—"}
+                                <span className="block text-2xs text-muted-foreground">{formatDate(when)}</span>
+                              </>
+                            ) : "—"}
+                          </span>
+                        </div>
+                      ))}
                       {step.description && (
                         <p className="text-muted-foreground mt-2 pt-2 border-t border-border">{step.description}</p>
                       )}
@@ -1513,7 +1523,7 @@ export default function InstallationTrackerPage() {
                       key: `step-${st.id}`,
                       title: <><span className="font-medium">{st.step_type_display}</span> — {st.status_display}</>,
                       description: st.description || null,
-                      actor: st.completed_by_name || st.assigned_team || null,
+                      actor: (st.status === "completed" ? st.completed_by_name : st.started_by_name) || null,
                       at: st.completed_at ?? st.started_at,
                       tone: STEP_TONE[st.status] ?? "primary",
                     })),
@@ -1627,8 +1637,10 @@ export default function InstallationTrackerPage() {
         <Modal open={editOpen} onClose={() => setEditOpen(false)} title={`Edit Installation — ${selected.device_code}`} size="lg">
           <form onSubmit={handleEditSubmit} className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label className={createLabelClass}>Assigned Installer</label>
+              <div className={selected.device_source === "vendor_turnkey" ? "" : "sm:col-span-2"}>
+                <label className={createLabelClass}>
+                  {selected.device_source === "vendor_turnkey" ? "Assigned to (overseeing)" : "Assigned Installer"}
+                </label>
                 <SearchSelect
                   options={installerOptions}
                   value={editInstaller}
@@ -1637,6 +1649,7 @@ export default function InstallationTrackerPage() {
                   placeholder="Search installer…"
                 />
               </div>
+              {selected.device_source === "vendor_turnkey" && (
               <div>
                 <div className="flex items-center justify-between">
                   <label className={createLabelClass}>Vendor</label>
@@ -1673,15 +1686,7 @@ export default function InstallationTrackerPage() {
                 />
                 )}
               </div>
-              <div>
-                <label htmlFor="ei-zone" className={createLabelClass}>Zone</label>
-                <select key={zoneOptions.length} id="ei-zone" name="zone" defaultValue={selected.zone ?? ""} className={createInputClass} disabled={zoneOptions.length === 0}>
-                  <option value="">{zoneOptions.length === 0 ? "No zones for this site" : "None"}</option>
-                  {zoneOptions.map((z) => (
-                    <option key={z.id} value={z.id}>{z.label}</option>
-                  ))}
-                </select>
-              </div>
+              )}
               <div>
                 <label htmlFor="ei-installed-at" className={createLabelClass}>Assigned</label>
                 <input
@@ -1699,7 +1704,7 @@ export default function InstallationTrackerPage() {
                 <input id="ei-due" name="due_date" type="date" min={deadlineMin(selected.due_date)} defaultValue={selected.due_date ?? ""} className={createInputClass} />
               </div>
               <div className="sm:col-span-2">
-                <label htmlFor="ei-position" className={createLabelClass}>Position on site</label>
+                <label htmlFor="ei-position" className={createLabelClass}>Location at site</label>
                 <input id="ei-position" name="position_label" defaultValue={selected.position_label} placeholder="e.g. Main entrance, 2nd floor" className={createInputClass} />
               </div>
             </div>
