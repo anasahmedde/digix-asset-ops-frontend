@@ -2092,14 +2092,19 @@ export default function AssetsPage() {
                       {installation ? (
                         <div className="rounded-xl border border-border p-4">
                           <div className="flex flex-wrap items-start justify-between gap-3">
-                            <dl className="grid flex-1 gap-3 text-xs sm:grid-cols-4">
+                            <dl className="grid flex-1 gap-3 text-xs sm:grid-cols-[repeat(auto-fill,minmax(9rem,1fr))]">
                               <div>
                                 <dt className="text-2xs uppercase tracking-wider text-muted-foreground">Site</dt>
-                                <dd className="text-foreground">{installation.site_name ?? "—"}</dd>
+                                <dd className="text-foreground">{installation.site_name ?? d.site_name ?? "—"}</dd>
+                              </div>
+                              <div>
+                                <dt className="text-2xs uppercase tracking-wider text-muted-foreground">Client</dt>
+                                <dd className="text-foreground">{(d.client_names ?? []).length > 0 ? d.client_names.join(", ") : d.client_name ?? "—"}</dd>
                               </div>
                               <div>
                                 <dt className="text-2xs uppercase tracking-wider text-muted-foreground">Technician</dt>
-                                <dd className="text-foreground">{installation.installed_by_name || installation.vendor_display || "—"}</dd>
+                                <dd className="text-foreground">{d.assigned_to_display ?? installation.installed_by_name ?? installation.vendor_display ?? "—"}</dd>
+                                {d.technician_phone && <dd className="text-2xs text-muted-foreground">{d.technician_phone}</dd>}
                               </div>
                               <div>
                                 <dt className="text-2xs uppercase tracking-wider text-muted-foreground">Due</dt>
@@ -2377,23 +2382,6 @@ export default function AssetsPage() {
                         </div>
                       );
                     })()}
-                    <div>
-                      <h4 className="text-sm font-semibold text-foreground mb-3">Assignment for Installation</h4>
-                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                        <InfoCard label="Site" value={d.site_name} />
-                        <InfoCard label="Client" value={(d.client_names ?? []).length > 0 ? d.client_names.join(", ") : d.client_name} />
-                        <div className="rounded-lg bg-secondary/30 px-4 py-3">
-                          <p className="mb-1 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Assigned To</p>
-                          <p className="text-sm font-medium text-foreground">
-                            {d.assigned_to_display ?? d.technician_name ?? "—"}
-                          </p>
-                          {d.technician_phone && (
-                            <p className="text-2xs text-muted-foreground">{d.technician_phone}</p>
-                          )}
-                        </div>
-                        <InfoCard label="Installation Date" value={d.installation_date ? formatDate(d.installation_date) : null} />
-                      </div>
-                    </div>
                     {d.notes && (
                       <div>
                         <h4 className="text-sm font-semibold text-foreground mb-2">Notes</h4>
@@ -3341,14 +3329,6 @@ function MetaField({ label, value, mono, highlight, capitalize: cap }: { label: 
   );
 }
 
-function InfoCard({ label, value }: { label: string; value: string | null | undefined }) {
-  return (
-    <div className="rounded-lg bg-secondary/30 px-4 py-3">
-      <p className="text-2xs font-medium uppercase tracking-wider text-muted-foreground mb-1">{label}</p>
-      <p className="text-sm font-medium text-foreground">{value || "—"}</p>
-    </div>
-  );
-}
 
 function OverviewRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: string | null | undefined }) {
   return (
