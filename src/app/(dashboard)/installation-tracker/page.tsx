@@ -15,7 +15,6 @@ import {
   Download,
   GripVertical,
   X,
-  Trash2,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -143,7 +142,7 @@ interface Installation {
 
 interface InstallationListItem {
   removed_at?: string | null;
-  /** The asset this job is for — used to keep it off the New Installation list. */
+  /** The asset this job is for. */
   device?: string;
   id: string;
   device_code: string;
@@ -221,21 +220,6 @@ interface Option {
 const createInputClass =
   "flex h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors";
 const createLabelClass = "mb-1 block text-xs font-medium text-muted-foreground";
-
-interface AssetInfo {
-  asset_code: string;
-  display_name: string | null;
-  status: string;
-  client_names: string[];
-  site_name: string | null;
-  current_site: string | null;
-  /** How the asset is made. Only a turnkey job has an outside crew doing
-   *  the installing, so only then is there a vendor to name. */
-  source?: string | null;
-  source_display?: string | null;
-  assigned_vendor?: string | null;
-  assigned_vendor_name?: string | null;
-}
 
 function toLocalInputValue(iso: string | null): string {
   if (!iso) return "";
@@ -377,27 +361,12 @@ export default function InstallationTrackerPage() {
   const [delayCause, setDelayCause] = useState("client");
   const [delayNote, setDelayNote] = useState("");
   const [savingDelay, setSavingDelay] = useState(false);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [deviceOptions, setDeviceOptions] = useState<Option[]>([]);
-  const [siteOptions, setSiteOptions] = useState<Option[]>([]);
   const [installerOptions, setInstallerOptions] = useState<Option[]>([]);
   // A vendor is either a registered supplier or one named by hand.
   const [editVendorManual, setEditVendorManual] = useState(false);
-  const [createVendorManual, setCreateVendorManual] = useState(false);
   const [supplierOptions, setSupplierOptions] = useState<Option[]>([]);
   const [zoneOptions, setZoneOptions] = useState<Option[]>([]);
-  const [createSite, setCreateSite] = useState("");
-  const [createDevice, setCreateDevice] = useState("");
-  const [createSteps, setCreateSteps] = useState<string[]>(STEP_TYPES.map((s) => s.value));
-  const [customStep, setCustomStep] = useState("");
-  const [createVendor, setCreateVendor] = useState("");
   const [editVendor, setEditVendor] = useState("");
-  const [createInstaller, setCreateInstaller] = useState("");
-  const [assetInfo, setAssetInfo] = useState<AssetInfo | null>(null);
-  // Vendor Supplied & Installed is the one route with an outside crew doing
-  // the installing, so it is the one route that has a vendor to name.
-  const turnkey = assetInfo?.source === "vendor_turnkey";
   const [editOpen, setEditOpen] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
   const [editInstaller, setEditInstaller] = useState("");
@@ -487,24 +456,6 @@ export default function InstallationTrackerPage() {
 
   function closeJob() {
     router.push("/installation-tracker");
-  }
-
-  async function removeJob() {
-    if (!selected) return;
-    const ok = await confirmAction(
-      `Remove ${selected.device_code}'s installation at ${selected.site_name ?? "this site"}? ` +
-      "Its steps and photos go with it. Use this for a job opened by mistake."
-    );
-    if (!ok) return;
-    try {
-      await api.delete(`/sites/installations/${selected.id}/`);
-      toast.success("Installation removed");
-      const gone = selected.id;
-      setInstallations((rows) => rows.filter((r) => r.id !== gone));
-      closeJob();
-    } catch (err: unknown) {
-      toast.error(getApiError(err, "Could not remove this installation"));
-    }
   }
 
   async function loadDetail(id: string) {
@@ -645,30 +596,10 @@ export default function InstallationTrackerPage() {
   }
 
   async function loadFormOptions() {
-    const [dev, sites, users, sups] = await Promise.allSettled([
-      api.get("/assets/devices/", { params: { page_size: 1000 } }),
-      api.get("/sites/sites/", { params: { page_size: 1000 } }),
+    const [users, sups] = await Promise.allSettled([
       api.get("/accounts/users/", { params: { is_field_staff: true, is_active: true, page_size: 200 } }),
       api.get("/suppliers/", { params: { page_size: 1000 } }),
     ]);
-    if (dev.status === "fulfilled") {
-      // An asset goes on the tracker once. Offering one that already has a
-      // job open invited a duplicate the server then refused, so the list
-      // is the assets with nothing open against them.
-      const taken = new Set(
-        installations.filter((i) => !i.removed_at).map((i) => i.device)
-      );
-      setDeviceOptions(
-        (dev.value.data.results ?? [])
-          .filter((d: { id: string }) => !taken.has(d.id))
-          .map((d: { id: string; asset_code: string; display_name: string | null }) => ({
-            id: d.id,
-            label: d.display_name ? `${d.asset_code} — ${d.display_name}` : d.asset_code,
-          }))
-      );
-    }
-    if (sites.status === "fulfilled")
-      setSiteOptions((sites.value.data.results ?? []).map((s: { id: string; name: string }) => ({ id: s.id, label: s.name })));
     if (users.status === "fulfilled")
       // Technicians come from the manpower records — show enough of each to
       // tell two same-named people apart (employee ID, job title).
@@ -682,19 +613,6 @@ export default function InstallationTrackerPage() {
       }));
     if (sups.status === "fulfilled")
       setSupplierOptions((sups.value.data.results ?? []).map((v: { id: string; name: string }) => ({ id: v.id, label: v.name })));
-  }
-
-  function openCreate() {
-    setCreateSite("");
-    setCreateDevice("");
-    setCreateInstaller("");
-    setAssetInfo(null);
-    setZoneOptions([]);
-    setCreateSteps(STEP_TYPES.map((s) => s.value));
-    setCustomStep("");
-    setCreateVendor("");
-    setCreateOpen(true);
-    loadFormOptions();
   }
 
   function openEdit() {
@@ -737,66 +655,6 @@ export default function InstallationTrackerPage() {
     }
   }
 
-  // Choosing an asset pre-fills the site from where the asset currently lives
-  // and shows its client/site context, mirroring the ticket-create flow.
-  async function handleDeviceChange(id: string) {
-    setCreateDevice(id);
-    if (!id) {
-      setAssetInfo(null);
-      return;
-    }
-    try {
-      const { data } = await api.get(`/assets/devices/${id}/`);
-      setAssetInfo(data);
-      if (data.current_site) setCreateSite(data.current_site);
-    } catch {
-      setAssetInfo(null);
-    }
-  }
-
-  useEffect(() => {
-    if (!createSite) {
-      setZoneOptions([]);
-      return;
-    }
-    api
-      .get("/sites/zones/", { params: { site: createSite, page_size: 200 } })
-      .then(({ data }) => setZoneOptions((data.results ?? []).map((z: { id: string; name: string }) => ({ id: z.id, label: z.name }))))
-      .catch(() => setZoneOptions([]));
-  }, [createSite]);
-
-  async function handleCreate(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    if (createSteps.length === 0) {
-      toast.error("Select at least one installation step.");
-      return;
-    }
-    setCreating(true);
-    const fd = new FormData(e.currentTarget);
-    try {
-      const { data } = await api.post("/sites/installations/", {
-        device: fd.get("device"),
-        site: fd.get("site"),
-        installed_by: fd.get("installed_by") || null,
-        vendor: fd.get("vendor") || null,
-        external_vendor_name: fd.get("external_vendor_name") || "",
-        external_vendor_contact: fd.get("external_vendor_contact") || "",
-        installed_at: new Date(String(fd.get("installed_at"))).toISOString(),
-        due_date: fd.get("due_date") || null,
-        position_label: fd.get("position_label") || "",
-        notes: fd.get("notes") || "",
-        step_types: createSteps,
-      });
-      toast.success("Installation created");
-      setCreateOpen(false);
-      await refreshList();
-      loadDetail(data.id);
-    } catch (err) {
-      toast.error(getApiError(err, "Failed to create installation"));
-    } finally {
-      setCreating(false);
-    }
-  }
 
   /** The handover certificate, to take to site and have signed. */
   async function downloadHandoverDocument() {
@@ -1042,15 +900,6 @@ export default function InstallationTrackerPage() {
             <p className="text-sm text-muted-foreground">Track installation progress in different stages</p>
           </div>
           <div className="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto">
-            {isManager && !selected.handover && (
-              <button
-                onClick={removeJob}
-                title="Remove this installation — for a job opened by mistake"
-                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-destructive/30 px-3 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
-              >
-                <Trash2 className="h-3.5 w-3.5" /> Remove
-              </button>
-            )}
             {/* Printed first, signed on site, then uploaded on the Handover
                 step at the end of the checklist. */}
             <button
@@ -2104,14 +1953,6 @@ export default function InstallationTrackerPage() {
           >
             <Download className="h-4 w-4" /> {exporting ? "Exporting…" : "Export Excel"}
           </button>
-          {isManager && (
-            <button
-              onClick={openCreate}
-              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition-all"
-            >
-              <Plus className="h-4 w-4" /> New Installation
-            </button>
-          )}
         </div>
       </div>
 
@@ -2280,210 +2121,6 @@ export default function InstallationTrackerPage() {
         </div>
       )}
 
-      {/* New Installation modal */}
-      <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="New Installation" size="lg">
-        <form onSubmit={handleCreate} className="space-y-4">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="sm:col-span-2">
-                  <label className={createLabelClass}>Asset</label>
-                  <SearchSelect
-                    options={deviceOptions}
-                    value={createDevice}
-                    onChange={handleDeviceChange}
-                    name="device"
-                    required
-                    placeholder="Search asset by code or name…"
-                  />
-                  {assetInfo && (
-                    <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 rounded-lg border border-primary/20 bg-primary/5 p-3 text-xs sm:grid-cols-4">
-                      <span className="text-muted-foreground">Asset Name</span>
-                      <span className="font-medium text-foreground">{assetInfo.display_name || assetInfo.asset_code}</span>
-                      <span className="text-muted-foreground">Status</span>
-                      <span className="font-medium capitalize text-foreground">{assetInfo.status.replace(/_/g, " ")}</span>
-                      <span className="text-muted-foreground">Client(s)</span>
-                      <span className="font-medium text-foreground">{(assetInfo.client_names ?? []).join(", ") || "—"}</span>
-                      <span className="text-muted-foreground">Current Site</span>
-                      <span className="font-medium text-foreground">{assetInfo.site_name || "In warehouse"}</span>
-                    </div>
-                  )}
-                </div>
-                <div>
-                  <label className={createLabelClass}>Site</label>
-                  <SearchSelect
-                    options={siteOptions}
-                    value={createSite}
-                    onChange={setCreateSite}
-                    name="site"
-                    required
-                    placeholder="Search site…"
-                  />
-                </div>
-                <div>
-                  {/* The same question the asset's own Installation &
-                      Activation asks, in the same words: who is doing it. */}
-                  <label className={createLabelClass}>
-                    {turnkey ? "Assign to (overseeing)" : "Assign to"}
-                  </label>
-                  <SearchSelect
-                    options={installerOptions}
-                    value={createInstaller}
-                    onChange={setCreateInstaller}
-                    name="installed_by"
-                    placeholder={turnkey ? "Technician overseeing…" : "Search technician…"}
-                  />
-                </div>
-                {/* Only a turnkey asset has an outside crew installing it, and
-                    the asset already records which. Asking again here was a
-                    second answer that could disagree with the registry. */}
-                {turnkey && (
-                  <div>
-                    <div className="flex items-center justify-between">
-                      <label className={createLabelClass}>Installing vendor</label>
-                      <button
-                        type="button"
-                        onClick={() => { setCreateVendorManual((v) => !v); setCreateVendor(""); }}
-                        className="text-2xs font-medium text-primary hover:underline"
-                      >
-                        {createVendorManual ? "Pick a registered vendor" : "Not registered? Enter manually"}
-                      </button>
-                    </div>
-                    {createVendorManual ? (
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        <input name="external_vendor_name" placeholder="Vendor name" className={createInputClass} />
-                        <input name="external_vendor_contact" placeholder="Contact person / phone" className={createInputClass} />
-                      </div>
-                    ) : (
-                      <SearchSelect
-                        options={supplierOptions}
-                        value={createVendor}
-                        onChange={setCreateVendor}
-                        name="vendor"
-                        placeholder="Search vendor…"
-                      />
-                    )}
-                    <p className="mt-1 text-2xs text-muted-foreground">
-                      {assetInfo?.source_display ?? "Vendor Supplied & Installed"} — the vendor installs it, our technician oversees.
-                    </p>
-                  </div>
-                )}
-                <div>
-                  <label htmlFor="ci-installed-at" className={createLabelClass}>Start / Installed At</label>
-                  <input
-                    id="ci-installed-at"
-                    name="installed_at"
-                    type="datetime-local"
-                    required
-                    max={toLocalInputValue(new Date().toISOString())}
-                    defaultValue={new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)}
-                    className={createInputClass}
-                  />
-                </div>
-                <div>
-                  <label htmlFor="ci-due" className={createLabelClass}>Due Date (optional)</label>
-                  <input id="ci-due" name="due_date" type="date" min={todayIso()} className={createInputClass} />
-                </div>
-                <div>
-                  <label htmlFor="ci-position" className={createLabelClass}>Position on site</label>
-                  <input id="ci-position" name="position_label" placeholder="e.g. Main entrance, 2nd floor" className={createInputClass} />
-                </div>
-              </div>
-              <div>
-                <label htmlFor="ci-notes" className={createLabelClass}>Notes</label>
-                <textarea id="ci-notes" name="notes" rows={2} className={`${createInputClass} h-auto py-2`} />
-              </div>
-              <div>
-                <label className={createLabelClass}>Installation Steps (customize the pipeline for this asset)</label>
-                <div className="flex flex-wrap gap-2">
-                  {STEP_TYPES.map((s) => {
-                    const on = createSteps.includes(s.value);
-                    return (
-                      <button
-                        key={s.value}
-                        type="button"
-                        onClick={() =>
-                          setCreateSteps((cur) => {
-                            if (on) return cur.filter((v) => v !== s.value);
-                            const customs = cur.filter((v) => !STEP_TYPES.some((t) => t.value === v));
-                            const knowns = STEP_TYPES.map((t) => t.value).filter((v) => cur.includes(v) || v === s.value);
-                            return [...knowns, ...customs];
-                          })
-                        }
-                        className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
-                          on
-                            ? "border-primary/50 bg-primary/10 text-primary"
-                            : "border-border bg-card text-muted-foreground hover:text-foreground"
-                        }`}
-                      >
-                        {on && <Check className="h-3 w-3" />}
-                        {s.label}
-                      </button>
-                    );
-                  })}
-                  {createSteps
-                    .filter((v) => !STEP_TYPES.some((t) => t.value === v))
-                    .map((custom) => (
-                      <button
-                        key={custom}
-                        type="button"
-                        onClick={() => setCreateSteps((cur) => cur.filter((v) => v !== custom))}
-                        title="Click to remove this custom step"
-                        className="inline-flex items-center gap-1.5 rounded-full border border-primary/50 border-dashed bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary"
-                      >
-                        <Check className="h-3 w-3" />
-                        {custom}
-                        <X className="h-3 w-3" />
-                      </button>
-                    ))}
-                </div>
-                <div className="mt-2 flex gap-2">
-                  <input
-                    value={customStep}
-                    onChange={(e) => setCustomStep(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        const v = customStep.trim();
-                        if (v && !createSteps.includes(v)) setCreateSteps((cur) => [...cur, v]);
-                        setCustomStep("");
-                      }
-                    }}
-                    placeholder="Add a custom step (e.g. Crane lift)"
-                    className={`${createInputClass} h-9 max-w-xs`}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const v = customStep.trim();
-                      if (v && !createSteps.includes(v)) setCreateSteps((cur) => [...cur, v]);
-                      setCustomStep("");
-                    }}
-                    className="inline-flex h-9 items-center gap-1 rounded-lg border border-border px-3 text-xs font-medium text-primary transition-colors hover:bg-primary/5"
-                  >
-                    <Plus className="h-3.5 w-3.5" /> Add Step
-                  </button>
-                </div>
-                <p className="mt-1 text-2xs text-muted-foreground">
-                  Untick steps that don&apos;t apply, or add your own with the + button — pipelines can be 3 steps or 10.
-                </p>
-              </div>
-              <div className="flex justify-end gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setCreateOpen(false)}
-                  className="inline-flex h-10 items-center rounded-lg border border-border bg-transparent px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={creating}
-                  className="inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-medium text-white transition-all disabled:opacity-50"
-                >
-                  {creating ? "Creating..." : "Create Installation"}
-                </button>
-              </div>
-        </form>
-      </Modal>
     </div>
   );
 }
