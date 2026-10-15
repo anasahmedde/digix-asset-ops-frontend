@@ -56,6 +56,8 @@ export interface CorrectiveVisitRow {
   completed_at: string | null;
   resolved: boolean | null;
   remarks: string;
+  /** The technician's write-up as the work goes, before the visit is handed in. */
+  notes?: string;
   review_decision: string;
   review_decision_display: string;
   /** Why it went back, in the reviewer's own words. */
@@ -360,7 +362,7 @@ export function Evidence({
                 photographs each of them holds. */}
             <div className="mt-auto space-y-2">
               <Stamp what={what} when={when} lat={lat} lng={lng} />
-              {open && (
+              {open && photographer && (
                 /* Written before the photo is attached, so the two travel
                    together — a caption added later is a different claim. */
                 <input
@@ -375,6 +377,60 @@ export function Evidence({
         ))}
       </div>
     </>
+  );
+}
+
+/** What has been done so far, written on site as the work goes. The
+ *  technician on the visit (and the office) may write it; it is read by
+ *  everyone, and it is what the completion dialog starts from. */
+function WorkDone({ visit, editable, onChanged }: {
+  visit: Pick<CorrectiveVisitRow, "id" | "notes" | "status" | "remarks">;
+  editable: boolean;
+  onChanged: () => void;
+}) {
+  const [text, setText] = useState(visit.notes ?? "");
+  const [saving, setSaving] = useState(false);
+  const [savedAs, setSavedAs] = useState(visit.notes ?? "");
+  async function save() {
+    setSaving(true);
+    try {
+      await api.post(`/maintenance/visits/${visit.id}/notes/`, { notes: text });
+      setSavedAs(text.trim());
+      toast.success("Saved");
+      onChanged();
+    } catch (err) {
+      toast.error(getApiError(err, "Could not save the work done"));
+    } finally {
+      setSaving(false);
+    }
+  }
+  // Once handed in, the remarks are the record; the running notes only
+  // show while they are the only account there is.
+  if (!editable && !(visit.notes && !visit.remarks)) return null;
+  return (
+    <div className="mt-4 border-t border-border pt-4">
+      <label htmlFor={`work-done-${visit.id}`} className={label}>Work done</label>
+      {editable ? (
+        <>
+          <textarea
+            id={`work-done-${visit.id}`}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={3}
+            placeholder="What was checked, cleaned or replaced, and anything observed"
+            className="mt-1 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none"
+          />
+          <div className="mt-2 flex items-center justify-end gap-2">
+            <button type="button" onClick={save} disabled={saving || text.trim() === savedAs}
+              className={`${btn} text-muted-foreground ring-1 ring-border hover:bg-secondary disabled:opacity-50`}>
+              <Check className="h-3.5 w-3.5" /> {saving ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </>
+      ) : (
+        <p className="mt-0.5 whitespace-pre-line text-sm text-foreground">{visit.notes}</p>
+      )}
+    </div>
   );
 }
 
@@ -723,6 +779,13 @@ export function CorrectiveVisit({
         onChanged={onChanged}
       />
 
+      <WorkDone
+        visit={current}
+        editable={(current.status === "planned" || current.status === "in_progress")
+          && (mine || can("manage_maintenance") || can("review_maintenance"))}
+        onChanged={onChanged}
+      />
+
       {(may("start") || may("complete") || may("accept") || may("unresolved") || waitingOn) && (
         <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border pt-4">
           {may("start") && (
@@ -732,7 +795,7 @@ export function CorrectiveVisit({
             </button>
           )}
           {may("complete") && (
-            <button onClick={() => setCompleting(true)} disabled={busy !== null}
+            <button onClick={() => { setRemarks((r) => r || current.notes || ""); setCompleting(true); }} disabled={busy !== null}
               className={`${btn} bg-emerald-600 text-white hover:bg-emerald-700`}>
               <Check className="h-3.5 w-3.5" /> Complete visit
             </button>
