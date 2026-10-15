@@ -2432,6 +2432,7 @@ export default function AssetsPage() {
                                 </h4>
                                 <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-2xs font-medium ${
                                   w.is_expired ? "bg-red-500/10 text-red-600"
+                                    : w.status === "extended" ? "bg-violet-500/10 text-violet-600 dark:text-violet-400"
                                     : w.status === "active" ? "bg-green-500/10 text-green-600"
                                       : "bg-secondary text-muted-foreground"
                                 }`}>
@@ -2489,6 +2490,7 @@ export default function AssetsPage() {
                                 </h4>
                                 <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-2xs font-medium ${
                                   w.is_expired ? "bg-red-500/10 text-red-600"
+                                    : w.status === "extended" ? "bg-violet-500/10 text-violet-600 dark:text-violet-400"
                                     : w.status === "active" ? "bg-green-500/10 text-green-600"
                                       : "bg-secondary text-muted-foreground"
                                 }`}>
