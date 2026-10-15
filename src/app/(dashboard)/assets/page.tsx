@@ -167,7 +167,10 @@ interface WarrantyItem {
   warranty_type: string;
   component: string | null;
   component_name: string | null;
+  /** Derived by the server from the dates and the asset: active, not_started, expired, ended… */
   status: string;
+  status_display?: string;
+  months?: number | null;
   start_date: string;
   end_date: string;
   coverage_details: string;
@@ -2427,8 +2430,12 @@ export default function AssetsPage() {
                                 <h4 className="text-sm font-semibold text-foreground">
                                   {w.component_name ?? (WARRANTY_TYPE_LABELS[w.warranty_type] ?? w.warranty_type)}
                                 </h4>
-                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-2xs font-medium ${w.is_expired ? "bg-red-500/10 text-red-600" : "bg-green-500/10 text-green-600"}`}>
-                                  {w.is_expired ? "Expired" : "Active"}
+                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-2xs font-medium ${
+                                  w.is_expired ? "bg-red-500/10 text-red-600"
+                                    : w.status === "active" ? "bg-green-500/10 text-green-600"
+                                      : "bg-secondary text-muted-foreground"
+                                }`}>
+                                  {w.status_display ?? (w.is_expired ? "Expired" : "Active")}
                                 </span>
                                 {w.component_name && (
                                   <span className="rounded-full bg-secondary px-2 py-0.5 text-2xs text-muted-foreground">
@@ -2440,7 +2447,10 @@ export default function AssetsPage() {
                               <p className="text-xs text-muted-foreground">{w.coverage_details || "Comprehensive coverage"}</p>
                               <div className="flex items-center gap-4 mt-2">
                                 <span className="text-2xs text-muted-foreground">
-                                  <Calendar className="inline h-3 w-3 mr-1" />{formatDate(w.start_date)} → {formatDate(w.end_date)}
+                                  <Calendar className="inline h-3 w-3 mr-1" />
+                                  {w.status === "not_started" && w.warranty_type === "client"
+                                    ? `${w.months ?? "—"} months from the day the asset goes live`
+                                    : `${formatDate(w.start_date)} → ${formatDate(w.end_date)}`}
                                 </span>
                                 {w.reference_number && <span className="text-2xs text-muted-foreground">Ref: {w.reference_number}</span>}
                               </div>
@@ -2477,8 +2487,12 @@ export default function AssetsPage() {
                                 <h4 className="text-sm font-semibold text-foreground">
                                   {w.component_name ?? (WARRANTY_TYPE_LABELS[w.warranty_type] ?? w.warranty_type)}
                                 </h4>
-                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-2xs font-medium ${w.is_expired ? "bg-red-500/10 text-red-600" : "bg-green-500/10 text-green-600"}`}>
-                                  {w.is_expired ? "Expired" : "Active"}
+                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-2xs font-medium ${
+                                  w.is_expired ? "bg-red-500/10 text-red-600"
+                                    : w.status === "active" ? "bg-green-500/10 text-green-600"
+                                      : "bg-secondary text-muted-foreground"
+                                }`}>
+                                  {w.status_display ?? (w.is_expired ? "Expired" : "Active")}
                                 </span>
                                 {w.component_name && (
                                   <span className="rounded-full bg-secondary px-2 py-0.5 text-2xs text-muted-foreground">
@@ -2490,7 +2504,10 @@ export default function AssetsPage() {
                               <p className="text-xs text-muted-foreground">{w.coverage_details || "Comprehensive coverage"}</p>
                               <div className="flex items-center gap-4 mt-2">
                                 <span className="text-2xs text-muted-foreground">
-                                  <Calendar className="inline h-3 w-3 mr-1" />{formatDate(w.start_date)} → {formatDate(w.end_date)}
+                                  <Calendar className="inline h-3 w-3 mr-1" />
+                                  {w.status === "not_started" && w.warranty_type === "client"
+                                    ? `${w.months ?? "—"} months from the day the asset goes live`
+                                    : `${formatDate(w.start_date)} → ${formatDate(w.end_date)}`}
                                 </span>
                                 {w.reference_number && <span className="text-2xs text-muted-foreground">Ref: {w.reference_number}</span>}
                               </div>
@@ -2930,7 +2947,7 @@ export default function AssetsPage() {
           { key: "asset_type", label: "Type", options: Array.from(new Set(devices.map((d) => d.asset_type_name).filter(Boolean))).sort().map((t) => ({ value: t as string, label: t as string })) },
           { key: "client", label: "Client", options: Array.from(new Set(devices.flatMap((d) => (d.client_names ?? []).length > 0 ? d.client_names : d.client_name ? [d.client_name] : []))).sort().map((c) => ({ value: c, label: c })) },
           { key: "site", label: "Site", options: Array.from(new Set(devices.map((d) => d.site_name).filter(Boolean))).sort().map((s) => ({ value: s as string, label: s as string })) },
-          { key: "warranty", label: "Warranty", options: [{ value: "active", label: "Under Warranty" }, { value: "expired", label: "Expired" }, { value: "none", label: "No Warranty" }] },
+          { key: "warranty", label: "Warranty", options: [{ value: "active", label: "Under Warranty" }, { value: "not_started", label: "Not started" }, { value: "expired", label: "Expired" }, { value: "none", label: "No Warranty" }] },
         ]}
         values={filterValues}
         onChange={(k, v) => setFilterValues((prev) => ({
@@ -3028,6 +3045,8 @@ export default function AssetsPage() {
                         <span className="inline-flex rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-500 ring-1 ring-emerald-500/20">Under Warranty</span>
                       ) : d.warranty_status === "expired" ? (
                         <span className="inline-flex rounded-full bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-500 ring-1 ring-red-500/20">Expired</span>
+                      ) : d.warranty_status === "not_started" ? (
+                        <span className="inline-flex rounded-full bg-secondary px-2 py-0.5 text-xs font-medium text-muted-foreground ring-1 ring-border" title="Runs from the day the asset goes live">Not started</span>
                       ) : (
                         <span className="text-xs text-muted-foreground">—</span>
                       )}
