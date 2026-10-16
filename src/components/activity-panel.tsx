@@ -23,6 +23,7 @@ const TONE: Record<string, TimelineItem["tone"]> = {
   sent_back: "danger", cancelled: "danger", part_rejected: "danger", part_sent_back: "danger",
   delay: "danger", step_on_hold: "warning", paused: "warning", part_withdrawn: "muted",
   step_skipped: "muted", step_removed: "muted", edited: "muted", notes: "muted", photo: "muted",
+  purchase: "warning", purchase_removed: "muted",
 };
 
 /**

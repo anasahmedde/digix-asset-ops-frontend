@@ -68,9 +68,15 @@ export interface CorrectiveVisitRow {
   visit_photos: VisitPhoto[];
   has_before_photo: boolean;
   has_after_photo: boolean;
-  /** What the parts used are worth, at the store's prices. */
+  /** Bought on site by the technician, with the receipt and a photo. */
+  purchases?: {
+    id: string; description: string; quantity: number; amount: string; shop: string;
+    receipt: string; photo: string; bought_by_name: string | null; created_at: string;
+  }[];
+  /** What the parts used, and anything bought on site, are worth. */
   component_costs: {
-    part_request: string; description: string; quantity: string;
+    /** Null on a line bought on site, which has `purchase` instead. */
+    part_request: string | null; purchase?: string; description: string; quantity: string;
     /** Null when the store has no price on file for it. */
     unit_cost: string | null; amount: string;
   }[];
@@ -521,7 +527,7 @@ export function CorrectiveVisit({
     (current?.component_costs ?? []).reduce(
       (n, c) => n + (c.unit_cost !== null
         ? Number(c.amount || 0)
-        : Number(priced[c.part_request] || 0) * Number(c.quantity || 0)),
+        : Number(priced[c.part_request ?? ""] || 0) * Number(c.quantity || 0)),
       0,
     )
     + extra.reduce((n, l) => n + Number(l.amount || 0), 0);
@@ -778,6 +784,42 @@ export function CorrectiveVisit({
         askedForParts={askedForParts}
         onChanged={onChanged}
       />
+
+      {/* Bought on site: recorded from the field app with the receipt and a
+          photo of the part, and priced into the visit when it is accepted. */}
+      {(current.purchases ?? []).length > 0 && (
+        <div className="mt-4 border-t border-border pt-4">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <p className={label}>Bought on site</p>
+            <span className="text-xs font-medium tabular-nums text-foreground">
+              PKR {(current.purchases ?? []).reduce((n, p) => n + Number(p.amount || 0), 0)
+                .toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+          </div>
+          <div className="space-y-2">
+            {(current.purchases ?? []).map((p) => (
+              <div key={p.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-border p-2.5">
+                <button type="button" onClick={() => setShowing(p.photo)} title="Photo of the component"
+                  className="h-12 w-12 shrink-0 overflow-hidden rounded-md bg-secondary">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={p.photo} alt={p.description} className="h-full w-full object-cover" />
+                </button>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-foreground">{p.description}</p>
+                  <p className="text-2xs text-muted-foreground">
+                    {p.quantity} · PKR {Number(p.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {p.shop ? ` · ${p.shop}` : ""} · {p.bought_by_name ?? "—"}, {formatDateTime(p.created_at)}
+                  </p>
+                </div>
+                <a href={p.receipt} target="_blank" rel="noreferrer"
+                  className="shrink-0 text-2xs font-semibold text-primary hover:underline">
+                  Receipt
+                </a>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <WorkDone
         visit={current}
@@ -1063,10 +1105,10 @@ export function CorrectiveVisit({
                 {(current.component_costs ?? []).length > 0 ? (
                   <div className="space-y-1">
                     {current.component_costs.map((c) => (
-                      <div key={c.part_request} className="flex items-center justify-between gap-3 text-xs">
+                      <div key={c.part_request ?? c.purchase} className="flex items-center justify-between gap-3 text-xs">
                         <span className="min-w-0 text-foreground">
                           {c.description}
-                          <span className="text-muted-foreground"> · {c.quantity} used</span>
+                          <span className="text-muted-foreground"> · {c.quantity} {c.purchase ? "bought" : "used"}</span>
                         </span>
                         {c.unit_cost !== null ? (
                           <span className="shrink-0 tabular-nums text-muted-foreground">
@@ -1080,9 +1122,9 @@ export function CorrectiveVisit({
                           <span className="flex shrink-0 items-center gap-1.5">
                             <span className="text-2xs text-amber-600">No price on file · PKR</span>
                             <input
-                              value={priced[c.part_request] ?? ""}
+                              value={priced[c.part_request ?? ""] ?? ""}
                               onChange={(e) => setPriced((cur) =>
-                                ({ ...cur, [c.part_request]: e.target.value }))}
+                                ({ ...cur, [c.part_request ?? ""]: e.target.value }))}
                               type="number" min={0} step="0.01" placeholder="each"
                               className="h-7 w-24 rounded-lg border border-border bg-card px-2 text-xs tabular-nums text-foreground focus:border-primary/50 focus:outline-none"
                             />
