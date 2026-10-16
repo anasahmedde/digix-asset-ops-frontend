@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { WaitingOn } from "@/components/ui/waiting-on";
+import { ActivityPanel } from "@/components/activity-panel";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import {
@@ -723,6 +724,10 @@ export function ScheduleDetail({
         )}
       </div>
 
+      {/* The job on the left, its history on the right: who did what, and
+          exactly when. Below the job on a narrower screen. */}
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
+      <div className="min-w-0 space-y-5">
       <div className={card}>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Field name="Asset">
@@ -966,6 +971,16 @@ export function ScheduleDetail({
             </table>
           </div>
         )}
+      </div>
+      </div>
+      <aside className="xl:sticky xl:top-20">
+        <ActivityPanel
+          endpoint={`/maintenance/schedules/${schedule.id}/activity/`}
+          // Anything the page reloads after an act - a visit, a part line,
+          // the job's own state - and the history follows it.
+          refreshKey={JSON.stringify([(live ?? schedule).status, visits, parts])}
+        />
+      </aside>
       </div>
     </div>
   );

@@ -33,7 +33,7 @@ import { SearchSelect } from "@/components/ui/search-select";
 import { StatusBadge } from "@/components/ui/badge";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { ProgressStepper } from "@/components/ui/progress-stepper";
-import { Timeline, type TimelineItem } from "@/components/ui/timeline";
+import { ActivityPanel } from "@/components/activity-panel";
 import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
 import { confirmAction } from "@/components/ui/confirm";
 import { formatDate, deadlineMin, todayIso } from "@/lib/utils";
@@ -1212,7 +1212,7 @@ export default function InstallationTrackerPage() {
           )}
         </div>
 
-        {/* Step Detail Cards + Timeline */}
+        {/* Step Detail Cards + Activity */}
         <div className="grid gap-6 xl:grid-cols-3">
           <div className="xl:col-span-2">
             {/* As many cards a row as fit at 12rem each: three on a wide
@@ -1397,6 +1397,13 @@ export default function InstallationTrackerPage() {
 
           {/* Right rail */}
           <div className="space-y-4">
+            {/* Every act on this installation, from the server's own log: who
+                did it, and the date and time. First in the column, where the
+                eye lands. */}
+            <ActivityPanel
+              endpoint={`/sites/installations/${selected.id}/activity/`}
+              refreshKey={JSON.stringify(selected)}
+            />
             {/* Handover record */}
             {selected.handover && (
               <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-5">
@@ -1509,64 +1516,6 @@ export default function InstallationTrackerPage() {
               )}
             </div>
 
-            <div className="rounded-xl border border-border bg-card p-5">
-              <h3 className="text-sm font-semibold text-foreground mb-4">Installation Timeline</h3>
-              {(() => {
-                // Steps and delays are one story — what happened, in order.
-                const STEP_TONE: Record<string, TimelineItem["tone"]> = {
-                  completed: "success", in_progress: "primary", on_hold: "danger", skipped: "muted",
-                };
-                const items: TimelineItem[] = [
-                  ...workSteps
-                    .filter((st) => st.status !== "not_started")
-                    .map((st) => ({
-                      key: `step-${st.id}`,
-                      title: <><span className="font-medium">{st.step_type_display}</span> — {st.status_display}</>,
-                      description: st.description || null,
-                      actor: (st.status === "completed" ? st.completed_by_name : st.started_by_name) || null,
-                      at: st.completed_at ?? st.started_at,
-                      tone: STEP_TONE[st.status] ?? "primary",
-                    })),
-                  ...(activeDone && selected.device_activated_at
-                    ? [{
-                        key: "active",
-                        title: <><span className="font-medium">Active</span> — the asset went live</>,
-                        description: null,
-                        actor: selected.device_activated_by ?? selected.installed_by_name,
-                        at: selected.device_activated_at,
-                        tone: "success" as TimelineItem["tone"],
-                      }]
-                    : []),
-                  ...(selected.handover
-                    ? [{
-                        key: "handover",
-                        title: <><span className="font-medium">Handover</span> — accepted by {selected.handover.accepted_by_name}</>,
-                        description: selected.handover.acceptance_notes || null,
-                        actor: selected.handover.performed_by_name,
-                        at: `${selected.handover.handover_date}T23:59:00`,
-                        tone: "success" as TimelineItem["tone"],
-                      }]
-                    : []),
-                  ...selected.delays.map((dl) => ({
-                    key: `delay-${dl.id}`,
-                    title: (
-                      <>
-                        <span className="font-medium">Delay flagged</span>
-                        <span className="text-muted-foreground"> · {dl.cause_display}{dl.step_type_display ? ` · ${dl.step_type_display}` : ""}</span>
-                      </>
-                    ),
-                    description: dl.description || null,
-                    actor: dl.reported_by_name,
-                    at: dl.created_at,
-                    tone: (dl.resolved_at ? "muted" : dl.cause === "client" ? "danger" : "warning") as TimelineItem["tone"],
-                  })),
-                  // Newest first, by the instant — the entries come in three
-                  // shapes (offset ISO, Z ISO, a bare date) and a text sort
-                  // would put a Z timestamp under a +05:00 one from the same day.
-                ].sort((a, b) => (b.at ? Date.parse(b.at) : 0) - (a.at ? Date.parse(a.at) : 0));
-                return <Timeline items={items} empty="Nothing has happened on this installation yet." />;
-              })()}
-            </div>
 
             <div className="rounded-xl border border-border bg-card p-5">
               <div className="flex items-center justify-between mb-3">
