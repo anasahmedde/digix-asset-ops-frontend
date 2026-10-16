@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Check, Pause, Pencil, Play, Plus, Ticket as TicketIcon, Trash2, Wrench, X } from "lucide-react";
+import { ArrowLeft, Check, ChevronRight, Pause, Pencil, Play, Plus, Ticket as TicketIcon, Trash2, Wrench, X } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -10,7 +10,7 @@ import { ActivityPanel } from "@/components/activity-panel";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import {
-  CorrectiveVisit, type CorrectiveVisitRow, type VisitPhoto,
+  CorrectiveVisit, Evidence, type CorrectiveVisitRow, type VisitPhoto,
 } from "./corrective-visit";
 import { SearchSelect } from "@/components/ui/search-select";
 import { confirmAction } from "@/components/ui/confirm";
@@ -84,6 +84,10 @@ interface Visit {
   visit_photos: VisitPhoto[];
   has_before_photo: boolean;
   has_after_photo: boolean;
+  notes?: string;
+  /** When the technician checked in for it, and out after it. */
+  on_site?: { checked_in_at: string; checked_out_at: string | null; offline: boolean } | null;
+  purchases?: CorrectiveVisitRow["purchases"];
   /** When the phone scanned the asset's label on site, if it did. */
   asset_verified_at: string | null;
   /** What the parts used are worth, and what it came to in the end. */
@@ -884,91 +888,156 @@ export function ScheduleDetail({
             None yet.
           </p>
         ) : (
-          <div className="overflow-x-auto rounded-lg border border-border">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border bg-secondary/40 text-left">
-                  {["#", "Due", "Carried out", "Technician", "Work done", "Components", "Cost"].map((h) => (
-                    <th key={h} className="whitespace-nowrap px-3 py-2 text-2xs font-medium uppercase tracking-wider text-muted-foreground">
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {pastVisits.map((v) => {
-                  const used = parts.filter((p) => p.visit === v.id);
-                  return (
-                    <tr key={v.id} className="border-b border-border/60 last:border-0 align-top">
-                      <td className="px-3 py-2.5 text-muted-foreground">
-                        {v.sequence || visitNumber[v.id]}
-                      </td>
-                      <td className="whitespace-nowrap px-3 py-2.5 text-muted-foreground">
-                        {formatDate(v.due_date)}
-                      </td>
-                      <td className="whitespace-nowrap px-3 py-2.5 text-foreground">
-                        {/* When somebody was on site, which is rarely the day
-                            it fell due. */}
-                        {v.started_at ? formatDate(v.started_at) : v.performed_at ? formatDate(v.performed_at) : "—"}
-                        {/* Only worth saying when it was closed out on a
-                            different day from the one it was worked. */}
-                        {v.performed_at && v.started_at
-                          && formatDate(v.performed_at) !== formatDate(v.started_at) && (
-                          <span className="block text-2xs text-muted-foreground">
-                            closed {formatDate(v.performed_at)}
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2.5 text-foreground">
-                        {v.assigned_to_name || "—"}
-                        {v.performed_by_name && v.performed_by_name !== v.assigned_to_name && (
-                          <span className="block text-2xs text-muted-foreground">
-                            closed by {v.performed_by_name}
-                          </span>
-                        )}
-                        <span className={`block text-2xs ${v.asset_verified_at ? "text-emerald-600" : "text-muted-foreground"}`}>
-                          {v.asset_verified_at ? "asset scanned on site" : "asset not scanned"}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2.5 text-muted-foreground">
-                        {v.record_notes || v.remarks || (v.status === "completed" ? "—" : v.status_display)}
-                        {v.review_decision === "unresolved" && (
-                          <span className="mt-0.5 block text-2xs text-amber-600">
-                            Not resolved{v.review_reason ? ` · ${v.review_reason}` : ""}
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2.5 text-muted-foreground">
-                        {used.length === 0 ? "—" : used.map((p) => (
-                          <span key={p.id} className="block">
-                            {p.what} · {p.quantity_used} {p.unit}
-                            {p.quantity_returned > 0 && `, ${p.quantity_returned} back on ${p.return_reference}`}
-                            {(p.issued_serials ?? []).length > 0 && (
-                              <span className="block font-mono text-2xs">{p.issued_serials.join(", ")}</span>
+          <div className="space-y-3">
+            {pastVisits.map((v, i) => {
+              const used = parts.filter((p) => p.visit === v.id);
+              const bought = v.purchases ?? [];
+              const n = v.sequence || visitNumber[v.id];
+              const outcome = v.review_decision === "accepted"
+                ? "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20"
+                : v.review_decision === "unresolved"
+                  ? "bg-amber-500/10 text-amber-600 ring-amber-500/20"
+                  : "bg-secondary text-muted-foreground ring-border";
+              const at = (t: string | null | undefined) => (t ? formatDateTime(t) : "—");
+              // In the order they happened, three to a row.
+              const facts: [string, React.ReactNode][] = [
+                ["Technician", v.assigned_to_name || "—"],
+                ["Due", formatDate(v.due_date)],
+                isCorrective
+                  ? ["Technician's verdict", v.resolved === null ? "—" : (
+                    <span className={v.resolved ? "text-emerald-600" : "text-amber-600"}>
+                      {v.resolved ? "Fault fixed" : "Not fixed"}
+                    </span>
+                  )]
+                  : ["Closed out by", v.performed_by_name || "—"],
+                ["Checked in", at(v.on_site?.checked_in_at)],
+                ["Asset scanned", v.asset_verified_at ? formatDateTime(v.asset_verified_at) : "Not scanned"],
+                ["Started", at(v.started_at)],
+                ["Finished", at(v.completed_at ?? v.performed_at)],
+                ["Checked out", at(v.on_site?.checked_out_at)],
+                ["Cost", (
+                  <>
+                    {v.cost ? `PKR ${v.cost}` : "—"}
+                    {/* Billing is settled when the visit is accepted and the
+                        record written. Until then there is no answer. */}
+                    {v.is_billable !== null && (
+                      <span className={`block text-2xs ${v.is_billable ? "text-amber-600" : "text-emerald-600"}`}>
+                        {v.is_billable ? `Billable${v.charge_to ? ` · ${v.charge_to}` : ""}` : "Under warranty"}
+                      </span>
+                    )}
+                  </>
+                )],
+              ];
+              return (
+                // A fault has a few visits, all worth reading; a schedule
+                // has years of rounds, so only the latest is open.
+                <details key={v.id} open={isCorrective || i === 0}
+                  className="group rounded-lg border border-border">
+                  <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 [&::-webkit-details-marker]:hidden">
+                    <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90" />
+                    <span className="text-sm font-semibold text-foreground">
+                      {isCorrective ? "Visit" : "Round"} {n}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {v.assigned_to_name || "—"} · {formatDate(v.started_at ?? v.performed_at ?? v.due_date)}
+                    </span>
+                    <span className={`ml-auto inline-flex rounded-full px-2.5 py-0.5 text-2xs font-medium ring-1 ${outcome}`}>
+                      {v.review_decision_display || v.status_display}
+                    </span>
+                  </summary>
+                  <div className="border-t border-border px-4 pb-4 pt-3">
+                    <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
+                      {facts.map(([k, val]) => (
+                        <div key={k} className="min-w-0">
+                          <dt className={label}>{k}</dt>
+                          <dd className="mt-0.5 text-sm text-foreground">{val}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                    {v.on_site?.offline && (
+                      <p className="mt-2 text-2xs text-muted-foreground">
+                        Check-in or check-out recorded without signal and uploaded later.
+                      </p>
+                    )}
+
+                    <Evidence visit={v} onChanged={() => {}} />
+
+                    {(v.record_notes || v.remarks || v.notes) && (
+                      <div className="mt-4 border-t border-border pt-4">
+                        <p className={label}>Work done</p>
+                        <p className="mt-0.5 whitespace-pre-line text-sm text-foreground">
+                          {v.record_notes || v.remarks || v.notes}
+                        </p>
+                      </div>
+                    )}
+
+                    {used.length > 0 && (
+                      <div className="mt-4 border-t border-border pt-4">
+                        <p className={label}>Components</p>
+                        {used.map((p) => (
+                          <p key={p.id} className="mt-0.5 text-sm text-foreground">
+                            {p.what} · {p.quantity_used ?? 0} {p.unit} used
+                            {p.quantity_returned > 0 && (
+                              <span className="text-muted-foreground">, {p.quantity_returned} back on {p.return_reference}</span>
                             )}
-                          </span>
+                            {(p.issued_serials ?? []).length > 0 && (
+                              <span className="block font-mono text-2xs text-muted-foreground">{p.issued_serials.join(", ")}</span>
+                            )}
+                          </p>
                         ))}
-                      </td>
-                      <td className="whitespace-nowrap px-3 py-2.5">
-                        {v.cost ? <span className="text-foreground">PKR {v.cost}</span> : "—"}
-                        {/* Billing is settled when the visit is accepted and
-                            the record written. Until then there is no answer
-                            — and a null flag is not the same as "covered". */}
-                        {v.is_billable !== null && (
-                          <span className={`mt-0.5 block text-2xs ${
-                            v.is_billable ? "text-amber-600" : "text-emerald-600"
-                          }`}>
-                            {v.is_billable
-                              ? `Billable${v.charge_to ? ` · ${v.charge_to}` : ""}`
-                              : "Under warranty"}
-                          </span>
+                      </div>
+                    )}
+
+                    {bought.length > 0 && (
+                      <div className="mt-4 border-t border-border pt-4">
+                        <p className={label}>Bought on site</p>
+                        <div className="mt-1 space-y-2">
+                          {bought.map((p) => (
+                            <div key={p.id} className="flex flex-wrap items-center gap-3">
+                              <a href={p.photo} target="_blank" rel="noreferrer" title="Photo of the component"
+                                className="h-10 w-10 shrink-0 overflow-hidden rounded-md bg-secondary">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src={p.photo} alt={p.description} className="h-full w-full object-cover" />
+                              </a>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm text-foreground">{p.description}</p>
+                                <p className="text-2xs text-muted-foreground">
+                                  {p.quantity} · PKR {Number(p.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  {p.shop ? ` · ${p.shop}` : ""} · {p.bought_by_name ?? "—"}, {formatDateTime(p.created_at)}
+                                </p>
+                              </div>
+                              <a href={p.receipt} target="_blank" rel="noreferrer"
+                                className="shrink-0 text-2xs font-semibold text-primary hover:underline">
+                                Receipt
+                              </a>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {v.review_decision && (
+                      <div className="mt-4 border-t border-border pt-4">
+                        <p className={label}>Office review</p>
+                        <p className="mt-0.5 text-sm text-foreground">
+                          {v.review_decision_display}
+                          {v.reviewed_by_name && (
+                            <span className="text-muted-foreground">
+                              {" "}— {v.reviewed_by_name}{v.reviewed_at && `, ${formatDateTime(v.reviewed_at)}`}
+                            </span>
+                          )}
+                        </p>
+                        {(v.review_reason || v.review_note) && (
+                          <p className="mt-1 whitespace-pre-line text-sm text-foreground">
+                            {v.review_reason || v.review_note}
+                          </p>
                         )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                      </div>
+                    )}
+                  </div>
+                </details>
+              );
+            })}
           </div>
         )}
       </div>

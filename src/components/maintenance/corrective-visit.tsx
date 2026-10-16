@@ -68,6 +68,8 @@ export interface CorrectiveVisitRow {
   visit_photos: VisitPhoto[];
   has_before_photo: boolean;
   has_after_photo: boolean;
+  /** When the technician checked in for it, and out after it. */
+  on_site?: { checked_in_at: string; checked_out_at: string | null; offline: boolean } | null;
   /** Bought on site by the technician, with the receipt and a photo. */
   purchases?: {
     id: string; description: string; quantity: number; amount: string; shop: string;
@@ -755,6 +757,15 @@ export function CorrectiveVisit({
           </p>
         </div>
       </div>
+      {current.on_site && (
+        <p className="mt-2 text-2xs text-muted-foreground">
+          Checked in {formatDateTime(current.on_site.checked_in_at)}
+          {current.on_site.checked_out_at
+            ? ` · Checked out ${formatDateTime(current.on_site.checked_out_at)}`
+            : " · still on site"}
+          {current.on_site.offline && " · recorded without signal, uploaded later"}
+        </p>
+      )}
 
       {(may("assign") || may("cancel")) && (
         <div className="mt-4 flex flex-wrap items-stretch gap-2 border-t border-border pt-4">
@@ -888,7 +899,7 @@ export function CorrectiveVisit({
 
       {current.review_decision && (
         <div className="mt-4 border-t border-border pt-4">
-          <p className={label}>Office</p>
+          <p className={label}>Office review</p>
           <p className="mt-0.5 text-sm text-foreground">
             {current.review_decision_display}
             {current.reviewed_by_name && (
