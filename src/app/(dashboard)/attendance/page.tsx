@@ -33,6 +33,9 @@ interface AttendanceRow {
   site_name: string | null;
   note: string;
   created_at: string;
+  /** Kept on the phone without signal and sent later: created_at is when it happened. */
+  recorded_offline?: boolean;
+  uploaded_at?: string | null;
 }
 interface UserOpt { id: string; label: string }
 
@@ -162,7 +165,19 @@ export default function AttendancePage() {
                       </span>
                     </td>
                     <td className={`${tdClass} text-muted-foreground`}>{r.site_name || "—"}</td>
-                    <td className={`${tdClass} text-muted-foreground`}>{formatDateTime(r.created_at)}</td>
+                    <td className={`${tdClass} text-muted-foreground`}>
+                      {formatDateTime(r.created_at)}
+                      {/* Recorded on the phone without signal: the time is the
+                          phone's, and it reached us later. Worth a second look. */}
+                      {r.recorded_offline && (
+                        <span
+                          className="ml-2 inline-flex rounded-full bg-amber-500/10 px-2 py-0.5 text-2xs font-medium text-amber-600 ring-1 ring-amber-500/20"
+                          title={r.uploaded_at ? `Uploaded ${formatDateTime(r.uploaded_at)}` : undefined}
+                        >
+                          Recorded offline
+                        </span>
+                      )}
+                    </td>
                     <td className={`${tdClass} text-muted-foreground`}>
                       {r.latitude && r.longitude ? (
                         <a href={`https://www.google.com/maps?q=${r.latitude},${r.longitude}`} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
