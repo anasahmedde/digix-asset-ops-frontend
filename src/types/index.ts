@@ -168,7 +168,6 @@ export interface Project {
   manager: string | null;
   manager_name: string | null;
   budget: string | null;
-  bottleneck_count: number;
   created_at: string;
   updated_at: string;
 }

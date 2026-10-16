@@ -166,7 +166,6 @@ interface ProjectDetail {
   notes: string;
   scope_items: ScopeItem[];
   milestones: Milestone[];
-  bottlenecks: { id: string; title: string; severity: string; is_resolved: boolean }[];
 }
 
 interface LinkedAsset {
@@ -254,9 +253,7 @@ interface ProjectStats {
     name: string;
     progress: number;
     status: string;
-    bottleneck_count: number;
   }[];
-  top_bottlenecks: { title: string; project_count: number }[];
 }
 
 interface Project {
@@ -276,7 +273,6 @@ interface Project {
   target_date: string | null;
   contract_type: string;
   rental_end_date: string | null;
-  bottleneck_count: number;
 }
 
 // Leaflet reaches for window, so the map only loads in the browser.
@@ -1425,7 +1421,7 @@ export default function ProjectsPage() {
             )}
           </div>
 
-          {/* Right rail: milestones + bottlenecks */}
+          {/* Right rail: milestones */}
           <div className="space-y-4">
             {projectTab === "execution" && (
               <>
@@ -1472,23 +1468,6 @@ export default function ProjectsPage() {
               )}
             </div>
 
-            <div className="rounded-xl border border-border bg-card p-5">
-              <h3 className="mb-3 text-sm font-semibold text-foreground">Bottlenecks</h3>
-              {d.bottlenecks.length > 0 ? (
-                <div className="space-y-2">
-                  {d.bottlenecks.map((b) => (
-                    <div key={b.id} className="flex items-center justify-between rounded-lg border border-border/60 px-3 py-2">
-                      <span className={`text-xs font-medium ${b.is_resolved ? "text-muted-foreground line-through" : "text-foreground"}`}>{b.title}</span>
-                      <span className={`rounded-full px-2 py-0.5 text-2xs font-semibold capitalize ${
-                        b.severity === "critical" || b.severity === "high" ? "bg-red-500/10 text-red-600" : "bg-amber-500/10 text-amber-600"
-                      }`}>{b.severity}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-xs text-muted-foreground">No bottlenecks.</p>
-              )}
-            </div>
 
               </>
             )}
@@ -1788,7 +1767,6 @@ export default function ProjectsPage() {
                   <SortTh sort={ongoingSort} k="status_display" className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Status</SortTh>
                   <SortTh sort={ongoingSort} k="start_date" className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Start Date</SortTh>
                   <SortTh sort={ongoingSort} k="target_date" className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Target Date</SortTh>
-                  <SortTh sort={ongoingSort} k="bottleneck_count" className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Bottlenecks</SortTh>
                   <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Action</th>
                 </tr>
               </thead>
@@ -1831,15 +1809,6 @@ export default function ProjectsPage() {
                       </div>
                     </td>
                     <td className="px-5 py-3.5">
-                      {project.bottleneck_count > 0 ? (
-                        <span className="text-xs text-destructive font-medium">
-                          {project.bottleneck_count} issue{project.bottleneck_count > 1 ? "s" : ""}
-                        </span>
-                      ) : (
-                        <span className="text-xs text-emerald-500">None</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-3.5">
                       <button onClick={() => openProject(project.id)} className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
                         <Eye className="h-3 w-3" /> View Details <ChevronRight className="h-3 w-3" />
                       </button>
@@ -1865,10 +1834,10 @@ export default function ProjectsPage() {
         )}
       </div>
 
-      {/* Where the work is, with the three summaries reading beside it.
+      {/* Where the work is, with the two summaries reading beside it.
           The map keeps its square but no longer grows with the window: a
           square the width of the whole column was a thousand pixels tall on
-          a desktop, and the three tiles beside it ended long before it did.
+          a desktop, and the tiles beside it ended long before it did.
           Capping its column keeps it the height of the tiles. */}
       <div className="grid gap-4 xl:grid-cols-[minmax(0,30rem)_minmax(0,1fr)]">
         <div className="min-w-0 rounded-xl border border-border bg-card p-5">
@@ -1892,22 +1861,6 @@ export default function ProjectsPage() {
             <BarChart data={healthData} height={180} />
           </div>
 
-          <div className="rounded-xl border border-border bg-card p-5 sm:col-span-2 xl:col-span-1">
-            <h3 className="mb-4 text-sm font-semibold text-foreground">Top Bottlenecks</h3>
-            <div className="space-y-3">
-              {(stats?.top_bottlenecks ?? []).map((b, i) => (
-                <div key={i} className="flex items-center justify-between gap-2">
-                  <span className="min-w-0 text-xs text-muted-foreground">{b.title}</span>
-                  <span className="shrink-0 rounded-full bg-amber-500/10 px-2 py-0.5 text-2xs font-semibold text-amber-500">
-                    {b.project_count} Project{b.project_count !== 1 ? "s" : ""}
-                  </span>
-                </div>
-              ))}
-              {(stats?.top_bottlenecks ?? []).length === 0 && (
-                <p className="text-xs text-muted-foreground">No bottlenecks</p>
-              )}
-            </div>
-          </div>
         </div>
       </div>
 
@@ -1923,11 +1876,6 @@ export default function ProjectsPage() {
                 <p className="text-sm font-medium text-foreground truncate">{fp.name}</p>
                 <div className="mt-2 flex items-center gap-2">
                   <span className="text-xs text-destructive font-semibold">{fp.progress}%</span>
-                  {fp.bottleneck_count > 0 && (
-                    <span className="text-2xs text-muted-foreground">
-                      ▸ {fp.bottleneck_count} Critical Flag{fp.bottleneck_count > 1 ? "s" : ""}
-                    </span>
-                  )}
                 </div>
               </div>
             ))}
