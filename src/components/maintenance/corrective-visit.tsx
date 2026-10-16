@@ -1019,10 +1019,10 @@ export function CorrectiveVisit({
           <div className="space-y-1">
             <label htmlFor="visit-remarks" className={label}>
               {isCorrective ? "Remarks" : "Work done"}
-              {isCorrective && !resolved && <span className="text-red-500"> *</span>}
+              <span className="text-red-500"> *</span>
             </label>
             <textarea id="visit-remarks" value={remarks} onChange={(e) => setRemarks(e.target.value)}
-              rows={3} required={isCorrective && !resolved}
+              rows={3} required
               placeholder={
                 !isCorrective
                   ? "What was checked, cleaned or replaced, and anything observed"
