@@ -35,9 +35,9 @@ const labelClass = "text-xs font-medium text-muted-foreground";
 const typeIcons: Record<string, string> = {
   report: "text-blue-500", specification: "text-purple-500", drawing: "text-amber-500",
   manual: "text-emerald-500", contract: "text-cyan-500", invoice: "text-red-500",
-  photo: "text-pink-500", other: "text-muted-foreground",
+  photo: "text-pink-500", handover: "text-emerald-600", other: "text-muted-foreground",
 };
-const DOC_TYPES = ["report", "specification", "drawing", "manual", "contract", "invoice", "photo", "other"];
+const DOC_TYPES = ["report", "specification", "drawing", "manual", "contract", "invoice", "photo", "handover", "other"];
 
 function formatSize(bytes: number): string {
   if (bytes === 0) return "0 B";

@@ -20,6 +20,7 @@ import { Modal } from "@/components/ui/modal";
 import { Qty } from "@/components/ui/qty";
 import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
 import { confirmAction } from "@/components/ui/confirm";
+import { GeneratedDocuments, type GeneratedDocument } from "@/components/assets/generated-documents";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { formatDate, formatDateTime, formatTerm, todayIso } from "@/lib/utils";
@@ -167,7 +168,10 @@ interface WarrantyItem {
   warranty_type: string;
   component: string | null;
   component_name: string | null;
+  /** Derived by the server from the dates and the asset: active, not_started, expired, ended… */
   status: string;
+  status_display?: string;
+  months?: number | null;
   start_date: string;
   end_date: string;
   coverage_details: string;
@@ -662,6 +666,8 @@ export default function AssetsPage() {
   // Moving an asset to "Assigned" must record who it went to: an internal
   // technician (from the manpower records) or an external vendor by hand.
   const [assignTechnician, setAssignTechnician] = useState("");
+  /** More hands on the installation: they check in and out; the installer works it. */
+  const [assignHelpers, setAssignHelpers] = useState<string[]>([]);
   // When the installation has to be finished — agreed as the job is handed out.
   const [assignDue, setAssignDue] = useState("");
   // The installing vendor, picked from the register kept under Vendors.
@@ -675,6 +681,8 @@ export default function AssetsPage() {
   const [warranties, setWarranties] = useState<WarrantyItem[]>([]);
   const [maintSchedules, setMaintSchedules] = useState<MaintenanceItem[]>([]);
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
+  // What the system printed for it: its PO, GRNs, work orders, issue slips, handover.
+  const [generated, setGenerated] = useState<GeneratedDocument[]>([]);
   const [uploadingDoc, setUploadingDoc] = useState(false);
 
   /** Put a file on the asset's record. The title is the file's own name —
@@ -807,6 +815,8 @@ export default function AssetsPage() {
   const router = useRouter();
 
   async function fetchRelatedData(deviceId: string) {
+    api.get(`/assets/devices/${deviceId}/generated-documents/`)
+      .then((r) => setGenerated(r.data)).catch(() => setGenerated([]));
     const [warRes, maintRes, docRes, tickRes, instRes] = await Promise.allSettled([
       api.get("/warranties/", { params: { device: deviceId } }),
       api.get("/maintenance/schedules/", { params: { device: deviceId } }),
@@ -1005,6 +1015,7 @@ export default function AssetsPage() {
     setTransitionReason("");
     clearActivePhotos();
     setAssignTechnician("");
+    setAssignHelpers([]);
     setAssignDue("");
     setAssignVendorId("");
     setAssignSite("");
@@ -1025,6 +1036,7 @@ export default function AssetsPage() {
         status: "assigned",
         reason: "Assigned for installation",
         assigned_technician: assignTechnician,
+        helpers: assignHelpers.filter((h) => h !== assignTechnician),
         // The date the installation has to be finished by.
         installation_date: assignDue,
         ...(assignSite ? { current_site: assignSite } : {}),
@@ -1080,6 +1092,7 @@ export default function AssetsPage() {
         ...(assigning
           ? {
               assigned_technician: assignTechnician,
+              helpers: assignHelpers.filter((h) => h !== assignTechnician),
               ...(assignDue ? { installation_date: assignDue } : {}),
               ...(assignSite ? { current_site: assignSite } : {}),
               ...(turnkey
@@ -1554,7 +1567,7 @@ export default function AssetsPage() {
                   { key: "overview", label: "Product Details" },
                   { key: "warranties", label: "Warranties", count: warranties.length },
                   { key: "costs", label: "Costs & Pricing" },
-                  { key: "documents", label: "Documents", count: documents.length },
+                  { key: "documents", label: "Documents", count: documents.length + generated.length },
                   { key: "maintenance", label: "Maintenance History", count: maintSchedules.length },
                 ]}
                 active={detailTab}
@@ -1640,6 +1653,12 @@ export default function AssetsPage() {
                                           <option key={t.id} value={t.id}>{t.label}</option>
                                         ))}
                                       </select>
+                                      <MultiSelect
+                                        options={technicians.filter((t) => t.id !== assignTechnician)}
+                                        values={assignHelpers.filter((h) => h !== assignTechnician)}
+                                        onChange={setAssignHelpers}
+                                        placeholder="Helpers (optional) - check in and out only"
+                                      />
                                       <p className="text-2xs text-muted-foreground">
                                         {d.source === "vendor_turnkey"
                                           ? "The vendor supplies and installs it; our technician oversees."
@@ -2092,14 +2111,19 @@ export default function AssetsPage() {
                       {installation ? (
                         <div className="rounded-xl border border-border p-4">
                           <div className="flex flex-wrap items-start justify-between gap-3">
-                            <dl className="grid flex-1 gap-3 text-xs sm:grid-cols-4">
+                            <dl className="grid flex-1 gap-3 text-xs sm:grid-cols-[repeat(auto-fill,minmax(9rem,1fr))]">
                               <div>
                                 <dt className="text-2xs uppercase tracking-wider text-muted-foreground">Site</dt>
-                                <dd className="text-foreground">{installation.site_name ?? "—"}</dd>
+                                <dd className="text-foreground">{installation.site_name ?? d.site_name ?? "—"}</dd>
+                              </div>
+                              <div>
+                                <dt className="text-2xs uppercase tracking-wider text-muted-foreground">Client</dt>
+                                <dd className="text-foreground">{(d.client_names ?? []).length > 0 ? d.client_names.join(", ") : d.client_name ?? "—"}</dd>
                               </div>
                               <div>
                                 <dt className="text-2xs uppercase tracking-wider text-muted-foreground">Technician</dt>
-                                <dd className="text-foreground">{installation.installed_by_name || installation.vendor_display || "—"}</dd>
+                                <dd className="text-foreground">{d.assigned_to_display ?? installation.installed_by_name ?? installation.vendor_display ?? "—"}</dd>
+                                {d.technician_phone && <dd className="text-2xs text-muted-foreground">{d.technician_phone}</dd>}
                               </div>
                               <div>
                                 <dt className="text-2xs uppercase tracking-wider text-muted-foreground">Due</dt>
@@ -2181,6 +2205,12 @@ export default function AssetsPage() {
                               {technicians.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
                             </select>
                           </div>
+                          <MultiSelect
+                            options={technicians.filter((t) => t.id !== assignTechnician)}
+                            values={assignHelpers.filter((h) => h !== assignTechnician)}
+                            onChange={setAssignHelpers}
+                            placeholder="Helpers (optional) - check in and out only"
+                          />
                           {d.source === "vendor_turnkey" && (
                             <div className="grid gap-2 sm:grid-cols-2">
                               <select
@@ -2377,23 +2407,6 @@ export default function AssetsPage() {
                         </div>
                       );
                     })()}
-                    <div>
-                      <h4 className="text-sm font-semibold text-foreground mb-3">Assignment for Installation</h4>
-                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                        <InfoCard label="Site" value={d.site_name} />
-                        <InfoCard label="Client" value={(d.client_names ?? []).length > 0 ? d.client_names.join(", ") : d.client_name} />
-                        <div className="rounded-lg bg-secondary/30 px-4 py-3">
-                          <p className="mb-1 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Assigned To</p>
-                          <p className="text-sm font-medium text-foreground">
-                            {d.assigned_to_display ?? d.technician_name ?? "—"}
-                          </p>
-                          {d.technician_phone && (
-                            <p className="text-2xs text-muted-foreground">{d.technician_phone}</p>
-                          )}
-                        </div>
-                        <InfoCard label="Installation Date" value={d.installation_date ? formatDate(d.installation_date) : null} />
-                      </div>
-                    </div>
                     {d.notes && (
                       <div>
                         <h4 className="text-sm font-semibold text-foreground mb-2">Notes</h4>
@@ -2439,8 +2452,13 @@ export default function AssetsPage() {
                                 <h4 className="text-sm font-semibold text-foreground">
                                   {w.component_name ?? (WARRANTY_TYPE_LABELS[w.warranty_type] ?? w.warranty_type)}
                                 </h4>
-                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-2xs font-medium ${w.is_expired ? "bg-red-500/10 text-red-600" : "bg-green-500/10 text-green-600"}`}>
-                                  {w.is_expired ? "Expired" : "Active"}
+                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-2xs font-medium ${
+                                  w.is_expired ? "bg-red-500/10 text-red-600"
+                                    : w.status === "extended" ? "bg-violet-500/10 text-violet-600 dark:text-violet-400"
+                                    : w.status === "active" ? "bg-green-500/10 text-green-600"
+                                      : "bg-secondary text-muted-foreground"
+                                }`}>
+                                  {w.status_display ?? (w.is_expired ? "Expired" : "Active")}
                                 </span>
                                 {w.component_name && (
                                   <span className="rounded-full bg-secondary px-2 py-0.5 text-2xs text-muted-foreground">
@@ -2452,7 +2470,10 @@ export default function AssetsPage() {
                               <p className="text-xs text-muted-foreground">{w.coverage_details || "Comprehensive coverage"}</p>
                               <div className="flex items-center gap-4 mt-2">
                                 <span className="text-2xs text-muted-foreground">
-                                  <Calendar className="inline h-3 w-3 mr-1" />{formatDate(w.start_date)} → {formatDate(w.end_date)}
+                                  <Calendar className="inline h-3 w-3 mr-1" />
+                                  {w.status === "not_started" && w.warranty_type === "client"
+                                    ? `${w.months ?? "—"} months from the day the asset goes live`
+                                    : `${formatDate(w.start_date)} → ${formatDate(w.end_date)}`}
                                 </span>
                                 {w.reference_number && <span className="text-2xs text-muted-foreground">Ref: {w.reference_number}</span>}
                               </div>
@@ -2489,8 +2510,13 @@ export default function AssetsPage() {
                                 <h4 className="text-sm font-semibold text-foreground">
                                   {w.component_name ?? (WARRANTY_TYPE_LABELS[w.warranty_type] ?? w.warranty_type)}
                                 </h4>
-                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-2xs font-medium ${w.is_expired ? "bg-red-500/10 text-red-600" : "bg-green-500/10 text-green-600"}`}>
-                                  {w.is_expired ? "Expired" : "Active"}
+                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-2xs font-medium ${
+                                  w.is_expired ? "bg-red-500/10 text-red-600"
+                                    : w.status === "extended" ? "bg-violet-500/10 text-violet-600 dark:text-violet-400"
+                                    : w.status === "active" ? "bg-green-500/10 text-green-600"
+                                      : "bg-secondary text-muted-foreground"
+                                }`}>
+                                  {w.status_display ?? (w.is_expired ? "Expired" : "Active")}
                                 </span>
                                 {w.component_name && (
                                   <span className="rounded-full bg-secondary px-2 py-0.5 text-2xs text-muted-foreground">
@@ -2502,7 +2528,10 @@ export default function AssetsPage() {
                               <p className="text-xs text-muted-foreground">{w.coverage_details || "Comprehensive coverage"}</p>
                               <div className="flex items-center gap-4 mt-2">
                                 <span className="text-2xs text-muted-foreground">
-                                  <Calendar className="inline h-3 w-3 mr-1" />{formatDate(w.start_date)} → {formatDate(w.end_date)}
+                                  <Calendar className="inline h-3 w-3 mr-1" />
+                                  {w.status === "not_started" && w.warranty_type === "client"
+                                    ? `${w.months ?? "—"} months from the day the asset goes live`
+                                    : `${formatDate(w.start_date)} → ${formatDate(w.end_date)}`}
                                 </span>
                                 {w.reference_number && <span className="text-2xs text-muted-foreground">Ref: {w.reference_number}</span>}
                               </div>
@@ -2636,7 +2665,7 @@ export default function AssetsPage() {
                   <div className="space-y-4">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <p className="text-xs text-muted-foreground">
-                        Invoices, warranty cards, site permissions — anything that belongs with this asset.
+                        Its purchase order, goods received notes, work orders, issue slips and handover - and anything uploaded: invoices, warranty cards, site permissions.
                       </p>
                       <label className={`inline-flex h-9 cursor-pointer items-center gap-2 rounded-lg bg-primary px-3.5 text-xs font-semibold text-white transition-colors hover:bg-primary/90 ${
                         uploadingDoc ? "pointer-events-none opacity-60" : ""
@@ -2651,8 +2680,12 @@ export default function AssetsPage() {
                         />
                       </label>
                     </div>
+                    <GeneratedDocuments docs={generated} />
                     {documents.length > 0 ? (
                       <div className="space-y-2">
+                        {generated.length > 0 && (
+                          <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">Uploaded</p>
+                        )}
                         {documents.map((doc) => (
                           <div key={doc.id} className="flex items-center gap-3 rounded-lg border border-border p-3 hover:bg-secondary/30 transition-colors">
                             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-500/10">
@@ -2671,7 +2704,7 @@ export default function AssetsPage() {
                         ))}
                       </div>
                     ) : (
-                      <EmptyState icon={<FileText className="h-10 w-10" />} text="No documents uploaded for this device." />
+                      generated.length === 0 && <EmptyState icon={<FileText className="h-10 w-10" />} text="No documents uploaded for this device." />
                     )}
                   </div>
                 )}
@@ -2942,7 +2975,7 @@ export default function AssetsPage() {
           { key: "asset_type", label: "Type", options: Array.from(new Set(devices.map((d) => d.asset_type_name).filter(Boolean))).sort().map((t) => ({ value: t as string, label: t as string })) },
           { key: "client", label: "Client", options: Array.from(new Set(devices.flatMap((d) => (d.client_names ?? []).length > 0 ? d.client_names : d.client_name ? [d.client_name] : []))).sort().map((c) => ({ value: c, label: c })) },
           { key: "site", label: "Site", options: Array.from(new Set(devices.map((d) => d.site_name).filter(Boolean))).sort().map((s) => ({ value: s as string, label: s as string })) },
-          { key: "warranty", label: "Warranty", options: [{ value: "active", label: "Under Warranty" }, { value: "expired", label: "Expired" }, { value: "none", label: "No Warranty" }] },
+          { key: "warranty", label: "Warranty", options: [{ value: "active", label: "Under Warranty" }, { value: "not_started", label: "Not started" }, { value: "expired", label: "Expired" }, { value: "none", label: "No Warranty" }] },
         ]}
         values={filterValues}
         onChange={(k, v) => setFilterValues((prev) => ({
@@ -3040,6 +3073,8 @@ export default function AssetsPage() {
                         <span className="inline-flex rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-500 ring-1 ring-emerald-500/20">Under Warranty</span>
                       ) : d.warranty_status === "expired" ? (
                         <span className="inline-flex rounded-full bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-500 ring-1 ring-red-500/20">Expired</span>
+                      ) : d.warranty_status === "not_started" ? (
+                        <span className="inline-flex rounded-full bg-secondary px-2 py-0.5 text-xs font-medium text-muted-foreground ring-1 ring-border" title="Runs from the day the asset goes live">Not started</span>
                       ) : (
                         <span className="text-xs text-muted-foreground">—</span>
                       )}
@@ -3341,14 +3376,6 @@ function MetaField({ label, value, mono, highlight, capitalize: cap }: { label: 
   );
 }
 
-function InfoCard({ label, value }: { label: string; value: string | null | undefined }) {
-  return (
-    <div className="rounded-lg bg-secondary/30 px-4 py-3">
-      <p className="text-2xs font-medium uppercase tracking-wider text-muted-foreground mb-1">{label}</p>
-      <p className="text-sm font-medium text-foreground">{value || "—"}</p>
-    </div>
-  );
-}
 
 function OverviewRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: string | null | undefined }) {
   return (

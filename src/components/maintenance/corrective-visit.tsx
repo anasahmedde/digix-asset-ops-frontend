@@ -12,6 +12,7 @@ import { getApiError } from "@/lib/api-error";
 import { Lightbox } from "@/components/ui/lightbox";
 import { useUser } from "@/lib/user-context";
 import { Modal } from "@/components/ui/modal";
+import { MultiSelect } from "@/components/ui/multi-select";
 import { formatDate, formatDateTime, todayIso } from "@/lib/utils";
 
 /** A photograph taken on a visit, and what it is a photograph of. */
@@ -47,6 +48,9 @@ export interface CorrectiveVisitRow {
   due_date: string;
   assigned_to: string | null;
   assigned_to_name: string | null;
+  /** More hands on the visit: they check in and out; the technician works it. */
+  helpers?: string[];
+  helper_names?: string[];
   status: string;
   status_display: string;
   started_at: string | null;
@@ -68,9 +72,17 @@ export interface CorrectiveVisitRow {
   visit_photos: VisitPhoto[];
   has_before_photo: boolean;
   has_after_photo: boolean;
-  /** What the parts used are worth, at the store's prices. */
+  /** When the technician checked in for it, and out after it. */
+  on_site?: { checked_in_at: string; checked_out_at: string | null; offline: boolean } | null;
+  /** Bought on site by the technician, with the receipt and a photo. */
+  purchases?: {
+    id: string; description: string; quantity: number; amount: string; shop: string;
+    receipt: string; photo: string; bought_by_name: string | null; created_at: string;
+  }[];
+  /** What the parts used, and anything bought on site, are worth. */
   component_costs: {
-    part_request: string; description: string; quantity: string;
+    /** Null on a line bought on site, which has `purchase` instead. */
+    part_request: string | null; purchase?: string; description: string; quantity: string;
     /** Null when the store has no price on file for it. */
     unit_cost: string | null; amount: string;
   }[];
@@ -483,6 +495,7 @@ export function CorrectiveVisit({
   const [showing, setShowing] = useState<string | null>(null);
   const [assigning, setAssigning] = useState(false);
   const [tech, setTech] = useState("");
+  const [helpers, setHelpers] = useState<string[]>([]);
   const [completing, setCompleting] = useState(false);
   const [resolved, setResolved] = useState(true);
   /** A round has no fault to declare fixed; it just reports what was done. */
@@ -497,6 +510,8 @@ export function CorrectiveVisit({
   /** A price for a part the store has none on file for. */
   const [priced, setPriced] = useState<Record<string, string>>({});
   const [cancelling, setCancelling] = useState(false);
+  /** Helpers being changed on the open visit, while the dialog is up. */
+  const [crew, setCrew] = useState<string[] | null>(null);
   const [why, setWhy] = useState("");
   /** How much of each issued line the visit used, while the form is open. */
   const [used, setUsed] = useState<Record<string, number>>({});
@@ -521,7 +536,7 @@ export function CorrectiveVisit({
     (current?.component_costs ?? []).reduce(
       (n, c) => n + (c.unit_cost !== null
         ? Number(c.amount || 0)
-        : Number(priced[c.part_request] || 0) * Number(c.quantity || 0)),
+        : Number(priced[c.part_request ?? ""] || 0) * Number(c.quantity || 0)),
       0,
     )
     + extra.reduce((n, l) => n + Number(l.amount || 0), 0);
@@ -532,7 +547,7 @@ export function CorrectiveVisit({
     setBusy("assign");
     try {
       await api.post(`/maintenance/schedules/${scheduleId}/assign/`, {
-        technician: tech, due_date: dueDate,
+        technician: tech, due_date: dueDate, helpers: helpers.filter((h) => h !== tech),
       });
       setAssigning(false);
       setTech("");
@@ -730,6 +745,17 @@ export function CorrectiveVisit({
           <p className="mt-0.5 text-sm text-foreground">
             {current.assigned_to_name ?? "To be assigned"}
           </p>
+          {(current.helper_names ?? []).length > 0 && (
+            <p className="text-2xs text-muted-foreground">Helpers: {current.helper_names!.join(", ")}</p>
+          )}
+          {/* Whoever assigns the work can change the crew while it is open -
+              somebody joins halfway through, somebody is pulled off. */}
+          {can("assign_maintenance") && (current.status === "planned" || current.status === "in_progress") && (
+            <button type="button" onClick={() => setCrew(current.helpers ?? [])}
+              className="text-2xs font-medium text-primary hover:underline">
+              {(current.helper_names ?? []).length ? "Change helpers" : "Add helpers"}
+            </button>
+          )}
         </div>
         <div>
           <p className={label}>Started</p>
@@ -749,11 +775,20 @@ export function CorrectiveVisit({
           </p>
         </div>
       </div>
+      {current.on_site && (
+        <p className="mt-2 text-2xs text-muted-foreground">
+          Checked in {formatDateTime(current.on_site.checked_in_at)}
+          {current.on_site.checked_out_at
+            ? ` · Checked out ${formatDateTime(current.on_site.checked_out_at)}`
+            : " · still on site"}
+          {current.on_site.offline && " · recorded without signal, uploaded later"}
+        </p>
+      )}
 
       {(may("assign") || may("cancel")) && (
         <div className="mt-4 flex flex-wrap items-stretch gap-2 border-t border-border pt-4">
           {may("assign") && (
-            <button onClick={() => setAssigning(true)} disabled={busy !== null}
+            <button onClick={() => { setTech(current.assigned_to ?? ""); setHelpers(current.helpers ?? []); setAssigning(true); }} disabled={busy !== null}
               className={`${btn} bg-primary text-white hover:bg-primary/90`}>
               <UserPlus className="h-3.5 w-3.5" />
               {current.assigned_to ? "Reassign" : "Assign"}
@@ -778,6 +813,42 @@ export function CorrectiveVisit({
         askedForParts={askedForParts}
         onChanged={onChanged}
       />
+
+      {/* Bought on site: recorded from the field app with the receipt and a
+          photo of the part, and priced into the visit when it is accepted. */}
+      {(current.purchases ?? []).length > 0 && (
+        <div className="mt-4 border-t border-border pt-4">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <p className={label}>Bought on site</p>
+            <span className="text-xs font-medium tabular-nums text-foreground">
+              PKR {(current.purchases ?? []).reduce((n, p) => n + Number(p.amount || 0), 0)
+                .toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+          </div>
+          <div className="space-y-2">
+            {(current.purchases ?? []).map((p) => (
+              <div key={p.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-border p-2.5">
+                <button type="button" onClick={() => setShowing(p.photo)} title="Photo of the component"
+                  className="h-12 w-12 shrink-0 overflow-hidden rounded-md bg-secondary">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={p.photo} alt={p.description} className="h-full w-full object-cover" />
+                </button>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-foreground">{p.description}</p>
+                  <p className="text-2xs text-muted-foreground">
+                    {p.quantity} · PKR {Number(p.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {p.shop ? ` · ${p.shop}` : ""} · {p.bought_by_name ?? "—"}, {formatDateTime(p.created_at)}
+                  </p>
+                </div>
+                <a href={p.receipt} target="_blank" rel="noreferrer"
+                  className="shrink-0 text-2xs font-semibold text-primary hover:underline">
+                  Receipt
+                </a>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <WorkDone
         visit={current}
@@ -846,7 +917,7 @@ export function CorrectiveVisit({
 
       {current.review_decision && (
         <div className="mt-4 border-t border-border pt-4">
-          <p className={label}>Office</p>
+          <p className={label}>Office review</p>
           <p className="mt-0.5 text-sm text-foreground">
             {current.review_decision_display}
             {current.reviewed_by_name && (
@@ -875,6 +946,18 @@ export function CorrectiveVisit({
               {technicians.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
             </select>
           </div>
+          <div className="space-y-1">
+            <p className={label}>Helpers</p>
+            <MultiSelect
+              options={technicians.filter((t) => t.id !== tech)}
+              values={helpers.filter((h) => h !== tech)}
+              onChange={setHelpers}
+              placeholder="More hands on this visit (optional)"
+            />
+            <p className="text-2xs text-muted-foreground">
+              Helpers check in and check out at the site. The technician works the visit.
+            </p>
+          </div>
           <p className="text-2xs text-muted-foreground">
             Due {formatDate(dueDate)}, as set on the ticket.
           </p>
@@ -889,6 +972,44 @@ export function CorrectiveVisit({
             </button>
           </div>
         </form>
+      </Modal>
+
+      <Modal open={crew !== null} onClose={() => setCrew(null)} size="sm" title="Helpers on this visit">
+        <div className="space-y-4">
+          <MultiSelect
+            options={technicians.filter((t) => t.id !== current.assigned_to)}
+            values={crew ?? []}
+            onChange={setCrew}
+            placeholder="Who else is going (optional)"
+          />
+          <p className="text-2xs text-muted-foreground">
+            Helpers check in and check out at the site. {current.assigned_to_name ?? "The technician"} works the visit.
+            They go on to the next visit too if this one is sent back.
+          </p>
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => setCrew(null)}
+              className={`${btn} text-muted-foreground ring-1 ring-border hover:bg-secondary`}>
+              <X className="h-3.5 w-3.5" /> Cancel
+            </button>
+            <button type="button" disabled={busy === "crew"}
+              onClick={async () => {
+                setBusy("crew");
+                try {
+                  await api.post(`/maintenance/visits/${current.id}/helpers/`, { helpers: crew ?? [] });
+                  setCrew(null);
+                  onChanged();
+                  toast.success("Helpers saved");
+                } catch (err) {
+                  toast.error(getApiError(err, "Could not change the helpers"));
+                } finally {
+                  setBusy(null);
+                }
+              }}
+              className={`${btn} bg-primary text-white hover:bg-primary/90`}>
+              <Check className="h-3.5 w-3.5" /> Save
+            </button>
+          </div>
+        </div>
       </Modal>
 
       <Modal open={cancelling} onClose={() => setCancelling(false)} size="sm" title="Cancel this job">
@@ -1019,10 +1140,10 @@ export function CorrectiveVisit({
           <div className="space-y-1">
             <label htmlFor="visit-remarks" className={label}>
               {isCorrective ? "Remarks" : "Work done"}
-              {isCorrective && !resolved && <span className="text-red-500"> *</span>}
+              <span className="text-red-500"> *</span>
             </label>
             <textarea id="visit-remarks" value={remarks} onChange={(e) => setRemarks(e.target.value)}
-              rows={3} required={isCorrective && !resolved}
+              rows={3} required
               placeholder={
                 !isCorrective
                   ? "What was checked, cleaned or replaced, and anything observed"
@@ -1063,10 +1184,10 @@ export function CorrectiveVisit({
                 {(current.component_costs ?? []).length > 0 ? (
                   <div className="space-y-1">
                     {current.component_costs.map((c) => (
-                      <div key={c.part_request} className="flex items-center justify-between gap-3 text-xs">
+                      <div key={c.part_request ?? c.purchase} className="flex items-center justify-between gap-3 text-xs">
                         <span className="min-w-0 text-foreground">
                           {c.description}
-                          <span className="text-muted-foreground"> · {c.quantity} used</span>
+                          <span className="text-muted-foreground"> · {c.quantity} {c.purchase ? "bought" : "used"}</span>
                         </span>
                         {c.unit_cost !== null ? (
                           <span className="shrink-0 tabular-nums text-muted-foreground">
@@ -1080,9 +1201,9 @@ export function CorrectiveVisit({
                           <span className="flex shrink-0 items-center gap-1.5">
                             <span className="text-2xs text-amber-600">No price on file · PKR</span>
                             <input
-                              value={priced[c.part_request] ?? ""}
+                              value={priced[c.part_request ?? ""] ?? ""}
                               onChange={(e) => setPriced((cur) =>
-                                ({ ...cur, [c.part_request]: e.target.value }))}
+                                ({ ...cur, [c.part_request ?? ""]: e.target.value }))}
                               type="number" min={0} step="0.01" placeholder="each"
                               className="h-7 w-24 rounded-lg border border-border bg-card px-2 text-xs tabular-nums text-foreground focus:border-primary/50 focus:outline-none"
                             />

@@ -1332,3 +1332,17 @@ button.border-border:not(:disabled):hover {
 .dark .map-legend-status {
   color: hsl(215 15% 60%);
 }
+
+/* Amber status pills ("In progress", "On site", "Awaiting issue"…). A 10%
+   amber wash over the frosted blue-grey surfaces went muddy and the ring read
+   as a glow. One fill, one ink, one quiet ring - across all forty of them. */
+.bg-amber-500\/10.text-amber-600 {
+  background-color: rgb(254 243 199); /* amber-100 */
+  color: rgb(146 64 14); /* amber-800 */
+  --tw-ring-color: rgb(252 211 77 / 0.7); /* amber-300 */
+}
+.dark .bg-amber-500\/10.text-amber-600 {
+  background-color: rgb(245 158 11 / 0.16);
+  color: rgb(252 211 77); /* amber-300 */
+  --tw-ring-color: rgb(245 158 11 / 0.35);
+}
