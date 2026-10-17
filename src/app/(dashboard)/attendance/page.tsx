@@ -48,6 +48,8 @@ interface DutyRow {
   latitude: string | null;
   longitude: string | null;
   accuracy: number | null;
+  /** Started by a check-in at a job, not by pressing Time in. */
+  automatic?: boolean;
   recorded_offline?: boolean;
   uploaded_at?: string | null;
 }
@@ -61,6 +63,12 @@ function Place({ r }: { r: DutyRow | null }) {
   return (
     <span className="block">
       <span className="text-foreground">{formatDateTime(r.at)}</span>
+      {r.automatic && (
+        <span className="ml-2 inline-flex rounded-full bg-sky-500/10 px-2 py-0.5 text-2xs font-medium text-sky-600 ring-1 ring-sky-500/20"
+          title="Not timed in by hand: the check-in at a job started the day">
+          Automatic · at check-in
+        </span>
+      )}
       {r.recorded_offline && (
         <span className="ml-2 inline-flex rounded-full bg-amber-500/10 px-2 py-0.5 text-2xs font-medium text-amber-600 ring-1 ring-amber-500/20"
           title={r.uploaded_at ? `Uploaded ${formatDateTime(r.uploaded_at)}` : undefined}>
