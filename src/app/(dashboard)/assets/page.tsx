@@ -20,6 +20,7 @@ import { Modal } from "@/components/ui/modal";
 import { Qty } from "@/components/ui/qty";
 import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
 import { confirmAction } from "@/components/ui/confirm";
+import { GeneratedDocuments, type GeneratedDocument } from "@/components/assets/generated-documents";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { formatDate, formatDateTime, formatTerm, todayIso } from "@/lib/utils";
@@ -678,6 +679,8 @@ export default function AssetsPage() {
   const [warranties, setWarranties] = useState<WarrantyItem[]>([]);
   const [maintSchedules, setMaintSchedules] = useState<MaintenanceItem[]>([]);
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
+  // What the system printed for it: its PO, GRNs, work orders, issue slips, handover.
+  const [generated, setGenerated] = useState<GeneratedDocument[]>([]);
   const [uploadingDoc, setUploadingDoc] = useState(false);
 
   /** Put a file on the asset's record. The title is the file's own name —
@@ -810,6 +813,8 @@ export default function AssetsPage() {
   const router = useRouter();
 
   async function fetchRelatedData(deviceId: string) {
+    api.get(`/assets/devices/${deviceId}/generated-documents/`)
+      .then((r) => setGenerated(r.data)).catch(() => setGenerated([]));
     const [warRes, maintRes, docRes, tickRes, instRes] = await Promise.allSettled([
       api.get("/warranties/", { params: { device: deviceId } }),
       api.get("/maintenance/schedules/", { params: { device: deviceId } }),
@@ -1557,7 +1562,7 @@ export default function AssetsPage() {
                   { key: "overview", label: "Product Details" },
                   { key: "warranties", label: "Warranties", count: warranties.length },
                   { key: "costs", label: "Costs & Pricing" },
-                  { key: "documents", label: "Documents", count: documents.length },
+                  { key: "documents", label: "Documents", count: documents.length + generated.length },
                   { key: "maintenance", label: "Maintenance History", count: maintSchedules.length },
                 ]}
                 active={detailTab}
@@ -2643,7 +2648,7 @@ export default function AssetsPage() {
                   <div className="space-y-4">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <p className="text-xs text-muted-foreground">
-                        Invoices, warranty cards, site permissions — anything that belongs with this asset.
+                        Its purchase order, goods received notes, work orders, issue slips and handover - and anything uploaded: invoices, warranty cards, site permissions.
                       </p>
                       <label className={`inline-flex h-9 cursor-pointer items-center gap-2 rounded-lg bg-primary px-3.5 text-xs font-semibold text-white transition-colors hover:bg-primary/90 ${
                         uploadingDoc ? "pointer-events-none opacity-60" : ""
@@ -2658,8 +2663,12 @@ export default function AssetsPage() {
                         />
                       </label>
                     </div>
+                    <GeneratedDocuments docs={generated} />
                     {documents.length > 0 ? (
                       <div className="space-y-2">
+                        {generated.length > 0 && (
+                          <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">Uploaded</p>
+                        )}
                         {documents.map((doc) => (
                           <div key={doc.id} className="flex items-center gap-3 rounded-lg border border-border p-3 hover:bg-secondary/30 transition-colors">
                             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-500/10">
@@ -2678,7 +2687,7 @@ export default function AssetsPage() {
                         ))}
                       </div>
                     ) : (
-                      <EmptyState icon={<FileText className="h-10 w-10" />} text="No documents uploaded for this device." />
+                      generated.length === 0 && <EmptyState icon={<FileText className="h-10 w-10" />} text="No documents uploaded for this device." />
                     )}
                   </div>
                 )}
