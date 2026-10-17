@@ -12,8 +12,12 @@ import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
 
+import { GrnDownload } from "./grn-download";
+
 interface ReceiptLine {
   id: string;
+  /** The goods receipt this line arrived on. */
+  receipt: string;
   grn_number: string | null;
   po_number: string | null;
   supplier_name: string | null;
@@ -268,7 +272,12 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
               <tbody>
                 {pageSlice(sortRows(lines, sort, { source: (l) => l.supplier_name ?? l.source_display, component: (l) => l.known_component || l.material_name || l.device_model_name || l.po_item_description, serials: (l) => l.serial_numbers.length }), receivingPage).map((line) => (
                   <tr key={line.id} className="border-b border-border transition-colors hover:bg-secondary/30">
-                    <td className={`${tdClass} whitespace-nowrap font-mono text-foreground`}>{line.grn_number ?? "—"}</td>
+                    <td className={`${tdClass} whitespace-nowrap font-mono text-foreground`}>
+                      <span className="inline-flex items-center gap-1">
+                        {line.grn_number ?? "—"}
+                        <GrnDownload receiptId={line.receipt} grnNumber={line.grn_number} />
+                      </span>
+                    </td>
                     <td className={tdClass}>
                       {line.po_number ? (
                         <span>

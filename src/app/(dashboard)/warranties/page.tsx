@@ -86,6 +86,7 @@ const tdClass = "px-5 py-3.5";
 
 const STATUS_BADGES: Record<string, string> = {
   active: "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20",
+  extended: "bg-violet-500/10 text-violet-600 ring-violet-500/20 dark:text-violet-400",
   expired: "bg-red-500/10 text-red-600 ring-red-500/20",
   not_started: "bg-sky-500/10 text-sky-600 ring-sky-500/20",
   ended: "bg-secondary text-muted-foreground ring-border",
@@ -103,6 +104,7 @@ function dayAfter(iso?: string | null): string | undefined {
 
 const STATUS_LABELS: Record<string, string> = {
   active: "Active",
+  extended: "Extended",
   expired: "Expired",
   not_started: "Not started",
   ended: "Ended",
@@ -503,7 +505,7 @@ export default function WarrantiesPage() {
                     <td className={tdClass} onClick={(e) => e.stopPropagation()}>
                       {canEdit ? (
                         <div className="flex items-center gap-1">
-                          {["expired", "active"].includes(w.status) && (
+                          {["expired", "active", "extended"].includes(w.status) && (
                             <button
                               onClick={() => setExtendFor({
                                 endpoint: `/warranties/${w.id}/extend/`,
@@ -517,7 +519,7 @@ export default function WarrantiesPage() {
                               <CalendarPlus className="h-3.5 w-3.5" />
                             </button>
                           )}
-                          {w.warranty_type === "client" && ["expired", "active"].includes(w.status) && (
+                          {w.warranty_type === "client" && ["expired", "active", "extended"].includes(w.status) && (
                             <button
                               onClick={() => handleReissue(w)}
                               className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-primary"

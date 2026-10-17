@@ -1,6 +1,6 @@
 "use client";
 
-import { KeyRound, Pencil, Plus, Power, RotateCcw, ShieldCheck, Trash2, Users } from "lucide-react";
+import { KeyRound, Pencil, Plus, RotateCcw, ShieldCheck, Trash2, UserCheck, UserX, Users } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -387,8 +387,8 @@ export default function TeamsPage() {
                       </button>
                       {user.id !== me?.id && (
                         <>
-                          <button onClick={() => toggleActive(user)} className={`flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary ${user.is_active ? "hover:text-red-500" : "hover:text-emerald-500"}`} title={user.is_active ? "Deactivate account" : "Activate account"}>
-                            <Power className="h-3.5 w-3.5" />
+                          <button onClick={() => toggleActive(user)} className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors hover:bg-secondary ${user.is_active ? "text-muted-foreground hover:text-red-500" : "text-emerald-600 hover:text-emerald-500"}`} title={user.is_active ? "Deactivate account" : "Activate account"} aria-label={user.is_active ? "Deactivate account" : "Activate account"}>
+                            {user.is_active ? <UserX className="h-3.5 w-3.5" /> : <UserCheck className="h-3.5 w-3.5" />}
                           </button>
                           <button onClick={() => removeUser(user)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-destructive" title="Delete account">
                             <Trash2 className="h-3.5 w-3.5" />

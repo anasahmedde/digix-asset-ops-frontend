@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { Clock, Fingerprint, LogOut, MapPin, Users } from "lucide-react";
+import { Clock, Fingerprint, LogOut, MapPin, Timer, Users } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -33,8 +33,61 @@ interface AttendanceRow {
   site_name: string | null;
   note: string;
   created_at: string;
+  /** Kept on the phone without signal and sent later: created_at is when it happened. */
+  recorded_offline?: boolean;
+  uploaded_at?: string | null;
 }
 interface UserOpt { id: string; label: string }
+/** Time in / Time out from the field app. */
+interface DutyRow {
+  id: string;
+  user: string;
+  user_name: string;
+  kind: "time_in" | "time_out";
+  at: string;
+  latitude: string | null;
+  longitude: string | null;
+  accuracy: number | null;
+  /** Started by a check-in at a job, not by pressing Time in. */
+  automatic?: boolean;
+  recorded_offline?: boolean;
+  uploaded_at?: string | null;
+}
+/** One working day: a Time in and the Time out that ended it. */
+interface Shift { key: string; user_name: string; start: DutyRow | null; end: DutyRow | null }
+
+const localDay = (iso: string) => new Date(iso).toLocaleDateString("en-CA");
+
+function Place({ r }: { r: DutyRow | null }) {
+  if (!r) return <span className="text-muted-foreground">—</span>;
+  return (
+    <span className="block">
+      <span className="text-foreground">{formatDateTime(r.at)}</span>
+      {r.automatic && (
+        <span className="ml-2 inline-flex rounded-full bg-sky-500/10 px-2 py-0.5 text-2xs font-medium text-sky-600 ring-1 ring-sky-500/20"
+          title="Not timed in by hand: the check-in at a job started the day">
+          Automatic · at check-in
+        </span>
+      )}
+      {r.recorded_offline && (
+        <span className="ml-2 inline-flex rounded-full bg-amber-500/10 px-2 py-0.5 text-2xs font-medium text-amber-600 ring-1 ring-amber-500/20"
+          title={r.uploaded_at ? `Uploaded ${formatDateTime(r.uploaded_at)}` : undefined}>
+          Recorded offline
+        </span>
+      )}
+      <span className="block text-xs">
+        {r.latitude && r.longitude ? (
+          <a href={`https://www.google.com/maps?q=${r.latitude},${r.longitude}`} target="_blank" rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-primary hover:underline">
+            <MapPin className="h-3 w-3" />
+            {Number(r.latitude).toFixed(4)}, {Number(r.longitude).toFixed(4)}
+            {r.accuracy ? <span className="text-muted-foreground"> ±{Math.round(r.accuracy)} m</span> : null}
+          </a>
+        ) : <span className="text-muted-foreground">No location</span>}
+      </span>
+    </span>
+  );
+}
 
 const thClass = "px-5 py-3.5 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground";
 const tdClass = "px-5 py-3.5";
@@ -50,6 +103,8 @@ export default function AttendancePage() {
   const [userId, setUserId] = useState("");
   const [checkType, setCheckType] = useState("");
   const [date, setDate] = useState("");
+  const [duty, setDuty] = useState<DutyRow[]>([]);
+  const [shiftPage, setShiftPage] = useState(1);
 
   const fetchRecords = useCallback(async () => {
     setLoading(true);
@@ -79,6 +134,31 @@ export default function AttendancePage() {
       .catch(() => {});
   }, []);
 
+  useEffect(() => {
+    // Only the person's supervisor and the office get rows back.
+    api.get("/attendance/duty/", { params: { ordering: "at", page_size: 1000, ...(userId ? { user: userId } : {}) } })
+      .then((r) => setDuty(r.data.results ?? r.data))
+      .catch(() => setDuty([]));
+  }, [userId]);
+
+  const shifts = useMemo(() => {
+    const open: Record<string, Shift> = {};
+    const out: Shift[] = [];
+    for (const r of duty) {
+      if (r.kind === "time_in") {
+        const s: Shift = { key: r.id, user_name: r.user_name, start: r, end: null };
+        open[r.user] = s;
+        out.push(s);
+      } else if (open[r.user]) {
+        open[r.user].end = r;
+        delete open[r.user];
+      } else {
+        out.push({ key: r.id, user_name: r.user_name, start: null, end: r });
+      }
+    }
+    return out.reverse().filter((s) => !date || localDay((s.start ?? s.end)!.at) === date);
+  }, [duty, date]);
+
   const mapPoints = useMemo(() => records.filter((r) => r.latitude && r.longitude), [records]);
 
   return (
@@ -89,7 +169,7 @@ export default function AttendancePage() {
         </div>
         <div>
           <h1 className="text-2xl font-bold text-foreground">Attendance</h1>
-          <p className="text-muted-foreground">Field-staff GPS check-ins &amp; check-outs</p>
+          <p className="text-muted-foreground">Field staff Time in / Time out, and site check-ins</p>
         </div>
       </div>
 
@@ -125,6 +205,60 @@ export default function AttendancePage() {
           <button onClick={() => { setUserId(""); setCheckType(""); setDate(""); }} className="h-9 rounded-lg border border-border bg-card px-3 text-xs font-medium text-muted-foreground hover:text-foreground">Clear</button>
         )}
       </div>
+
+      {/* Time in / Time out */}
+      <div className="overflow-hidden rounded-xl border border-border bg-card">
+        <div className="flex flex-wrap items-center gap-2 border-b border-border px-5 py-4">
+          <Timer className="h-4 w-4 text-primary" />
+          <h2 className="text-sm font-semibold text-foreground">Time in / Time out</h2>
+          <span className="rounded-full bg-secondary px-2 py-0.5 text-2xs font-medium text-muted-foreground ring-1 ring-border">{shifts.length}</span>
+          <p className="w-full text-xs text-muted-foreground">
+            When and where field staff started and ended their day, from the field app. Shown to the person they report to and the office only.
+          </p>
+        </div>
+        {shifts.length === 0 ? (
+          <p className="p-8 text-center text-sm text-muted-foreground">No Time in yet for the staff you can see.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-secondary/50">
+                  <th className={thClass}>Staff</th>
+                  <th className={thClass}>Time in</th>
+                  <th className={thClass}>Time out</th>
+                  <th className={thClass}>On duty</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pageSlice(shifts, shiftPage).map((s) => {
+                  const mins = s.start && s.end ? Math.round((Date.parse(s.end.at) - Date.parse(s.start.at)) / 60000) : null;
+                  return (
+                    <tr key={s.key} className="border-b border-border align-top transition-colors hover:bg-secondary/30">
+                      <td className={`${tdClass} font-medium text-foreground`}>{s.user_name}</td>
+                      <td className={tdClass}><Place r={s.start} /></td>
+                      <td className={tdClass}>
+                        {s.end ? <Place r={s.end} /> : (
+                          <span className="inline-flex rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-medium text-emerald-600 ring-1 ring-emerald-500/20">
+                            Still timed in
+                          </span>
+                        )}
+                      </td>
+                      <td className={`${tdClass} whitespace-nowrap text-foreground`}>
+                        {mins === null ? "—" : `${Math.floor(mins / 60)} h ${mins % 60} min`}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <Pagination page={shiftPage} total={shifts.length} onPage={setShiftPage} noun="days" />
+          </div>
+        )}
+      </div>
+
+      <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+        <Fingerprint className="h-4 w-4 text-primary" /> Site check-ins
+      </h2>
 
       {/* Map */}
       <AttendanceMap points={mapPoints} />
@@ -162,7 +296,19 @@ export default function AttendancePage() {
                       </span>
                     </td>
                     <td className={`${tdClass} text-muted-foreground`}>{r.site_name || "—"}</td>
-                    <td className={`${tdClass} text-muted-foreground`}>{formatDateTime(r.created_at)}</td>
+                    <td className={`${tdClass} text-muted-foreground`}>
+                      {formatDateTime(r.created_at)}
+                      {/* Recorded on the phone without signal: the time is the
+                          phone's, and it reached us later. Worth a second look. */}
+                      {r.recorded_offline && (
+                        <span
+                          className="ml-2 inline-flex rounded-full bg-amber-500/10 px-2 py-0.5 text-2xs font-medium text-amber-600 ring-1 ring-amber-500/20"
+                          title={r.uploaded_at ? `Uploaded ${formatDateTime(r.uploaded_at)}` : undefined}
+                        >
+                          Recorded offline
+                        </span>
+                      )}
+                    </td>
                     <td className={`${tdClass} text-muted-foreground`}>
                       {r.latitude && r.longitude ? (
                         <a href={`https://www.google.com/maps?q=${r.latitude},${r.longitude}`} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">

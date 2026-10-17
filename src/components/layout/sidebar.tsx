@@ -3,9 +3,13 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import {
   AlertCircle,
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
   BarChart3,
   Building2,
   ChevronDown,
@@ -34,6 +38,8 @@ import {
   Fingerprint,
 } from "lucide-react";
 
+import api from "@/lib/api";
+import { getApiError } from "@/lib/api-error";
 import { useChatUnread } from "@/lib/chat-context";
 import { cn } from "@/lib/utils";
 import { useSidebar } from "@/lib/sidebar-context";
@@ -82,6 +88,17 @@ const navigation: NavItem[] = [
   { name: "Settings", href: "/settings", icon: Settings },
 ];
 
+/** The menu in the order the Administrator set: pages by address, top to
+ *  bottom. A page the saved order does not name yet goes after the rest. */
+function arrange(items: NavItem[], order: string[]): NavItem[] {
+  // ponytail: a new module lands at the bottom until the order is saved again.
+  const rank = (item: NavItem, n: number) => {
+    const at = order.indexOf(item.href);
+    return at >= 0 ? at : order.length + n;
+  };
+  return items.map((item, n) => ({ item, r: rank(item, n) })).sort((a, b) => a.r - b.r).map((x) => x.item);
+}
+
 export function Sidebar() {
   const pathname = usePathname();
   const { collapsed, mobileOpen, closeMobile, goHome } = useSidebar();
@@ -91,20 +108,58 @@ export function Sidebar() {
   // The rail unfolds while the pointer (or keyboard focus) is on it. Pinned
   // open, or open as a drawer on a phone, it stays unfolded.
   const [hovered, setHovered] = useState(false);
-  const open = !collapsed || hovered || mobileOpen;
-
   const { can } = useUser();
+  // The order of the modules: the same for everyone, arranged by the
+  // Administrator with the up and down arrows.
+  const [order, setOrder] = useState<string[]>([]);
+  const [draft, setDraft] = useState<string[] | null>(null);
+  const [saving, setSaving] = useState(false);
+  const arranging = draft !== null;
+  const mayArrange = can("manage_setup");
+  useEffect(() => {
+    api.get("/accounts/menu-order/").then((r) => setOrder(r.data.order ?? [])).catch(() => {});
+  }, []);
+  const open = !collapsed || hovered || mobileOpen || arranging;
+
   // The menu reads the same rule as the server: a capability. Rights are
   // editable per role and per person, so a menu that read role names went
   // stale the moment somebody's were adjusted.
   const show = (item: NavItem) => !item.capability || can(item.capability);
 
-  const visibleNav = navigation
+  const visibleNav = arrange(navigation, draft ?? order)
     .filter(show)
     .map((item) => (item.children ? { ...item, children: item.children.filter(show) } : item))
     .map((item) =>
       item.name === "Chat" ? { ...item, badge: totalUnread } : item
     );
+
+  /** One place up or down among the modules this person sees. */
+  function move(href: string, by: -1 | 1) {
+    setDraft((d) => {
+      const all = arrange(navigation, d ?? order).map((i) => i.href);
+      const seen = arrange(navigation, d ?? order).filter(show).map((i) => i.href);
+      const other = seen[seen.indexOf(href) + by];
+      if (!other) return d;
+      const a = all.indexOf(href);
+      const b = all.indexOf(other);
+      [all[a], all[b]] = [all[b], all[a]];
+      return all;
+    });
+  }
+
+  async function saveOrder(next: string[]) {
+    setSaving(true);
+    try {
+      const { data } = await api.put("/accounts/menu-order/", { order: next });
+      setOrder(data.order ?? []);
+      setDraft(null);
+      toast.success(next.length ? "Menu order saved" : "Menu back to the default order");
+    } catch (err) {
+      toast.error(getApiError(err, "Could not save the menu order"));
+    } finally {
+      setSaving(false);
+    }
+  }
 
   function checkActive(href: string): boolean {
     if (href === "/") return pathname === "/";
@@ -154,6 +209,26 @@ export function Sidebar() {
       </div>
 
       <nav className="no-scrollbar flex-1 overflow-y-auto px-3 py-4">
+        {arranging ? (
+          <ul className="space-y-0.5" aria-label="Arrange the menu">
+            {visibleNav.map((item, i) => (
+              <li key={item.name} className="flex items-center gap-2 rounded-xl px-3 py-1.5 text-sm font-medium text-sidebar-foreground ring-1 ring-border/60">
+                <item.icon className="h-[18px] w-[18px] shrink-0" />
+                <span className="flex-1 truncate">{item.name}</span>
+                <button type="button" onClick={() => move(item.href, -1)} disabled={i === 0}
+                  title={`Move ${item.name} up`} aria-label={`Move ${item.name} up`}
+                  className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent">
+                  <ArrowUp className="h-3.5 w-3.5" />
+                </button>
+                <button type="button" onClick={() => move(item.href, 1)} disabled={i === visibleNav.length - 1}
+                  title={`Move ${item.name} down`} aria-label={`Move ${item.name} down`}
+                  className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent">
+                  <ArrowDown className="h-3.5 w-3.5" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : (
         <ul className="space-y-0.5">
           {visibleNav.map((item) => {
             const isActive = checkActive(item.href);
@@ -253,9 +328,40 @@ export function Sidebar() {
             );
           })}
         </ul>
+        )}
       </nav>
 
-      <div className="shrink-0 border-t border-border/60 p-3">
+      <div className="shrink-0 space-y-1 border-t border-border/60 p-3">
+        {arranging ? (
+          <>
+            <p className="px-3 pb-1 text-2xs text-muted-foreground">The same order for everyone.</p>
+            <div className="flex gap-2">
+              <button onClick={() => setDraft(null)} disabled={saving}
+                className="flex-1 rounded-xl px-3 py-2 text-xs font-semibold text-muted-foreground ring-1 ring-border hover:bg-secondary">
+                Cancel
+              </button>
+              <button onClick={() => saveOrder(draft ?? [])} disabled={saving}
+                className="flex-1 rounded-xl bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90">
+                {saving ? "Saving…" : "Save order"}
+              </button>
+            </div>
+            {order.length > 0 && (
+              <button onClick={() => saveOrder([])} disabled={saving}
+                className="w-full rounded-xl px-3 py-1.5 text-2xs font-medium text-muted-foreground hover:text-foreground">
+                Reset to the default order
+              </button>
+            )}
+          </>
+        ) : mayArrange && (
+          <button
+            onClick={() => setDraft(arrange(navigation, order).map((i) => i.href))}
+            title={open ? undefined : "Arrange menu"}
+            className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-sidebar-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          >
+            <ArrowUpDown className="h-[18px] w-[18px] shrink-0" />
+            {open && <span className="whitespace-nowrap">Arrange menu</span>}
+          </button>
+        )}
         <button
           onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
           title={open ? undefined : "Theme"}

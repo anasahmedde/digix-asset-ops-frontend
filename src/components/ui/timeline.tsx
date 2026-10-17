@@ -42,11 +42,21 @@ export function timeAgo(iso: string): string {
   return then.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 }
 
-function dayLabel(iso: string): string {
+function dayLabel(iso: string, exact = false): string {
   const days = Math.round((startOfDay(new Date()).getTime() - startOfDay(new Date(iso)).getTime()) / 86400000);
-  if (days === 0) return "Today";
-  if (days === 1) return "Yesterday";
-  return new Date(iso).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+  const full = new Date(iso).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+  // An exact log names the date even for today: "Today" alone is ambiguous
+  // in a screenshot passed round a week later.
+  if (days === 0) return exact ? `Today · ${full}` : "Today";
+  if (days === 1) return exact ? `Yesterday · ${full}` : "Yesterday";
+  return full;
+}
+
+/** "17 Oct 2026, 2:32 PM" - when it happened, date and time, never "15 min ago". */
+function clockTime(iso: string): string {
+  return new Date(iso).toLocaleString(undefined, {
+    day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit",
+  });
 }
 
 /**
@@ -58,9 +68,14 @@ export function Timeline({
   items,
   compact = false,
   groupByDay = true,
+  // Every log reads as a record: the date and time, not "3 h ago".
+  exact = true,
   empty = "Nothing recorded yet.",
 }: {
   items: TimelineItem[];
+  /** Full dates on the day headings and the clock time on every line,
+   *  instead of "3 h ago" - for activity logs. */
+  exact?: boolean;
   /** Tighter spacing and one-line descriptions, for sidebars. */
   compact?: boolean;
   groupByDay?: boolean;
@@ -72,7 +87,7 @@ export function Timeline({
 
   const groups: { label: string; items: TimelineItem[] }[] = [];
   for (const item of items) {
-    const label = groupByDay && item.at ? dayLabel(item.at) : "";
+    const label = groupByDay && item.at ? dayLabel(item.at, exact) : "";
     const last = groups[groups.length - 1];
     if (last && last.label === label) last.items.push(item);
     else groups.push({ label, items: [item] });
@@ -114,7 +129,7 @@ export function Timeline({
                       <>
                         {" · "}
                         <time dateTime={item.at} title={new Date(item.at).toLocaleString()}>
-                          {timeAgo(item.at)}
+                          {exact ? clockTime(item.at) : timeAgo(item.at)}
                         </time>
                       </>
                     )}

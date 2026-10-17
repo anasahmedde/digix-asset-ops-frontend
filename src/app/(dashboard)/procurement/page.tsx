@@ -20,6 +20,7 @@ import { Qty } from "@/components/ui/qty";
 import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
 import { askReason, confirmAction } from "@/components/ui/confirm";
 import { WaitingOn } from "@/components/ui/waiting-on";
+import { GrnDownload } from "@/components/inventory/grn-download";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
@@ -1043,6 +1044,9 @@ export default function ProcurementPage() {
                                       {g.received_by_name && <span className="text-xs text-muted-foreground">by {g.received_by_name}</span>}
                                       <span className="text-xs text-muted-foreground">
                                         {g.lines.map((l) => `${l.quantity} × ${l.po_item_description ?? l.inventory_item_name ?? "item"}`).join(", ")}
+                                      </span>
+                                      <span className="ml-auto">
+                                        <GrnDownload receiptId={g.id} grnNumber={g.grn_number} label="Download GRN" />
                                       </span>
                                     </li>
                                   ))}
