@@ -52,9 +52,11 @@ function dayLabel(iso: string, exact = false): string {
   return full;
 }
 
-/** "2:32 PM" - the clock time of an event, for logs that must be exact. */
+/** "17 Oct 2026, 2:32 PM" - when it happened, date and time, never "15 min ago". */
 function clockTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return new Date(iso).toLocaleString(undefined, {
+    day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit",
+  });
 }
 
 /**
@@ -66,7 +68,8 @@ export function Timeline({
   items,
   compact = false,
   groupByDay = true,
-  exact = false,
+  // Every log reads as a record: the date and time, not "3 h ago".
+  exact = true,
   empty = "Nothing recorded yet.",
 }: {
   items: TimelineItem[];
