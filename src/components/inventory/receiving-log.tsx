@@ -9,9 +9,13 @@ import { getApiError } from "@/lib/api-error";
 import { Qty } from "@/components/ui/qty";
 import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
 
+import { GrnDownload } from "./grn-download";
+
 /** One inspected delivery line: what arrived, what was accepted, where it went. */
 interface ReceivedLine {
   id: string;
+  /** The goods receipt this line arrived on. */
+  receipt: string;
   grn_number: string;
   po_number: string | null;
   supplier_name: string | null;
@@ -194,7 +198,12 @@ export function ReceivingLog() {
                         <td className={`${tdClass} text-muted-foreground`}>
                           {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                         </td>
-                        <td className={`${tdClass} whitespace-nowrap font-mono text-foreground`}>{r.grn_number}</td>
+                        <td className={`${tdClass} whitespace-nowrap font-mono text-foreground`}>
+                          <span className="inline-flex items-center gap-1">
+                            {r.grn_number}
+                            <GrnDownload receiptId={r.receipt} grnNumber={r.grn_number} />
+                          </span>
+                        </td>
                         <td className={`${tdClass} text-muted-foreground`}>{r.inspected_at ? new Date(r.inspected_at).toLocaleDateString() : "—"}</td>
                         <td className={`${tdClass} text-foreground`}>{r.known_component ?? r.stocked_name ?? r.po_item_description ?? r.material_name ?? "—"}</td>
                         <td className={tdClass}>
