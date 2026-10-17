@@ -23,6 +23,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { ActivityPanel } from "@/components/activity-panel";
 import { PriceApprovals } from "@/components/procurement/price-approvals";
 import { ClientWarranties } from "@/components/projects/client-warranties";
 import { ProjectRequirements } from "@/components/projects/project-requirements";
@@ -1141,7 +1142,7 @@ export default function ProjectsPage() {
         </div>
 
         <div className="grid gap-6 xl:grid-cols-3">
-          <div className={`min-w-0 space-y-6 ${projectTab === "execution" ? "xl:col-span-2" : "xl:col-span-3"}`}>
+          <div className="min-w-0 space-y-6 xl:col-span-2">
             {projectTab === "planning" && (
               <>
             {/* Scope */}
@@ -1421,8 +1422,13 @@ export default function ProjectsPage() {
             )}
           </div>
 
-          {/* Right rail: milestones */}
+          {/* Right rail: the project's activity, on both tabs; milestones in execution */}
           <div className="space-y-4">
+            <ActivityPanel
+              endpoint={`/teams/projects/${detail.id}/activity/`}
+              // Anything the page reloads after an act, and the history follows it.
+              refreshKey={JSON.stringify([d.phase, d.status, d.budget, d.scope_items.map((it) => it.id), d.milestones.map((m) => m.completed_at)])}
+            />
             {projectTab === "execution" && (
               <>
             <div className="rounded-xl border border-border bg-card p-5">
