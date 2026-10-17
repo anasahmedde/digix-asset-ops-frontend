@@ -666,6 +666,8 @@ export default function AssetsPage() {
   // Moving an asset to "Assigned" must record who it went to: an internal
   // technician (from the manpower records) or an external vendor by hand.
   const [assignTechnician, setAssignTechnician] = useState("");
+  /** More hands on the installation: they check in and out; the installer works it. */
+  const [assignHelpers, setAssignHelpers] = useState<string[]>([]);
   // When the installation has to be finished — agreed as the job is handed out.
   const [assignDue, setAssignDue] = useState("");
   // The installing vendor, picked from the register kept under Vendors.
@@ -1013,6 +1015,7 @@ export default function AssetsPage() {
     setTransitionReason("");
     clearActivePhotos();
     setAssignTechnician("");
+    setAssignHelpers([]);
     setAssignDue("");
     setAssignVendorId("");
     setAssignSite("");
@@ -1033,6 +1036,7 @@ export default function AssetsPage() {
         status: "assigned",
         reason: "Assigned for installation",
         assigned_technician: assignTechnician,
+        helpers: assignHelpers.filter((h) => h !== assignTechnician),
         // The date the installation has to be finished by.
         installation_date: assignDue,
         ...(assignSite ? { current_site: assignSite } : {}),
@@ -1088,6 +1092,7 @@ export default function AssetsPage() {
         ...(assigning
           ? {
               assigned_technician: assignTechnician,
+              helpers: assignHelpers.filter((h) => h !== assignTechnician),
               ...(assignDue ? { installation_date: assignDue } : {}),
               ...(assignSite ? { current_site: assignSite } : {}),
               ...(turnkey
@@ -1648,6 +1653,12 @@ export default function AssetsPage() {
                                           <option key={t.id} value={t.id}>{t.label}</option>
                                         ))}
                                       </select>
+                                      <MultiSelect
+                                        options={technicians.filter((t) => t.id !== assignTechnician)}
+                                        values={assignHelpers.filter((h) => h !== assignTechnician)}
+                                        onChange={setAssignHelpers}
+                                        placeholder="Helpers (optional) - check in and out only"
+                                      />
                                       <p className="text-2xs text-muted-foreground">
                                         {d.source === "vendor_turnkey"
                                           ? "The vendor supplies and installs it; our technician oversees."
@@ -2194,6 +2205,12 @@ export default function AssetsPage() {
                               {technicians.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
                             </select>
                           </div>
+                          <MultiSelect
+                            options={technicians.filter((t) => t.id !== assignTechnician)}
+                            values={assignHelpers.filter((h) => h !== assignTechnician)}
+                            onChange={setAssignHelpers}
+                            placeholder="Helpers (optional) - check in and out only"
+                          />
                           {d.source === "vendor_turnkey" && (
                             <div className="grid gap-2 sm:grid-cols-2">
                               <select

@@ -510,6 +510,8 @@ export function CorrectiveVisit({
   /** A price for a part the store has none on file for. */
   const [priced, setPriced] = useState<Record<string, string>>({});
   const [cancelling, setCancelling] = useState(false);
+  /** Helpers being changed on the open visit, while the dialog is up. */
+  const [crew, setCrew] = useState<string[] | null>(null);
   const [why, setWhy] = useState("");
   /** How much of each issued line the visit used, while the form is open. */
   const [used, setUsed] = useState<Record<string, number>>({});
@@ -746,6 +748,14 @@ export function CorrectiveVisit({
           {(current.helper_names ?? []).length > 0 && (
             <p className="text-2xs text-muted-foreground">Helpers: {current.helper_names!.join(", ")}</p>
           )}
+          {/* Whoever assigns the work can change the crew while it is open -
+              somebody joins halfway through, somebody is pulled off. */}
+          {can("assign_maintenance") && (current.status === "planned" || current.status === "in_progress") && (
+            <button type="button" onClick={() => setCrew(current.helpers ?? [])}
+              className="text-2xs font-medium text-primary hover:underline">
+              {(current.helper_names ?? []).length ? "Change helpers" : "Add helpers"}
+            </button>
+          )}
         </div>
         <div>
           <p className={label}>Started</p>
@@ -962,6 +972,44 @@ export function CorrectiveVisit({
             </button>
           </div>
         </form>
+      </Modal>
+
+      <Modal open={crew !== null} onClose={() => setCrew(null)} size="sm" title="Helpers on this visit">
+        <div className="space-y-4">
+          <MultiSelect
+            options={technicians.filter((t) => t.id !== current.assigned_to)}
+            values={crew ?? []}
+            onChange={setCrew}
+            placeholder="Who else is going (optional)"
+          />
+          <p className="text-2xs text-muted-foreground">
+            Helpers check in and check out at the site. {current.assigned_to_name ?? "The technician"} works the visit.
+            They go on to the next visit too if this one is sent back.
+          </p>
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => setCrew(null)}
+              className={`${btn} text-muted-foreground ring-1 ring-border hover:bg-secondary`}>
+              <X className="h-3.5 w-3.5" /> Cancel
+            </button>
+            <button type="button" disabled={busy === "crew"}
+              onClick={async () => {
+                setBusy("crew");
+                try {
+                  await api.post(`/maintenance/visits/${current.id}/helpers/`, { helpers: crew ?? [] });
+                  setCrew(null);
+                  onChanged();
+                  toast.success("Helpers saved");
+                } catch (err) {
+                  toast.error(getApiError(err, "Could not change the helpers"));
+                } finally {
+                  setBusy(null);
+                }
+              }}
+              className={`${btn} bg-primary text-white hover:bg-primary/90`}>
+              <Check className="h-3.5 w-3.5" /> Save
+            </button>
+          </div>
+        </div>
       </Modal>
 
       <Modal open={cancelling} onClose={() => setCancelling(false)} size="sm" title="Cancel this job">
