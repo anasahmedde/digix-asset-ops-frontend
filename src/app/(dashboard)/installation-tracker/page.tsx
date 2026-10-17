@@ -29,6 +29,7 @@ import { Pagination, pageSlice } from "@/components/ui/pagination";
 import { CopyButton } from "@/components/ui/copy-button";
 import { DeviceImage } from "@/components/ui/device-image";
 import { Modal } from "@/components/ui/modal";
+import { MultiSelect } from "@/components/ui/multi-select";
 import { SearchSelect } from "@/components/ui/search-select";
 import { StatusBadge } from "@/components/ui/badge";
 import { FilterBar } from "@/components/ui/filter-bar";
@@ -99,6 +100,9 @@ interface Installation {
   installed_at: string;
   installed_by_name: string | null;
   installed_by_phone: string | null;
+  /** More hands on the job: they check in and out; the installer works the steps. */
+  helpers?: string[];
+  helper_names?: string[];
   installed_by_employee_id: string | null;
   installed_by_job_title: string | null;
   vendor: string | null;
@@ -370,6 +374,7 @@ export default function InstallationTrackerPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
   const [editInstaller, setEditInstaller] = useState("");
+  const [editHelpers, setEditHelpers] = useState<string[]>([]);
   const [templateBusy, setTemplateBusy] = useState(false);
   // The step currently being dragged, and the position it would drop into.
   const [dragStep, setDragStep] = useState<string | null>(null);
@@ -618,6 +623,7 @@ export default function InstallationTrackerPage() {
   function openEdit() {
     if (!selected) return;
     setEditInstaller(selected.installed_by ?? "");
+    setEditHelpers(selected.helpers ?? []);
     setEditVendor(selected.vendor ?? "");
     setEditOpen(true);
     loadFormOptions();
@@ -631,6 +637,7 @@ export default function InstallationTrackerPage() {
     try {
       await api.patch(`/sites/installations/${selected.id}/`, {
         installed_by: fd.get("installed_by") || null,
+        helpers: editHelpers.filter((h) => h !== (fd.get("installed_by") || "")),
         // Only a Vendor Supplied & Installed asset has an outside crew; on the
         // other routes our own technician installs it and there is no vendor.
         ...(selected.device_source === "vendor_turnkey"
@@ -1009,6 +1016,11 @@ export default function InstallationTrackerPage() {
                     )}
                     {selected.installed_by_phone && <span className="block text-xs text-muted-foreground">{selected.installed_by_phone}</span>}
                   </p>
+                  {(selected.helper_names ?? []).length > 0 && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Helpers: <span className="text-foreground">{selected.helper_names!.join(", ")}</span>
+                    </p>
+                  )}
                 </div>
                 <div>
                   {/* Only a turnkey asset is installed by a vendor. On the
@@ -1597,6 +1609,18 @@ export default function InstallationTrackerPage() {
                   name="installed_by"
                   placeholder="Search installer…"
                 />
+              </div>
+              <div className="sm:col-span-2">
+                <label className={createLabelClass}>Helpers</label>
+                <MultiSelect
+                  options={installerOptions.filter((o) => o.id !== editInstaller)}
+                  values={editHelpers.filter((h) => h !== editInstaller)}
+                  onChange={setEditHelpers}
+                  placeholder="More hands on this installation (optional)"
+                />
+                <p className="mt-1 text-2xs text-muted-foreground">
+                  Helpers check in and check out at the site from the field app. The installer works the steps.
+                </p>
               </div>
               {selected.device_source === "vendor_turnkey" && (
               <div>

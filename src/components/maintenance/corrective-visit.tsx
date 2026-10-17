@@ -12,6 +12,7 @@ import { getApiError } from "@/lib/api-error";
 import { Lightbox } from "@/components/ui/lightbox";
 import { useUser } from "@/lib/user-context";
 import { Modal } from "@/components/ui/modal";
+import { MultiSelect } from "@/components/ui/multi-select";
 import { formatDate, formatDateTime, todayIso } from "@/lib/utils";
 
 /** A photograph taken on a visit, and what it is a photograph of. */
@@ -47,6 +48,9 @@ export interface CorrectiveVisitRow {
   due_date: string;
   assigned_to: string | null;
   assigned_to_name: string | null;
+  /** More hands on the visit: they check in and out; the technician works it. */
+  helpers?: string[];
+  helper_names?: string[];
   status: string;
   status_display: string;
   started_at: string | null;
@@ -491,6 +495,7 @@ export function CorrectiveVisit({
   const [showing, setShowing] = useState<string | null>(null);
   const [assigning, setAssigning] = useState(false);
   const [tech, setTech] = useState("");
+  const [helpers, setHelpers] = useState<string[]>([]);
   const [completing, setCompleting] = useState(false);
   const [resolved, setResolved] = useState(true);
   /** A round has no fault to declare fixed; it just reports what was done. */
@@ -540,7 +545,7 @@ export function CorrectiveVisit({
     setBusy("assign");
     try {
       await api.post(`/maintenance/schedules/${scheduleId}/assign/`, {
-        technician: tech, due_date: dueDate,
+        technician: tech, due_date: dueDate, helpers: helpers.filter((h) => h !== tech),
       });
       setAssigning(false);
       setTech("");
@@ -738,6 +743,9 @@ export function CorrectiveVisit({
           <p className="mt-0.5 text-sm text-foreground">
             {current.assigned_to_name ?? "To be assigned"}
           </p>
+          {(current.helper_names ?? []).length > 0 && (
+            <p className="text-2xs text-muted-foreground">Helpers: {current.helper_names!.join(", ")}</p>
+          )}
         </div>
         <div>
           <p className={label}>Started</p>
@@ -770,7 +778,7 @@ export function CorrectiveVisit({
       {(may("assign") || may("cancel")) && (
         <div className="mt-4 flex flex-wrap items-stretch gap-2 border-t border-border pt-4">
           {may("assign") && (
-            <button onClick={() => setAssigning(true)} disabled={busy !== null}
+            <button onClick={() => { setTech(current.assigned_to ?? ""); setHelpers(current.helpers ?? []); setAssigning(true); }} disabled={busy !== null}
               className={`${btn} bg-primary text-white hover:bg-primary/90`}>
               <UserPlus className="h-3.5 w-3.5" />
               {current.assigned_to ? "Reassign" : "Assign"}
@@ -927,6 +935,18 @@ export function CorrectiveVisit({
               <option value="">Select a technician</option>
               {technicians.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
             </select>
+          </div>
+          <div className="space-y-1">
+            <p className={label}>Helpers</p>
+            <MultiSelect
+              options={technicians.filter((t) => t.id !== tech)}
+              values={helpers.filter((h) => h !== tech)}
+              onChange={setHelpers}
+              placeholder="More hands on this visit (optional)"
+            />
+            <p className="text-2xs text-muted-foreground">
+              Helpers check in and check out at the site. The technician works the visit.
+            </p>
           </div>
           <p className="text-2xs text-muted-foreground">
             Due {formatDate(dueDate)}, as set on the ticket.
