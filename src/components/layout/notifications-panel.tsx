@@ -97,7 +97,7 @@ function NotificationItem({ notif, onMarkRead, onClose }: {
   );
 }
 
-/** Every notification, in a panel that slides in from the left. */
+/** Every notification, in a panel that slides in from the right. */
 export function NotificationsPanel() {
   const { notifications, unreadCount, markRead, markAllRead, panelOpen, closePanel } = useNotifications();
 
@@ -119,7 +119,7 @@ export function NotificationsPanel() {
       <aside
         role="dialog"
         aria-label="Notifications"
-        className="fixed bottom-3 left-3 top-3 z-[61] flex w-[calc(100vw-1.5rem)] max-w-[420px] flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-float animate-in slide-in-from-left duration-200"
+        className="fixed bottom-3 right-3 top-3 z-[61] flex w-[calc(100vw-1.5rem)] max-w-[420px] flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-float animate-in slide-in-from-right duration-200"
       >
         <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
           <div className="flex items-center gap-2">
