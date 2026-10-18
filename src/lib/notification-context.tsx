@@ -99,11 +99,18 @@ export function useReloadOnNotice(about: (n: Notification) => boolean, reload: (
   const latest = useRef({ about, reload });
   latest.current = { about, reload };
   useEffect(() => {
+    // One decision saves several things; reload once for the burst.
+    let wait: ReturnType<typeof setTimeout> | null = null;
     const on = (e: Event) => {
-      if ((e as CustomEvent<Notification[]>).detail.some((n) => latest.current.about(n))) latest.current.reload();
+      if (!(e as CustomEvent<Notification[]>).detail.some((n) => latest.current.about(n))) return;
+      if (wait) clearTimeout(wait);
+      wait = setTimeout(() => latest.current.reload(), 400);
     };
     window.addEventListener(NOTICES_EVENT, on);
-    return () => window.removeEventListener(NOTICES_EVENT, on);
+    return () => {
+      window.removeEventListener(NOTICES_EVENT, on);
+      if (wait) clearTimeout(wait);
+    };
   }, []);
 }
 
@@ -177,6 +184,12 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       const raw = data as Record<string, unknown>;
 
       if (raw.type === "chat_message") return;
+
+      // Something on a project moved: whoever has it open reloads it.
+      if (raw.type === "changed") {
+        window.dispatchEvent(new CustomEvent(NOTICES_EVENT, { detail: [raw as unknown as Notification] }));
+        return;
+      }
 
       // Someone answered a request this person was also asked: it leaves the
       // bar, and the page showing it reloads.
