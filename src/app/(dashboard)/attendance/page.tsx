@@ -1,12 +1,11 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { Clock, Fingerprint, LogOut, MapPin, Timer, Users } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Clock, Fingerprint, MapPin, Timer, Users } from "lucide-react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { Pagination, pageSlice } from "@/components/ui/pagination";
-import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { formatDateTime, todayIso } from "@/lib/utils";
@@ -55,10 +54,18 @@ interface DutyRow {
 }
 /** One working day: a Time in and the Time out that ended it. */
 interface Shift { key: string; user_name: string; start: DutyRow | null; end: DutyRow | null }
+/** When and where something was stamped - a Time in, or a site check-in. */
+type Stamp = Pick<DutyRow, "at" | "latitude" | "longitude" | "accuracy" | "automatic" | "recorded_offline" | "uploaded_at">;
+/** One stay at a site: the check-in and the check-out that ended it. */
+interface Visit { key: string; user_name: string; site_name: string; day: string; came: Stamp | null; left: Stamp | null }
 
 const localDay = (iso: string) => new Date(iso).toLocaleDateString("en-CA");
+const stamp = (r: AttendanceRow): Stamp => ({ ...r, at: r.created_at });
+const span = (mins: number) => (mins < 60 ? `${mins} min` : `${Math.floor(mins / 60)} h ${mins % 60} min`);
+const dayTitle = (day: string) =>
+  new Date(`${day}T12:00:00`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
 
-function Place({ r }: { r: DutyRow | null }) {
+function Place({ r }: { r: Stamp | null }) {
   if (!r) return <span className="text-muted-foreground">—</span>;
   return (
     <span className="block">
@@ -96,12 +103,10 @@ const selectClass = "h-9 rounded-lg border border-border bg-card px-3 pr-8 text-
 export default function AttendancePage() {
   const [records, setRecords] = useState<AttendanceRow[]>([]);
   const [recordPage, setRecordPage] = useState(1);
-  const sort = useSortState();
   const [users, setUsers] = useState<UserOpt[]>([]);
   const [summary, setSummary] = useState({ count: 0, currently_in: 0 });
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState("");
-  const [checkType, setCheckType] = useState("");
   const [date, setDate] = useState("");
   const [duty, setDuty] = useState<DutyRow[]>([]);
   const [shiftPage, setShiftPage] = useState(1);
@@ -111,7 +116,6 @@ export default function AttendancePage() {
     try {
       const params: Record<string, unknown> = { ordering: "-created_at", page_size: 300 };
       if (userId) params.user = userId;
-      if (checkType) params.check_type = checkType;
       const { data } = await api.get("/attendance/records/", { params });
       let rows: AttendanceRow[] = data.results ?? data;
       if (date) rows = rows.filter((r) => r.created_at.slice(0, 10) === date);
@@ -121,7 +125,7 @@ export default function AttendancePage() {
     } finally {
       setLoading(false);
     }
-  }, [userId, checkType, date]);
+  }, [userId, date]);
 
   useEffect(() => {
     fetchRecords();
@@ -161,6 +165,33 @@ export default function AttendancePage() {
 
   const mapPoints = useMemo(() => records.filter((r) => r.latitude && r.longitude), [records]);
 
+  // A check-out closes that person's open stay at the same site; a stray
+  // check-out (its check-in fell outside the view) stands alone.
+  const visits = useMemo(() => {
+    const open: Record<string, Visit> = {};
+    const out: Visit[] = [];
+    for (const r of [...records].sort((a, b) => a.created_at.localeCompare(b.created_at))) {
+      const k = `${r.user}|${r.site ?? ""}`;
+      const base = { key: r.id, user_name: r.user_name, site_name: r.site_name || "—", day: localDay(r.created_at) };
+      if (r.check_type === "check_in") {
+        const v: Visit = { ...base, came: stamp(r), left: null };
+        open[k] = v;
+        out.push(v);
+      } else if (open[k]) {
+        open[k].left = stamp(r);
+        delete open[k];
+      } else {
+        out.push({ ...base, came: null, left: stamp(r) });
+      }
+    }
+    return out.reverse();
+  }, [records]);
+  const perDay = useMemo(() => {
+    const n: Record<string, number> = {};
+    for (const v of visits) n[v.day] = (n[v.day] ?? 0) + 1;
+    return n;
+  }, [visits]);
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
@@ -195,14 +226,9 @@ export default function AttendancePage() {
           <option value="">All staff</option>
           {users.map((u) => <option key={u.id} value={u.id}>{u.label}</option>)}
         </select>
-        <select value={checkType} onChange={(e) => setCheckType(e.target.value)} className={selectClass}>
-          <option value="">In &amp; Out</option>
-          <option value="check_in">Check In</option>
-          <option value="check_out">Check Out</option>
-        </select>
         <input type="date" value={date} max={todayIso()} onChange={(e) => setDate(e.target.value)} className={selectClass} />
-        {(userId || checkType || date) && (
-          <button onClick={() => { setUserId(""); setCheckType(""); setDate(""); }} className="h-9 rounded-lg border border-border bg-card px-3 text-xs font-medium text-muted-foreground hover:text-foreground">Clear</button>
+        {(userId || date) && (
+          <button onClick={() => { setUserId(""); setDate(""); }} className="h-9 rounded-lg border border-border bg-card px-3 text-xs font-medium text-muted-foreground hover:text-foreground">Clear</button>
         )}
       </div>
 
@@ -278,49 +304,48 @@ export default function AttendancePage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-secondary/50">
-                  <SortTh sort={sort} k="user_name" className={thClass}>Staff</SortTh>
-                  <SortTh sort={sort} k="check_type" className={thClass}>Type</SortTh>
-                  <SortTh sort={sort} k="site_name" className={thClass}>Site</SortTh>
-                  <SortTh sort={sort} k="created_at" className={thClass}>Time</SortTh>
-                  <th className={thClass}>Coordinates</th>
+                  <th className={thClass}>Staff</th>
+                  <th className={thClass}>Site</th>
+                  <th className={thClass}>Checked in</th>
+                  <th className={thClass}>Checked out</th>
+                  <th className={thClass}>On site</th>
                 </tr>
               </thead>
               <tbody>
-                {pageSlice(sortRows(records, sort), recordPage).map((r) => (
-                  <tr key={r.id} className="border-b border-border transition-colors hover:bg-secondary/30">
-                    <td className={`${tdClass} font-medium text-foreground`}>{r.user_name}</td>
-                    <td className={tdClass}>
-                      <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${r.check_type === "check_in" ? "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20" : "bg-slate-500/10 text-slate-600 ring-slate-500/20"}`}>
-                        {r.check_type === "check_in" ? <Fingerprint className="h-3 w-3" /> : <LogOut className="h-3 w-3" />}
-                        {r.check_type_display}
-                      </span>
-                    </td>
-                    <td className={`${tdClass} text-muted-foreground`}>{r.site_name || "—"}</td>
-                    <td className={`${tdClass} text-muted-foreground`}>
-                      {formatDateTime(r.created_at)}
-                      {/* Recorded on the phone without signal: the time is the
-                          phone's, and it reached us later. Worth a second look. */}
-                      {r.recorded_offline && (
-                        <span
-                          className="ml-2 inline-flex rounded-full bg-amber-500/10 px-2 py-0.5 text-2xs font-medium text-amber-600 ring-1 ring-amber-500/20"
-                          title={r.uploaded_at ? `Uploaded ${formatDateTime(r.uploaded_at)}` : undefined}
-                        >
-                          Recorded offline
-                        </span>
+                {pageSlice(visits, recordPage).map((v, i, page) => {
+                  const mins = v.came && v.left ? Math.round((Date.parse(v.left.at) - Date.parse(v.came.at)) / 60000) : null;
+                  return (
+                    <Fragment key={v.key}>
+                      {/* Each day starts a block: who went where that day reads at a glance. */}
+                      {(i === 0 || page[i - 1].day !== v.day) && (
+                        <tr className="border-b border-border bg-secondary/30">
+                          <td colSpan={5} className="px-5 py-2 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+                            {dayTitle(v.day)}
+                            <span className="ml-2 font-normal normal-case tracking-normal">
+                              {perDay[v.day]} visit{perDay[v.day] === 1 ? "" : "s"}
+                            </span>
+                          </td>
+                        </tr>
                       )}
-                    </td>
-                    <td className={`${tdClass} text-muted-foreground`}>
-                      {r.latitude && r.longitude ? (
-                        <a href={`https://www.google.com/maps?q=${r.latitude},${r.longitude}`} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
-                          {Number(r.latitude).toFixed(4)}, {Number(r.longitude).toFixed(4)}
-                        </a>
-                      ) : "—"}
-                    </td>
-                  </tr>
-                ))}
+                      <tr className="border-b border-border align-top transition-colors hover:bg-secondary/30">
+                        <td className={`${tdClass} font-medium text-foreground`}>{v.user_name}</td>
+                        <td className={`${tdClass} text-foreground`}>{v.site_name}</td>
+                        <td className={tdClass}>{v.came ? <Place r={v.came} /> : <span className="text-xs text-muted-foreground">Check-in not in view</span>}</td>
+                        <td className={tdClass}>
+                          {v.left ? <Place r={v.left} /> : (
+                            <span className="inline-flex rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-medium text-emerald-600 ring-1 ring-emerald-500/20">
+                              Still on site
+                            </span>
+                          )}
+                        </td>
+                        <td className={`${tdClass} whitespace-nowrap text-foreground`}>{mins === null ? "—" : span(mins)}</td>
+                      </tr>
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
-            <Pagination page={recordPage} total={records.length} onPage={setRecordPage} noun="records" />
+            <Pagination page={recordPage} total={visits.length} onPage={setRecordPage} noun="visits" />
           </div>
         </div>
       )}
