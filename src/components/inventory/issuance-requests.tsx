@@ -176,16 +176,19 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
   // Who takes the material away: one of the team, or someone named by hand.
   const [people, setPeople] = useState<{ id: string; name: string; label: string }[]>([]);
   const [receiverPick, setReceiverPick] = useState("");
-  useEffect(() => {
-    // Names only - the storekeeper may not hold "See team", and the full
-    // directory came back empty for them.
-    api.get("/accounts/users/names/")
-      .then((r) => {
-        const rows_: { id: string; name: string; role: string }[] = r.data;
-        setPeople(rows_.map((u) => ({ id: u.id, name: u.name, label: `${u.name} · ${u.role}` })));
-      })
-      .catch(() => {});
-  }, []);
+
+  /** Who may collect for this request: the team of its project's manager
+   *  (the whole team when it is for no project). Names only - the
+   *  storekeeper may not hold "See team". */
+  async function loadCollectors(row: RequestRow) {
+    try {
+      const { data } = await api.get("/accounts/users/names/", { params: { request: row.id } });
+      return (data as { id: string; name: string; role: string }[])
+        .map((u) => ({ id: u.id, name: u.name, label: `${u.name} · ${u.role}` }));
+    } catch {
+      return [];
+    }
+  }
 
   const fetchRows = useCallback(async () => {
     setLoading(true);
@@ -222,11 +225,13 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
 
   const waiting = rows.filter((r) => r.status === "pending" || r.status === "partial").length;
 
-  function openIssue(row: RequestRow) {
+  async function openIssue(row: RequestRow) {
     // Default to what can actually be covered right now.
     const possible = Math.min(row.outstanding_quantity, row.available_quantity ?? row.outstanding_quantity);
+    const team = await loadCollectors(row);
+    setPeople(team);
     // Whoever asked for it usually comes for it: they are picked to start with.
-    const asker = people.find((p) => p.name === row.requested_by_name)?.label ?? "";
+    const asker = team.find((p) => p.name === row.requested_by_name)?.label ?? "";
     const receiver = row.maintenance_assignee ?? asker;
     setIssue({
       quantity: String(Math.max(possible, 0)),
@@ -767,7 +772,11 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                   autoFocus
                 />
               )}
-              <p className="text-xs text-muted-foreground">The team as set up under Teams; pick “Someone else” for an outside collector.</p>
+              <p className="text-xs text-muted-foreground">
+                {issueFor.project_name
+                  ? `The project manager's team on ${issueFor.project_name}, as set up under Teams`
+                  : "The team as set up under Teams"}; pick “Someone else” for an outside collector.
+              </p>
               {!issue.received_by.trim() && (
                 <p className="text-xs font-medium text-amber-600">
                   Name who is collecting — stock cannot leave the store unaccounted for.
