@@ -70,6 +70,8 @@ export function StickyNotes() {
   const [tagged, setTagged] = useState<Person[]>([]);
   const [saving, setSaving] = useState(false);
   const [query, setQuery] = useState<string | null>(null);
+  // The note opened to read in full; the list shows two lines of each.
+  const [opened, setOpened] = useState<string | null>(null);
   const boxRef = useRef<HTMLTextAreaElement>(null);
 
   const load = useCallback(() => {
@@ -199,14 +201,24 @@ export function StickyNotes() {
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-[#163144]">
               {n.scope === "team" ? <MessageSquare className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
             </span>
-            <span className="min-w-0 flex-1">
-              <span className={cn("line-clamp-2 text-sm font-medium [overflow-wrap:anywhere]", n.done ? "text-white/40 line-through" : "text-white")}>
+            <button
+              type="button"
+              onClick={() => setOpened(opened === n.id ? null : n.id)}
+              aria-expanded={opened === n.id}
+              title={opened === n.id ? "Show less" : "Show the whole note"}
+              className="min-w-0 flex-1 text-left"
+            >
+              <span className={cn(
+                "block text-sm font-medium [overflow-wrap:anywhere]",
+                opened === n.id ? "whitespace-pre-line" : "line-clamp-2",
+                n.done ? "text-white/40 line-through" : "text-white",
+              )}>
                 {withTags(n.body, n.mentioned_names)}
               </span>
               <span className="block text-2xs text-white/45">
                 {board === "team" && n.author_name ? `${n.author_name} · ` : ""}{stamp(n.created_at)}
               </span>
-            </span>
+            </button>
             {n.mine && (
               <button
                 type="button"
