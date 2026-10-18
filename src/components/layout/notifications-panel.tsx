@@ -203,7 +203,7 @@ function IncomingCard({ notif }: { notif: Notification }) {
   }, [notif.id, waiting, dismissIncoming]);
 
   return (
-    <div className="pointer-events-auto flex overflow-hidden rounded-2xl border border-border bg-card shadow-float animate-in slide-in-from-left fade-in duration-300">
+    <div className="pointer-events-auto flex overflow-hidden rounded-2xl border border-border bg-card shadow-float animate-in slide-in-from-right fade-in duration-300">
       <span className={`w-1 shrink-0 ${colorOf(notif)}`} aria-hidden />
       <button onClick={openPanel} className="flex min-w-0 flex-1 items-start gap-3 px-3 py-3 text-left">
         <span className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white ${colorOf(notif)}`}>
@@ -225,12 +225,12 @@ function IncomingCard({ notif }: { notif: Notification }) {
   );
 }
 
-/** A notification as it arrives: a card from the top left. */
+/** A notification as it arrives: a card from the top right. */
 export function IncomingNotices() {
   const { incoming } = useNotifications();
   if (incoming.length === 0) return null;
   return (
-    <div aria-live="polite" className="pointer-events-none fixed left-3 top-3 z-[70] flex w-[calc(100vw-1.5rem)] max-w-[380px] flex-col gap-2">
+    <div aria-live="polite" className="pointer-events-none fixed right-3 top-3 z-[70] flex w-[calc(100vw-1.5rem)] max-w-[380px] flex-col gap-2">
       {incoming.map((n) => <IncomingCard key={n.id} notif={n} />)}
     </div>
   );
