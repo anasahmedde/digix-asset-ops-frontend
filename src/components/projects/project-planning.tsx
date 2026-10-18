@@ -88,6 +88,8 @@ interface Plan {
   decided_at: string | null;
   decision_notes: string;
   cost_types: string[];
+  /** Built in-house with no production cost in the estimate: it cannot go up. */
+  production_missing?: string[];
 }
 
 /** One line of the bill of quantities: a component summed across the project's assets. */
@@ -892,6 +894,14 @@ export function ProjectPlanning({
                   : "Build the estimate, then send it for approval. Execution opens once it is approved."}
               {plan.status === "submitted" && <> <WaitingOn refKey={`budget:${projectId}`} /></>}
             </p>
+            {(plan.production_missing ?? []).length > 0 && plan.status !== "approved" && (
+              <p className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700">
+                <span className="font-semibold">{plan.production_missing!.join(", ")}</span>{" "}
+                {plan.production_missing!.length === 1 ? "is" : "are"} built in-house but the estimate has no production cost
+                for {plan.production_missing!.length === 1 ? "it" : "them"}. Lay out the production route with the cost of each
+                operation on the asset - the budget cannot be sent or approved until then.
+              </p>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -926,7 +936,8 @@ export function ProjectPlanning({
             {editable && !(can("approve_budget") && user?.role !== "super_admin") && (
               <button
                 onClick={() => run(() => api.post(`/teams/projects/${projectId}/submit-budget/`, {}), "Sent for approval")}
-                disabled={busy || Number(plan.total) <= 0}
+                disabled={busy || Number(plan.total) <= 0 || (plan.production_missing ?? []).length > 0}
+                title={(plan.production_missing ?? []).length > 0 ? "An asset built in-house has no production cost yet" : undefined}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
               >
                 <Send className="h-3.5 w-3.5" /> Submit for approval
@@ -967,7 +978,8 @@ export function ProjectPlanning({
               <div className="flex gap-2">
                 <button
                   onClick={() => run(() => api.post(`/teams/projects/${projectId}/approve-budget/`, { notes: decisionNotes }), "Budget approved")}
-                  disabled={busy}
+                  disabled={busy || (plan.production_missing ?? []).length > 0}
+                  title={(plan.production_missing ?? []).length > 0 ? "An asset built in-house has no production cost - send it back" : undefined}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-emerald-700 disabled:opacity-50"
                 >
                   <CheckCircle2 className="h-3.5 w-3.5" /> Approve {money(plan.total)}
