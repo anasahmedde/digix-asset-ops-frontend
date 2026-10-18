@@ -922,7 +922,8 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                           : "The asset becomes Installed when the checklist is finished, and Active when the technician activates it."}
                     </p>
                   </>
-                ) : canDecide && ["in_production", "in_stock"].includes(asset.status) && (asset.vendor_asset || asset.route_complete) ? (
+                ) : canDecide && (asset.status === "in_stock" || (asset.status === "in_production" && (asset.vendor_asset || asset.route_complete))) ? (
+                  // In stock is ready to go out, built with a route or not.
                   <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
                     <p className="text-xs text-muted-foreground">
                       {asset.source === "vendor_turnkey"
