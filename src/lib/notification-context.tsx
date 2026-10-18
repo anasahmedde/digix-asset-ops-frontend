@@ -1,7 +1,6 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
 
 import api from "@/lib/api";
 import { WebSocketClient } from "@/lib/websocket";
@@ -32,6 +31,13 @@ interface NotificationContextValue {
   markRead: (id: string) => Promise<void>;
   markAllRead: () => Promise<void>;
   refresh: () => void;
+  /** The left panel listing every notification. */
+  panelOpen: boolean;
+  openPanel: () => void;
+  closePanel: () => void;
+  /** Just arrived: shown as cards at the top left until they time out. */
+  incoming: Notification[];
+  dismissIncoming: (id: string) => void;
 }
 
 const NotificationContext = createContext<NotificationContextValue>({
@@ -40,6 +46,11 @@ const NotificationContext = createContext<NotificationContextValue>({
   markRead: async () => {},
   markAllRead: async () => {},
   refresh: () => {},
+  panelOpen: false,
+  openPanel: () => {},
+  closePanel: () => {},
+  incoming: [],
+  dismissIncoming: () => {},
 });
 
 export function useNotifications() {
@@ -80,21 +91,27 @@ function getNotificationRoute(notif: Notification): string {
 
 export { getNotificationRoute };
 
-/** What the toast's button says, by what the notification asks for. */
-const ACTION_LABEL: Record<string, string> = {
-  ticket_review: "Review Now",
-  ticket_assigned: "View Ticket",
-  ticket_update: "View Ticket",
-  approval_requested: "Decide",
-  request_raised: "Answer",
-  work_assigned: "See the job",
-  alert: "View",
-};
-
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const wsRef = useRef<WebSocketClient | null>(null);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [incoming, setIncoming] = useState<Notification[]>([]);
+  // Read inside the socket handler, which is set up once.
+  const panelRef = useRef(false);
+
+  const openPanel = useCallback(() => {
+    panelRef.current = true;
+    setPanelOpen(true);
+    setIncoming([]);
+  }, []);
+  const closePanel = useCallback(() => {
+    panelRef.current = false;
+    setPanelOpen(false);
+  }, []);
+  const dismissIncoming = useCallback((id: string) => {
+    setIncoming((prev) => prev.filter((n) => n.id !== id));
+  }, []);
 
   const fetchNotifications = useCallback(async () => {
     try {
@@ -126,20 +143,9 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       setNotifications((prev) => [notification, ...prev].slice(0, 30));
       setUnreadCount((prev) => prev + 1);
 
-      const nType = notification.notification_type;
-      const route = getNotificationRoute(notification);
-      const open = { label: ACTION_LABEL[nType] ?? "Open", onClick: () => { window.location.href = route; } };
-      if (nType === "alert") {
-        const severity = (notification.data?.severity as string) || "info";
-        const method = severity === "critical" || severity === "error" ? toast.error : toast.warning;
-        method(notification.title, { description: notification.message, action: open, duration: 6000 });
-      } else if (nType !== "digest") {
-        toast(notification.title, {
-          description: notification.message,
-          action: open,
-          // Something waiting on this person stays up longer than news.
-          duration: notification.is_actionable ? 10000 : 8000,
-        });
+      // The newest on top, three at most; the panel, when open, already shows it.
+      if (notification.notification_type !== "digest" && !panelRef.current) {
+        setIncoming((prev) => [notification, ...prev.filter((n) => n.id !== notification.id)].slice(0, 3));
       }
     });
 
@@ -180,6 +186,11 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         markRead,
         markAllRead,
         refresh: fetchNotifications,
+        panelOpen,
+        openPanel,
+        closePanel,
+        incoming,
+        dismissIncoming,
       }}
     >
       {children}
