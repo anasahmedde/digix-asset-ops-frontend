@@ -8,6 +8,7 @@ import { Qty } from "@/components/ui/qty";
 import { confirmAction } from "@/components/ui/confirm";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
+import { aboutProject, useReloadOnNotice } from "@/lib/notification-context";
 import { useUser } from "@/lib/user-context";
 
 import { CostsHidden } from "./costs-hidden";
@@ -165,6 +166,7 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
   }, [projectId]);
 
   useEffect(() => { load(); }, [load]);
+  useReloadOnNotice(aboutProject(projectId), load);
 
   async function addUnplanned(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
