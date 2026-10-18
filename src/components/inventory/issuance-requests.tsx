@@ -13,6 +13,7 @@ import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
+import { formatDateTime } from "@/lib/utils";
 
 interface RequestRow {
   id: string;
@@ -173,16 +174,15 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
   const [issueFor, setIssueFor] = useState<RequestRow | null>(null);
   const [issue, setIssue] = useState({ quantity: "", received_by: "", notes: "" });
   // Who takes the material away: one of the team, or someone named by hand.
-  const [people, setPeople] = useState<{ id: string; label: string }[]>([]);
+  const [people, setPeople] = useState<{ id: string; name: string; label: string }[]>([]);
   const [receiverPick, setReceiverPick] = useState("");
   useEffect(() => {
-    api.get("/accounts/users/", { params: { is_active: true, page_size: 200 } })
+    // Names only - the storekeeper may not hold "See team", and the full
+    // directory came back empty for them.
+    api.get("/accounts/users/names/")
       .then((r) => {
-        const rows_: { id: string; full_name?: string; username: string; role?: string }[] = r.data.results ?? r.data;
-        setPeople(rows_.map((u) => ({
-          id: u.id,
-          label: `${(u.full_name || "").trim() || u.username}${u.role ? ` · ${u.role.replace(/_/g, " ")}` : ""}`,
-        })));
+        const rows_: { id: string; name: string; role: string }[] = r.data;
+        setPeople(rows_.map((u) => ({ id: u.id, name: u.name, label: `${u.name} · ${u.role}` })));
       })
       .catch(() => {});
   }, []);
@@ -225,12 +225,15 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
   function openIssue(row: RequestRow) {
     // Default to what can actually be covered right now.
     const possible = Math.min(row.outstanding_quantity, row.available_quantity ?? row.outstanding_quantity);
+    // Whoever asked for it usually comes for it: they are picked to start with.
+    const asker = people.find((p) => p.name === row.requested_by_name)?.label ?? "";
+    const receiver = row.maintenance_assignee ?? asker;
     setIssue({
       quantity: String(Math.max(possible, 0)),
-      received_by: row.maintenance_assignee ?? "",
+      received_by: receiver,
       notes: "",
     });
-    setReceiverPick(row.maintenance_assignee ?? "");
+    setReceiverPick(receiver);
     setIssueFor(row);
   }
 
@@ -672,6 +675,14 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
               <span className="font-medium text-foreground">{issueFor.what}</span> ·{" "}
               {issueFor.outstanding_quantity} owed · {issueFor.available_quantity ?? 0} in stock
             </p>
+            <p className="-mt-2 text-xs text-muted-foreground">
+              Requested by{" "}
+              <span className="font-medium text-foreground">{issueFor.requested_by_name ?? "—"}</span>
+              {" "}on {formatDateTime(issueFor.created_at)}
+              {(issueFor.asset_code || issueFor.project_name) && (
+                <> · for {[issueFor.asset_code, issueFor.project_name].filter(Boolean).join(" · ")}</>
+              )}
+            </p>
             <div className="space-y-1.5">
               <label htmlFor="issue-qty" className={labelClass}>Quantity to issue</label>
               <input
@@ -739,7 +750,11 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                 className={inputClass}
               >
                 <option value="">Who is taking it away… *</option>
-                {people.map((p) => <option key={p.id} value={p.label}>{p.label}</option>)}
+                {people.map((p) => (
+                  <option key={p.id} value={p.label}>
+                    {p.label}{p.name === issueFor.requested_by_name ? " (requested it)" : ""}
+                  </option>
+                ))}
                 <option value="__other__">Someone else…</option>
               </select>
               {receiverPick === "__other__" && (
