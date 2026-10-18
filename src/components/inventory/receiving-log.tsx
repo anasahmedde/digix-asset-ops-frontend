@@ -5,6 +5,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import api from "@/lib/api";
+import { linksTo, useReloadOnNotice } from "@/lib/notification-context";
 import { getApiError } from "@/lib/api-error";
 import { Qty } from "@/components/ui/qty";
 import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
@@ -94,6 +95,8 @@ export function ReceivingLog() {
   }, []);
 
   useEffect(() => { fetchRows(); }, [fetchRows]);
+  // Someone else received, issued or inspected: this list follows.
+  useReloadOnNotice(linksTo("/inventory"), fetchRows);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
