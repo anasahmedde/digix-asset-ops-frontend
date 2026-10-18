@@ -4,6 +4,7 @@ import { AlertTriangle, RotateCcw, ShieldCheck } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { confirmAction } from "@/components/ui/confirm";
 import { Modal } from "@/components/ui/modal";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
@@ -99,14 +100,41 @@ export function PermissionsDialog({
     return now.size !== was.size || [...now].some((k) => !was.has(k));
   }, [changes, snap]);
 
-  function toggle(key: string) {
+  /** Everything this right brings, followed through. */
+  function needs(key: string): Set<string> {
+    const out = new Set<string>();
+    const todo = [key];
+    while (todo.length) {
+      const at = todo.pop();
+      for (const k of catalogue.find((c) => c.key === at)?.requires ?? []) {
+        if (!out.has(k)) { out.add(k); todo.push(k); }
+      }
+    }
+    return out;
+  }
+
+  async function toggle(key: string) {
+    const isOn = allowed.has(key) || catalogue.some((x) => allowed.has(x.key) && needs(x.key).has(key));
+    if (!isOn) {
+      setAllowed((prev) => new Set([...prev, key, ...needs(key)]));
+      return;
+    }
+    // Rights that need this one go with it, after asking.
+    const goWith = catalogue.filter((c) => c.key !== key && allowed.has(c.key) && needs(c.key).has(key));
+    if (goWith.length > 0) {
+      const what = catalogue.find((c) => c.key === key)?.label ?? key;
+      const ok = await confirmAction({
+        title: `Untick ${what}?`,
+        message: `These need it, so they are unticked too: ${goWith.map((c) => c.label).join(", ")}.`,
+        confirmLabel: "Untick them all",
+        danger: true,
+      });
+      if (!ok) return;
+    }
     setAllowed((prev) => {
       const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else {
-        next.add(key);
-        catalogue.find((c) => c.key === key)?.requires?.forEach((k) => next.add(k));
-      }
+      next.delete(key);
+      goWith.forEach((c) => next.delete(c.key));
       return next;
     });
   }
@@ -187,8 +215,8 @@ export function PermissionsDialog({
                             id={`cap-${c.key}`}
                             type="checkbox"
                             checked={on}
-                            disabled={readOnly || by.length > 0 || (!!c.super_admin_only && !on)}
-                            title={by.length ? `Needed by ${by.join(", ")}` : undefined}
+                            disabled={readOnly || (!!c.super_admin_only && !on)}
+                            title={by.length ? `Needed by ${by.join(", ")} - unticking this unticks them too` : undefined}
                             onChange={() => toggle(c.key)}
                             className="mt-0.5 h-4 w-4 shrink-0 rounded border-border accent-[hsl(var(--primary))]"
                           />
