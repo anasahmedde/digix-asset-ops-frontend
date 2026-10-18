@@ -43,6 +43,7 @@ import { ProgressStepper } from "@/components/ui/progress-stepper";
 import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
 import { confirmAction } from "@/components/ui/confirm";
 import api from "@/lib/api";
+import { linksTo, useReloadOnNotice } from "@/lib/notification-context";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
 import { formatDateTime, formatDate, deadlineMin } from "@/lib/utils";
@@ -945,6 +946,7 @@ export default function TicketsPage() {
       setLoading(false);
     }
   }, []);
+  useReloadOnNotice(linksTo("/tickets"), fetchTickets);
 
   useEffect(() => { fetchTickets(); }, [fetchTickets]);
 

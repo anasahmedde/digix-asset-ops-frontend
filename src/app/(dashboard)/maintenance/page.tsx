@@ -10,6 +10,7 @@ import { FilterBar } from "@/components/ui/filter-bar";
 import { Pagination, pageSlice } from "@/components/ui/pagination";
 import { MultiSelect } from "@/components/ui/multi-select";
 import api from "@/lib/api";
+import { linksTo, useReloadOnNotice } from "@/lib/notification-context";
 import { getApiError } from "@/lib/api-error";
 import { ScheduleDetail } from "@/components/maintenance/schedule-detail";
 import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
@@ -177,6 +178,7 @@ export default function MaintenancePage() {
       setLoading(false);
     }
   }, []);
+  useReloadOnNotice(linksTo("/maintenance"), fetchSchedules);
 
   const loadOptions = useCallback(async () => {
     const [dev, users, sups] = await Promise.allSettled([

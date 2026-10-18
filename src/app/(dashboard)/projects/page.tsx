@@ -32,6 +32,7 @@ import { ProjectPlanning } from "@/components/projects/project-planning";
 import { ProjectActuals } from "@/components/projects/project-actuals";
 import { todayIso } from "@/lib/utils";
 import api from "@/lib/api";
+import { useReloadOnNotice } from "@/lib/notification-context";
 import { getApiError } from "@/lib/api-error";
 import { CURRENCIES } from "@/lib/currency";
 import { useUser } from "@/lib/user-context";
@@ -385,6 +386,12 @@ export default function ProjectsPage() {
     setProjectTab(key);
     if (openId) router.replace(`/projects?project=${openId}&tab=${key}`, { scroll: false });
   }
+
+  // A budget sent up or decided by someone else shows here without a refresh.
+  useReloadOnNotice(
+    (n) => !!openId && ((n.link ?? "").includes(openId) || n.data?.project === openId),
+    () => { if (openId) loadDetail(openId); },
+  );
 
   async function loadDetail(id: string) {
     try {
@@ -1262,7 +1269,7 @@ export default function ProjectsPage() {
             {/* The cost plan reads the scope above it, so it follows it. */}
             <div className="rounded-xl border border-border bg-card p-5">
               <h3 className="mb-3 text-sm font-semibold text-foreground">Budget and Costing — estimate &amp; approval</h3>
-              <ProjectPlanning projectId={detail.id} refreshKey={d.scope_items.map((it) => it.id).join(",")} onGoToExecution={() => chooseTab("execution")} onChanged={() => loadDetail(detail.id)} />
+              <ProjectPlanning projectId={detail.id} refreshKey={`${detailVersion}:${d.scope_items.map((it) => it.id).join(",")}`} onGoToExecution={() => chooseTab("execution")} onChanged={() => loadDetail(detail.id)} />
             </div>
 
               </>
@@ -1429,7 +1436,7 @@ export default function ProjectsPage() {
             <ActivityPanel
               endpoint={`/teams/projects/${detail.id}/activity/`}
               // Anything the page reloads after an act, and the history follows it.
-              refreshKey={JSON.stringify([d.phase, d.status, d.budget, d.scope_items.map((it) => it.id), d.milestones.map((m) => m.completed_at)])}
+              refreshKey={JSON.stringify([detailVersion, d.phase, d.status, d.budget, d.scope_items.map((it) => it.id), d.milestones.map((m) => m.completed_at)])}
             />
             {projectTab === "execution" && (
               <>

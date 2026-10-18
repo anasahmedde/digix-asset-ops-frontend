@@ -91,6 +91,25 @@ function getNotificationRoute(notif: Notification): string {
 
 export { getNotificationRoute };
 
+const NOTICES_EVENT = "digix:notices";
+
+/** Reload what is on screen when a notification about it arrives - a
+ *  budget sent up, a PO decided - so the page does not wait for a refresh. */
+export function useReloadOnNotice(about: (n: Notification) => boolean, reload: () => void) {
+  const latest = useRef({ about, reload });
+  latest.current = { about, reload };
+  useEffect(() => {
+    const on = (e: Event) => {
+      if ((e as CustomEvent<Notification[]>).detail.some((n) => latest.current.about(n))) latest.current.reload();
+    };
+    window.addEventListener(NOTICES_EVENT, on);
+    return () => window.removeEventListener(NOTICES_EVENT, on);
+  }, []);
+}
+
+/** A notification whose link lands on this section. */
+export const linksTo = (path: string) => (n: Notification) => (n.link ?? "").startsWith(path);
+
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -116,8 +135,10 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   // Every id this page has already shown, so a fetch can tell what is new.
   const seenRef = useRef<Set<string> | null>(null);
 
-  /** Show what arrived: a card at the top right, unless the panel is open. */
+  /** Show what arrived: a card at the top right, unless the panel is open;
+   *  and tell the page, which reloads if it is about what is on screen. */
   const announce = useCallback((fresh: Notification[]) => {
+    if (fresh.length) window.dispatchEvent(new CustomEvent(NOTICES_EVENT, { detail: fresh }));
     const shown = fresh.filter((n) => n.notification_type !== "digest");
     if (shown.length === 0 || panelRef.current) return;
     setIncoming((prev) => [...shown, ...prev.filter((p) => !shown.some((n) => n.id === p.id))].slice(0, 3));
