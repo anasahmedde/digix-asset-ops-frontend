@@ -717,7 +717,8 @@ export default function ProcurementPage() {
       : a.status === "draft" && po.status === "pending_approval" ? canApprove || canEdit
       : canEdit
     );
-    const receivable = RECEIVABLE_STATUSES.includes(po.status) && (canEdit || can("receive_goods"));
+    // Booking a delivery in is inspecting it: "Inspect deliveries".
+    const receivable = RECEIVABLE_STATUSES.includes(po.status) && can("inspect_goods");
     if (actions.length === 0 && !receivable) return null;
     if (actions.length === 0 && !receivable) return null;
     return (

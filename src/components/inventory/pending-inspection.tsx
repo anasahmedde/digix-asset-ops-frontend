@@ -9,6 +9,7 @@ import { Pagination, pageSlice } from "@/components/ui/pagination";
 import { Qty } from "@/components/ui/qty";
 import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
 import api from "@/lib/api";
+import { linksTo, useReloadOnNotice } from "@/lib/notification-context";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
 
@@ -64,7 +65,8 @@ const tdClass = "px-5 py-3.5";
 
 export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
   const { can } = useUser();
-  const canInspect = can("inspect_goods");
+  // Counting goods onto the shelf is "Receive into stock" - what the server asks for.
+  const canReceive = can("receive_goods");
 
   const [lines, setLines] = useState<ReceiptLine[]>([]);
   const sort = useSortState();
@@ -157,6 +159,8 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
   useEffect(() => {
     fetchLines();
   }, [fetchLines]);
+  // Someone else received, issued or inspected: this list follows.
+  useReloadOnNotice(linksTo("/inventory"), fetchLines);
 
   /** How many units of a line actually go onto the shelf. */
   function keptOf(line: ReceiptLine): number {
@@ -230,7 +234,7 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
           Procurement; a part back from a project or a maintenance job is taken in whole. The only
           thing corrected here is a serial number that does not match the box.
         </p>
-        {canInspect && (
+        {canReceive && (
           <button
             onClick={openReturn}
             className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
@@ -266,7 +270,7 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
                   <SortTh sort={sort} k="quantity" className={thClass}>Received</SortTh>
                   <SortTh sort={sort} k="batch_number" className={thClass}>Batch</SortTh>
                   <SortTh sort={sort} k="serials" className={thClass}>Serial Nos</SortTh>
-                  {canInspect && <th className={thClass}>Actions</th>}
+                  {canReceive && <th className={thClass}>Actions</th>}
                 </tr>
               </thead>
               <tbody>
@@ -334,7 +338,7 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
                         </span>
                       )}
                     </td>
-                    {canInspect && (
+                    {canReceive && (
                       <td className={tdClass}>
                         {/* The store counts goods in; it never judges them. A
                             purchase delivery arrives already judged by
