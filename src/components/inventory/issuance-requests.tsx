@@ -11,6 +11,7 @@ import { Qty } from "@/components/ui/qty";
 import { SearchSelect } from "@/components/ui/search-select";
 import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
 import api from "@/lib/api";
+import { linksTo, useReloadOnNotice } from "@/lib/notification-context";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
 import { formatDateTime } from "@/lib/utils";
@@ -211,6 +212,8 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
   useEffect(() => {
     fetchRows();
   }, [fetchRows]);
+  // Someone else received, issued or inspected: this list follows.
+  useReloadOnNotice(linksTo("/inventory"), fetchRows);
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();

@@ -114,8 +114,10 @@ export function useReloadOnNotice(about: (n: Notification) => boolean, reload: (
   }, []);
 }
 
-/** A notification whose link lands on this section. */
-export const linksTo = (path: string) => (n: Notification) => (n.link ?? "").startsWith(path);
+/** A notification whose link lands on this section - or word that
+ *  something on it changed. */
+export const linksTo = (path: string) => (n: Notification) =>
+  (n.link ?? "").startsWith(path) || n.data?.section === path;
 
 /** A notification about this project: a budget, a quantity increase, a procurement on it. */
 export const aboutProject = (id: string) => (n: Notification) =>
