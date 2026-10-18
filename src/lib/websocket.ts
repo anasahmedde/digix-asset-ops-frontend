@@ -36,8 +36,9 @@ export class WebSocketClient {
     this.ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        const type = data.type || "_message";
-        this.emit(type, data);
+        // A message without a type is only "_message"; emitting it under
+        // both names ran every catch-all handler twice.
+        if (data.type) this.emit(data.type, data);
         this.emit("_message", data);
       } catch {
         /* ignore unparseable */
