@@ -99,15 +99,50 @@ export function RolesMatrix({ readOnly = false }: { readOnly?: boolean }) {
     [draft, saved],
   );
 
-  function toggle(roleId: string, capKey: string) {
+  /** Everything this right brings, followed through. */
+  function needs(capKey: string): Set<string> {
+    const out = new Set<string>();
+    const todo = [capKey];
+    while (todo.length) {
+      const at = todo.pop();
+      for (const k of caps.find((c) => c.key === at)?.requires ?? []) {
+        if (!out.has(k)) { out.add(k); todo.push(k); }
+      }
+    }
+    return out;
+  }
+
+  async function toggle(roleId: string, capKey: string) {
+    const held = draft[roleId] ?? new Set<string>();
+    const isOn = held.has(capKey) || heldOnBy(roleId, capKey).length > 0;
+    if (!isOn) {
+      // Approving a budget brings seeing project costs and the project with it.
+      setDraft((prev) => {
+        const next = new Set(prev[roleId] ?? []);
+        next.add(capKey);
+        needs(capKey).forEach((k) => next.add(k));
+        return { ...prev, [roleId]: next };
+      });
+      return;
+    }
+    // And the other way: without seeing projects nothing on a project can be
+    // done, so the rights that need this one go with it - after asking.
+    const goWith = caps.filter((c) => c.key !== capKey && held.has(c.key) && needs(c.key).has(capKey));
+    if (goWith.length > 0) {
+      const role = roles.find((r) => r.id === roleId);
+      const what = caps.find((c) => c.key === capKey)?.label ?? capKey;
+      const ok = await confirmAction({
+        title: `Untick ${what} for ${role ? shownLabel(role) : "this role"}?`,
+        message: `These need it, so they are unticked too: ${goWith.map((c) => c.label).join(", ")}.`,
+        confirmLabel: "Untick them all",
+        danger: true,
+      });
+      if (!ok) return;
+    }
     setDraft((prev) => {
       const next = new Set(prev[roleId] ?? []);
-      if (next.has(capKey)) next.delete(capKey);
-      else {
-        next.add(capKey);
-        // Approving a budget brings seeing project costs with it, and so on.
-        caps.find((c) => c.key === capKey)?.requires?.forEach((k) => next.add(k));
-      }
+      next.delete(capKey);
+      goWith.forEach((c) => next.delete(c.key));
       return { ...prev, [roleId]: next };
     });
   }
@@ -379,9 +414,10 @@ export function RolesMatrix({ readOnly = false }: { readOnly?: boolean }) {
                             <input
                               type="checkbox"
                               checked={on}
-                              // Locked on while a right that needs it is ticked.
-                              disabled={readOnly || by.length > 0 || (!!cap.super_admin_only && role.key !== "super_admin")}
-                              title={by.length ? `Needed by ${by.join(", ")} - untick that to remove this` : undefined}
+                              // Held on while a right that needs it is ticked; unticking it
+                              // asks, then takes those rights with it.
+                              disabled={readOnly || (!!cap.super_admin_only && role.key !== "super_admin")}
+                              title={by.length ? `Needed by ${by.join(", ")} - unticking this unticks them too` : undefined}
                               onChange={() => toggle(role.id, cap.key)}
                               aria-label={`${cap.label} for ${shownLabel(role)}`}
                               className="h-4 w-4 rounded border-border accent-[hsl(var(--primary))]"
