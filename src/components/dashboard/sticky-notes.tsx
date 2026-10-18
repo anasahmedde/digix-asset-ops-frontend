@@ -28,6 +28,8 @@ interface Note {
   mentioned_names: string[];
   done: boolean;
   done_at: string | null;
+  /** Answers on a team note, oldest first. */
+  replies: { id: string; body: string; created_at: string; author_name: string; mine: boolean }[];
   created_at: string;
 }
 
@@ -70,6 +72,10 @@ export function StickyNotes() {
   const [tagged, setTagged] = useState<Person[]>([]);
   const [saving, setSaving] = useState(false);
   const [query, setQuery] = useState<string | null>(null);
+  // The note opened to read in full; the list shows two lines of each.
+  const [opened, setOpened] = useState<string | null>(null);
+  const [replyDraft, setReplyDraft] = useState("");
+  const [replying, setReplying] = useState(false);
   const boxRef = useRef<HTMLTextAreaElement>(null);
 
   const load = useCallback(() => {
@@ -145,6 +151,22 @@ export function StickyNotes() {
     }
   }
 
+  /** Answer a team note; the author and whoever it tags are told. */
+  async function reply(n: Note, body: string) {
+    const text = body.trim();
+    if (!text) return;
+    setReplying(true);
+    try {
+      const { data } = await api.post(`/notifications/sticky-notes/${n.id}/reply/`, { body: text });
+      setNotes((prev) => prev.map((x) => (x.id === n.id ? data : x)));
+      setReplyDraft("");
+    } catch (err) {
+      toast.error(getApiError(err, "Could not send the reply"));
+    } finally {
+      setReplying(false);
+    }
+  }
+
   // Ticked off, or back on the list. Shown at once; the server is told.
   async function toggle(n: Note) {
     const done = !n.done;
@@ -195,18 +217,30 @@ export function StickyNotes() {
           </li>
         )}
         {ordered.map((n) => (
-          <li key={n.id} className="group flex items-center gap-3 rounded-xl px-2 py-2 transition-colors hover:bg-white/5">
+          <li key={n.id} className="group rounded-xl px-2 py-2 transition-colors hover:bg-white/5">
+            <div className="flex items-center gap-3">
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-[#163144]">
               {n.scope === "team" ? <MessageSquare className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
             </span>
-            <span className="min-w-0 flex-1">
-              <span className={cn("line-clamp-2 text-sm font-medium [overflow-wrap:anywhere]", n.done ? "text-white/40 line-through" : "text-white")}>
+            <button
+              type="button"
+              onClick={() => { setOpened(opened === n.id ? null : n.id); setReplyDraft(""); }}
+              aria-expanded={opened === n.id}
+              title={opened === n.id ? "Show less" : "Show the whole note"}
+              className="min-w-0 flex-1 text-left"
+            >
+              <span className={cn(
+                "block text-sm font-medium [overflow-wrap:anywhere]",
+                opened === n.id ? "whitespace-pre-line" : "line-clamp-2",
+                n.done ? "text-white/40 line-through" : "text-white",
+              )}>
                 {withTags(n.body, n.mentioned_names)}
               </span>
               <span className="block text-2xs text-white/45">
                 {board === "team" && n.author_name ? `${n.author_name} · ` : ""}{stamp(n.created_at)}
+                {(n.replies ?? []).length > 0 && ` · ${n.replies.length} ${n.replies.length === 1 ? "reply" : "replies"}`}
               </span>
-            </span>
+            </button>
             {n.mine && (
               <button
                 type="button"
@@ -229,6 +263,41 @@ export function StickyNotes() {
             >
               <Check className="h-3.5 w-3.5" strokeWidth={3} />
             </button>
+            </div>
+            {/* The thread: answers, and a way to answer - a tagged person says
+                it is done instead of only ticking the note off. */}
+            {opened === n.id && n.scope === "team" && (
+              <div className="ml-12 mt-2 space-y-1.5">
+                {(n.replies ?? []).map((r) => (
+                  <div key={r.id} className="rounded-lg bg-white/5 px-2.5 py-1.5">
+                    <p className="whitespace-pre-line text-xs text-white [overflow-wrap:anywhere]">{r.body}</p>
+                    <p className="text-2xs text-white/45">{r.author_name} · {stamp(r.created_at)}</p>
+                  </div>
+                ))}
+                <div className="flex items-center gap-1.5">
+                  <input
+                    id={`reply_${n.id}`}
+                    value={replyDraft}
+                    onChange={(e) => setReplyDraft(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); reply(n, replyDraft); } }}
+                    placeholder="Reply…"
+                    className="h-8 min-w-0 flex-1 rounded-lg border border-white/10 bg-white/5 px-2.5 text-xs text-white placeholder:text-white/40 focus:border-[#dff3eb]/50 focus:outline-none"
+                  />
+                  <button type="button" onClick={() => reply(n, replyDraft)} disabled={replying || !replyDraft.trim()}
+                    aria-label="Send reply"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#dff3eb] text-[#163144] disabled:opacity-40">
+                    <Send className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                {!n.done && !n.mine && (
+                  <button type="button" disabled={replying}
+                    onClick={async () => { await reply(n, replyDraft.trim() || "Done"); toggle({ ...n, done: false }); }}
+                    className="inline-flex items-center gap-1 rounded-full bg-[#f5c518] px-2.5 py-1 text-2xs font-semibold text-[#163144] disabled:opacity-50">
+                    <Check className="h-3 w-3" strokeWidth={3} /> Done - tell {n.author_name}
+                  </button>
+                )}
+              </div>
+            )}
           </li>
         ))}
       </ul>
@@ -237,12 +306,14 @@ export function StickyNotes() {
       <div className="relative mt-auto border-t border-white/10 p-3">
         {suggestions.length > 0 && (
           <div className="absolute bottom-full left-3 right-3 z-10 mb-1 overflow-hidden rounded-lg border border-border bg-card shadow-lg">
-            {suggestions.map((p) => (
+            {suggestions.map((p, i) => (
               <button
                 key={p.id}
                 type="button"
+                // Keep the typing box focused, so the click lands on the name.
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => tag(p)}
-                className="block w-full px-3 py-2 text-left text-xs text-foreground hover:bg-secondary"
+                className={cn("block w-full px-3 py-2 text-left text-xs text-foreground hover:bg-secondary", i === 0 && "bg-secondary/60")}
               >
                 {p.name}
               </button>
@@ -257,6 +328,13 @@ export function StickyNotes() {
             value={draft}
             onChange={(e) => onDraft(e.target.value)}
             onKeyDown={(e) => {
+              // With names offered, Enter or Tab tags the first one: Enter
+              // posted the note there and then, with nobody tagged.
+              if ((e.key === "Enter" || e.key === "Tab") && suggestions.length > 0) {
+                e.preventDefault();
+                tag(suggestions[0]);
+                return;
+              }
               if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); post(); }
             }}
             placeholder={board === "team" ? "Note for the team — @ to tag" : "Note to self"}
