@@ -97,9 +97,10 @@ function NotificationItem({ notif, onMarkRead, onClose }: {
       <button
         onClick={() => onMarkRead(notif.id)}
         title="Acknowledge - remove it from this list"
-        className="mr-3 mt-3 inline-flex shrink-0 items-center gap-1 rounded-lg border border-border px-2 py-1 text-2xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
+        aria-label="Acknowledge"
+        className="mr-3 mt-3 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
       >
-        <CheckCheck className="h-3 w-3" /> Acknowledge
+        <CheckCheck className="h-3.5 w-3.5" />
       </button>
     </div>
   );
