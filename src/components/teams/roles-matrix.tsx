@@ -50,6 +50,9 @@ interface Role {
 const inputClass =
   "h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30";
 
+/** The top role is the Administrator wherever it is shown. */
+const shownLabel = (role: { key?: string; label: string }) => (role.key === "super_admin" ? "Administrator" : role.label);
+
 export function RolesMatrix({ readOnly = false }: { readOnly?: boolean }) {
   const [caps, setCaps] = useState<CapabilityDef[]>([]);
   const [modules, setModules] = useState<string[]>([]);
@@ -122,6 +125,31 @@ export function RolesMatrix({ readOnly = false }: { readOnly?: boolean }) {
     }
   }
 
+  /** Every changed role at once, then one word on what happened. */
+  async function saveAll(changedRoles: Role[]) {
+    setSaving("all");
+    const done: string[] = [];
+    try {
+      for (const role of changedRoles) {
+        const { data } = await api.patch(`/accounts/roles/${role.id}/`, {
+          capabilities: [...(draft[role.id] ?? [])],
+        });
+        setRoles((prev) => prev.map((r) => (r.id === role.id ? { ...r, ...data } : r)));
+        done.push(shownLabel(role));
+      }
+      const people = changedRoles.reduce((n, r) => n + r.holders, 0);
+      toast.success(`Saved ${done.join(", ")}${people ? ` — ${people} ${people === 1 ? "person" : "people"} affected` : ""}`);
+    } catch (err) {
+      toast.error(getApiError(err, done.length ? `Saved ${done.join(", ")}; the rest did not save` : "Could not save the changes"));
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  function discard() {
+    setDraft(Object.fromEntries(roles.map((r) => [r.id, new Set(r.capabilities)])));
+  }
+
   async function createRole() {
     if (!newRole.label.trim()) {
       toast.error("Give the role a name");
@@ -183,6 +211,11 @@ export function RolesMatrix({ readOnly = false }: { readOnly?: boolean }) {
   }
 
   const dirty = roles.filter((r) => changed(r.id));
+  const ticks = dirty.reduce((n, r) => {
+    const now = draft[r.id] ?? new Set<string>();
+    const was = saved[r.id] ?? new Set<string>();
+    return n + [...now].filter((k) => !was.has(k)).length + [...was].filter((k) => !now.has(k)).length;
+  }, 0);
   const q = query.trim().toLowerCase();
   const shown = q
     ? caps.filter((c) => `${c.label} ${c.description} ${c.module} ${c.key}`.toLowerCase().includes(q))
@@ -220,6 +253,25 @@ export function RolesMatrix({ readOnly = false }: { readOnly?: boolean }) {
         </div>
       </div>
 
+      {/* Nothing is applied until it is saved: the bar says so, and stays in
+          view however far down the list the ticks were made. */}
+      {!readOnly && dirty.length > 0 && (
+        <div className="sticky top-20 z-30 flex flex-wrap items-center gap-3 rounded-xl border border-amber-500/30 bg-amber-50 px-4 py-2.5 shadow-sm dark:bg-amber-950/60">
+          <p className="min-w-0 flex-1 text-xs text-foreground">
+            <span className="font-semibold">{ticks} unsaved {ticks === 1 ? "change" : "changes"}</span>
+            {" "}on {dirty.map(shownLabel).join(", ")}. Nothing changes for anyone until you save.
+          </p>
+          <button type="button" onClick={discard} disabled={saving === "all"}
+            className="inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium text-muted-foreground ring-1 ring-border hover:bg-secondary disabled:opacity-50">
+            Discard
+          </button>
+          <button type="button" onClick={() => saveAll(dirty)} disabled={saving === "all"}
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-semibold text-white disabled:opacity-50">
+            <Check className="h-3.5 w-3.5" /> {saving === "all" ? "Saving…" : "Save changes"}
+          </button>
+        </div>
+      )}
+
       <div className="overflow-x-auto rounded-xl border border-border">
         <table className="w-full border-separate border-spacing-0 text-sm">
           <thead>
@@ -229,7 +281,7 @@ export function RolesMatrix({ readOnly = false }: { readOnly?: boolean }) {
               </th>
               {roles.map((role) => (
                 <th key={role.id} className="w-20 min-w-20 border-b border-border px-1.5 py-3 text-center align-bottom">
-                  <span className="block break-words text-xs font-semibold leading-tight text-foreground">{role.label}</span>
+                  <span className="block break-words text-xs font-semibold leading-tight text-foreground">{shownLabel(role)}</span>
                   <span className="block text-2xs font-normal text-muted-foreground">
                     {role.holders} {role.holders === 1 ? "person" : "people"}
                   </span>
@@ -311,7 +363,7 @@ export function RolesMatrix({ readOnly = false }: { readOnly?: boolean }) {
                               checked={on}
                               disabled={readOnly || (!!cap.super_admin_only && role.key !== "super_admin")}
                               onChange={() => toggle(role.id, cap.key)}
-                              aria-label={`${cap.label} for ${role.label}`}
+                              aria-label={`${cap.label} for ${shownLabel(role)}`}
                               className="h-4 w-4 rounded border-border accent-[hsl(var(--primary))]"
                             />
                           </td>
