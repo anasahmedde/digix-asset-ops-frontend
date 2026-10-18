@@ -8,6 +8,7 @@ import api from "@/lib/api";
 import { formatDate } from "@/lib/utils";
 import { getApiError } from "@/lib/api-error";
 import { Qty } from "@/components/ui/qty";
+import { SerialList } from "@/components/ui/serial-list";
 import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
 
 /** A store request with at least one hand-over: the log's main record. */
@@ -317,11 +318,7 @@ export function IssuanceLog() {
                               )}
                               {/* Searching a serial should show the hit without
                                   having to open the line to find it. */}
-                              {(r.row.issued_serials ?? []).length > 0 && (
-                                <span className="block font-mono text-2xs font-normal text-muted-foreground">
-                                  {(r.row.issued_serials ?? []).join(" · ")}
-                                </span>
-                              )}
+                              <SerialList serials={r.row.issued_serials ?? []} />
                             </>
                           ) : (
                             r.row.quantity

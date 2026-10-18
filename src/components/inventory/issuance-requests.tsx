@@ -8,6 +8,7 @@ import { confirmAction } from "@/components/ui/confirm";
 import { Modal } from "@/components/ui/modal";
 import { Pagination, pageSlice } from "@/components/ui/pagination";
 import { Qty } from "@/components/ui/qty";
+import { SerialList } from "@/components/ui/serial-list";
 import { SearchSelect } from "@/components/ui/search-select";
 import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
 import api from "@/lib/api";
@@ -418,11 +419,7 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                         <Qty value={row.quantity_issued} unit={row.unit} />
                         {/* A unique item is a particular one. Which one left
                             the store is the thing worth recording. */}
-                        {row.issued_serials.length > 0 && (
-                          <span className="block font-mono text-2xs text-foreground">
-                            {row.issued_serials.join(" · ")}
-                          </span>
-                        )}
+                        <SerialList serials={row.issued_serials} max={3} />
                         {row.outstanding_quantity > 0 && (
                           <span className="block whitespace-nowrap text-2xs text-amber-600">
                             balance <Qty value={row.outstanding_quantity} unit={row.unit} />
