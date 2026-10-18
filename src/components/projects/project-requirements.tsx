@@ -179,6 +179,9 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
   const { can } = useUser();
   const router = useRouter();
   const canDecide = can("decide_requirements");
+  // Taking a decision back is above the supervisor: Group Head, Operations
+  // Head, the project's own manager - the server says which.
+  const [mayUndo, setMayUndo] = useState(false);
   // Granting more than was planned is its own signature (the backend agrees).
 
   const [assets, setAssets] = useState<AssetGroup[]>([]);
@@ -209,6 +212,7 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
         api.get(`/teams/projects/${projectId}/plan/`).catch(() => null),
       ]);
       setAssets(req.data.assets ?? []);
+      setMayUndo(!!req.data.may_undo);
       setTotals(req.data.totals ?? null);
       setBudget(plan?.data ?? null);
       loadedFor.current = projectId;
@@ -505,7 +509,7 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                         <Link href="/procurement" className="inline-flex rounded-full bg-amber-500/10 px-2.5 py-0.5 text-xs font-medium text-amber-600 ring-1 ring-amber-500/20 hover:underline">
                           To be procured · raise the PO in Procurement
                         </Link>
-                        {canDecide && (
+                        {mayUndo && (
                           <button
                             onClick={() => procureAsset(asset, true)}
                             disabled={locked || busy === asset.id}
@@ -694,7 +698,7 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                                   >
                                     <PackagePlus className="h-3 w-3" /> Qty
                                   </button>
-                                  {(row.fulfilment !== "pending" || row.issued_quantity > 0) && (
+                                  {mayUndo && (row.fulfilment !== "pending" || row.issued_quantity > 0) && (
                                     <button
                                       onClick={() => act(row, "reset-fulfilment", "Decision cleared")}
                                       disabled={busy === row.id}
