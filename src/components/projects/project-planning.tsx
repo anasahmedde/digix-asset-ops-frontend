@@ -11,6 +11,8 @@ import { WaitingOn } from "@/components/ui/waiting-on";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
+
+import { CostsHidden } from "./costs-hidden";
 import { formatDate } from "@/lib/utils";
 
 interface MaterialLine {
@@ -323,6 +325,8 @@ export function ProjectPlanning({
       toast.error(getApiError(err, "Could not price that step"));
     }
   }
+
+  if (!can("view_project_costs")) return <CostsHidden what="Budget and costing" />;
 
   if (loading || !plan) {
     return (

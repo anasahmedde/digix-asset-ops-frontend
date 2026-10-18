@@ -25,6 +25,8 @@ interface CapabilityDef {
   sensitive: boolean;
   /** Held by the Super Admin alone; no adjustment may grant it. */
   super_admin_only?: boolean;
+  /** Rights this one cannot be used without: held with it, and locked on. */
+  requires?: string[];
 }
 
 const KINDS: CapabilityDef["kind"][] = ["view", "work", "approve", "admin"];
@@ -101,7 +103,10 @@ export function PermissionsDialog({
     setAllowed((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
-      else next.add(key);
+      else {
+        next.add(key);
+        catalogue.find((c) => c.key === key)?.requires?.forEach((k) => next.add(k));
+      }
       return next;
     });
   }
@@ -164,7 +169,9 @@ export function PermissionsDialog({
                   <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">{mod}</p>
                   <div className="overflow-hidden rounded-lg border border-border">
                     {rows.map((c, i) => {
-                      const on = allowed.has(c.key);
+                      // Locked on while something this person holds needs it.
+                      const by = catalogue.filter((x) => allowed.has(x.key) && x.requires?.includes(c.key)).map((x) => x.label);
+                      const on = allowed.has(c.key) || by.length > 0;
                       const byDefault = defaults.has(c.key);
                       const overridden = on !== byDefault;
                       const note = reasons.get(c.key);
@@ -180,7 +187,8 @@ export function PermissionsDialog({
                             id={`cap-${c.key}`}
                             type="checkbox"
                             checked={on}
-                            disabled={readOnly || (!!c.super_admin_only && !on)}
+                            disabled={readOnly || by.length > 0 || (!!c.super_admin_only && !on)}
+                            title={by.length ? `Needed by ${by.join(", ")}` : undefined}
                             onChange={() => toggle(c.key)}
                             className="mt-0.5 h-4 w-4 shrink-0 rounded border-border accent-[hsl(var(--primary))]"
                           />
