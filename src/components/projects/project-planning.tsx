@@ -932,13 +932,13 @@ export function ProjectPlanning({
                 <Send className="h-3.5 w-3.5" /> Submit for approval
               </button>
             )}
-            {/* Approved: the planner may reopen it. Submitted: it is the approver's
-                to send back, so there is nothing to press here. */}
-            {plan.status === "approved" && canPlan && (
+            {/* Approved: reopening it is the approver's call; the lead who
+                planned it then revises it and sends it up again. */}
+            {plan.status === "approved" && can("approve_budget") && (
               <button
-                onClick={() => run(() => api.post(`/teams/projects/${projectId}/revise-budget/`, {}), "Budget reopened for changes")}
+                onClick={() => run(() => api.post(`/teams/projects/${projectId}/revise-budget/`, {}), "Budget reopened - the lead has been asked to revise it")}
                 disabled={busy}
-                title="Reopen the plan for changes — execution locks until it is approved again"
+                title="Reopen the budget for the lead to revise and send for approval again — execution locks until it is approved again"
                 className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
               >
                 <RotateCcw className="h-3.5 w-3.5" /> Revise
