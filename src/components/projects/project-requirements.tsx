@@ -587,8 +587,15 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                               )}
                             </td>
                             <td className={tdClass}>
-                              <span className={`inline-flex rounded-full px-2.5 py-0.5 text-2xs font-medium ring-1 ${FULFILMENT_BADGES[row.fulfilment]}`}>
-                                {FULFILMENT_LABELS[row.fulfilment] ?? row.fulfilment}
+                              <span className="inline-flex flex-wrap gap-1">
+                                {(row.fulfilment !== "fulfilled" && (row.stock_requested_quantity ?? 0) > 0 && (row.procure_quantity ?? 0) > 0
+                                  ? ["from_stock", "procurement"]
+                                  : [row.fulfilment]
+                                ).map((kind) => (
+                                  <span key={kind} className={`inline-flex rounded-full px-2.5 py-0.5 text-2xs font-medium ring-1 ${FULFILMENT_BADGES[kind]}`}>
+                                    {FULFILMENT_LABELS[kind] ?? kind}
+                                  </span>
+                                ))}
                               </span>
                               {((row.stock_requested_quantity ?? 0) > 0 || (row.procure_quantity ?? 0) > 0) && (
                                 <span className="mt-1 block text-2xs text-muted-foreground">
