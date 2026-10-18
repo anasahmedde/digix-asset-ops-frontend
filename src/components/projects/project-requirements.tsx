@@ -43,6 +43,8 @@ interface RequirementRow {
   increase_reason: string;
   increase_notes: string;
   increase_requested_by_name: string | null;
+  /** This viewer is above the asker on the reporting line (or the asker is at the top). */
+  may_decide_increase?: boolean;
 }
 /** One operation of an in-house route, with the execution decision on it. */
 interface StepRow {
@@ -178,7 +180,6 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
   const router = useRouter();
   const canDecide = can("decide_requirements");
   // Granting more than was planned is its own signature (the backend agrees).
-  const canApproveIncrease = can("approve_quantity_increase");
 
   const [assets, setAssets] = useState<AssetGroup[]>([]);
   const [totals, setTotals] = useState<Totals | null>(null);
@@ -658,7 +659,7 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                                       </button>
                                     </>
                                   )}
-                                  {row.pending_increase && canApproveIncrease ? (
+                                  {row.pending_increase && row.may_decide_increase ? (
                                     <>
                                       <button
                                         onClick={() => decideIncrease(row, "approve")}
