@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import api from "@/lib/api";
+import { useUser } from "@/lib/user-context";
 
 interface Actuals {
   approved_total: string | null;
@@ -29,6 +30,7 @@ export function ProjectBudgetSummary({
   refreshKey?: number | string;
 }) {
   const [actuals, setActuals] = useState<Actuals | null>(null);
+  const { can } = useUser();
 
   const load = useCallback(async () => {
     try {
@@ -55,6 +57,9 @@ export function ProjectBudgetSummary({
   const used = approved && approved > 0 ? (incurred / approved) * 100 : null;
   const over = used != null && used > 100;
   const remaining = approved != null ? approved - incurred : null;
+
+  // No figures at all without the right: the Budget and Costing panel says why.
+  if (!can("view_project_costs")) return null;
 
   return (
     <div className="rounded-xl border border-border bg-card p-4">

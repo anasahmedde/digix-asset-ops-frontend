@@ -27,6 +27,8 @@ interface CapabilityDef {
   sensitive: boolean;
   /** Held by the Super Admin alone; no role or adjustment may grant it. */
   super_admin_only?: boolean;
+  /** Rights this one cannot be used without: ticked with it, and locked on. */
+  requires?: string[];
 }
 
 // The order the kinds read in, within a module: see it, work on it, sign
@@ -101,9 +103,19 @@ export function RolesMatrix({ readOnly = false }: { readOnly?: boolean }) {
     setDraft((prev) => {
       const next = new Set(prev[roleId] ?? []);
       if (next.has(capKey)) next.delete(capKey);
-      else next.add(capKey);
+      else {
+        next.add(capKey);
+        // Approving a budget brings seeing project costs with it, and so on.
+        caps.find((c) => c.key === capKey)?.requires?.forEach((k) => next.add(k));
+      }
       return { ...prev, [roleId]: next };
     });
+  }
+
+  /** Which ticked rights hold this one on for the role, by name. */
+  function heldOnBy(roleId: string, capKey: string): string[] {
+    const held = draft[roleId] ?? new Set<string>();
+    return caps.filter((c) => held.has(c.key) && c.requires?.includes(capKey)).map((c) => c.label);
   }
 
   async function saveRole(role: Role) {
@@ -353,15 +365,23 @@ export function RolesMatrix({ readOnly = false }: { readOnly?: boolean }) {
                         <span className="block text-2xs leading-snug text-muted-foreground">
                           {cap.description}
                         </span>
+                        {(cap.requires ?? []).length > 0 && (
+                          <span className="mt-0.5 block text-2xs text-primary/80">
+                            Includes {cap.requires!.map((k) => caps.find((c) => c.key === k)?.label ?? k).join(" and ")}
+                          </span>
+                        )}
                       </td>
                       {roles.map((role) => {
-                        const on = draft[role.id]?.has(cap.key) ?? false;
+                        const by = heldOnBy(role.id, cap.key);
+                        const on = (draft[role.id]?.has(cap.key) ?? false) || by.length > 0;
                         return (
                           <td key={role.id} className="border-b border-border/60 px-2 py-2 text-center group-hover:bg-secondary/20">
                             <input
                               type="checkbox"
                               checked={on}
-                              disabled={readOnly || (!!cap.super_admin_only && role.key !== "super_admin")}
+                              // Locked on while a right that needs it is ticked.
+                              disabled={readOnly || by.length > 0 || (!!cap.super_admin_only && role.key !== "super_admin")}
+                              title={by.length ? `Needed by ${by.join(", ")} - untick that to remove this` : undefined}
                               onChange={() => toggle(role.id, cap.key)}
                               aria-label={`${cap.label} for ${shownLabel(role)}`}
                               className="h-4 w-4 rounded border-border accent-[hsl(var(--primary))]"

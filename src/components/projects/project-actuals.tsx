@@ -10,6 +10,8 @@ import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
 
+import { CostsHidden } from "./costs-hidden";
+
 interface ActualLine {
   component: string;
   name: string;
@@ -238,6 +240,8 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
       toast.error(getApiError(err, "Could not remove that cost"));
     }
   }
+
+  if (!can("view_project_costs")) return <CostsHidden what="Actual cost" />;
 
   if (loading || !data) {
     return (
