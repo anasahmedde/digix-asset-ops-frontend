@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertCircle, Bell, Check, ChevronRight, Pin, Ticket, Wrench, X } from "lucide-react";
+import { AlertCircle, Bell, Check, CheckCheck, ChevronRight, Pin, Ticket, Wrench, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
@@ -58,17 +58,16 @@ function NotificationItem({ notif, onMarkRead, onClose }: {
   }
 
   return (
+    <div className={`group flex items-start border-b border-border/60 last:border-b-0 ${isPinned ? "border-l-2 border-l-amber-500" : ""}`}>
     <button
       onClick={handleClick}
-      className={`group flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-secondary/50 ${
-        notif.is_read ? "" : "bg-primary/5"
-      } ${isPinned ? "border-l-2 border-amber-500" : ""}`}
+      className="flex min-w-0 flex-1 items-start gap-3 py-3 pl-4 pr-2 text-left transition-colors hover:bg-secondary/50"
     >
       <div className="mt-1 flex flex-col items-center gap-1">
         {isPinned ? (
           <Pin className="h-3 w-3 text-amber-500" />
         ) : (
-          <span className={`h-2 w-2 rounded-full ${notif.is_read ? "bg-transparent" : colorOf(notif)}`} />
+          <span className={`h-2 w-2 rounded-full ${colorOf(notif)}`} />
         )}
       </div>
       <div className="min-w-0 flex-1">
@@ -94,6 +93,15 @@ function NotificationItem({ notif, onMarkRead, onClose }: {
         </div>
       </div>
     </button>
+      {/* Seen it: off the bar. The Alerts page keeps it. */}
+      <button
+        onClick={() => onMarkRead(notif.id)}
+        title="Acknowledge - remove it from this list"
+        className="mr-3 mt-3 inline-flex shrink-0 items-center gap-1 rounded-lg border border-border px-2 py-1 text-2xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
+      >
+        <CheckCheck className="h-3 w-3" /> Acknowledge
+      </button>
+    </div>
   );
 }
 
@@ -150,8 +158,9 @@ export function NotificationsPanel() {
         <div className="min-h-0 flex-1 overflow-y-auto">
           {notifications.length === 0 ? (
             <div className="px-4 py-12 text-center">
-              <Bell className="mx-auto h-8 w-8 text-muted-foreground/30" />
-              <p className="mt-2 text-xs text-muted-foreground">No notifications yet</p>
+              <CheckCheck className="mx-auto h-8 w-8 text-muted-foreground/30" />
+              <p className="mt-2 text-sm font-medium text-foreground">You are all caught up</p>
+              <p className="mt-1 text-xs text-muted-foreground">Acknowledged notifications stay on the Alerts page.</p>
             </div>
           ) : (
             <>

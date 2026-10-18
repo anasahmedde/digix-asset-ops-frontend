@@ -14,6 +14,7 @@ import { confirmAction, askReason } from "@/components/ui/confirm";
 import { deadlineMin } from "@/lib/utils";
 import { WaitingOn } from "@/components/ui/waiting-on";
 import api from "@/lib/api";
+import { linksTo, useReloadOnNotice } from "@/lib/notification-context";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
 import type { PaymentTerms, Supplier, WorkOrder, WorkOrderItem, WorkOrderStatus } from "@/types";
@@ -215,6 +216,7 @@ export default function WorkOrdersPage() {
       setLoading(false);
     }
   }, []);
+  useReloadOnNotice(linksTo("/work-orders"), fetchOrders);
 
   useEffect(() => {
     fetchOrders();
