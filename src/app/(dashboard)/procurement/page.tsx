@@ -22,6 +22,7 @@ import { askReason, confirmAction } from "@/components/ui/confirm";
 import { WaitingOn } from "@/components/ui/waiting-on";
 import { GrnDownload } from "@/components/inventory/grn-download";
 import api from "@/lib/api";
+import { linksTo, useReloadOnNotice } from "@/lib/notification-context";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
 import type { Supplier } from "@/types";
@@ -340,6 +341,7 @@ export default function ProcurementPage() {
       setLoading(false);
     }
   }, []);
+  useReloadOnNotice(linksTo("/procurement"), fetchOrders);
 
   useEffect(() => {
     fetchOrders();

@@ -91,6 +91,25 @@ function getNotificationRoute(notif: Notification): string {
 
 export { getNotificationRoute };
 
+const NOTICES_EVENT = "digix:notices";
+
+/** Reload what is on screen when a notification about it arrives - a
+ *  budget sent up, a PO decided - so the page does not wait for a refresh. */
+export function useReloadOnNotice(about: (n: Notification) => boolean, reload: () => void) {
+  const latest = useRef({ about, reload });
+  latest.current = { about, reload };
+  useEffect(() => {
+    const on = (e: Event) => {
+      if ((e as CustomEvent<Notification[]>).detail.some((n) => latest.current.about(n))) latest.current.reload();
+    };
+    window.addEventListener(NOTICES_EVENT, on);
+    return () => window.removeEventListener(NOTICES_EVENT, on);
+  }, []);
+}
+
+/** A notification whose link lands on this section. */
+export const linksTo = (path: string) => (n: Notification) => (n.link ?? "").startsWith(path);
+
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -113,18 +132,36 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     setIncoming((prev) => prev.filter((n) => n.id !== id));
   }, []);
 
+  // Every id this page has already shown, so a fetch can tell what is new.
+  const seenRef = useRef<Set<string> | null>(null);
+
+  /** Show what arrived: a card at the top right, unless the panel is open;
+   *  and tell the page, which reloads if it is about what is on screen. */
+  const announce = useCallback((fresh: Notification[]) => {
+    if (fresh.length) window.dispatchEvent(new CustomEvent(NOTICES_EVENT, { detail: fresh }));
+    const shown = fresh.filter((n) => n.notification_type !== "digest");
+    if (shown.length === 0 || panelRef.current) return;
+    setIncoming((prev) => [...shown, ...prev.filter((p) => !shown.some((n) => n.id === p.id))].slice(0, 3));
+  }, []);
+
+  // The bar holds what is not acknowledged yet; the Alerts page keeps the rest.
   const fetchNotifications = useCallback(async () => {
     try {
       const [listRes, countRes] = await Promise.all([
-        api.get("/notifications/notifications/", { params: { page_size: 30, ordering: "-created_at" } }),
+        api.get("/notifications/notifications/", { params: { page_size: 50, ordering: "-created_at", is_read: false } }),
         api.get("/notifications/notifications/unread_count/"),
       ]);
-      setNotifications(listRes.data.results ?? []);
+      const list: Notification[] = listRes.data.results ?? [];
+      setNotifications(list);
       setUnreadCount(countRes.data.count ?? 0);
+      // Anything the socket missed (it was down, or the token had lapsed)
+      // still gets its card - but not the backlog on first load.
+      if (seenRef.current) announce(list.filter((n) => !seenRef.current!.has(n.id)));
+      seenRef.current = new Set([...(seenRef.current ?? []), ...list.map((n) => n.id)]);
     } catch {
       /* silently fail */
     }
-  }, []);
+  }, [announce]);
 
   useEffect(() => {
     fetchNotifications();
@@ -138,30 +175,37 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       if (raw.type === "chat_message") return;
 
       const notification = raw as unknown as Notification;
-      if (!notification.id) return;
+      if (!notification.id || seenRef.current?.has(notification.id)) return;
+      seenRef.current?.add(notification.id);
 
-      setNotifications((prev) => [notification, ...prev].slice(0, 30));
+      setNotifications((prev) => [notification, ...prev.filter((n) => n.id !== notification.id)].slice(0, 50));
       setUnreadCount((prev) => prev + 1);
-
-      // The newest on top, three at most; the panel, when open, already shows it.
-      if (notification.notification_type !== "digest" && !panelRef.current) {
-        setIncoming((prev) => [notification, ...prev.filter((n) => n.id !== notification.id)].slice(0, 3));
-      }
+      announce([notification]);
     });
+    // Dropped: fetching renews a lapsed login, so the reconnect gets in, and
+    // catches up on what came while the socket was down.
+    ws.on("_disconnected", () => { fetchNotifications(); });
 
     ws.connect();
 
+    // Belt and braces: look again every minute, and on coming back to the tab.
+    const poll = setInterval(() => { if (document.visibilityState === "visible") fetchNotifications(); }, 60000);
+    const onVisible = () => { if (document.visibilityState === "visible") fetchNotifications(); };
+    document.addEventListener("visibilitychange", onVisible);
+
     return () => {
       ws.disconnect();
+      clearInterval(poll);
+      document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [fetchNotifications]);
+  }, [fetchNotifications, announce]);
 
+  /** Acknowledged: it leaves the bar (the Alerts page still lists it). */
   const markRead = useCallback(async (id: string) => {
     try {
       await api.post(`/notifications/notifications/${id}/mark_read/`);
-      setNotifications((prev) =>
-        prev.map((n) => (n.id === id ? { ...n, is_read: true, read_at: new Date().toISOString() } : n))
-      );
+      setNotifications((prev) => prev.filter((n) => n.id !== id));
+      setIncoming((prev) => prev.filter((n) => n.id !== id));
       setUnreadCount((prev) => Math.max(0, prev - 1));
     } catch {
       /* silently fail */
@@ -171,7 +215,8 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const markAllRead = useCallback(async () => {
     try {
       await api.post("/notifications/notifications/mark_all_read/");
-      setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true, read_at: new Date().toISOString() })));
+      setNotifications([]);
+      setIncoming([]);
       setUnreadCount(0);
     } catch {
       /* silently fail */
