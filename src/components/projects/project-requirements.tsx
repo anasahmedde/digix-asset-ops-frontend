@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { Qty } from "@/components/ui/qty";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
+import { aboutProject, useReloadOnNotice } from "@/lib/notification-context";
 import { Modal } from "@/components/ui/modal";
 import { useUser } from "@/lib/user-context";
 
@@ -218,6 +219,9 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
   }, [projectId]);
 
   useEffect(() => { fetchRequirements(); }, [fetchRequirements]);
+  // A quantity increase raised or decided by someone else shows its buttons
+  // here without a refresh.
+  useReloadOnNotice(aboutProject(projectId), fetchRequirements);
 
   // Execution follows approval: a plan that exists but is not signed off
   // locks the stock / procure decisions (the backend refuses them too).
