@@ -231,7 +231,7 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
     const team = await loadCollectors(row);
     setPeople(team);
     // Whoever asked for it usually comes for it: they are picked to start with.
-    const asker = team.find((p) => p.name === row.requested_by_name)?.label ?? "";
+    const asker = team.find((p) => p.name === row.requested_by_name)?.name ?? "";
     const receiver = row.maintenance_assignee ?? asker;
     setIssue({
       quantity: String(Math.max(possible, 0)),
@@ -756,7 +756,8 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
               >
                 <option value="">Who is taking it away… *</option>
                 {people.map((p) => (
-                  <option key={p.id} value={p.label}>
+                  // The name is what is recorded and told: "received by Sharjeel".
+                  <option key={p.id} value={p.name}>
                     {p.label}{p.name === issueFor.requested_by_name ? " (requested it)" : ""}
                   </option>
                 ))}
