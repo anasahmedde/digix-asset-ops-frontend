@@ -2,19 +2,23 @@ import { getToken } from "./token-store";
 type MessageHandler = (data: unknown) => void;
 
 export class WebSocketClient {
-  private url: string;
+  private path: string;
   private ws: WebSocket | null = null;
   private handlers: Map<string, Set<MessageHandler>> = new Map();
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 5;
   private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+  private keepAlive: ReturnType<typeof setInterval> | null = null;
   private intentionallyClosed = false;
 
   constructor(path: string) {
-    const protocol = typeof window !== "undefined" && window.location.protocol === "https:" ? "wss:" : "ws:";
-    const host = typeof window !== "undefined" ? window.location.host : "localhost:3000";
-    const token = getToken("access_token");
-    this.url = `${protocol}//${host}${path}?token=${token || ""}`;
+    this.path = path;
+  }
+
+  /** Built on every connect: the login token is renewed every half hour,
+   *  and a reconnect carrying the one from page load was turned away. */
+  private get url(): string {
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    return `${protocol}//${window.location.host}${this.path}?token=${getToken("access_token") || ""}`;
   }
 
   connect(): void {
@@ -30,6 +34,9 @@ export class WebSocketClient {
 
     this.ws.onopen = () => {
       this.reconnectAttempts = 0;
+      // A quiet socket is cut by the proxy; a ping now and then keeps it open.
+      if (this.keepAlive) clearInterval(this.keepAlive);
+      this.keepAlive = setInterval(() => this.send({ type: "ping" }), 25000);
       this.emit("_connected", null);
     };
 
@@ -46,6 +53,8 @@ export class WebSocketClient {
     };
 
     this.ws.onclose = () => {
+      if (this.keepAlive) clearInterval(this.keepAlive);
+      this.keepAlive = null;
       this.emit("_disconnected", null);
       if (!this.intentionallyClosed) {
         this.scheduleReconnect();
@@ -59,6 +68,8 @@ export class WebSocketClient {
 
   disconnect(): void {
     this.intentionallyClosed = true;
+    if (this.keepAlive) clearInterval(this.keepAlive);
+    this.keepAlive = null;
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
@@ -88,7 +99,8 @@ export class WebSocketClient {
   }
 
   private scheduleReconnect(): void {
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) return;
+    // Never gives up: a laptop waking up or a redeploy must not leave the
+    // page deaf until it is reloaded. Backs off to every 30 seconds.
     const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
     this.reconnectAttempts++;
     this.reconnectTimeout = setTimeout(() => this.connect(), delay);
