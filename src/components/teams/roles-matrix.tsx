@@ -420,7 +420,8 @@ export function RolesMatrix({ readOnly = false }: { readOnly?: boolean }) {
                               title={by.length ? `Needed by ${by.join(", ")} - unticking this unticks them too` : undefined}
                               onChange={() => toggle(role.id, cap.key)}
                               aria-label={`${cap.label} for ${shownLabel(role)}`}
-                              className="h-4 w-4 rounded border-border accent-[hsl(var(--primary))]"
+                              // Ticked because another right needs it: shown greyed.
+                              className={`h-4 w-4 rounded border-border ${by.length ? "accent-[hsl(var(--muted-foreground))] opacity-50" : "accent-[hsl(var(--primary))]"}`}
                             />
                           </td>
                         );

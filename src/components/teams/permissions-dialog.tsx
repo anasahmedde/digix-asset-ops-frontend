@@ -218,7 +218,8 @@ export function PermissionsDialog({
                             disabled={readOnly || (!!c.super_admin_only && !on)}
                             title={by.length ? `Needed by ${by.join(", ")} - unticking this unticks them too` : undefined}
                             onChange={() => toggle(c.key)}
-                            className="mt-0.5 h-4 w-4 shrink-0 rounded border-border accent-[hsl(var(--primary))]"
+                            // Ticked because another right needs it: shown greyed.
+                            className={`mt-0.5 h-4 w-4 shrink-0 rounded border-border ${by.length ? "accent-[hsl(var(--muted-foreground))] opacity-50" : "accent-[hsl(var(--primary))]"}`}
                           />
                           <span className="min-w-0 flex-1">
                             <span className="flex flex-wrap items-center gap-1.5">
