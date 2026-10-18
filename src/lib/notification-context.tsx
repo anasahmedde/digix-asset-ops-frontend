@@ -110,6 +110,10 @@ export function useReloadOnNotice(about: (n: Notification) => boolean, reload: (
 /** A notification whose link lands on this section. */
 export const linksTo = (path: string) => (n: Notification) => (n.link ?? "").startsWith(path);
 
+/** A notification about this project: a budget, a quantity increase, a procurement on it. */
+export const aboutProject = (id: string) => (n: Notification) =>
+  (n.link ?? "").includes(id) || n.data?.project === id;
+
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -173,6 +177,15 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       const raw = data as Record<string, unknown>;
 
       if (raw.type === "chat_message") return;
+
+      // Someone answered a request this person was also asked: it leaves the
+      // bar, and the page showing it reloads.
+      if (raw.type === "resolved") {
+        window.dispatchEvent(new CustomEvent(NOTICES_EVENT, { detail: [raw as unknown as Notification] }));
+        setIncoming((prev) => prev.filter((n) => n.id !== raw.id));
+        fetchNotifications();
+        return;
+      }
 
       const notification = raw as unknown as Notification;
       if (!notification.id || seenRef.current?.has(notification.id)) return;

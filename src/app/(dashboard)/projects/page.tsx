@@ -32,7 +32,7 @@ import { ProjectPlanning } from "@/components/projects/project-planning";
 import { ProjectActuals } from "@/components/projects/project-actuals";
 import { todayIso } from "@/lib/utils";
 import api from "@/lib/api";
-import { useReloadOnNotice } from "@/lib/notification-context";
+import { aboutProject, useReloadOnNotice } from "@/lib/notification-context";
 import { getApiError } from "@/lib/api-error";
 import { CURRENCIES } from "@/lib/currency";
 import { useUser } from "@/lib/user-context";
@@ -389,7 +389,7 @@ export default function ProjectsPage() {
 
   // A budget sent up or decided by someone else shows here without a refresh.
   useReloadOnNotice(
-    (n) => !!openId && ((n.link ?? "").includes(openId) || n.data?.project === openId),
+    (n) => !!openId && aboutProject(openId)(n),
     () => { if (openId) loadDetail(openId); },
   );
 
