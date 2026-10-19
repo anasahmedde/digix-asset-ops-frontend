@@ -128,6 +128,8 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
   const [form, setForm] = useState<PoFormValues>(emptyPoForm);
   const standardTerms = useStandardPoTerms();
   const [prices, setPrices] = useState<Record<string, string>>({});
+  // Set once Raise PO was pressed with a line unpriced: those inputs go red.
+  const [priceTried, setPriceTried] = useState(false);
   // Why a line is going on above the figure it was planned at. Travels with
   // the order to whoever has to agree it.
   const [reasons, setReasons] = useState<Record<string, string>>({});
@@ -168,10 +170,10 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
   const chosen = useMemo(() => rows.filter((r) => selected.has(keyOf(r))), [rows, selected]);
 
   function openModal() {
-    // Suggest the last price paid; the buyer can overtype it.
-    const seed: Record<string, string> = {};
-    chosen.forEach((r) => { seed[keyOf(r)] = r.last_unit_price ? String(Number(r.last_unit_price)) : ""; });
-    setPrices(seed);
+    // Every price is typed from the supplier's quote: nothing is filled in,
+    // and a blank no longer falls back to the reference.
+    setPrices({});
+    setPriceTried(false);
     // The date is not typed from memory: the goods are needed by the day the
     // project is due, and the earliest of the chosen lines is what binds.
     const due = chosen
@@ -197,6 +199,12 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
 
   async function raisePo() {
     if (!form.supplier || chosen.length === 0) return;
+    const unpriced = chosen.filter((r) => !(Number(prices[keyOf(r)]) > 0));
+    if (unpriced.length > 0) {
+      setPriceTried(true);
+      toast.error(`Enter the unit price for: ${unpriced.map((r) => r.name).join(", ")}`);
+      return;
+    }
     if (form.expected_delivery && form.expected_delivery < today) {
       toast.error("The delivery date has passed — set one the supplier can still meet");
       return;
@@ -484,7 +492,7 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
                       <th className="px-3 py-2 font-medium">For</th>
                       <th className="px-3 py-2 text-right font-medium">Qty</th>
                       <th className="px-3 py-2 text-right font-medium">Reference ({form.currency})</th>
-                      <th className="px-3 py-2 text-right font-medium">Unit price ({form.currency})</th>
+                      <th className="px-3 py-2 text-right font-medium">Unit price ({form.currency}) *</th>
                       <th className="px-3 py-2 text-right font-medium">Amount ({form.currency})</th>
                     </tr>
                   </thead>
@@ -516,9 +524,11 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
                               step="0.01"
                               value={prices[key] ?? ""}
                               onChange={(e) => setPrices((prev) => ({ ...prev, [key]: e.target.value }))}
-                              placeholder={ref ? String(ref) : "last paid"}
+                              placeholder="Enter price"
+                              required
                               aria-label={`Unit price for ${r.name}`}
-                              className="h-8 w-28 rounded-lg border border-border bg-background px-2 text-right text-xs text-foreground focus:border-primary/50 focus:outline-none"
+                              aria-invalid={priceTried && !(price > 0)}
+                              className={`h-8 w-28 rounded-lg border bg-background px-2 text-right text-xs text-foreground focus:border-primary/50 focus:outline-none ${priceTried && !(price > 0) ? "border-destructive" : "border-border"}`}
                             />
                             {Math.abs(drift) >= 0.005 && (
                               <span className={`block text-2xs ${drift > 0 ? "text-amber-600" : "text-emerald-600"}`}>
@@ -551,8 +561,8 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
               </div>
               <p className="text-2xs text-muted-foreground">
                 Reference is the figure the project budget was approved on, or the last price paid
-                for stock. A blank price falls back to what we last paid for that line, or zero if
-                we never have.
+                for stock - for comparison only. Enter the unit price the supplier quoted on every
+                line.
               </p>
               {overPlan.length > 0 && (
                 <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-700 dark:text-amber-500">
