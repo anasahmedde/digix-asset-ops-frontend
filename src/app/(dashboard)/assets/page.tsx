@@ -61,6 +61,10 @@ interface Device {
   project_name: string | null;
   /** The project's id however the asset reached it (directly or by scope). */
   project_on?: string | null;
+  /** The build's leftover parts squared up: when, by whom, the return GRN. */
+  leftovers_settled_at?: string | null;
+  leftovers_settled_by_name?: string | null;
+  leftovers_grn?: string;
   components?: AssetComponent[];
   assigned_client: string | null;
   client_name: string | null;
@@ -2107,6 +2111,7 @@ export default function AssetsPage() {
                         routeFinished={(d.production_steps ?? []).every((s) => s.status === "completed" || s.status === "skipped")}
                         canReturn={can("decide_requirements")}
                         onChanged={() => refreshDetail(d.id)}
+                        settled={d.leftovers_settled_at ? { at: d.leftovers_settled_at, by: d.leftovers_settled_by_name ?? null, grn: d.leftovers_grn ?? "" } : null}
                       />
                     )}
                     </>)}
@@ -2173,6 +2178,11 @@ export default function AssetsPage() {
                                 : "The asset becomes Installed when the checklist there is finished, and Active when the technician activates it."}
                           </p>
                         </div>
+                      ) : d.requires_production && !d.leftovers_settled_at && (d.components ?? []).some((c) => (c.issued_quantity ?? 0) > 0) ? (
+                        // Installation waits until the build's leftover parts are squared up.
+                        <p className="rounded-xl border border-dashed border-border px-4 py-5 text-center text-xs text-muted-foreground">
+                          Available once the leftover parts from production are settled above.
+                        </p>
                       ) : canAny("edit_assets", "assign_installation") && (d.allowed_transitions ?? []).includes("assigned") ? (
                         <div className="space-y-2.5 rounded-xl border border-border p-4">
                           <p className="text-xs text-muted-foreground">
