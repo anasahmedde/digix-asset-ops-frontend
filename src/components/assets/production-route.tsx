@@ -339,7 +339,9 @@ export function ProductionRoute({
                             )}
                             {step.allowed_transitions.length === 0 && (
                               <span className="text-2xs text-muted-foreground" title={step.hold_reason || undefined}>
-                                {["completed", "skipped"].includes(step.status) ? "Finished" : "Waiting on materials"}
+                                {["completed", "skipped"].includes(step.status) ? "Finished"
+                                  : step.hold_reason?.startsWith("Waiting for step") ? step.hold_reason.split(" - ")[0]
+                                  : "Waiting on materials"}
                               </span>
                             )}
                           </>

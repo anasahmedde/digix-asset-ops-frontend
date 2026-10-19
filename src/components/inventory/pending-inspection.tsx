@@ -36,6 +36,8 @@ interface ReceiptLine {
   /** Where the line came from: a delivery, a project, a maintenance job. */
   source_display?: string | null;
   reference?: string | null;
+  /** Why it came in - "Left over from production." on a return. */
+  receipt_notes?: string | null;
   quantity: number;
   /** Unit of measure of the delivered line. */
   unit?: string;
@@ -372,8 +374,17 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
         {receiving && (
           <div className="space-y-4">
             <div className="rounded-xl border border-border bg-secondary/30 p-4 text-sm">
-              <p className="font-medium text-foreground">
-                {receiving.po_item_description ?? receiving.material_name ?? "Delivery line"}
+              {/* What is being taken in - the same name the list shows. */}
+              <p className="flex flex-wrap items-center gap-2 font-medium text-foreground">
+                {receiving.known_component ?? receiving.po_item_description ?? receiving.material_name ?? receiving.device_model_name ?? "Delivery line"}
+                {receiving.component_code && !(receiving.known_component ?? "").includes(receiving.component_code) && (
+                  <span className="font-mono text-xs font-normal text-muted-foreground">{receiving.component_code}</span>
+                )}
+                {(receiving.kind === "unique" || receiving.kind === "generic") && (
+                  <span className={`rounded-full px-2 py-0.5 text-2xs font-medium ${receiving.kind === "unique" ? "bg-indigo-500/10 text-indigo-600" : "bg-secondary text-muted-foreground"}`}>
+                    {receiving.kind === "unique" ? "Unique item" : "Generic stock"}
+                  </span>
+                )}
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
                 {receiving.po_number ? `${receiving.po_number} · ` : ""}
@@ -383,6 +394,13 @@ export function PendingInspection({ onStocked }: { onStocked?: () => void }) {
                   ? ` passed inspection${receiving.inspected_by_name ? ` · checked by ${receiving.inspected_by_name}` : ""}`
                   : " to take in"}
               </p>
+              {(receiving.reference || receiving.receipt_notes) && !receiving.po_number && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {receiving.reference && <>From <span className="font-medium text-foreground">{receiving.reference}</span></>}
+                  {receiving.reference && receiving.receipt_notes ? " · " : ""}
+                  {receiving.receipt_notes}
+                </p>
+              )}
               {(receiving.rejected_quantity ?? 0) > 0 && (
                 <p className="mt-1 text-xs text-amber-600">
                   {receiving.rejected_quantity} turned away at inspection

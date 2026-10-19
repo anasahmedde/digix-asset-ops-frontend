@@ -8,6 +8,7 @@ import { toast } from "sonner";
 
 import { SegmentBar, StatTiles } from "@/components/ui/analytics-strip";
 import { Pagination, pageSlice } from "@/components/ui/pagination";
+import { ProductionLeftovers } from "@/components/assets/production-leftovers";
 import { ProductionRoute, type ProductionStep } from "@/components/assets/production-route";
 import { Timeline, type TimelineItem, type TimelineTone } from "@/components/ui/timeline";
 import { CopyButton } from "@/components/ui/copy-button";
@@ -58,6 +59,12 @@ interface Device {
   site_name: string | null;
   project: string | null;
   project_name: string | null;
+  /** The project's id however the asset reached it (directly or by scope). */
+  project_on?: string | null;
+  /** The build's leftover parts squared up: when, by whom, the return GRN. */
+  leftovers_settled_at?: string | null;
+  leftovers_settled_by_name?: string | null;
+  leftovers_grn?: string;
   components?: AssetComponent[];
   assigned_client: string | null;
   client_name: string | null;
@@ -242,6 +249,9 @@ interface AssetComponent {
   available_quantity: number | null;
   outstanding_quantity: number;
   issued_quantity: number;
+  returned_quantity?: number;
+  returned_serials?: string[];
+  issued_serials?: string[];
   fulfilment: string;
   po_number: string | null;
   source_label: string | null;
@@ -1516,7 +1526,10 @@ export default function AssetsPage() {
                       <CopyButton text={d.asset_code} label="asset code" className="mb-0.5" />
                     </div>
                     <MetaField label="Asset Type" value={d.asset_type_name} />
-                    <MetaField label="Project" value={d.project_name} highlight />
+                    <div>
+                      <p className="text-2xs font-medium uppercase tracking-wider text-muted-foreground mb-0.5">Project</p>
+                      <p className="text-sm">{d.project_name ? <ProjectLink id={d.project_on} name={d.project_name} /> : "—"}</p>
+                    </div>
                     <MetaField label="Manufacturing Route" value={d.source_display} />
                     <MetaField label="Installation Date" value={d.installation_date ? formatDate(d.installation_date) : null} />
                     <MetaField label="Location" value={d.site_name} highlight />
@@ -1869,7 +1882,7 @@ export default function AssetsPage() {
                           <div><dt className="text-2xs uppercase tracking-wider text-muted-foreground">Vendor</dt><dd className="text-foreground">{d.supply_vendor_name || d.supplier_name || "—"}</dd></div>
                           <div><dt className="text-2xs uppercase tracking-wider text-muted-foreground">Price</dt><dd className="text-foreground">{d.purchase_price ? `PKR ${Number(d.purchase_price).toLocaleString()}` : "—"}</dd></div>
                           <div><dt className="text-2xs uppercase tracking-wider text-muted-foreground">Purchase order</dt><dd className="font-mono text-foreground">{d.procurement_po_number ?? (d.procurement_requested_at ? "Awaiting PO" : "—")}</dd></div>
-                          <div><dt className="text-2xs uppercase tracking-wider text-muted-foreground">Project</dt><dd className="text-foreground">{d.project_name ?? "—"}</dd></div>
+                          <div><dt className="text-2xs uppercase tracking-wider text-muted-foreground">Project</dt><dd className="text-foreground">{d.project_name ? <ProjectLink id={d.project_on} name={d.project_name} /> : "—"}</dd></div>
                         </dl>
                         <p className="mt-3 text-2xs text-muted-foreground">
                           {d.status === "procured"
@@ -1890,7 +1903,7 @@ export default function AssetsPage() {
                         <h4 className="text-sm font-semibold text-foreground">Components</h4>
                         <div className="flex items-center gap-3">
                           {d.project_name && (
-                            <span className="text-xs text-muted-foreground">Project: <span className="font-medium text-foreground">{d.project_name}</span></span>
+                            <span className="text-xs text-muted-foreground">Project: <ProjectLink id={d.project_on} name={d.project_name} /></span>
                           )}
                         </div>
                       </div>
@@ -2091,6 +2104,16 @@ export default function AssetsPage() {
                         locked={d.is_locked}
                       />
                     </div>
+                    {d.requires_production && (
+                      <ProductionLeftovers
+                        deviceId={d.id}
+                        lines={d.components ?? []}
+                        routeFinished={(d.production_steps ?? []).every((s) => s.status === "completed" || s.status === "skipped")}
+                        canReturn={can("decide_requirements")}
+                        onChanged={() => refreshDetail(d.id)}
+                        settled={d.leftovers_settled_at ? { at: d.leftovers_settled_at, by: d.leftovers_settled_by_name ?? null, grn: d.leftovers_grn ?? "" } : null}
+                      />
+                    )}
                     </>)}
                     {/* Who puts it in and switches it on. Assigning here is
                         what opens the job on the Installation Tracker; the
@@ -2155,6 +2178,11 @@ export default function AssetsPage() {
                                 : "The asset becomes Installed when the checklist there is finished, and Active when the technician activates it."}
                           </p>
                         </div>
+                      ) : d.requires_production && !d.leftovers_settled_at && (d.components ?? []).some((c) => (c.issued_quantity ?? 0) > 0) ? (
+                        // Installation waits until the build's leftover parts are squared up.
+                        <p className="rounded-xl border border-dashed border-border px-4 py-5 text-center text-xs text-muted-foreground">
+                          Available once the leftover parts from production are settled above.
+                        </p>
                       ) : canAny("edit_assets", "assign_installation") && (d.allowed_transitions ?? []).includes("assigned") ? (
                         <div className="space-y-2.5 rounded-xl border border-border p-4">
                           <p className="text-xs text-muted-foreground">
@@ -3364,6 +3392,16 @@ export default function AssetsPage() {
 }
 
 /* ─── Helper Components ─── */
+
+/** A project's name that opens the project. */
+function ProjectLink({ id, name }: { id?: string | null; name: string }) {
+  if (!id) return <span className="font-medium text-foreground">{name}</span>;
+  return (
+    <Link href={`/projects?project=${id}`} className="font-medium text-primary hover:underline" title={`Open ${name}`}>
+      {name}
+    </Link>
+  );
+}
 
 function MetaField({ label, value, mono, highlight, capitalize: cap }: { label: string; value: string | null | undefined; mono?: boolean; highlight?: boolean; capitalize?: boolean }) {
   return (
