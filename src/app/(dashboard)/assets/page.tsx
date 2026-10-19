@@ -8,6 +8,7 @@ import { toast } from "sonner";
 
 import { SegmentBar, StatTiles } from "@/components/ui/analytics-strip";
 import { Pagination, pageSlice } from "@/components/ui/pagination";
+import { ProductionLeftovers } from "@/components/assets/production-leftovers";
 import { ProductionRoute, type ProductionStep } from "@/components/assets/production-route";
 import { Timeline, type TimelineItem, type TimelineTone } from "@/components/ui/timeline";
 import { CopyButton } from "@/components/ui/copy-button";
@@ -244,6 +245,9 @@ interface AssetComponent {
   available_quantity: number | null;
   outstanding_quantity: number;
   issued_quantity: number;
+  returned_quantity?: number;
+  returned_serials?: string[];
+  issued_serials?: string[];
   fulfilment: string;
   po_number: string | null;
   source_label: string | null;
@@ -2096,6 +2100,15 @@ export default function AssetsPage() {
                         locked={d.is_locked}
                       />
                     </div>
+                    {d.requires_production && (
+                      <ProductionLeftovers
+                        deviceId={d.id}
+                        lines={d.components ?? []}
+                        routeFinished={(d.production_steps ?? []).every((s) => s.status === "completed" || s.status === "skipped")}
+                        canReturn={can("decide_requirements")}
+                        onChanged={() => refreshDetail(d.id)}
+                      />
+                    )}
                     </>)}
                     {/* Who puts it in and switches it on. Assigning here is
                         what opens the job on the Installation Tracker; the
