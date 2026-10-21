@@ -8,6 +8,7 @@ import { Organogram } from "@/components/teams/organogram";
 import { PermissionsDialog } from "@/components/teams/permissions-dialog";
 import { RolesMatrix } from "@/components/teams/roles-matrix";
 import { Modal } from "@/components/ui/modal";
+import { SignatureField } from "@/components/teams/signature-field";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { Tabs } from "@/components/ui/tabs";
 import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
@@ -20,6 +21,7 @@ import { formatDate } from "@/lib/utils";
 interface User {
   id: string;
   username: string;
+  signature?: string | null;
   email: string;
   first_name: string;
   last_name: string;
@@ -689,6 +691,17 @@ export default function TeamsPage() {
                     <input id="leaving_date" name="leaving_date" type="date" min={selected?.join_date ?? undefined} defaultValue={selected?.leaving_date ?? ""} className={inputClass} />
                   </div>
                 </div>
+
+                {modalMode === "edit" && selected && (
+                  <SignatureField
+                    userId={selected.id}
+                    url={selected.signature}
+                    onChanged={(url) => {
+                      setSelected((s) => (s ? { ...s, signature: url } : s));
+                      setUsers((list) => list.map((u) => (u.id === selected.id ? { ...u, signature: url } : u)));
+                    }}
+                  />
+                )}
 
                 <div className="flex items-center gap-2">
                   <input id="is_field_staff" name="is_field_staff" type="checkbox" defaultChecked={selected?.is_field_staff ?? false} className="h-4 w-4 rounded border-border bg-card accent-teal-500" />
