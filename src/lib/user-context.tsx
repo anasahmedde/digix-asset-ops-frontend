@@ -16,6 +16,8 @@ export interface UserInfo {
   role_label?: string;
   phone: string;
   avatar: string | null;
+  /** Printed on the documents this person signs. */
+  signature?: string | null;
   is_field_staff: boolean;
   /** Everything this person may do, after their role's defaults are adjusted. */
   capabilities?: string[];

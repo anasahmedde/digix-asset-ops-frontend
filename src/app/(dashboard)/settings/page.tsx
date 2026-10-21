@@ -8,6 +8,7 @@ import api from "@/lib/api";
 import { CURRENCIES, getCurrency, setCurrency, type CurrencyCode } from "@/lib/currency";
 import { useTheme, type Theme } from "@/lib/theme-context";
 import { useUser } from "@/lib/user-context";
+import { SignatureField } from "@/components/teams/signature-field";
 
 export default function SettingsPage() {
   const { user, refresh } = useUser();
@@ -145,6 +146,11 @@ export default function SettingsPage() {
               </button>
             </div>
           </form>
+        )}
+        {user && (
+          <div className="mt-4">
+            <SignatureField userId={user.id} url={user.signature} mine onChanged={() => refresh()} />
+          </div>
         )}
       </div>
 

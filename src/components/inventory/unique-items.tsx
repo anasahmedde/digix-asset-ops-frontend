@@ -45,6 +45,8 @@ export interface UniqueProduct {
   in_stock_count: number;
   /** Where its units on the shelf are kept. */
   storage_locations?: string[];
+  /** The product's own place - setting it moves the units on the shelf there. */
+  storage_location?: string;
   notes: string;
   is_active: boolean;
 }
@@ -236,6 +238,7 @@ export function UniqueItems({ openTick = 0, viewOnly = false }: { openTick?: num
       unit: fd.get("unit") || "piece",
       unit_cost: fd.get("unit_cost") || null,
       min_stock_level: Number(fd.get("min_stock_level") || 0),
+      storage_location: String(fd.get("storage_location") || "").trim(),
       // Only meaningful on the way in; the API ignores it on an edit.
       ...(selected ? {} : { opening_quantity: openingQty, opening_serials: trimmedSerials }),
       specifications,
@@ -583,6 +586,18 @@ export function UniqueItems({ openTick = 0, viewOnly = false }: { openTick?: num
             <div className="space-y-1.5">
               <label htmlFor="min_stock_level" className={labelClass}>Min Stock Level</label>
               <input id="min_stock_level" name="min_stock_level" type="number" min={0} defaultValue={selected?.min_stock_level ?? 0} className={inputClass} />
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="storage_location" className={labelClass}>Storage location</label>
+              <input id="storage_location" name="storage_location"
+                defaultValue={selected?.storage_location || ((selected?.storage_locations ?? []).length === 1 ? selected!.storage_locations![0] : "")}
+                placeholder="Where it is put, e.g. Rack A3" className={inputClass} />
+              {selected && (selected.storage_locations ?? []).length > 1 && !selected.storage_location && (
+                <p className="text-2xs text-muted-foreground">Units are kept at {(selected.storage_locations ?? []).join(", ")}.</p>
+              )}
+              {selected && selected.in_stock_count > 0 && (
+                <p className="text-2xs text-muted-foreground">Setting it moves the {selected.in_stock_count} on the shelf there.</p>
+              )}
             </div>
 
             {/* Set once, when the product is first opened: a product usually
