@@ -51,7 +51,8 @@ interface NavItem {
   href: string;
   icon: React.ComponentType<{ className?: string }>;
   /** Shown to anyone holding this capability; without one, to everybody. */
-  capability?: string;
+  /** Shown to whoever holds it - or any of them, when several. */
+  capability?: string | string[];
   badge?: number;
   children?: NavItem[];
 }
@@ -61,11 +62,11 @@ const navigation: NavItem[] = [
   { name: "Assets", href: "/assets", icon: HardDrive, capability: "view_assets" },
   { name: "Installation Tracker", href: "/installation-tracker", icon: Layers, capability: "view_installations" },
   { name: "Maintenance", href: "/maintenance", icon: Wrench, capability: "view_maintenance" },
-  { name: "Warranties", href: "/warranties", icon: ShieldCheck, capability: "view_warranties" },
+  { name: "Warranties", href: "/warranties", icon: ShieldCheck, capability: ["view_client_warranties", "view_vendor_warranties"] },
   { name: "Projects", href: "/projects", icon: ClipboardList, capability: "view_projects" },
   { name: "Sites", href: "/sites", icon: MapPin, capability: "view_installations" },
   { name: "Tickets", href: "/tickets", icon: Ticket, capability: "view_tickets" },
-  { name: "Quotations", href: "/quotations", icon: ReceiptText, capability: "view_quotations" },
+  { name: "Client Quotations", href: "/quotations", icon: ReceiptText, capability: "view_quotations" },
   { name: "Work Orders", href: "/work-orders", icon: ScrollText, capability: "view_work_orders" },
   { name: "Inventory", href: "/inventory", icon: Package, capability: "view_stock" },
   { name: "Procurement", href: "/procurement", icon: ShoppingCart, capability: "view_procurement" },
@@ -124,7 +125,8 @@ export function Sidebar() {
   // The menu reads the same rule as the server: a capability. Rights are
   // editable per role and per person, so a menu that read role names went
   // stale the moment somebody's were adjusted.
-  const show = (item: NavItem) => !item.capability || can(item.capability);
+  const show = (item: NavItem) =>
+    !item.capability || (Array.isArray(item.capability) ? item.capability.some((c) => can(c)) : can(item.capability));
 
   const visibleNav = arrange(navigation, draft ?? order)
     .filter(show)

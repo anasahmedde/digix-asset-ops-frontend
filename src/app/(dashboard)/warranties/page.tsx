@@ -151,14 +151,14 @@ function formatLabel(value: string) {
 }
 
 export default function WarrantiesPage() {
-  const { can, canAny } = useUser();
-  const canEdit = can("manage_warranties");
-  // Client warranties belong to projects; vendor and component warranties
-  // to the warranty register. Each side shows to whoever may read it.
-  const seesClient = canAny("record_client_warranty", "view_projects");
-  const seesSupplier = can("view_warranties");
+  const { can } = useUser();
+  // Client cover is Marketing's, vendor and component cover Operations':
+  // each side shows to, and is managed by, whoever holds its rights.
+  const canEditClient = can("manage_client_warranties");
+  const canEdit = can("manage_vendor_warranties");
+  const seesClient = can("view_client_warranties");
+  const seesSupplier = can("view_vendor_warranties");
   const clientSideOnly = seesClient && !seesSupplier;
-  const supplierSideOnly = seesSupplier && !seesClient;
   const seesBoth = seesClient && seesSupplier;
   const router = useRouter();
   const params = useSearchParams();
@@ -166,8 +166,10 @@ export default function WarrantiesPage() {
   // A notification lands on the tab it is about.
   useEffect(() => {
     const t = params.get("tab");
-    if (t === "client" || t === "supplier" || t === "components" || t === "claims") setWarrantySide(t);
-  }, [params]);
+    if (t === "client" ? seesClient : (t === "supplier" || t === "components" || t === "claims") && seesSupplier) {
+      setWarrantySide(t as WarrantySide);
+    }
+  }, [params, seesClient, seesSupplier]);
   const [warrantyPage, setWarrantyPage] = useState(1);
   const sort = useSortState();
   // The warranty being extended, if the Extend dialog is open.
@@ -367,18 +369,17 @@ export default function WarrantiesPage() {
       </div>
 
       {(() => {
-        const tabs: { key: WarrantySide; label: string }[] = seesBoth
-          ? [
-              { key: "client", label: "Client Warranties" },
-              { key: "supplier", label: "Vendor Warranties" },
-              { key: "components", label: "Component Warranties" },
-              { key: "claims", label: "Claims" },
-            ]
-          : [
-              { key: clientSideOnly ? "client" : "supplier", label: "Warranties" },
-              { key: "components", label: "Component Warranties" },
-              { key: "claims", label: "Claims" },
-            ];
+        // Components and claims are vendor cover: they go with that side.
+        const tabs: { key: WarrantySide; label: string }[] = [
+          ...(seesClient ? [{ key: "client" as const, label: "Client Warranties" }] : []),
+          ...(seesSupplier
+            ? [
+                { key: "supplier" as const, label: "Vendor Warranties" },
+                { key: "components" as const, label: "Component Warranties" },
+                { key: "claims" as const, label: "Claims" },
+              ]
+            : []),
+        ];
         return (
           <div className="flex flex-wrap gap-2">
             {tabs.map((t) => (
@@ -503,7 +504,7 @@ export default function WarrantiesPage() {
                     </td>
                     <td className={`${tdClass} text-muted-foreground`}>{w.site_name || "—"}</td>
                     <td className={tdClass} onClick={(e) => e.stopPropagation()}>
-                      {canEdit ? (
+                      {(w.warranty_type === "client" ? canEditClient : canEdit) ? (
                         <div className="flex items-center gap-1">
                           {["expired", "active", "extended"].includes(w.status) && (
                             <button
