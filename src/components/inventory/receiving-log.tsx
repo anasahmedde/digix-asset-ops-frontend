@@ -281,7 +281,10 @@ export function ReceivingLog() {
                                   </div>
                                 </div>
                               )}
-                              {r.inspection_notes && <Detail label="Inspection notes" value={<span className="whitespace-pre-line">{r.inspection_notes}</span>} />}
+                              {/* A return names its product as "unit_type:<id>" for the inspector's form only. */}
+                              {r.inspection_notes?.replace(/\s*unit_type:\S+/g, "").trim() && (
+                                <Detail label="Inspection notes" value={<span className="whitespace-pre-line">{r.inspection_notes.replace(/\s*unit_type:\S+/g, "").trim()}</span>} />
+                              )}
                             </div>
                           </td>
                         </tr>
