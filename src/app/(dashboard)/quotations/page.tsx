@@ -510,7 +510,7 @@ export default function QuotationsPage() {
             <ReceiptText className="h-5 w-5 text-white" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-foreground">Quotations</h1>
+            <h1 className="text-2xl font-bold text-foreground">Client Quotations</h1>
             <p className="text-muted-foreground">Client quotes — accepted quotes spawn projects automatically</p>
           </div>
         </div>

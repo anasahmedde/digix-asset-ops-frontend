@@ -8,6 +8,7 @@ import { getCurrentUser, logout } from "@/lib/auth";
 import { useNotifications } from "@/lib/notification-context";
 import { useSidebar } from "@/lib/sidebar-context";
 import { GlobalSearch } from "@/components/layout/global-search";
+import { TimeInOut } from "@/components/layout/time-in-out";
 import { Avatar } from "@/components/ui/avatar";
 
 interface User {
@@ -60,6 +61,7 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-2">
+        <TimeInOut />
         <button onClick={() => setSearchOpen(true)} aria-label="Search everything (Ctrl+K)" title="Search everything (Ctrl+K)" className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
           <Search className="h-4 w-4" />
         </button>

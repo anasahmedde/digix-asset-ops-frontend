@@ -56,7 +56,7 @@ const MODULE_CAPABILITY: Record<string, string[]> = {
   devices: ["edit_assets"],
   sites: ["manage_sites"],
   tickets: ["work_tickets", "raise_ticket", "assign_ticket"],
-  warranties: ["manage_warranties"],
+  warranties: ["manage_client_warranties", "manage_vendor_warranties"],
   maintenance: ["manage_maintenance", "assign_maintenance", "work_maintenance"],
   inventory: ["manage_stock", "receive_goods", "issue_stock", "inspect_goods"],
   suppliers: ["manage_suppliers"],
