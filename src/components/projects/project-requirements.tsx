@@ -911,7 +911,7 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                         </dd>
                       </div>
                       <div>
-                        <dt className="text-2xs uppercase tracking-wider text-muted-foreground">Target date</dt>
+                        <dt className="text-2xs uppercase tracking-wider text-muted-foreground">Closing date</dt>
                         <dd className="text-foreground">{asset.installation.due_date ?? "Not agreed"}</dd>
                       </div>
                     </dl>

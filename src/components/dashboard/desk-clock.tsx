@@ -32,7 +32,7 @@ interface ProjectRef { id: string; name: string }
 
 const KIND: Record<Item["kind"], { dot: string; label: string }> = {
   event: { dot: "bg-primary", label: "Planned" },
-  project_target: { dot: "bg-amber-500", label: "Delivery" },
+  project_target: { dot: "bg-amber-500", label: "Closing" },
   project_start: { dot: "bg-sky-500", label: "Start" },
   milestone: { dot: "bg-violet-500", label: "Milestone" },
 };
