@@ -8,6 +8,7 @@ import {
   ChevronRight,
   ClipboardList,
   Eye,
+  FileSpreadsheet,
   Pencil,
   Plus,
   Search,
@@ -289,6 +290,22 @@ const ProjectsMap = dynamic(() => import("@/components/map/projects-map"), {
     </div>
   ),
 });
+
+/** The project's full report, saved under the name the server gives it. */
+async function downloadProjectReport(id: string) {
+  try {
+    const res = await api.get(`/reports/project/${id}/`, { responseType: "blob" });
+    const named = /filename="?([^";]+)"?/.exec(String(res.headers["content-disposition"] ?? ""));
+    const href = URL.createObjectURL(res.data as Blob);
+    const a = document.createElement("a");
+    a.href = href;
+    a.download = named?.[1] ?? "project-report.xlsx";
+    a.click();
+    URL.revokeObjectURL(href);
+  } catch (err) {
+    toast.error(getApiError(err, "Could not build the project report"));
+  }
+}
 
 export default function ProjectsPage() {
   const { can } = useUser();
@@ -984,6 +1001,13 @@ export default function ProjectsPage() {
           <div className="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto">
             <ContractBadge contractType={d.contract_type} rentalEndDate={d.rental_end_date} />
             <StatusBadge status={d.status} label={d.status_display} />
+            <button
+              onClick={() => downloadProjectReport(d.id)}
+              title="The whole project as an Excel workbook: assets, installations, dates, planned against actual"
+              className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            >
+              <FileSpreadsheet className="h-4 w-4" /> Excel report
+            </button>
             {canEdit && (
               <button onClick={() => openEdit(d)} className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
                 <Pencil className="h-4 w-4" /> Edit
