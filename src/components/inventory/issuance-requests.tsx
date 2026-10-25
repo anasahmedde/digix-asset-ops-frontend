@@ -57,6 +57,10 @@ interface RequestRow {
   procured?: boolean;
   po_number?: string | null;
   po_received_quantity?: number;
+  /** Set aside into the project's pigeon hole, or drawn out of it. */
+  into_pigeon_hole?: boolean;
+  pigeon_hole?: string | null;
+  pigeon_project?: string | null;
   created_at: string;
 }
 
@@ -236,7 +240,8 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
     setPeople(team);
     // Whoever asked for it usually comes for it: they are picked to start with.
     const asker = team.find((p) => p.name === row.requested_by_name)?.name ?? "";
-    const receiver = row.maintenance_assignee ?? asker;
+    // Set aside, not handed over: the pigeon hole holds it.
+    const receiver = row.into_pigeon_hole ? "" : row.maintenance_assignee ?? asker;
     setIssue({
       quantity: String(Math.max(possible, 0)),
       received_by: receiver,
@@ -445,7 +450,14 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                       <td className={tdClass}>
                         {/* What the material is wanted for: a build line, or a
                             maintenance job and the kind of work it is. */}
-                        {row.maintenance_title ? (
+                        {row.into_pigeon_hole || row.pigeon_hole ? (
+                          <>
+                            <span className="block max-w-[11rem] text-foreground">
+                              {row.into_pigeon_hole ? "Keep in pigeon hole" : "From pigeon hole"}
+                            </span>
+                            <span className="block text-2xs text-muted-foreground">{row.pigeon_project} · contingency stock</span>
+                          </>
+                        ) : row.maintenance_title ? (
                           <>
                             <span className="block max-w-[11rem] text-foreground">{row.maintenance_title}</span>
                             <span className="block text-2xs text-muted-foreground">
@@ -678,7 +690,7 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
           <form onSubmit={submitIssue} className="space-y-4">
             <p className="text-sm text-muted-foreground">
               <span className="font-medium text-foreground">{issueFor.what}</span> ·{" "}
-              {issueFor.outstanding_quantity} owed · {issueFor.available_quantity ?? 0} in stock
+              {issueFor.outstanding_quantity} owed · {issueFor.available_quantity ?? 0} {issueFor.pigeon_hole ? `in ${issueFor.pigeon_project}'s pigeon hole` : "in stock"}
             </p>
             <p className="-mt-2 text-xs text-muted-foreground">
               Requested by{" "}
@@ -729,8 +741,17 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
               </div>
             )}
             <div className="space-y-1.5">
-              <label htmlFor="issue-to" className={labelClass}>Received by</label>
-              {issueFor.maintenance_assignee ? (
+              <label htmlFor="issue-to" className={labelClass}>{issueFor.into_pigeon_hole ? "Kept in" : "Received by"}</label>
+              {issueFor.into_pigeon_hole ? (
+                <>
+                  <p className={`${inputClass} flex items-center bg-secondary/40 text-muted-foreground`}>
+                    {issueFor.pigeon_project}&apos;s pigeon hole
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Nobody takes it away: it leaves general stock and is kept apart in the store for this project.
+                  </p>
+                </>
+              ) : issueFor.maintenance_assignee ? (
                 // Parts for a job go to whoever is on that job: handing them to
                 // somebody else leaves the parts with one person and the work
                 // with another.
@@ -806,10 +827,10 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
               </button>
               <button
                 type="submit"
-                disabled={saving || Number(issue.quantity) < 1 || !issue.received_by.trim()}
+                disabled={saving || Number(issue.quantity) < 1 || (!issueFor.into_pigeon_hole && !issue.received_by.trim())}
                 className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
               >
-                {saving ? "Issuing…" : `Issue ${Number(issue.quantity) || 0}`}
+                {saving ? "Issuing…" : issueFor.into_pigeon_hole ? `Keep ${Number(issue.quantity) || 0} in pigeon hole` : `Issue ${Number(issue.quantity) || 0}`}
               </button>
             </div>
           </form>

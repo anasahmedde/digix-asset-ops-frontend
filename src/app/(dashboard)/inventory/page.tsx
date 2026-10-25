@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { IssuanceLog } from "@/components/inventory/issuance-log";
 import { IssuanceRequests } from "@/components/inventory/issuance-requests";
+import { PigeonHoles } from "@/components/inventory/pigeon-holes";
 import { LowStock } from "@/components/inventory/low-stock";
 import { PriceApprovals } from "@/components/procurement/price-approvals";
 import { PendingInspection } from "@/components/inventory/pending-inspection";
@@ -123,13 +124,13 @@ export default function InventoryPage() {
   // Two kinds of inventory: generic stock tracked by quantity, and unique
   // (serialized) units tracked one row per physical item.
   const [tab, setTab] = useState<
-    "generic" | "unique" | "low_stock" | "inspection" | "receiving_log" | "requests" | "issuance"
+    "generic" | "unique" | "low_stock" | "inspection" | "receiving_log" | "requests" | "issuance" | "pigeon_hole"
   >("generic");
   // A notification lands on the tab it is about.
   const params = useSearchParams();
   useEffect(() => {
     const t = params.get("tab");
-    if (t && (worksStore ? ["generic", "unique", "low_stock", "inspection", "receiving_log", "requests", "issuance"] : ["generic", "unique"]).includes(t)) {
+    if (t && (worksStore ? ["generic", "unique", "low_stock", "inspection", "receiving_log", "requests", "issuance", "pigeon_hole"] : ["generic", "unique", "pigeon_hole"]).includes(t)) {
       setTab(t as typeof tab);
     }
   }, [params, worksStore]);
@@ -346,7 +347,8 @@ export default function InventoryPage() {
           { key: "receiving_log", label: "Receiving Log" },
           { key: "requests", label: "Issue Requests" },
           { key: "issuance", label: "Issuance Log" },
-        ] as const).filter((t) => worksStore || t.key === "generic" || t.key === "unique").map((t) => (
+          { key: "pigeon_hole", label: "Pigeon Hole" },
+        ] as const).filter((t) => worksStore || t.key === "generic" || t.key === "unique" || t.key === "pigeon_hole").map((t) => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
@@ -376,6 +378,8 @@ export default function InventoryPage() {
       {tab === "requests" && <IssuanceRequests onIssued={fetchItems} />}
 
       {tab === "issuance" && <IssuanceLog />}
+
+      {tab === "pigeon_hole" && <PigeonHoles />}
       {tab === "low_stock" && (
         <div className="space-y-6">
           {/* A reorder the store raised, coming back priced over the last
