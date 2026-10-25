@@ -11,6 +11,7 @@ import { getApiError } from "@/lib/api-error";
 import { aboutProject, useReloadOnNotice } from "@/lib/notification-context";
 import { useUser } from "@/lib/user-context";
 
+import { Share, pctOf } from "./cost-share";
 import { CostsHidden } from "./costs-hidden";
 
 interface ActualLine {
@@ -255,6 +256,8 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
 
   const variance = data.variance_vs_approved == null ? null : Number(data.variance_vs_approved);
   const over = variance != null && variance > 0;
+  // Each cost's share of what the project has cost so far.
+  const base = Number(data.actual_total);
 
   return (
     <div className="space-y-5">
@@ -310,6 +313,7 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
                   <th className={`${thClass} text-right`}>Unit price</th>
                   <th className={thClass}>Valued at</th>
                   <th className={`${thClass} text-right`}>Actual</th>
+                  <th className={`${thClass} text-right`} title="Share of the project's actual cost so far">Share</th>
                 </tr>
               </thead>
               {data.assets.map((asset) => (
@@ -325,6 +329,7 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
                       )}
                     </td>
                     <td className={`${tdClass} text-right font-semibold text-foreground`}>{money(asset.actual_total)}</td>
+                    <td className={`${tdClass} text-right`}><Share value={asset.actual_total} of={base} /></td>
                   </tr>
                   <tr>
                     <td colSpan={5} className={`${tdClass} pl-6 text-2xs font-semibold uppercase tracking-wider text-muted-foreground`}>
@@ -333,6 +338,7 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
                     <td className={`${tdClass} text-right text-2xs font-medium text-muted-foreground`}>
                       {money(asset.materials_actual)}
                     </td>
+                    <td className={`${tdClass} text-right`}><Share value={asset.materials_actual} of={base} /></td>
                   </tr>
                   {asset.vendor_asset ? (
                     <tr className="border-t border-border/50">
@@ -355,10 +361,11 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
                       <td className={`${tdClass} text-right font-medium text-foreground`}>
                         {money(asset.materials_actual)}
                       </td>
+                      <td className={`${tdClass} text-right`}><Share value={asset.materials_actual} of={base} /></td>
                     </tr>
                   ) : asset.lines.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className={`${tdClass} pl-10 text-2xs text-muted-foreground`}>
+                      <td colSpan={7} className={`${tdClass} pl-10 text-2xs text-muted-foreground`}>
                         No components on this asset.
                       </td>
                     </tr>
@@ -373,6 +380,7 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
                         <td className={`${tdClass} text-right font-medium text-foreground`}>
                           {l.line_total != null ? money(l.line_total) : "—"}
                         </td>
+                        <td className={`${tdClass} text-right`}><Share value={l.line_total} of={base} /></td>
                       </tr>
                     ))
                   )}
@@ -384,11 +392,12 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
                       <td className={`${tdClass} text-right text-2xs font-medium text-muted-foreground`}>
                         {money(Number(asset.production_actual) + Number(asset.work_orders_actual ?? 0))}
                       </td>
+                      <td className={`${tdClass} text-right`}><Share value={Number(asset.production_actual) + Number(asset.work_orders_actual ?? 0)} of={base} /></td>
                     </tr>
                   )}
                   {!asset.vendor_asset && (asset.steps ?? []).length === 0 && (
                     <tr>
-                      <td colSpan={6} className={`${tdClass} pl-10 text-2xs text-muted-foreground`}>
+                      <td colSpan={7} className={`${tdClass} pl-10 text-2xs text-muted-foreground`}>
                         No production route on this asset.
                       </td>
                     </tr>
@@ -440,6 +449,7 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
                       <td className={`${tdClass} text-right font-medium text-foreground`}>
                         {st.actual_cost != null ? money(st.actual_cost) : "—"}
                       </td>
+                      <td className={`${tdClass} text-right`}><Share value={st.actual_cost} of={base} /></td>
                     </tr>
                   ))}
                   {(asset.work_orders ?? []).map((w) => (
@@ -450,6 +460,7 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
                       </td>
                       <td className={`${tdClass} text-muted-foreground`}>work order</td>
                       <td className={`${tdClass} text-right font-medium text-foreground`}>{w.amount != null ? money(w.amount) : "—"}</td>
+                      <td className={`${tdClass} text-right`}><Share value={w.amount} of={base} /></td>
                     </tr>
                   ))}
                   <tr>
@@ -459,6 +470,7 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
                     <td className={`${tdClass} text-right text-2xs font-medium text-muted-foreground`}>
                       {asset.installation_actual != null ? money(asset.installation_actual) : money(0)}
                     </td>
+                    <td className={`${tdClass} text-right`}><Share value={asset.installation_actual} of={base} /></td>
                   </tr>
                   <tr className="border-t border-border/50">
                     <td className={`${tdClass} pl-10 text-foreground`}>
@@ -491,6 +503,7 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
                     <td className={`${tdClass} text-right font-medium text-foreground`}>
                       {asset.installation_actual != null ? money(asset.installation_actual) : "—"}
                     </td>
+                    <td className={`${tdClass} text-right`}><Share value={asset.installation_actual} of={base} /></td>
                   </tr>
                 </tbody>
               ))}
@@ -530,6 +543,7 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
                   <th className={`${thClass} text-right`}>Actual qty</th>
                   <th className={`${thClass} text-right`}>Actual rate</th>
                   <th className={`${thClass} text-right`}>Actual</th>
+                  <th className={`${thClass} text-right`} title="Share of the project's actual cost so far">Share</th>
                   {canEdit && <th className={thClass} />}
                 </tr>
               </thead>
@@ -572,6 +586,7 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
                             />
                           </td>
                           <td className={`${tdClass} text-right text-muted-foreground`}>—</td>
+                          <td className={`${tdClass} text-right text-muted-foreground`}>—</td>
                           <td className={`${tdClass} text-right`}>
                             <div className="flex items-center justify-end gap-1.5">
                               <button
@@ -611,6 +626,7 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
                               </span>
                             )}
                           </td>
+                          <td className={`${tdClass} text-right`}><Share value={o.actual_amount} of={base} /></td>
                           {canEdit && (
                             <td className={`${tdClass} text-right`}>
                               <div className="flex items-center justify-end gap-2">
@@ -673,21 +689,24 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
         <dl className="divide-y divide-border text-sm">
           <div className="flex justify-between px-4 py-2.5">
             <dt className="text-muted-foreground">Components used</dt>
-            <dd className="font-medium text-foreground">{money(data.materials_actual)}</dd>
+            <dd className="font-medium text-foreground"><span className="mr-2 text-2xs font-normal text-muted-foreground">{pctOf(data.materials_actual, base)}</span>{money(data.materials_actual)}</dd>
           </div>
           <div className="flex justify-between px-4 py-2.5">
             <dt className="text-muted-foreground">Production</dt>
             <dd className="font-medium text-foreground">
+              <span className="mr-2 text-2xs font-normal text-muted-foreground">
+                {pctOf(Number(data.production_actual ?? 0) + Number(data.work_orders_actual ?? 0), base)}
+              </span>
               {money(Number(data.production_actual ?? 0) + Number(data.work_orders_actual ?? 0))}
             </dd>
           </div>
           <div className="flex justify-between px-4 py-2.5">
             <dt className="text-muted-foreground">Installation &amp; activation</dt>
-            <dd className="font-medium text-foreground">{money(data.installation_actual ?? 0)}</dd>
+            <dd className="font-medium text-foreground"><span className="mr-2 text-2xs font-normal text-muted-foreground">{pctOf(data.installation_actual ?? 0, base)}</span>{money(data.installation_actual ?? 0)}</dd>
           </div>
           <div className="flex justify-between px-4 py-2.5">
             <dt className="text-muted-foreground">Overheads recorded</dt>
-            <dd className="font-medium text-foreground">{money(data.overheads_actual_total)}</dd>
+            <dd className="font-medium text-foreground"><span className="mr-2 text-2xs font-normal text-muted-foreground">{pctOf(data.overheads_actual_total, base)}</span>{money(data.overheads_actual_total)}</dd>
           </div>
           <div className="flex justify-between px-4 py-2.5">
             <dt className="text-muted-foreground">Estimated at planning</dt>

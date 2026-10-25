@@ -8,6 +8,7 @@ import {
   ChevronRight,
   ClipboardList,
   Eye,
+  FileSpreadsheet,
   Pencil,
   Plus,
   Search,
@@ -135,6 +136,8 @@ interface Milestone {
 
 interface ProjectDetail {
   id: string;
+  /** The project's own number, e.g. PRJ-2026-0001. */
+  project_code?: string;
   name: string;
   description: string;
   location: string;
@@ -260,6 +263,7 @@ interface ProjectStats {
 
 interface Project {
   id: string;
+  project_code?: string;
   name: string;
   client_name?: string | null;
   site_name?: string | null;
@@ -286,6 +290,22 @@ const ProjectsMap = dynamic(() => import("@/components/map/projects-map"), {
     </div>
   ),
 });
+
+/** The project's full report, saved under the name the server gives it. */
+async function downloadProjectReport(id: string) {
+  try {
+    const res = await api.get(`/reports/project/${id}/`, { responseType: "blob" });
+    const named = /filename="?([^";]+)"?/.exec(String(res.headers["content-disposition"] ?? ""));
+    const href = URL.createObjectURL(res.data as Blob);
+    const a = document.createElement("a");
+    a.href = href;
+    a.download = named?.[1] ?? "project-report.xlsx";
+    a.click();
+    URL.revokeObjectURL(href);
+  } catch (err) {
+    toast.error(getApiError(err, "Could not build the project report"));
+  }
+}
 
 export default function ProjectsPage() {
   const { can } = useUser();
@@ -964,6 +984,12 @@ export default function ProjectsPage() {
             <ArrowLeft className="h-4 w-4" />
           </button>
           <div className="min-w-0 flex-1">
+            {d.project_code && (
+              <p className="flex items-center gap-1 font-mono text-xs font-semibold text-primary">
+                {d.project_code}
+                <CopyButton text={d.project_code} label="project ID" />
+              </p>
+            )}
             <h1 className="inline-flex max-w-full items-center gap-2 break-words text-xl font-bold text-foreground sm:text-2xl">
               {d.name}
               <CopyButton text={d.name} label="project name" />
@@ -975,6 +1001,13 @@ export default function ProjectsPage() {
           <div className="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto">
             <ContractBadge contractType={d.contract_type} rentalEndDate={d.rental_end_date} />
             <StatusBadge status={d.status} label={d.status_display} />
+            <button
+              onClick={() => downloadProjectReport(d.id)}
+              title="The whole project as an Excel workbook: assets, installations, dates, planned against actual"
+              className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            >
+              <FileSpreadsheet className="h-4 w-4" /> Excel report
+            </button>
             {canEdit && (
               <button onClick={() => openEdit(d)} className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
                 <Pencil className="h-4 w-4" /> Edit
@@ -1699,7 +1732,7 @@ export default function ProjectsPage() {
                 if (searchTimer.current) clearTimeout(searchTimer.current);
                 searchTimer.current = setTimeout(() => { fetchAll(); }, 300);
               }}
-              placeholder="Search projects by name, client or site…"
+              placeholder="Search projects by ID, name, client or site…"
               className="h-10 w-80 rounded-lg border border-border bg-card pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none"
             />
           </div>
@@ -1790,6 +1823,7 @@ export default function ProjectsPage() {
                   <tr key={project.id} onClick={() => openProject(project.id)} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
                     <td className="px-5 py-3.5">
                       <div>
+                        {project.project_code && <p className="font-mono text-2xs font-semibold text-primary">{project.project_code}</p>}
                         <div className="flex items-center gap-2">
                           <p className="font-medium text-foreground">{project.name}</p>
                           <ContractBadge contractType={project.contract_type} rentalEndDate={project.rental_end_date} compact />

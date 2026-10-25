@@ -3,6 +3,7 @@
 import {
   AlertTriangle,
   ArrowLeft,
+  Camera,
   Check,
   ClipboardCheck,
   FileText,
@@ -134,6 +135,10 @@ interface Installation {
     /** Who pressed Start, and who pressed Complete - on the phone, on site. */
     started_by_name?: string | null;
     completed_by_name?: string | null;
+    /** Ticked while the step is under way; all of it, before it completes. */
+    checks?: { id: string; text: string; done: boolean; done_at: string | null; done_by_name: string | null }[];
+    /** Photos of the finished work - at least one, before it completes. */
+    evidence?: { id: string; image: string; caption: string; created_at: string }[];
   }[];
   photos: {
     id: string;
@@ -338,6 +343,8 @@ export default function InstallationTrackerPage() {
   const [documents, setDocuments] = useState<RelatedDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [updatingStep, setUpdatingStep] = useState<string | null>(null);
+  // The item being typed onto each step's checklist.
+  const [checkDraft, setCheckDraft] = useState<Record<string, string>>({});
   const [search, setSearch] = useState("");
   const [filterValues, setFilterValues] = useState<Record<string, string>>({ client: "", site: "", installer: "" });
   const [exporting, setExporting] = useState(false);
@@ -498,6 +505,44 @@ export default function InstallationTrackerPage() {
       setUpdatingStep(null);
     }
   }
+
+  async function stepWork(stepId: string, call: () => Promise<unknown>, done: string, fallback: string) {
+    setUpdatingStep(stepId);
+    try {
+      await call();
+      if (selected) await loadDetail(selected.id);
+      if (done) toast.success(done);
+    } catch (err) {
+      toast.error(getApiError(err, fallback));
+    } finally {
+      setUpdatingStep(null);
+    }
+  }
+  const addCheck = (stepId: string) => {
+    const text = (checkDraft[stepId] ?? "").trim();
+    if (!text) return;
+    stepWork(stepId, async () => {
+      await api.post(`/sites/installation-steps/${stepId}/checks/`, { text });
+      setCheckDraft((d) => ({ ...d, [stepId]: "" }));
+    }, "", "Could not add the item");
+  };
+  const tickCheck = (stepId: string, checkId: string, done: boolean) =>
+    stepWork(stepId, () => api.patch(`/sites/installation-steps/${stepId}/checks/${checkId}/`, { done }), "", "Could not tick the item");
+  const removeCheck = (stepId: string, checkId: string) =>
+    stepWork(stepId, () => api.delete(`/sites/installation-steps/${stepId}/checks/${checkId}/`), "", "Could not remove the item");
+  const uploadEvidence = (stepId: string, files: FileList | null) => {
+    if (!selected || !files?.length) return;
+    stepWork(stepId, async () => {
+      for (const file of Array.from(files)) {
+        const fd = new FormData();
+        fd.append("installation", selected.id);
+        fd.append("step", stepId);
+        fd.append("photo_type", "evidence");
+        fd.append("image", file);
+        await api.post("/sites/installation-photos/", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      }
+    }, files.length > 1 ? "Evidence photos added" : "Evidence photo added", "Could not upload the photo");
+  };
 
   async function stepTemplate(action: "save" | "apply") {
     if (!selected || templateBusy) return;
@@ -1263,6 +1308,78 @@ export default function InstallationTrackerPage() {
                       {step.description && (
                         <p className="text-muted-foreground mt-2 pt-2 border-t border-border">{step.description}</p>
                       )}
+                      {(() => {
+                        const checks = step.checks ?? [];
+                        const evidence = step.evidence ?? [];
+                        const working = selected.can_advance && !closedOut && user?.role !== "technician";
+                        const canTick = working && step.status === "in_progress";
+                        const canEditList = (isManager || selected.can_advance) && !closedOut && step.status !== "completed";
+                        return (
+                          <div className="mt-2 space-y-2 border-t border-border pt-2">
+                            <div>
+                              <p className="mb-1 flex items-center justify-between text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                Checklist
+                                {checks.length > 0 && <span className="normal-case tracking-normal">{checks.filter((c) => c.done).length}/{checks.length}</span>}
+                              </p>
+                              {checks.length === 0 && <p className="text-2xs text-muted-foreground">Nothing listed for this step.</p>}
+                              <ul className="space-y-1">
+                                {checks.map((c) => (
+                                  <li key={c.id} className="group flex items-start gap-1.5">
+                                    <input
+                                      type="checkbox"
+                                      checked={c.done}
+                                      disabled={!canTick || updatingStep === step.id}
+                                      onChange={(e) => tickCheck(step.id, c.id, e.target.checked)}
+                                      title={c.done ? `Ticked by ${c.done_by_name ?? "—"}${c.done_at ? `, ${formatDate(c.done_at)}` : ""}` : canTick ? "Tick when done" : "Ticked while the step is under way"}
+                                      className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-emerald-600 disabled:cursor-not-allowed"
+                                    />
+                                    <span className={`min-w-0 flex-1 text-xs ${c.done ? "text-muted-foreground line-through" : "text-foreground"}`}>{c.text}</span>
+                                    {canEditList && !c.done && (
+                                      <button onClick={() => removeCheck(step.id, c.id)} title="Take this off the checklist" className="text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100">
+                                        <X className="h-3 w-3" />
+                                      </button>
+                                    )}
+                                  </li>
+                                ))}
+                              </ul>
+                              {canEditList && (
+                                <form onSubmit={(e) => { e.preventDefault(); addCheck(step.id); }} className="mt-1.5 flex gap-1">
+                                  <input
+                                    value={checkDraft[step.id] ?? ""}
+                                    onChange={(e) => setCheckDraft((d) => ({ ...d, [step.id]: e.target.value }))}
+                                    placeholder="Add a check…"
+                                    aria-label={`Add a check to ${step.step_type_display}`}
+                                    className="h-7 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-2xs text-foreground placeholder:text-muted-foreground"
+                                  />
+                                  <button type="submit" disabled={!(checkDraft[step.id] ?? "").trim()} className="rounded-md bg-secondary px-2 text-2xs font-medium text-foreground disabled:opacity-40" title="Add">
+                                    <Plus className="h-3 w-3" />
+                                  </button>
+                                </form>
+                              )}
+                            </div>
+                            <div>
+                              <p className="mb-1 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">Evidence</p>
+                              <div className="flex flex-wrap gap-1.5">
+                                {evidence.map((p) => (
+                                  <a key={p.id} href={p.image} target="_blank" rel="noreferrer" title={`Added ${formatDate(p.created_at)}`}>
+                                    <img src={p.image} alt="Evidence of the work" className="h-12 w-12 rounded-md border border-border object-cover" />
+                                  </a>
+                                ))}
+                                {working && step.status === "in_progress" && (
+                                  <label className="flex h-12 w-12 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-md border border-dashed border-primary/50 text-primary transition-colors hover:bg-primary/5" title="Upload a photo of the finished work">
+                                    <Camera className="h-3.5 w-3.5" />
+                                    <span className="text-[9px] font-medium">Add</span>
+                                    <input type="file" accept="image/*" capture="environment" multiple className="sr-only" onChange={(e) => { uploadEvidence(step.id, e.target.files); e.target.value = ""; }} />
+                                  </label>
+                                )}
+                              </div>
+                              {evidence.length === 0 && !(working && step.status === "in_progress") && (
+                                <p className="text-2xs text-muted-foreground">{step.status === "completed" ? "None on record." : "Uploaded once the step is under way."}</p>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()}
                       {stepDelays.length > 0 && (
                         <div className="mt-2 space-y-1.5 border-t border-border pt-2">
                           {stepDelays.map((d) => (
@@ -1299,9 +1416,13 @@ export default function InstallationTrackerPage() {
                     {selected.can_advance && !closedOut && user?.role !== "technician" && (
                       <div className="mt-3 flex flex-wrap gap-1.5 border-t border-border pt-3">
                         {step.status !== "in_progress" && step.status !== "completed" && (
-                          <button disabled={updatingStep === step.id} onClick={() => updateStep(step.id, "in_progress")} className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 px-2 py-1 text-2xs font-medium text-amber-600 transition-colors hover:bg-amber-500/20 disabled:opacity-50">
-                            <Play className="h-3 w-3" /> Start
-                          </button>
+                          workSteps.slice(0, idx).every((s) => s.status === "completed" || s.status === "skipped") ? (
+                            <button disabled={updatingStep === step.id} onClick={() => updateStep(step.id, "in_progress")} className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 px-2 py-1 text-2xs font-medium text-amber-600 transition-colors hover:bg-amber-500/20 disabled:opacity-50">
+                              <Play className="h-3 w-3" /> Start
+                            </button>
+                          ) : (
+                            <span className="inline-flex items-center px-1 py-1 text-2xs text-muted-foreground">Starts after step {idx}</span>
+                          )
                         )}
                         {step.status !== "completed" && (() => {
                           // Work that was never started cannot be finished:
@@ -1309,13 +1430,19 @@ export default function InstallationTrackerPage() {
                           // Started to Completed, and the dates on the card
                           // then had nothing behind them.
                           const notBegun = step.status !== "in_progress";
+                          // Done means shown to be done: the checklist ticked
+                          // and a photo of the work on the step.
+                          const openChecks = (step.checks ?? []).filter((c) => !c.done).length;
+                          const noPhoto = (step.evidence ?? []).length === 0;
                           return (
                             <button
-                              disabled={updatingStep === step.id || notBegun}
+                              disabled={updatingStep === step.id || notBegun || openChecks > 0 || noPhoto}
                               title={
                                 step.status === "on_hold"
                                   ? "On hold — start it again before marking it complete"
-                                  : notBegun ? "Start this step before completing it" : undefined
+                                  : notBegun ? "Start this step before completing it"
+                                    : openChecks > 0 ? `Tick the checklist first (${openChecks} left)`
+                                      : noPhoto ? "Upload a photo of the finished work first" : undefined
                               }
                               onClick={() => updateStep(step.id, "completed")}
                               className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-1 text-2xs font-medium text-emerald-600 transition-colors hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-emerald-500/10"

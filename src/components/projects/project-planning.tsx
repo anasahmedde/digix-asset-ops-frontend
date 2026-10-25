@@ -12,6 +12,7 @@ import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
 
+import { Share, pctOf } from "./cost-share";
 import { CostsHidden } from "./costs-hidden";
 import { formatDate } from "@/lib/utils";
 
@@ -339,6 +340,8 @@ export function ProjectPlanning({
   }
 
   const editable = canPlan && plan.is_editable;
+  // Shares are of the cost before contingency, so the four groups make 100%.
+  const base = Number(plan.subtotal);
   const variance = plan.approved_total != null ? Number(plan.total) - Number(plan.approved_total) : 0;
 
   return (
@@ -441,7 +444,7 @@ export function ProjectPlanning({
                     <th className={`${thClass} text-right`}>Qty</th>
                     <th className={`${thClass} text-right`}>Unit price</th>
                     <th className={thClass}>Priced from</th>
-                    <th className={`${thClass} text-right`}>Total</th>
+                    <th className={`${thClass} text-right`} title="Each total with its share of the project's cost before contingency">Total</th>
                   </tr>
                 </thead>
                 {/* One group per asset: what it is made of, then what making it costs. */}
@@ -466,7 +469,7 @@ export function ProjectPlanning({
                             <span className="ml-2 text-2xs font-medium text-amber-600">· {asset.unpriced_lines} unpriced</span>
                           )}
                         </td>
-                        <td className={`${tdClass} text-right font-semibold text-foreground`}>{money(asset.asset_total)}</td>
+                        <td className={`${tdClass} text-right font-semibold text-foreground`}>{money(asset.asset_total)}<span className="mt-0.5 flex justify-end"><Share value={asset.asset_total} of={base} /></span></td>
                       </tr>
 
                       {asset.vendor_asset ? (
@@ -477,7 +480,7 @@ export function ProjectPlanning({
                           </td>
                           <td className={`${tdClass} text-right text-2xs font-medium text-muted-foreground`}>
                             {asset.asset_price != null ? money(asset.asset_price) : money(0)}
-                          </td>
+                          <span className="mt-0.5 flex justify-end"><Share value={asset.asset_price} of={base} /></span></td>
                         </tr>
                         <tr className="border-t border-border/50">
                           <td className={`${tdClass} pl-6 font-medium text-foreground`}>
@@ -514,7 +517,7 @@ export function ProjectPlanning({
                           </td>
                           <td className={`${tdClass} text-right font-medium text-foreground`}>
                             {asset.asset_price != null ? money(asset.asset_price) : "—"}
-                          </td>
+                          <span className="mt-0.5 flex justify-end"><Share value={asset.asset_price} of={base} /></span></td>
                         </tr>
                       <tr>
                         <td colSpan={4} className={`${tdClass} pl-6 text-2xs font-semibold uppercase tracking-wider text-muted-foreground`}>
@@ -522,7 +525,7 @@ export function ProjectPlanning({
                         </td>
                         <td className={`${tdClass} text-right text-2xs font-medium text-muted-foreground`}>
                           {asset.installation_cost != null ? money(asset.installation_cost) : money(0)}
-                        </td>
+                        <span className="mt-0.5 flex justify-end"><Share value={asset.installation_cost} of={base} /></span></td>
                       </tr>
                       <tr className="border-t border-border/50">
                         <td className={`${tdClass} pl-10 font-medium text-foreground`}>
@@ -551,7 +554,7 @@ export function ProjectPlanning({
                         <td className={`${tdClass} text-muted-foreground`}>Set by hand</td>
                         <td className={`${tdClass} text-right font-medium text-foreground`}>
                           {asset.installation_cost != null ? money(asset.installation_cost) : "—"}
-                        </td>
+                        <span className="mt-0.5 flex justify-end"><Share value={asset.installation_cost} of={base} /></span></td>
                       </tr>
                         </>
                       ) : (
@@ -562,7 +565,7 @@ export function ProjectPlanning({
                         </td>
                         <td className={`${tdClass} text-right text-2xs font-medium text-muted-foreground`}>
                           {money(asset.materials_total)}
-                        </td>
+                        <span className="mt-0.5 flex justify-end"><Share value={asset.materials_total} of={base} /></span></td>
                       </tr>
                       {lines.length === 0 ? (
                         <tr>
@@ -598,7 +601,7 @@ export function ProjectPlanning({
                             </td>
                             <td className={`${tdClass} text-right font-medium text-foreground`}>
                               {m.line_total != null ? money(m.line_total) : "—"}
-                            </td>
+                            <span className="mt-0.5 flex justify-end"><Share value={m.line_total} of={base} /></span></td>
                           </tr>
                         ))
                       )}
@@ -609,7 +612,7 @@ export function ProjectPlanning({
                         </td>
                         <td className={`${tdClass} text-right text-2xs font-medium text-muted-foreground`}>
                           {money(asset.production_total)}
-                        </td>
+                        <span className="mt-0.5 flex justify-end"><Share value={asset.production_total} of={base} /></span></td>
                       </tr>
                       {asset.steps.length === 0 ? (
                         <tr>
@@ -651,7 +654,7 @@ export function ProjectPlanning({
                             </td>
                             <td className={`${tdClass} text-right font-medium text-foreground`}>
                               {s.planned_cost != null ? money(s.planned_cost) : "—"}
-                            </td>
+                            <span className="mt-0.5 flex justify-end"><Share value={s.planned_cost} of={base} /></span></td>
                           </tr>
                         ))
                       )}
@@ -661,7 +664,7 @@ export function ProjectPlanning({
                         </td>
                         <td className={`${tdClass} text-right text-2xs font-medium text-muted-foreground`}>
                           {asset.installation_cost != null ? money(asset.installation_cost) : money(0)}
-                        </td>
+                        <span className="mt-0.5 flex justify-end"><Share value={asset.installation_cost} of={base} /></span></td>
                       </tr>
                       <tr className="border-t border-border/50">
                         <td className={`${tdClass} pl-10 font-medium text-foreground`}>
@@ -690,7 +693,7 @@ export function ProjectPlanning({
                         <td className={`${tdClass} text-muted-foreground`}>Set by hand</td>
                         <td className={`${tdClass} text-right font-medium text-foreground`}>
                           {asset.installation_cost != null ? money(asset.installation_cost) : "—"}
-                        </td>
+                        <span className="mt-0.5 flex justify-end"><Share value={asset.installation_cost} of={base} /></span></td>
                       </tr>
                       </>
                       )}
@@ -727,7 +730,7 @@ export function ProjectPlanning({
                     <th className={thClass}>Description</th>
                     <th className={`${thClass} text-right`}>Qty</th>
                     <th className={`${thClass} text-right`}>Rate</th>
-                    <th className={`${thClass} text-right`}>Amount</th>
+                    <th className={`${thClass} text-right`} title="Each amount with its share of the project's cost before contingency">Amount</th>
                     {editable && <th className={thClass} />}
                   </tr>
                 </thead>
@@ -800,7 +803,7 @@ export function ProjectPlanning({
                           <td className={`${tdClass} text-muted-foreground`}>{o.description || "—"}</td>
                           <td className={`${tdClass} text-right text-foreground`}>{Number(o.quantity)}</td>
                           <td className={`${tdClass} text-right text-foreground`}>{money(o.unit_cost)}</td>
-                          <td className={`${tdClass} text-right font-medium text-foreground`}>{money(o.amount)}</td>
+                          <td className={`${tdClass} text-right font-medium text-foreground`}>{money(o.amount)}<span className="mt-0.5 flex justify-end"><Share value={o.amount} of={base} /></span></td>
                           {canPlan && (
                             <td className={`${tdClass} text-right`}>
                               {/* The signature is on the lines the budget was
@@ -1007,19 +1010,19 @@ export function ProjectPlanning({
           <dl className="divide-y divide-border text-sm">
             <div className="flex justify-between px-4 py-2.5">
               <dt className="text-muted-foreground">Components</dt>
-              <dd className="font-medium text-foreground">{money(plan.materials_total)}</dd>
+              <dd className="font-medium text-foreground"><span className="mr-2 text-2xs font-normal text-muted-foreground">{pctOf(plan.materials_total, base)}</span>{money(plan.materials_total)}</dd>
             </div>
             <div className="flex justify-between px-4 py-2.5">
               <dt className="text-muted-foreground">Production</dt>
-              <dd className="font-medium text-foreground">{money(plan.production_total)}</dd>
+              <dd className="font-medium text-foreground"><span className="mr-2 text-2xs font-normal text-muted-foreground">{pctOf(plan.production_total, base)}</span>{money(plan.production_total)}</dd>
             </div>
             <div className="flex justify-between px-4 py-2.5">
               <dt className="text-muted-foreground">Installation &amp; activation</dt>
-              <dd className="font-medium text-foreground">{money(plan.installation_total ?? 0)}</dd>
+              <dd className="font-medium text-foreground"><span className="mr-2 text-2xs font-normal text-muted-foreground">{pctOf(plan.installation_total ?? 0, base)}</span>{money(plan.installation_total ?? 0)}</dd>
             </div>
             <div className="flex justify-between px-4 py-2.5">
               <dt className="text-muted-foreground">Overheads</dt>
-              <dd className="font-medium text-foreground">{money(plan.overheads_total)}</dd>
+              <dd className="font-medium text-foreground"><span className="mr-2 text-2xs font-normal text-muted-foreground">{pctOf(plan.overheads_total, base)}</span>{money(plan.overheads_total)}</dd>
             </div>
             <div className="flex justify-between px-4 py-2.5">
               <dt className="text-muted-foreground">Subtotal</dt>
