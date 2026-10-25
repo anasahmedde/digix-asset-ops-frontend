@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, Check, Download, Factory, Lock, PackagePlus, PackageSearch, RotateCcw, ShoppingCart, Truck, Warehouse, X } from "lucide-react";
+import { Archive, ArrowRight, Check, Download, Factory, Lock, PackagePlus, PackageSearch, RotateCcw, ShoppingCart, Truck, Warehouse, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -45,6 +45,9 @@ interface RequirementRow {
   increase_requested_by_name: string | null;
   /** This viewer is above the asker on the reporting line (or the asker is at the top). */
   may_decide_increase?: boolean;
+  /** Kept apart for the project as contingency, and still with the store to set aside. */
+  pigeon_kept?: number;
+  pigeon_pending?: number;
 }
 /** One operation of an in-house route, with the execution decision on it. */
 interface StepRow {
@@ -195,6 +198,9 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
   // The decision being taken: from inventory or to procure, and how many.
   const [decideFor, setDecideFor] = useState<{ row: RequirementRow; mode: "inventory" | "procure" } | null>(null);
   const [decideQty, setDecideQty] = useState("1");
+  // How many of a line to keep in the project's pigeon hole.
+  const [pigeonFor, setPigeonFor] = useState<RequirementRow | null>(null);
+  const [pigeonQty, setPigeonQty] = useState("1");
 
   // Only the very first load of a project has nothing to show. A refresh
   // after an action must not blank the page: swapping the whole tree for a
@@ -240,6 +246,22 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
       fetchRequirements();
     } catch (err) {
       toast.error(getApiError(err, "That did not work"));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function keepInPigeonHole(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!pigeonFor) return;
+    setBusy(pigeonFor.id);
+    try {
+      const { data } = await api.post(`/assets/components/${pigeonFor.id}/pigeon-hole/`, { quantity: Number(pigeonQty) });
+      toast.success(`${data.request_number}: the store sets ${data.requested} aside in the pigeon hole`);
+      setPigeonFor(null);
+      fetchRequirements();
+    } catch (err) {
+      toast.error(getApiError(err, "Could not ask the store"));
     } finally {
       setBusy(null);
     }
@@ -564,6 +586,7 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                         <th className={thClass}>Issued</th>
                         <th className={thClass}>In Stock</th>
                         <th className={thClass}>Fulfilment</th>
+                        <th className={thClass} title="Kept apart in the store for this project, as contingency">Pigeon Hole</th>
                         {canDecide && <th className={thClass}>Decision</th>}
                       </tr>
                     </thead>
@@ -631,6 +654,28 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                                   +{row.pending_increase} awaiting approval
                                 </span>
                               ) : null}
+                            </td>
+                            <td className={tdClass}>
+                              {(row.pigeon_kept ?? 0) > 0 ? (
+                                <Link href="/inventory?tab=pigeon_hole" className="font-medium text-foreground hover:underline" title="Open the Pigeon Hole tab in Inventory">
+                                  <Qty value={row.pigeon_kept ?? 0} unit={row.unit} />
+                                </Link>
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
+                              {(row.pigeon_pending ?? 0) > 0 && (
+                                <span className="block text-2xs text-amber-600">{row.pigeon_pending} with the store</span>
+                              )}
+                              {canDecide && (
+                                <button
+                                  onClick={() => { setPigeonQty("1"); setPigeonFor(row); }}
+                                  disabled={locked || busy === row.id || !row.source_label}
+                                  title={locked ? "Locked until the budget is approved" : "Keep some apart for this project as contingency"}
+                                  className="mt-1 flex w-fit items-center gap-1 rounded-lg border border-border px-2 py-0.5 text-2xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-40"
+                                >
+                                  <Archive className="h-3 w-3" /> Keep
+                                </button>
+                              )}
                             </td>
                             {canDecide && (
                               <td className={tdClass}>
@@ -1026,6 +1071,43 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                 className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
               >
                 Request {Math.max(0, Number(increase.additional) || 0)} more
+              </button>
+            </div>
+          </form>
+        )}
+      </Modal>
+
+      {/* Contingency kept apart for the project. */}
+      <Modal
+        open={!!pigeonFor}
+        onClose={() => setPigeonFor(null)}
+        title={pigeonFor ? `Keep in pigeon hole — ${pigeonFor.name}` : "Keep in pigeon hole"}
+        size="sm"
+      >
+        {pigeonFor && (
+          <form onSubmit={keepInPigeonHole} className="space-y-4">
+            <p className="text-xs text-muted-foreground">
+              Set aside in the store as this project&apos;s own, in case the job changes and needs more. It leaves
+              general stock and is issued only for this project, through the store like any request.
+              {(pigeonFor.pigeon_kept ?? 0) > 0 && <> Already kept: <span className="font-semibold text-foreground">{pigeonFor.pigeon_kept}</span>.</>}
+            </p>
+            <div className="space-y-1.5">
+              <label htmlFor="pigeon-qty" className="text-xs font-medium text-muted-foreground">Quantity to keep</label>
+              <input id="pigeon-qty" type="number" min={1} value={pigeonQty} onChange={(e) => setPigeonQty(e.target.value)} className={fieldClass} />
+              <p className="text-2xs text-muted-foreground">
+                {pigeonFor.available_quantity ?? 0} {pigeonFor.unit || "piece"} in stock now. Short on the shelf, the store procures the rest.
+              </p>
+            </div>
+            <div className="flex justify-end gap-3">
+              <button type="button" onClick={() => setPigeonFor(null)} className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary">
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={busy === pigeonFor.id || !Number.isInteger(Number(pigeonQty)) || Number(pigeonQty) < 1}
+                className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
+              >
+                Ask the store to keep {Math.max(0, Number(pigeonQty) || 0)}
               </button>
             </div>
           </form>
