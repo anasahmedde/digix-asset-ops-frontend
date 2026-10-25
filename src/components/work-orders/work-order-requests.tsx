@@ -298,8 +298,8 @@ export function WorkOrderRequests({ onRaised }: { onRaised?: () => void }) {
               <input id="wor_delivery" type="date" min={todayIso()} value={expectedDelivery} onChange={(e) => setExpectedDelivery(e.target.value)} className={inputClass} />
               <p className="text-2xs text-muted-foreground">
                 {chosen.some((r) => r.project_target_date)
-                  ? "Taken from the date the project is due. Change it if the vendor is held to another."
-                  : "No project date to take it from — set the date the vendor is held to."}
+                  ? "Taken from the project's closing date. Change it if the vendor is held to another."
+                  : "No project closing date to take it from — set the date the vendor is held to."}
               </p>
             </div>
             <div className="space-y-1.5">

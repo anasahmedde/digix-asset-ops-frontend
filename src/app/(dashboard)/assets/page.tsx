@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Check, Eye, HardDrive, ImagePlus, Pencil, Plus, Printer, QrCode, Trash2, Upload, X, Download, MapPin, Clock, Shield, Wrench, FileText, ChevronRight, Calendar, DollarSign, Package, Zap, Monitor, Sun } from "lucide-react";
+import { ArrowLeft, ArrowLeftRight, Check, Eye, HardDrive, ImagePlus, Pencil, Plus, Printer, QrCode, Trash2, Upload, X, Download, MapPin, Clock, Shield, Wrench, FileText, ChevronRight, Calendar, DollarSign, Package, Zap, Monitor, Sun } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -598,6 +598,8 @@ export default function AssetsPage() {
   // stored as entered and carry the unit they were measured in.
   const [dimensionUnit, setDimensionUnit] = useState("in");
   const [compEdit, setCompEdit] = useState<{ id: string; quantity: number } | null>(null);
+  // Swapping a line's part for another of the same kind; the quantity stays.
+  const [compReplace, setCompReplace] = useState<{ id: string; unique: boolean; value: string } | null>(null);
   // Item 8: a new asset can start as a copy of an existing one.
   const [copyFrom, setCopyFrom] = useState("");
   /** The asset being copied from, once it has been read.
@@ -969,6 +971,19 @@ export default function AssetsPage() {
       refreshDetail(deviceId);
     } catch (err) {
       toast.error(getApiError(err, "Could not update the component"));
+    }
+  }
+
+  async function saveComponentReplace(deviceId: string) {
+    if (!compReplace?.value) return;
+    try {
+      await api.post(`/assets/components/${compReplace.id}/replace/`,
+        compReplace.unique ? { inventory_unit_type: compReplace.value } : { inventory_item: compReplace.value });
+      toast.success("Component replaced");
+      setCompReplace(null);
+      refreshDetail(deviceId);
+    } catch (err) {
+      toast.error(getApiError(err, "Could not replace the component"));
     }
   }
 
@@ -1937,7 +1952,29 @@ export default function AssetsPage() {
                             <tbody>
                               {(d.components ?? []).map((cmp) => (
                                 <tr key={cmp.id} className="border-b border-border/60 last:border-0">
-                                  <td className="px-3 py-2 font-medium text-foreground">{cmp.name}</td>
+                                  <td className="px-3 py-2 font-medium text-foreground">
+                                    {compReplace?.id === cmp.id ? (
+                                      <select
+                                        value={compReplace.value}
+                                        onChange={(e) => setCompReplace({ ...compReplace, value: e.target.value })}
+                                        aria-label={`Replace ${cmp.name} with`}
+                                        className="h-7 w-56 rounded-lg border border-border bg-background px-2 text-xs text-foreground"
+                                      >
+                                        <option value="">Replace {cmp.name} with…</option>
+                                        {compReplace.unique
+                                          ? stockProducts.filter((sp) => sp.id !== cmp.inventory_unit_type).map((sp) => (
+                                              <option key={sp.id} value={sp.id}>
+                                                {[sp.name, sp.model_name].filter(Boolean).join(" ")} · {sp.in_stock_count} {sp.unit || "piece"} in stock
+                                              </option>
+                                            ))
+                                          : stockItems.filter((si) => si.id !== cmp.inventory_item).map((si) => (
+                                              <option key={si.id} value={si.id}>
+                                                {si.material_name ?? si.sku} · {si.quantity} {si.unit || "piece"} in stock
+                                              </option>
+                                            ))}
+                                      </select>
+                                    ) : cmp.name}
+                                  </td>
                                   <td className="px-3 py-2 text-muted-foreground">{cmp.component_type || "—"}</td>
                                   <td className="px-3 py-2 font-mono text-muted-foreground">
                                     {/* The particular units in this asset. */}
@@ -1982,7 +2019,16 @@ export default function AssetsPage() {
                                   </td>
                                   {canEdit && (
                                     <td className="px-3 py-2 text-right">
-                                      {compEdit?.id === cmp.id ? (
+                                      {compReplace?.id === cmp.id ? (
+                                        <span className="inline-flex items-center gap-1.5">
+                                          <button type="button" onClick={() => saveComponentReplace(d.id)} disabled={!compReplace.value} className="text-emerald-600 transition-colors hover:text-emerald-700 disabled:opacity-40" title="Save replacement">
+                                            <Check className="h-3.5 w-3.5" />
+                                          </button>
+                                          <button type="button" onClick={() => setCompReplace(null)} className="text-muted-foreground transition-colors hover:text-foreground" title="Cancel">
+                                            <X className="h-3.5 w-3.5" />
+                                          </button>
+                                        </span>
+                                      ) : compEdit?.id === cmp.id ? (
                                         <span className="inline-flex items-center gap-1.5">
                                           <button type="button" onClick={() => saveComponentEdit(d.id)} className="text-emerald-600 transition-colors hover:text-emerald-700" title="Save quantity">
                                             <Check className="h-3.5 w-3.5" />
@@ -1993,7 +2039,10 @@ export default function AssetsPage() {
                                         </span>
                                       ) : (
                                         <span className="inline-flex items-center gap-2">
-                                          <button type="button" onClick={() => setCompEdit({ id: cmp.id, quantity: cmp.quantity })} disabled={!d.requires_production || d.is_locked} className="text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-50" title="Edit quantity">
+                                          <button type="button" onClick={() => { setCompEdit(null); setCompReplace({ id: cmp.id, unique: !!cmp.inventory_unit_type, value: "" }); }} disabled={!d.requires_production || d.is_locked || (!cmp.inventory_item && !cmp.inventory_unit_type)} className="text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-50" title={cmp.inventory_unit_type ? "Replace with another unique item" : "Replace with another stock item"}>
+                                            <ArrowLeftRight className="h-3.5 w-3.5" />
+                                          </button>
+                                          <button type="button" onClick={() => { setCompReplace(null); setCompEdit({ id: cmp.id, quantity: cmp.quantity }); }} disabled={!d.requires_production || d.is_locked} className="text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-50" title="Edit quantity">
                                             <Pencil className="h-3.5 w-3.5" />
                                           </button>
                                           <button onClick={() => handleDeleteComponent(cmp.id, d.id)} disabled={!d.requires_production || d.is_locked} className="text-muted-foreground transition-colors hover:text-destructive disabled:pointer-events-none disabled:opacity-50" title="Remove component">
