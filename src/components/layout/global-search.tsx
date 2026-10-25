@@ -41,7 +41,7 @@ const SOURCES: Source[] = [
     title: (r) => s(r.asset_code), detail: (r) => [s(r.display_name), s(r.site_name)].filter(Boolean).join(" · "),
     href: (r) => `/assets?device=${r.id}` },
   { key: "projects", label: "Projects", icon: ClipboardList, path: "/teams/projects/",
-    title: (r) => s(r.name), detail: (r) => s(r.client_name), href: (r) => `/projects?project=${r.id}` },
+    title: (r) => s(r.name), detail: (r) => [s(r.project_code), s(r.client_name)].filter(Boolean).join(" · "), href: (r) => `/projects?project=${r.id}` },
   { key: "sites", label: "Sites", icon: MapPin, path: "/sites/sites/",
     title: (r) => s(r.name), detail: (r) => [s(r.client_name), s(r.city)].filter(Boolean).join(" · "), href: (r) => `/sites?site=${r.id}` },
   { key: "tickets", label: "Tickets", icon: Ticket, path: "/tickets/",
