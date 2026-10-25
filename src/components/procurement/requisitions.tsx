@@ -473,8 +473,8 @@ export function Requisitions({ onPoRaised }: { onPoRaised?: () => void }) {
           minDelivery={today}
           deliveryHint={
             chosen.some((r) => r.project_target_date)
-              ? "Delivery is taken from the date the project is due. Change it if the supplier is held to another."
-              : "No project date to take the delivery from — set the date the supplier is held to."
+              ? "Delivery is taken from the project's closing date. Change it if the supplier is held to another."
+              : "No project closing date to take the delivery from — set the date the supplier is held to."
           }
           // What the requests asked for. The line is fixed; the price is not.
           requestedLines={

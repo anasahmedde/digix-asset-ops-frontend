@@ -923,7 +923,7 @@ export default function ProjectsPage() {
             <input type="date" min={editingId ? undefined : todayIso()} value={form.start_date} onChange={(e) => setForm((f) => ({ ...f, start_date: e.target.value }))} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none" />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Target date</label>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">Closing date</label>
             <input type="date" min={editingId ? form.start_date || undefined : [form.start_date, todayIso()].filter(Boolean).sort().pop()} value={form.target_date} onChange={(e) => setForm((f) => ({ ...f, target_date: e.target.value }))} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none" />
           </div>
         </div>
@@ -1108,7 +1108,7 @@ export default function ProjectsPage() {
           {[
             { label: "Manager", value: d.manager_name || "—" },
             { label: "Start Date", value: d.start_date || "—" },
-            { label: "Target Date", value: d.target_date || "—" },
+            { label: "Closing Date", value: d.target_date || "—" },
             { label: "Budget", value: d.budget ? `PKR ${Number(d.budget).toLocaleString()}` : "—" },
             { label: "Progress", value: `${d.progress}%` },
           ].map((f) => (
@@ -1781,7 +1781,7 @@ export default function ProjectsPage() {
                   <SortTh sort={ongoingSort} k="progress" className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Progress</SortTh>
                   <SortTh sort={ongoingSort} k="status_display" className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Status</SortTh>
                   <SortTh sort={ongoingSort} k="start_date" className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Start Date</SortTh>
-                  <SortTh sort={ongoingSort} k="target_date" className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Target Date</SortTh>
+                  <SortTh sort={ongoingSort} k="target_date" className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Closing Date</SortTh>
                   <th className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">Action</th>
                 </tr>
               </thead>
