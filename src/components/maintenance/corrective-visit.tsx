@@ -505,6 +505,8 @@ export function CorrectiveVisit({
   const [againWith, setAgainWith] = useState("");
   const [againOn, setAgainOn] = useState("");
   const [note, setNote] = useState("");
+  // Whose side the issue was on, as the reviewer reads the visit.
+  const [side, setSide] = useState("");
   /** Anything the parts do not cover: a lift, a call-out, an hour of overtime. */
   const [extra, setExtra] = useState<{ description: string; amount: string }[]>([]);
   /** A price for a part the store has none on file for. */
@@ -625,6 +627,7 @@ export function CorrectiveVisit({
     try {
       await api.post(`/maintenance/visits/${current.id}/review/`, {
         decision: reviewing,
+        ...(side ? { issue_side: side } : {}),
         ...(reviewing === "unresolved"
           ? { reason, technician: againWith || null, next_due: againOn || null }
           : {
@@ -638,7 +641,7 @@ export function CorrectiveVisit({
             }),
       });
       setReviewing(null);
-      setNote(""); setReason(""); setAgainWith(""); setAgainOn("");
+      setNote(""); setReason(""); setAgainWith(""); setAgainOn(""); setSide("");
       setExtra([]); setPriced({});
       onChanged();
       toast.success(reviewing === "accepted"
@@ -1167,6 +1170,15 @@ export function CorrectiveVisit({
       <Modal open={reviewing !== null} onClose={() => setReviewing(null)} size="sm"
         title={reviewing === "accepted" ? "Accept this work" : "Plan next visit"}>
         <form onSubmit={review} className="space-y-4">
+          <div className="space-y-1.5">
+            <label htmlFor="issue-side" className="text-xs font-medium text-muted-foreground">Issue was on</label>
+            <select id="issue-side" value={side} onChange={(e) => setSide(e.target.value)}
+              className="h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground">
+              <option value="">Not sure / not recorded</option>
+              <option value="client">Client side — power, site, handling</option>
+              <option value="ours">Our side — the product or our work</option>
+            </select>
+          </div>
           {reviewing === "accepted" ? (
             <>
               <p className="text-sm text-muted-foreground">
