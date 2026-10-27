@@ -18,6 +18,7 @@ import { DeviceImage } from "@/components/ui/device-image";
 import { StatusBadge } from "@/components/ui/badge";
 import { Tabs } from "@/components/ui/tabs";
 import { Modal } from "@/components/ui/modal";
+import { AssetVisits } from "@/components/assets/asset-visits";
 import { Qty } from "@/components/ui/qty";
 import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
 import { confirmAction } from "@/components/ui/confirm";
@@ -76,6 +77,8 @@ interface Device {
 interface DeviceDetail extends Device {
   /** The sites this asset's project covers — where it may be installed. */
   project_sites?: { id: string; name: string; city?: string }[];
+  /** Its maintenance visits at a glance. */
+  visit_summary?: { total: number; last_visit: string | null; client_side: number; our_side: number; not_recorded: number };
   /** What the asset has cost: building it, and keeping it running. */
   cost_of_ownership?: {
     development: {
@@ -584,6 +587,8 @@ export default function AssetsPage() {
   const sort = useSortState();
   const [loading, setLoading] = useState(true);
   const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
+  // Every visit the asset has had, each in full.
+  const [visitsOpen, setVisitsOpen] = useState(false);
   const [selected, setSelected] = useState<DeviceDetail | null>(null);
   const [detailView, setDetailView] = useState<DeviceDetail | null>(null);
   const [returnToDetailId, setReturnToDetailId] = useState<string | null>(null);
@@ -1540,12 +1545,10 @@ export default function AssetsPage() {
                       <MetaField label="Asset ID" value={d.asset_code} mono />
                       <CopyButton text={d.asset_code} label="asset code" className="mb-0.5" />
                     </div>
-                    <MetaField label="Asset Type" value={d.asset_type_name} />
                     <div>
                       <p className="text-2xs font-medium uppercase tracking-wider text-muted-foreground mb-0.5">Project</p>
                       <p className="text-sm">{d.project_name ? <ProjectLink id={d.project_on} name={d.project_name} /> : "—"}</p>
                     </div>
-                    <MetaField label="Manufacturing Route" value={d.source_display} />
                     <MetaField label="Installation Date" value={d.installation_date ? formatDate(d.installation_date) : null} />
                     <MetaField label="Location" value={d.site_name} highlight />
                     <MetaField label="Status" value={d.status_display ?? statusLabel(d.status)} />
@@ -1565,16 +1568,38 @@ export default function AssetsPage() {
             </div>
           </div>
 
-          {/* Quick Overview sidebar */}
+          {/* Overview sidebar */}
           <div className="rounded-xl border border-border bg-card p-5">
-            <h3 className="text-sm font-semibold text-foreground mb-4">Quick Overview</h3>
+            <h3 className="text-sm font-semibold text-foreground mb-4">Overview</h3>
             <div className="space-y-3">
+              <OverviewRow icon={<Monitor className="h-4 w-4 text-sky-400" />} label="Asset Type" value={d.asset_type_name} />
               <OverviewRow icon={<Package className="h-4 w-4 text-blue-400" />} label="Components" value={d.requires_production ? String((d.components ?? []).length) : "—"} />
               <OverviewRow icon={<HardDrive className="h-4 w-4 text-cyan-400" />} label="Manufacturing Route" value={d.source_display} />
               <OverviewRow icon={<Zap className="h-4 w-4 text-amber-400" />} label="Production Steps" value={d.requires_production ? String((d.production_steps ?? []).length) : "—"} />
               <OverviewRow icon={<Clock className="h-4 w-4 text-green-400" />} label="Batch" value={d.batch_number || "—"} />
-              <OverviewRow icon={<Wrench className="h-4 w-4 text-purple-400" />} label="Last Maintenance" value={maintSchedules.length > 0 ? formatDate(maintSchedules[0].next_due) : "—"} />
+              {/* Its maintenance visits: when last, how many, and whose side the issues were on. */}
+              <OverviewRow icon={<Calendar className="h-4 w-4 text-purple-400" />} label="Visit Date" value={d.visit_summary?.last_visit ? formatDate(d.visit_summary.last_visit) : "No visit yet"} />
+              <OverviewRow icon={<Wrench className="h-4 w-4 text-purple-400" />} label="Total Visits" value={String(d.visit_summary?.total ?? 0)} />
+              <OverviewRow icon={<Shield className="h-4 w-4 text-amber-500" />} label="Issue on Client Side" value={String(d.visit_summary?.client_side ?? 0)} />
+              <OverviewRow icon={<Shield className="h-4 w-4 text-sky-500" />} label="Issue on Our Side" value={String(d.visit_summary?.our_side ?? 0)} />
+              {d.cost_of_ownership && (
+                <OverviewRow icon={<DollarSign className="h-4 w-4 text-emerald-500" />} label="Total Incurred Cost" value={`PKR ${Number(d.cost_of_ownership.total).toLocaleString()}`} />
+              )}
             </div>
+            {(d.visit_summary?.not_recorded ?? 0) > 0 && (
+              <p className="mt-2 text-2xs text-muted-foreground">
+                {d.visit_summary!.not_recorded} visit{d.visit_summary!.not_recorded === 1 ? "" : "s"} without the side recorded.
+              </p>
+            )}
+            <button
+              onClick={() => setVisitsOpen(true)}
+              disabled={!d.visit_summary?.total}
+              title={d.visit_summary?.total ? "Every visit in full: cost, findings and the decision" : "No visit yet"}
+              className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
+            >
+              <Wrench className="h-3.5 w-3.5" /> Last Visit
+            </button>
+            <AssetVisits deviceId={d.id} open={visitsOpen} onClose={() => setVisitsOpen(false)} showCosts={can("view_prices")} />
             {d.current_site && (
               <a
                 href={`/sites?site=${d.current_site}`}
