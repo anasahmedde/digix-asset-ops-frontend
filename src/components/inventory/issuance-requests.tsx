@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, PackageCheck, Plus, Search, ShoppingCart, Trash2, Undo2 } from "lucide-react";
+import { Check, Download, PackageCheck, Plus, Search, ShoppingCart, Trash2, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -16,6 +16,15 @@ import { linksTo, useReloadOnNotice } from "@/lib/notification-context";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
 import { formatDateTime } from "@/lib/utils";
+
+/** One serial number that may go out against a request. */
+interface ShelfUnit {
+  id: string;
+  serial_number: string;
+  unit_code: string;
+  storage_location: string;
+  received_at: string;
+}
 
 interface RequestRow {
   id: string;
@@ -179,6 +188,10 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
   const [showDone, setShowDone] = useState(false);
   const [issueFor, setIssueFor] = useState<RequestRow | null>(null);
   const [issue, setIssue] = useState({ quantity: "", received_by: "", notes: "" });
+  // A unique item: the serials that may go, and the ones the store picked.
+  const [shelf, setShelf] = useState<ShelfUnit[] | null>(null);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [shelfQuery, setShelfQuery] = useState("");
   // Who takes the material away: one of the team, or someone named by hand.
   const [people, setPeople] = useState<{ id: string; name: string; label: string }[]>([]);
   const [receiverPick, setReceiverPick] = useState("");
@@ -242,6 +255,19 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
     const asker = team.find((p) => p.name === row.requested_by_name)?.name ?? "";
     // Set aside, not handed over: the pigeon hole holds it.
     const receiver = row.into_pigeon_hole ? "" : row.maintenance_assignee ?? asker;
+    // A unique item is a particular one: the store picks which serials go.
+    let units: ShelfUnit[] | null = null;
+    if ((row.next_units ?? []).length > 0) {
+      try {
+        units = (await api.get(`/inventory/issuance-requests/${row.id}/units/`)).data;
+      } catch {
+        units = null; // The server takes the oldest, as before.
+      }
+    }
+    setShelf(units);
+    setShelfQuery("");
+    // The oldest on the shelf are picked to start with: what the store would take.
+    setPicked((units ?? []).slice(0, Math.max(possible, 0)).map((u) => u.id));
     setIssue({
       quantity: String(Math.max(possible, 0)),
       received_by: receiver,
@@ -249,6 +275,24 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
     });
     setReceiverPick(receiver);
     setIssueFor(row);
+  }
+
+  /** As many picked as the quantity: drop the last picked, or add the oldest not picked. */
+  function fitPicks(current: string[], n: number) {
+    if (current.length >= n) return current.slice(0, Math.max(n, 0));
+    const more = (shelf ?? []).filter((u) => !current.includes(u.id)).slice(0, n - current.length);
+    return [...current, ...more.map((u) => u.id)];
+  }
+
+  function togglePick(id: string) {
+    if (!issueFor) return;
+    const next = picked.includes(id) ? picked.filter((p) => p !== id) : [...picked, id];
+    if (next.length > issueFor.outstanding_quantity) {
+      toast.message(`Only ${issueFor.outstanding_quantity} owed on this request — untick one first`);
+      return;
+    }
+    setPicked(next);
+    setIssue((v) => ({ ...v, quantity: String(next.length) }));
   }
 
   async function submitIssue(e: React.FormEvent<HTMLFormElement>) {
@@ -260,6 +304,7 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
         quantity: Number(issue.quantity),
         received_by: issue.received_by.trim(),
         notes: issue.notes.trim(),
+        ...(shelf ? { unit_ids: picked } : {}),
       });
       const left = data.request.outstanding_quantity;
       if (data.closed) {
@@ -706,18 +751,75 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                 id="issue-qty"
                 type="number"
                 min={1}
-                max={issueFor.outstanding_quantity}
+                max={shelf ? Math.min(issueFor.outstanding_quantity, shelf.length) : issueFor.outstanding_quantity}
                 value={issue.quantity}
-                onChange={(e) => setIssue({ ...issue, quantity: e.target.value })}
+                onChange={(e) => {
+                  setIssue({ ...issue, quantity: e.target.value });
+                  if (shelf) setPicked((p) => fitPicks(p, Number(e.target.value) || 0));
+                }}
                 className={inputClass}
               />
               <p className="text-xs text-muted-foreground">
                 Issue less than asked for and the balance stays on this queue.
               </p>
             </div>
-            {/* A unique item is a particular one. The store takes the oldest
-                units first, so say which ones before it does. */}
-            {(issueFor.next_units ?? []).length > 0 && (
+            {/* A unique item is a particular one: the store picks which serial
+                numbers it hands over. The oldest are picked to start with. */}
+            {shelf && shelf.length > 0 && (
+              <div className="space-y-1.5">
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className={labelClass}>Serial numbers going out</span>
+                  <span className="text-xs text-muted-foreground">
+                    {picked.length} picked · {shelf.length} {issueFor.pigeon_hole ? "in the pigeon hole" : "on the shelf"}
+                  </span>
+                </div>
+                {shelf.length > 12 && (
+                  <input
+                    id="issue-serial-find"
+                    value={shelfQuery}
+                    onChange={(e) => setShelfQuery(e.target.value)}
+                    placeholder="Find a serial number…"
+                    className={inputClass}
+                  />
+                )}
+                <div role="group" aria-label="Serial numbers" className="flex max-h-48 flex-wrap gap-1.5 overflow-y-auto rounded-lg border border-border bg-secondary/30 p-2.5">
+                  {shelf
+                    .filter((u) => {
+                      const q = shelfQuery.trim().toLowerCase();
+                      return !q || [u.serial_number, u.unit_code, u.storage_location].some((v) => (v ?? "").toLowerCase().includes(q));
+                    })
+                    .map((u) => {
+                      const on = picked.includes(u.id);
+                      return (
+                        <button
+                          key={u.id}
+                          type="button"
+                          aria-pressed={on}
+                          onClick={() => togglePick(u.id)}
+                          title={[u.unit_code, u.storage_location && `at ${u.storage_location}`, `received ${formatDateTime(u.received_at)}`].filter(Boolean).join(" · ")}
+                          className={`inline-flex items-center gap-1 rounded-md px-2 py-1 font-mono text-xs ring-1 transition-colors ${
+                            on ? "bg-primary text-primary-foreground ring-primary" : "bg-card text-foreground ring-border hover:ring-primary/50"
+                          }`}
+                        >
+                          {on && <Check className="h-3 w-3" />}
+                          {u.serial_number || u.unit_code}
+                        </button>
+                      );
+                    })}
+                </div>
+                {picked.length !== (Number(issue.quantity) || 0) ? (
+                  <p className="text-xs font-medium text-amber-600">
+                    Pick {Number(issue.quantity) || 0} serial number{(Number(issue.quantity) || 0) === 1 ? "" : "s"} — {picked.length} picked.
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    The oldest are picked to start with. Tap a serial number to hand over that one instead.
+                  </p>
+                )}
+              </div>
+            )}
+            {/* The list could not be read: the store takes the oldest, as before. */}
+            {!shelf && (issueFor.next_units ?? []).length > 0 && (
               <div className="space-y-1.5">
                 <label className={labelClass}>Serial numbers going out</label>
                 <div className="flex flex-wrap gap-1.5 rounded-lg border border-border bg-secondary/30 p-2.5">
@@ -827,7 +929,10 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
               </button>
               <button
                 type="submit"
-                disabled={saving || Number(issue.quantity) < 1 || (!issueFor.into_pigeon_hole && !issue.received_by.trim())}
+                disabled={
+                  saving || Number(issue.quantity) < 1 || (!issueFor.into_pigeon_hole && !issue.received_by.trim())
+                  || (!!shelf && picked.length !== Number(issue.quantity))
+                }
                 className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
               >
                 {saving ? "Issuing…" : issueFor.into_pigeon_hole ? `Keep ${Number(issue.quantity) || 0} in pigeon hole` : `Issue ${Number(issue.quantity) || 0}`}

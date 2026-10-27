@@ -1484,47 +1484,56 @@ export default function AssetsPage() {
           </div>
         </div>
 
-        {/* Hero Header — Image + Metadata Grid + Quick Overview */}
-        {/* Main and side columns from xl: at 1024 the open sidebar left the
-            main column too narrow for its tables and facts. */}
-        <div className="grid gap-6 xl:grid-cols-4">
-          {/* Image + Name */}
-          <div className="xl:col-span-3">
-            <div className="rounded-xl border border-border bg-card overflow-hidden">
-              <div className="flex flex-col sm:flex-row gap-6 p-6">
-                {/* Device image */}
-                <div className="shrink-0">
-                  {primaryImg ? (
-                    <img src={primaryImg} alt={d.asset_code} className="h-36 w-52 rounded-xl object-cover border border-border" />
-                  ) : (
-                    <div className="flex h-36 w-52 items-center justify-center rounded-xl bg-secondary/50 border border-border">
-                      <Monitor className="h-12 w-12 text-muted-foreground/30" />
-                    </div>
-                  )}
-                  {allImages.length > 1 && (
-                    <div className="mt-2 flex gap-1.5">
-                      {allImages.slice(0, 4).map((img) => (
-                        <img key={img.id} src={img.image} alt={img.caption} className="h-10 w-12 rounded-md object-cover border border-border" />
-                      ))}
-                      {allImages.length > 4 && (
-                        <div className="flex h-10 w-12 items-center justify-center rounded-md bg-secondary/50 text-2xs font-medium text-muted-foreground">+{allImages.length - 4}</div>
-                      )}
-                    </div>
-                  )}
-                </div>
+        {/* Main column (header, then the tabs) and side column (Overview,
+            warranties, activity) each stack on their own: sharing grid rows
+            stretched the header to the Overview's height and left a gap.
+            Side by side from xl: at 1024 the open sidebar left the main
+            column too narrow for its tables and facts. */}
+        <div className="grid items-start gap-6 xl:grid-cols-4 xl:grid-rows-[auto_1fr]">
+          <div className="min-w-0 rounded-xl border border-border bg-card p-5 sm:p-6 xl:col-span-3">
+            <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:gap-6">
+              {/* Device image */}
+              <div className="shrink-0">
+                {primaryImg ? (
+                  <img src={primaryImg} alt={d.asset_code} className="h-44 w-full rounded-xl border border-border object-cover sm:h-32 sm:w-44" />
+                ) : (
+                  <div className="flex h-32 w-full items-center justify-center rounded-xl border border-border bg-secondary/50 sm:w-44">
+                    <Monitor className="h-10 w-10 text-muted-foreground/30" />
+                  </div>
+                )}
+                {allImages.length > 1 && (
+                  <div className="mt-2 flex gap-1.5">
+                    {allImages.slice(0, 4).map((img) => (
+                      <img key={img.id} src={img.image} alt={img.caption} className="h-9 w-10 rounded-md border border-border object-cover" />
+                    ))}
+                    {allImages.length > 4 && (
+                      <div className="flex h-9 w-10 items-center justify-center rounded-md bg-secondary/50 text-2xs font-medium text-muted-foreground">+{allImages.length - 4}</div>
+                    )}
+                  </div>
+                )}
+              </div>
 
-                {/* Name + metadata grid */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-start gap-3 mb-4">
-                    <StatusBadge status={d.status} label={d.status_display ?? statusLabel(d.status)} />
-                    <div>
-                      <h1 className="text-xl font-bold text-foreground leading-tight">{d.display_name || d.asset_type_name || d.asset_code}</h1>
-                      {d.brand_name && <p className="text-sm text-muted-foreground">{d.brand_name}</p>}
+              <div className="min-w-0 flex-1">
+                {/* Name, ID and brand on the left; where it stands on the right. */}
+                <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+                  <div className="min-w-0">
+                    <h1 className="text-balance text-xl font-bold leading-tight text-foreground">
+                      {d.display_name || d.asset_type_name || d.asset_code}
+                    </h1>
+                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <span className="inline-flex items-center gap-1 rounded-md bg-secondary/70 py-0.5 pl-2 pr-1 font-mono text-xs text-foreground ring-1 ring-border" title="Asset ID">
+                        {d.asset_code}
+                        <CopyButton text={d.asset_code} label="asset code" />
+                      </span>
+                      {d.brand_name && <span className="text-sm text-muted-foreground">{d.brand_name}</span>}
                     </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <StatusBadge status={d.status} label={d.status_display ?? statusLabel(d.status)} />
                     {/* PR-01 polish: project contract chip (rental vs sold outright) */}
                     {d.project_contract_type && (
                       <span
-                        className={`ml-auto inline-flex shrink-0 items-center rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${
+                        className={`inline-flex shrink-0 items-center rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${
                           d.project_contract_type === "rental"
                             ? "bg-amber-500/10 text-amber-600 ring-amber-500/20"
                             : "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20"
@@ -1539,1390 +1548,1389 @@ export default function AssetsPage() {
                       </span>
                     )}
                   </div>
-                  {/* As many columns as fit, none narrower than a label. */}
-                  <div className="grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-x-6 gap-y-3">
-                    <div className="flex items-end gap-1">
-                      <MetaField label="Asset ID" value={d.asset_code} mono />
-                      <CopyButton text={d.asset_code} label="asset code" className="mb-0.5" />
-                    </div>
-                    <div>
-                      <p className="text-2xs font-medium uppercase tracking-wider text-muted-foreground mb-0.5">Project</p>
-                      <p className="text-sm">{d.project_name ? <ProjectLink id={d.project_on} name={d.project_name} /> : "—"}</p>
-                    </div>
-                    <MetaField label="Installation Date" value={d.installation_date ? formatDate(d.installation_date) : null} />
-                    <MetaField label="Location" value={d.site_name} highlight />
-                    <MetaField label="Status" value={d.status_display ?? statusLabel(d.status)} />
-                    <MetaField
-                      label="Dimensions"
-                      value={
-                        d.length_in && d.width_in
-                          ? `${d.length_in} × ${d.width_in}${d.depth_in ? ` × ${d.depth_in}` : ""} ${d.dimension_unit ?? "in"}`
-                          : d.diagonal_inches
-                            ? `${d.diagonal_inches} ${d.dimension_unit ?? "in"} diagonal`
-                            : null
-                      }
-                    />
+                </div>
+                {/* Where it is and since when: two across on a phone, four on a wide screen. */}
+                <div className="mt-5 grid grid-cols-2 gap-x-6 gap-y-4 border-t border-border/60 pt-4 lg:grid-cols-4">
+                  <div className="min-w-0">
+                    <p className="mb-0.5 text-2xs font-medium uppercase tracking-wider text-muted-foreground">Project</p>
+                    <p className="text-sm">{d.project_name ? <ProjectLink id={d.project_on} name={d.project_name} /> : "—"}</p>
                   </div>
+                  <MetaField label="Location" value={d.site_name} highlight />
+                  <MetaField label="Installation Date" value={d.installation_date ? formatDate(d.installation_date) : null} />
+                  <MetaField
+                    label="Dimensions"
+                    value={
+                      d.length_in && d.width_in
+                        ? `${d.length_in} × ${d.width_in}${d.depth_in ? ` × ${d.depth_in}` : ""} ${d.dimension_unit ?? "in"}`
+                        : d.diagonal_inches
+                          ? `${d.diagonal_inches} ${d.dimension_unit ?? "in"} diagonal`
+                          : null
+                    }
+                  />
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Overview sidebar */}
-          <div className="rounded-xl border border-border bg-card p-5">
-            <h3 className="text-sm font-semibold text-foreground mb-4">Overview</h3>
-            <div className="space-y-3">
-              <OverviewRow icon={<Monitor className="h-4 w-4 text-sky-400" />} label="Asset Type" value={d.asset_type_name} />
-              <OverviewRow icon={<Package className="h-4 w-4 text-blue-400" />} label="Components" value={d.requires_production ? String((d.components ?? []).length) : "—"} />
-              <OverviewRow icon={<HardDrive className="h-4 w-4 text-cyan-400" />} label="Manufacturing Route" value={d.source_display} />
-              <OverviewRow icon={<Zap className="h-4 w-4 text-amber-400" />} label="Production Steps" value={d.requires_production ? String((d.production_steps ?? []).length) : "—"} />
-              <OverviewRow icon={<Clock className="h-4 w-4 text-green-400" />} label="Batch" value={d.batch_number || "—"} />
-              {/* Its maintenance visits: when last, how many, and whose side the issues were on. */}
-              <OverviewRow icon={<Calendar className="h-4 w-4 text-purple-400" />} label="Visit Date" value={d.visit_summary?.last_visit ? formatDate(d.visit_summary.last_visit) : "No visit yet"} />
-              <OverviewRow icon={<Wrench className="h-4 w-4 text-purple-400" />} label="Total Visits" value={String(d.visit_summary?.total ?? 0)} />
-              <OverviewRow icon={<Shield className="h-4 w-4 text-amber-500" />} label="Issue on Client Side" value={String(d.visit_summary?.client_side ?? 0)} />
-              <OverviewRow icon={<Shield className="h-4 w-4 text-sky-500" />} label="Issue on Our Side" value={String(d.visit_summary?.our_side ?? 0)} />
-              {d.cost_of_ownership && (
-                <OverviewRow icon={<DollarSign className="h-4 w-4 text-emerald-500" />} label="Total Incurred Cost" value={`PKR ${Number(d.cost_of_ownership.total).toLocaleString()}`} />
+          {/* Side column. From xl it spans both rows of the main column; the
+              1fr row takes its extra height, so the header row stays the
+              header's own height. Narrower, it dissolves into the grid so a
+              phone reads header, Overview, the tabs, then the rest. */}
+          <div className="contents xl:col-start-4 xl:row-span-2 xl:row-start-1 xl:block xl:min-w-0 xl:space-y-4">
+            {/* Overview */}
+            <div className="rounded-xl border border-border bg-card p-5">
+              <h3 className="text-sm font-semibold text-foreground mb-4">Overview</h3>
+              {/* Full width (below xl) it reads in two columns, not one long list. */}
+              <div className="grid gap-x-10 gap-y-3 sm:grid-cols-2 xl:grid-cols-1">
+                <OverviewRow icon={<Monitor className="h-4 w-4 text-sky-400" />} label="Asset Type" value={d.asset_type_name} />
+                <OverviewRow icon={<Package className="h-4 w-4 text-blue-400" />} label="Components" value={d.requires_production ? String((d.components ?? []).length) : "—"} />
+                <OverviewRow icon={<HardDrive className="h-4 w-4 text-cyan-400" />} label="Manufacturing Route" value={d.source_display} />
+                <OverviewRow icon={<Zap className="h-4 w-4 text-amber-400" />} label="Production Steps" value={d.requires_production ? String((d.production_steps ?? []).length) : "—"} />
+                <OverviewRow icon={<Clock className="h-4 w-4 text-green-400" />} label="Batch" value={d.batch_number || "—"} />
+                {/* Its maintenance visits: when last, how many, and whose side the issues were on. */}
+                <OverviewRow icon={<Calendar className="h-4 w-4 text-purple-400" />} label="Visit Date" value={d.visit_summary?.last_visit ? formatDate(d.visit_summary.last_visit) : "No visit yet"} />
+                <OverviewRow icon={<Wrench className="h-4 w-4 text-purple-400" />} label="Total Visits" value={String(d.visit_summary?.total ?? 0)} />
+                <OverviewRow icon={<Shield className="h-4 w-4 text-amber-500" />} label="Issue on Client Side" value={String(d.visit_summary?.client_side ?? 0)} />
+                <OverviewRow icon={<Shield className="h-4 w-4 text-sky-500" />} label="Issue on Our Side" value={String(d.visit_summary?.our_side ?? 0)} />
+                {d.cost_of_ownership && (
+                  <OverviewRow icon={<DollarSign className="h-4 w-4 text-emerald-500" />} label="Total Incurred Cost" value={`PKR ${Number(d.cost_of_ownership.total).toLocaleString()}`} />
+                )}
+              </div>
+              {(d.visit_summary?.not_recorded ?? 0) > 0 && (
+                <p className="mt-2 text-2xs text-muted-foreground">
+                  {d.visit_summary!.not_recorded} visit{d.visit_summary!.not_recorded === 1 ? "" : "s"} without the side recorded.
+                </p>
+              )}
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+              <button
+                onClick={() => setVisitsOpen(true)}
+                disabled={!d.visit_summary?.total}
+                title={d.visit_summary?.total ? "Every visit in full: cost, findings and the decision" : "No visit yet"}
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
+              >
+                <Wrench className="h-3.5 w-3.5" /> Last Visit
+              </button>
+              {d.current_site && (
+                <a
+                  href={`/sites?site=${d.current_site}`}
+                  className="flex items-center justify-center gap-2 rounded-lg border border-primary/30 py-2.5 text-xs font-medium text-primary transition-colors hover:bg-primary/5"
+                >
+                  <MapPin className="h-3.5 w-3.5" /> View in Map
+                </a>
+              )}
+              </div>
+              <AssetVisits deviceId={d.id} open={visitsOpen} onClose={() => setVisitsOpen(false)} showCosts={can("view_prices")} />
+            </div>
+
+            {/* Warranty cards, then the activity */}
+            <div className="order-2 min-w-0 space-y-4 xl:order-none">
+              {vendorWarranty && (
+                <WarrantyCard
+                  title="Vendor Warranty"
+                  duration={getWarrantyDuration(vendorWarranty.start_date, vendorWarranty.end_date)}
+                  detail={vendorWarranty.coverage_details || "Comprehensive Warranty"}
+                  validTill={vendorWarranty.end_date}
+                  color="#3b82f6"
+                  expired={vendorWarranty.is_expired}
+                />
+              )}
+              {clientWarranty && (
+                <WarrantyCard
+                  title="Client Warranty"
+                  duration={getWarrantyDuration(clientWarranty.start_date, clientWarranty.end_date)}
+                  detail={clientWarranty.coverage_details || "On-site Warranty"}
+                  validTill={clientWarranty.end_date}
+                  color="#06b6d4"
+                  expired={clientWarranty.is_expired}
+                />
+              )}
+              {!vendorWarranty && !clientWarranty && (
+                <div className="rounded-xl border border-border bg-card p-5 text-center">
+                  <Shield className="mx-auto h-8 w-8 text-muted-foreground/30 mb-2" />
+                  <p className="text-xs text-muted-foreground">No warranties on file</p>
+                </div>
+              )}
+
+              {/* Activity — who changed what, and when. This is the asset's
+                  whole lifecycle journal; it used to be repeated in a tab of
+                  its own, which was the same list twice. */}
+              <div className="rounded-xl border border-border bg-card p-5">
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-foreground">Activity</h3>
+                  {(d.lifecycle_events ?? []).length > 0 && (
+                    <button
+                      onClick={() => setAllActivity((v) => !v)}
+                      className="text-2xs font-medium text-primary hover:underline"
+                    >
+                      {allActivity ? "Show less" : `View all (${d.lifecycle_events.length})`}
+                    </button>
+                  )}
+                </div>
+                {(d.lifecycle_events ?? []).length === 0 ? (
+                  <p className="text-xs text-muted-foreground">Nothing recorded yet.</p>
+                ) : (
+                  <div className={allActivity ? "max-h-[28rem] overflow-y-auto pr-1" : ""}>
+                    <Timeline
+                      compact
+                      items={lifecycleItems(allActivity ? d.lifecycle_events : d.lifecycle_events.slice(0, 6))}
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Warranty timeline summary */}
+              {warranties.length > 0 && (
+                <div className="rounded-xl border border-border bg-card p-5">
+                  <h3 className="text-sm font-semibold text-foreground mb-3">Warranty Timeline</h3>
+                  <div className="space-y-3">
+                    {warranties.map((w) => (
+                      <div key={w.id} className="space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-muted-foreground">{WARRANTY_TYPE_LABELS[w.warranty_type] ?? w.warranty_type}</span>
+                          <span className="text-2xs text-muted-foreground">{formatDate(w.end_date)}</span>
+                        </div>
+                        <WarrantyTimeline start={w.start_date} end={w.end_date} color={WARRANTY_COLORS[w.warranty_type] ?? "#6366f1"} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
               )}
             </div>
-            {(d.visit_summary?.not_recorded ?? 0) > 0 && (
-              <p className="mt-2 text-2xs text-muted-foreground">
-                {d.visit_summary!.not_recorded} visit{d.visit_summary!.not_recorded === 1 ? "" : "s"} without the side recorded.
-              </p>
-            )}
-            <button
-              onClick={() => setVisitsOpen(true)}
-              disabled={!d.visit_summary?.total}
-              title={d.visit_summary?.total ? "Every visit in full: cost, findings and the decision" : "No visit yet"}
-              className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
-            >
-              <Wrench className="h-3.5 w-3.5" /> Last Visit
-            </button>
-            <AssetVisits deviceId={d.id} open={visitsOpen} onClose={() => setVisitsOpen(false)} showCosts={can("view_prices")} />
-            {d.current_site && (
-              <a
-                href={`/sites?site=${d.current_site}`}
-                className="mt-4 flex items-center justify-center gap-2 rounded-lg border border-primary/30 py-2.5 text-xs font-medium text-primary transition-colors hover:bg-primary/5"
-              >
-                <MapPin className="h-3.5 w-3.5" /> View in Map
-              </a>
-            )}
           </div>
-        </div>
 
-        {/* Tabs + Content */}
-        <div className="grid gap-6 xl:grid-cols-4">
-          <div className="xl:col-span-3">
-            <div className="rounded-xl border border-border bg-card overflow-hidden">
-              <Tabs
-                tabs={[
-                  { key: "overview", label: "Product Details" },
-                  { key: "warranties", label: "Warranties", count: warranties.length },
-                  { key: "costs", label: "Costs & Pricing" },
-                  { key: "documents", label: "Documents", count: documents.length + generated.length },
-                  { key: "maintenance", label: "Maintenance History", count: maintSchedules.length },
-                ]}
-                active={detailTab}
-                onChange={setDetailTab}
-              />
-              <div className="p-6">
-                {/* Product Details */}
-                {detailTab === "overview" && (
-                  <div className="space-y-6">
-                    <div>
-                      <h4 className="text-sm font-semibold text-foreground mb-3">Asset Lifecycle</h4>
-                      <LifecycleStepper requiresProduction={d.requires_production} status={d.status} stageDates={d.stage_dates ?? {}} />
-                      {canMove && (
-                        <div className="mt-4 rounded-lg border border-border bg-secondary/20 p-3">
-                          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                            Next stage
-                          </p>
-                          {/* The lifecycle follows the work: the build moves it
-                              into stock, the tracker moves it through
-                              installation, maintenance brings it back. Only the
-                              two end states below are somebody's decision. */}
-                          <p className="mb-2 text-2xs text-muted-foreground">
-                            {LIFECYCLE_SOURCE[d.status] ?? "Stages advance with the work. Client Property and Decommissioned are set here."}
-                          </p>
-                          {(d.allowed_transitions ?? []).filter((s) => MANUAL_STATUSES.includes(s)).length > 0 ? (
-                            <>
-                              <div className="flex flex-wrap gap-2">
-                                {(d.allowed_transitions ?? []).filter((s) => MANUAL_STATUSES.includes(s)).map((s) => (
-                                  <button
-                                    key={s}
-                                    type="button"
-                                    onClick={() => { const next = transitionTarget === s ? null : s; resetTransition(); setTransitionTarget(next); if (next === "under_maintenance") setMaintTech(d.assigned_technician ?? ""); }}
-                                    className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold ring-1 transition-colors ${transitionTarget === s ? "bg-primary/10 text-primary ring-primary/30" : "text-muted-foreground ring-border hover:bg-secondary"}`}
-                                  >
-                                    <ChevronRight className="h-3 w-3" /> {statusLabel(s)}
-                                  </button>
-                                ))}
-                              </div>
-                              {transitionTarget && (
-                                <div className="mt-3 space-y-2">
-                                  <p className="text-xs font-medium text-foreground">
-                                    Move from “{statusLabel(d.status)}” to “{statusLabel(transitionTarget)}”
-                                  </p>
-                                  {/* Assigning must say who it went to. */}
-                                  {transitionTarget === "assigned" && (
-                                    <div className="space-y-2 rounded-lg border border-border bg-secondary/20 p-3">
-                                      <p className="text-xs font-medium text-foreground">
-                                        {d.source === "vendor_turnkey"
-                                          ? "Installing vendor & oversight"
-                                          : "Assign to technician"}
-                                      </p>
-                                      {/* Same rule as registration: only a
-                                          turnkey job has an outside crew doing
-                                          the installing. Who *supplied* the
-                                          asset is recorded in Edit Asset. */}
-                                      {d.source === "vendor_turnkey" && (
-                                        <div className="grid gap-2 sm:grid-cols-2">
-                                          <select
-                                            value={assignVendorId}
-                                            onChange={(e) => setAssignVendorId(e.target.value)}
-                                            className={`${inputClass} h-9 text-xs`}
-                                          >
-                                            <option value="">Vendor installing it…</option>
-                                            {suppliers.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
-                                          </select>
-                                          <div className={`${inputClass} flex h-9 items-center text-xs`}>
-                                            {vendorContact(suppliers.find((v) => v.id === assignVendorId))
-                                              || <span className="text-muted-foreground">Contact comes from the vendor</span>}
-                                          </div>
-                                        </div>
-                                      )}
-                                      <select
-                                        value={assignTechnician}
-                                        onChange={(e) => setAssignTechnician(e.target.value)}
-                                        className={`${inputClass} h-9 text-xs`}
-                                      >
-                                        <option value="">
-                                          {d.source === "vendor_turnkey"
-                                            ? "Technician overseeing…"
-                                            : "Select technician…"}
-                                        </option>
-                                        {technicians.map((t) => (
-                                          <option key={t.id} value={t.id}>{t.label}</option>
-                                        ))}
-                                      </select>
-                                      <MultiSelect
-                                        options={technicians.filter((t) => t.id !== assignTechnician)}
-                                        values={assignHelpers.filter((h) => h !== assignTechnician)}
-                                        onChange={setAssignHelpers}
-                                        placeholder="Helpers (optional) - check in and out only"
-                                      />
-                                      <p className="text-2xs text-muted-foreground">
-                                        {d.source === "vendor_turnkey"
-                                          ? "The vendor supplies and installs it; our technician oversees."
-                                          : d.source === "vendor_supplied"
-                                            ? "The vendor supplies the asset; our own technician installs it."
-                                            : "Details come from the manpower records."}
-                                      </p>
-
-                                      {/* Assigning opens the job on the
-                                          Installation Tracker, which needs to
-                                          know where the work happens. */}
-                                      <select
-                                        value={assignSite || d.current_site || ""}
-                                        onChange={(e) => setAssignSite(e.target.value)}
-                                        className={`${inputClass} h-9 text-xs`}
-                                      >
-                                        <option value="">Select site…</option>
-                                        {sites.map((site) => (
-                                          <option key={site.id} value={site.id}>{site.label}</option>
-                                        ))}
-                                      </select>
-                                      <p className="text-2xs text-muted-foreground">
-                                        This opens the asset&apos;s job on the Installation Tracker.
-                                      </p>
-                                    </div>
-                                  )}
-
-                                  {/* The registry and the maintenance register
-                                      are two views of the same event, so say
-                                      what this change does to the other one. */}
-                                  {d.status === "under_maintenance" && (
-                                    <p className="rounded-lg border border-dashed border-border px-3 py-2 text-2xs text-muted-foreground">
-                                      The open maintenance job is closed off with a completion record
-                                      against your notes.
+          <div className="order-1 min-w-0 overflow-hidden rounded-xl border border-border bg-card xl:order-none xl:col-span-3">
+            <Tabs
+              tabs={[
+                { key: "overview", label: "Product Details" },
+                { key: "warranties", label: "Warranties", count: warranties.length },
+                { key: "costs", label: "Costs & Pricing" },
+                { key: "documents", label: "Documents", count: documents.length + generated.length },
+                { key: "maintenance", label: "Maintenance History", count: maintSchedules.length },
+              ]}
+              active={detailTab}
+              onChange={setDetailTab}
+            />
+            <div className="p-6">
+              {/* Product Details */}
+              {detailTab === "overview" && (
+                <div className="space-y-6">
+                  <div>
+                    <h4 className="text-sm font-semibold text-foreground mb-3">Asset Lifecycle</h4>
+                    <LifecycleStepper requiresProduction={d.requires_production} status={d.status} stageDates={d.stage_dates ?? {}} />
+                    {canMove && (
+                      <div className="mt-4 rounded-lg border border-border bg-secondary/20 p-3">
+                        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                          Next stage
+                        </p>
+                        {/* The lifecycle follows the work: the build moves it
+                            into stock, the tracker moves it through
+                            installation, maintenance brings it back. Only the
+                            two end states below are somebody's decision. */}
+                        <p className="mb-2 text-2xs text-muted-foreground">
+                          {LIFECYCLE_SOURCE[d.status] ?? "Stages advance with the work. Client Property and Decommissioned are set here."}
+                        </p>
+                        {(d.allowed_transitions ?? []).filter((s) => MANUAL_STATUSES.includes(s)).length > 0 ? (
+                          <>
+                            <div className="flex flex-wrap gap-2">
+                              {(d.allowed_transitions ?? []).filter((s) => MANUAL_STATUSES.includes(s)).map((s) => (
+                                <button
+                                  key={s}
+                                  type="button"
+                                  onClick={() => { const next = transitionTarget === s ? null : s; resetTransition(); setTransitionTarget(next); if (next === "under_maintenance") setMaintTech(d.assigned_technician ?? ""); }}
+                                  className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold ring-1 transition-colors ${transitionTarget === s ? "bg-primary/10 text-primary ring-primary/30" : "text-muted-foreground ring-border hover:bg-secondary"}`}
+                                >
+                                  <ChevronRight className="h-3 w-3" /> {statusLabel(s)}
+                                </button>
+                              ))}
+                            </div>
+                            {transitionTarget && (
+                              <div className="mt-3 space-y-2">
+                                <p className="text-xs font-medium text-foreground">
+                                  Move from “{statusLabel(d.status)}” to “{statusLabel(transitionTarget)}”
+                                </p>
+                                {/* Assigning must say who it went to. */}
+                                {transitionTarget === "assigned" && (
+                                  <div className="space-y-2 rounded-lg border border-border bg-secondary/20 p-3">
+                                    <p className="text-xs font-medium text-foreground">
+                                      {d.source === "vendor_turnkey"
+                                        ? "Installing vendor & oversight"
+                                        : "Assign to technician"}
                                     </p>
-                                  )}
-
-                                  <textarea
-                                    value={transitionReason}
-                                    onChange={(e) => setTransitionReason(e.target.value)}
-                                    placeholder={transitionTarget === "under_maintenance"
-                                      ? "What is wrong with it? (required — becomes the job title)"
-                                      : d.status === "under_maintenance"
-                                        ? "What was done (required — filed as the completion record)"
-                                        : "Reason for status change (required)"}
-                                    rows={2}
-                                    className={`${inputClass} h-auto py-2 text-xs`}
-                                  />
-
-                                  {transitionTarget === "under_maintenance" && (
-                                    <div className="space-y-2.5 rounded-lg border border-border bg-secondary/20 p-3">
-                                      <div>
-                                        <p className="text-xs font-medium text-foreground">Corrective maintenance job</p>
-                                        <p className="text-2xs text-muted-foreground">
-                                          Raised in Maintenance the moment the asset goes down. When the technician
-                                          completes it there, the asset returns to Active on its own.
-                                        </p>
-                                      </div>
-                                      <div className="grid gap-2 sm:grid-cols-3">
-                                        <div className="space-y-1">
-                                          <label className="text-2xs font-medium text-muted-foreground">Technician *</label>
-                                          <select
-                                            value={maintTech}
-                                            onChange={(e) => setMaintTech(e.target.value)}
-                                            className={`${inputClass} h-9 text-xs`}
-                                          >
-                                            <option value="">Select…</option>
-                                            {technicians.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
-                                          </select>
-                                        </div>
-                                        <div className="space-y-1">
-                                          <label className="text-2xs font-medium text-muted-foreground">Repair due by *</label>
-                                          <input
-                                            type="date"
-                                            value={maintDue}
-                                            min={todayIso()}
-                                            onChange={(e) => setMaintDue(e.target.value)}
-                                            className={`${inputClass} h-9 text-xs`}
-                                          />
-                                        </div>
-                                        <div className="space-y-1">
-                                          <label className="text-2xs font-medium text-muted-foreground">Priority</label>
-                                          <select
-                                            value={maintPriority}
-                                            onChange={(e) => setMaintPriority(e.target.value)}
-                                            className={`${inputClass} h-9 text-xs`}
-                                          >
-                                            <option value="high">High</option>
-                                            <option value="medium">Medium</option>
-                                            <option value="low">Low</option>
-                                          </select>
-                                        </div>
-                                      </div>
-                                      <textarea
-                                        value={maintInstructions}
-                                        onChange={(e) => setMaintInstructions(e.target.value)}
-                                        placeholder="Instructions for the technician (optional) — parts to take, access notes…"
-                                        rows={2}
-                                        className={`${inputClass} h-auto py-2 text-xs`}
-                                      />
-                                    </div>
-                                  )}
-
-                                  {/* Installation photos belong to the tracker
-                                      now; what is left here is proof the asset
-                                      is fixed and running again. */}
-                                  {transitionTarget === "active" && (
-                                    <div className="space-y-2 rounded-lg border border-border bg-secondary/20 p-3">
-                                      <p className="text-xs font-medium text-foreground">
-                                        Photo of the repaired asset
-                                      </p>
-                                      <div className="flex flex-wrap gap-2">
-                                        {activePhotoPreviews.map((src, i) => (
-                                          <div key={src} className="group relative">
-                                            <img
-                                              src={src}
-                                              alt={`Repair photo ${i + 1}`}
-                                              className="h-20 w-20 rounded-lg border border-border object-cover"
-                                            />
-                                            <button
-                                              type="button"
-                                              onClick={() => removeActivePhoto(i)}
-                                              className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-white opacity-0 transition-opacity group-hover:opacity-100"
-                                              title="Remove"
-                                            >
-                                              <X className="h-3 w-3" />
-                                            </button>
-                                          </div>
-                                        ))}
-                                        <button
-                                          type="button"
-                                          onClick={() => activePhotoInputRef.current?.click()}
-                                          className="flex h-20 w-20 flex-col items-center justify-center rounded-lg border-2 border-dashed border-border text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+                                    {/* Same rule as registration: only a
+                                        turnkey job has an outside crew doing
+                                        the installing. Who *supplied* the
+                                        asset is recorded in Edit Asset. */}
+                                    {d.source === "vendor_turnkey" && (
+                                      <div className="grid gap-2 sm:grid-cols-2">
+                                        <select
+                                          value={assignVendorId}
+                                          onChange={(e) => setAssignVendorId(e.target.value)}
+                                          className={`${inputClass} h-9 text-xs`}
                                         >
-                                          <ImagePlus className="h-5 w-5" />
-                                          <span className="mt-1 text-2xs">Add Photo</span>
-                                        </button>
+                                          <option value="">Vendor installing it…</option>
+                                          {suppliers.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+                                        </select>
+                                        <div className={`${inputClass} flex h-9 items-center text-xs`}>
+                                          {vendorContact(suppliers.find((v) => v.id === assignVendorId))
+                                            || <span className="text-muted-foreground">Contact comes from the vendor</span>}
+                                        </div>
+                                      </div>
+                                    )}
+                                    <select
+                                      value={assignTechnician}
+                                      onChange={(e) => setAssignTechnician(e.target.value)}
+                                      className={`${inputClass} h-9 text-xs`}
+                                    >
+                                      <option value="">
+                                        {d.source === "vendor_turnkey"
+                                          ? "Technician overseeing…"
+                                          : "Select technician…"}
+                                      </option>
+                                      {technicians.map((t) => (
+                                        <option key={t.id} value={t.id}>{t.label}</option>
+                                      ))}
+                                    </select>
+                                    <MultiSelect
+                                      options={technicians.filter((t) => t.id !== assignTechnician)}
+                                      values={assignHelpers.filter((h) => h !== assignTechnician)}
+                                      onChange={setAssignHelpers}
+                                      placeholder="Helpers (optional) - check in and out only"
+                                    />
+                                    <p className="text-2xs text-muted-foreground">
+                                      {d.source === "vendor_turnkey"
+                                        ? "The vendor supplies and installs it; our technician oversees."
+                                        : d.source === "vendor_supplied"
+                                          ? "The vendor supplies the asset; our own technician installs it."
+                                          : "Details come from the manpower records."}
+                                    </p>
+
+                                    {/* Assigning opens the job on the
+                                        Installation Tracker, which needs to
+                                        know where the work happens. */}
+                                    <select
+                                      value={assignSite || d.current_site || ""}
+                                      onChange={(e) => setAssignSite(e.target.value)}
+                                      className={`${inputClass} h-9 text-xs`}
+                                    >
+                                      <option value="">Select site…</option>
+                                      {sites.map((site) => (
+                                        <option key={site.id} value={site.id}>{site.label}</option>
+                                      ))}
+                                    </select>
+                                    <p className="text-2xs text-muted-foreground">
+                                      This opens the asset&apos;s job on the Installation Tracker.
+                                    </p>
+                                  </div>
+                                )}
+
+                                {/* The registry and the maintenance register
+                                    are two views of the same event, so say
+                                    what this change does to the other one. */}
+                                {d.status === "under_maintenance" && (
+                                  <p className="rounded-lg border border-dashed border-border px-3 py-2 text-2xs text-muted-foreground">
+                                    The open maintenance job is closed off with a completion record
+                                    against your notes.
+                                  </p>
+                                )}
+
+                                <textarea
+                                  value={transitionReason}
+                                  onChange={(e) => setTransitionReason(e.target.value)}
+                                  placeholder={transitionTarget === "under_maintenance"
+                                    ? "What is wrong with it? (required — becomes the job title)"
+                                    : d.status === "under_maintenance"
+                                      ? "What was done (required — filed as the completion record)"
+                                      : "Reason for status change (required)"}
+                                  rows={2}
+                                  className={`${inputClass} h-auto py-2 text-xs`}
+                                />
+
+                                {transitionTarget === "under_maintenance" && (
+                                  <div className="space-y-2.5 rounded-lg border border-border bg-secondary/20 p-3">
+                                    <div>
+                                      <p className="text-xs font-medium text-foreground">Corrective maintenance job</p>
+                                      <p className="text-2xs text-muted-foreground">
+                                        Raised in Maintenance the moment the asset goes down. When the technician
+                                        completes it there, the asset returns to Active on its own.
+                                      </p>
+                                    </div>
+                                    <div className="grid gap-2 sm:grid-cols-3">
+                                      <div className="space-y-1">
+                                        <label className="text-2xs font-medium text-muted-foreground">Technician *</label>
+                                        <select
+                                          value={maintTech}
+                                          onChange={(e) => setMaintTech(e.target.value)}
+                                          className={`${inputClass} h-9 text-xs`}
+                                        >
+                                          <option value="">Select…</option>
+                                          {technicians.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+                                        </select>
+                                      </div>
+                                      <div className="space-y-1">
+                                        <label className="text-2xs font-medium text-muted-foreground">Repair due by *</label>
                                         <input
-                                          ref={activePhotoInputRef}
-                                          type="file"
-                                          accept="image/*"
-                                          multiple
-                                          capture="environment"
-                                          className="hidden"
-                                          onChange={handleActivePhotoSelect}
+                                          type="date"
+                                          value={maintDue}
+                                          min={todayIso()}
+                                          onChange={(e) => setMaintDue(e.target.value)}
+                                          className={`${inputClass} h-9 text-xs`}
                                         />
                                       </div>
-                                      <p className="text-2xs text-muted-foreground">
-                                        {activePhotos.length > 0
-                                          ? `${activePhotos.length} photo${activePhotos.length === 1 ? "" : "s"} will be attached to this asset.`
-                                          : "Attach a photo of the asset back in service (optional)."}
-                                      </p>
+                                      <div className="space-y-1">
+                                        <label className="text-2xs font-medium text-muted-foreground">Priority</label>
+                                        <select
+                                          value={maintPriority}
+                                          onChange={(e) => setMaintPriority(e.target.value)}
+                                          className={`${inputClass} h-9 text-xs`}
+                                        >
+                                          <option value="high">High</option>
+                                          <option value="medium">Medium</option>
+                                          <option value="low">Low</option>
+                                        </select>
+                                      </div>
                                     </div>
-                                  )}
-                                  <div className="flex gap-2">
-                                    <button
-                                      type="button"
-                                      onClick={resetTransition}
-                                      className="h-8 flex-1 rounded-lg border border-border text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary"
-                                    >
-                                      Cancel
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleStatusTransition(d.id)}
-                                      disabled={
-                                        transitionLoading || !transitionReason.trim() ||
-                                        (transitionTarget === "under_maintenance" && (!maintDue || !maintTech)) ||
-                                        (transitionTarget === "assigned" && (
-                                          !assignTechnician ||
-                                          !(assignSite || d.current_site) ||
-                                          (d.source === "vendor_turnkey" && !assignVendorId)
-                                        ))
-                                      }
-                                      className="h-8 flex-1 rounded-lg bg-primary text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
-                                    >
-                                      {transitionLoading ? "..." : "Confirm"}
-                                    </button>
+                                    <textarea
+                                      value={maintInstructions}
+                                      onChange={(e) => setMaintInstructions(e.target.value)}
+                                      placeholder="Instructions for the technician (optional) — parts to take, access notes…"
+                                      rows={2}
+                                      className={`${inputClass} h-auto py-2 text-xs`}
+                                    />
                                   </div>
+                                )}
+
+                                {/* Installation photos belong to the tracker
+                                    now; what is left here is proof the asset
+                                    is fixed and running again. */}
+                                {transitionTarget === "active" && (
+                                  <div className="space-y-2 rounded-lg border border-border bg-secondary/20 p-3">
+                                    <p className="text-xs font-medium text-foreground">
+                                      Photo of the repaired asset
+                                    </p>
+                                    <div className="flex flex-wrap gap-2">
+                                      {activePhotoPreviews.map((src, i) => (
+                                        <div key={src} className="group relative">
+                                          <img
+                                            src={src}
+                                            alt={`Repair photo ${i + 1}`}
+                                            className="h-20 w-20 rounded-lg border border-border object-cover"
+                                          />
+                                          <button
+                                            type="button"
+                                            onClick={() => removeActivePhoto(i)}
+                                            className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-white opacity-0 transition-opacity group-hover:opacity-100"
+                                            title="Remove"
+                                          >
+                                            <X className="h-3 w-3" />
+                                          </button>
+                                        </div>
+                                      ))}
+                                      <button
+                                        type="button"
+                                        onClick={() => activePhotoInputRef.current?.click()}
+                                        className="flex h-20 w-20 flex-col items-center justify-center rounded-lg border-2 border-dashed border-border text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+                                      >
+                                        <ImagePlus className="h-5 w-5" />
+                                        <span className="mt-1 text-2xs">Add Photo</span>
+                                      </button>
+                                      <input
+                                        ref={activePhotoInputRef}
+                                        type="file"
+                                        accept="image/*"
+                                        multiple
+                                        capture="environment"
+                                        className="hidden"
+                                        onChange={handleActivePhotoSelect}
+                                      />
+                                    </div>
+                                    <p className="text-2xs text-muted-foreground">
+                                      {activePhotos.length > 0
+                                        ? `${activePhotos.length} photo${activePhotos.length === 1 ? "" : "s"} will be attached to this asset.`
+                                        : "Attach a photo of the asset back in service (optional)."}
+                                    </p>
+                                  </div>
+                                )}
+                                <div className="flex gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={resetTransition}
+                                    className="h-8 flex-1 rounded-lg border border-border text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary"
+                                  >
+                                    Cancel
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleStatusTransition(d.id)}
+                                    disabled={
+                                      transitionLoading || !transitionReason.trim() ||
+                                      (transitionTarget === "under_maintenance" && (!maintDue || !maintTech)) ||
+                                      (transitionTarget === "assigned" && (
+                                        !assignTechnician ||
+                                        !(assignSite || d.current_site) ||
+                                        (d.source === "vendor_turnkey" && !assignVendorId)
+                                      ))
+                                    }
+                                    className="h-8 flex-1 rounded-lg bg-primary text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+                                  >
+                                    {transitionLoading ? "..." : "Confirm"}
+                                  </button>
                                 </div>
-                              )}
-                            </>
-                          ) : (
-                            <p className="text-xs text-muted-foreground">
-                              No action required at this stage.
-                            </p>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                    {/* Only an in-house build has a bill of materials of ours;
-                        for vendor routes the section stays visible but inert. */}
-                    {!d.requires_production && (
-                      <div className="rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-4">
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div>
-                            <h4 className="text-sm font-semibold text-foreground">Complete asset from the vendor</h4>
-                            <p className="mt-1 text-xs text-muted-foreground">
-                              {d.source_display} — bought whole on a purchase order, so it has no components or
-                              production route of its own. Its price and warranty come from the order.
-                            </p>
-                          </div>
-                          <span className="rounded-full bg-card px-2.5 py-0.5 text-2xs font-medium text-indigo-600 ring-1 ring-indigo-500/20">
-                            {d.status_display ?? statusLabel(d.status)}
-                          </span>
-                        </div>
-                        <dl className="mt-3 grid gap-3 text-xs sm:grid-cols-4">
-                          <div><dt className="text-2xs uppercase tracking-wider text-muted-foreground">Vendor</dt><dd className="text-foreground">{d.supply_vendor_name || d.supplier_name || "—"}</dd></div>
-                          <div><dt className="text-2xs uppercase tracking-wider text-muted-foreground">Price</dt><dd className="text-foreground">{d.purchase_price ? `PKR ${Number(d.purchase_price).toLocaleString()}` : "—"}</dd></div>
-                          <div><dt className="text-2xs uppercase tracking-wider text-muted-foreground">Purchase order</dt><dd className="font-mono text-foreground">{d.procurement_po_number ?? (d.procurement_requested_at ? "Awaiting PO" : "—")}</dd></div>
-                          <div><dt className="text-2xs uppercase tracking-wider text-muted-foreground">Project</dt><dd className="text-foreground">{d.project_name ? <ProjectLink id={d.project_on} name={d.project_name} /> : "—"}</dd></div>
-                        </dl>
-                        <p className="mt-3 text-2xs text-muted-foreground">
-                          {d.status === "procured"
-                            ? d.procurement_po_number
-                              ? "On order — it comes into stock when the delivery is received against the PO."
-                              : d.project_name
-                                ? "Awaiting the project's Execution decision to procure it, then the PO in Procurement."
-                                : "Awaiting its purchase order in Procurement → Procurement Requests."
-                            : d.status === "in_stock"
-                              ? "In stock — assign it to a site above to open its installation."
-                              : ""}
-                        </p>
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">
+                            No action required at this stage.
+                          </p>
+                        )}
                       </div>
                     )}
-                    {d.requires_production && (<>
-                    <div className={d.requires_production ? undefined : "opacity-60"}>
-                      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                        <h4 className="text-sm font-semibold text-foreground">Components</h4>
-                        <div className="flex items-center gap-3">
-                          {d.project_name && (
-                            <span className="text-xs text-muted-foreground">Project: <ProjectLink id={d.project_on} name={d.project_name} /></span>
-                          )}
+                  </div>
+                  {/* Only an in-house build has a bill of materials of ours;
+                      for vendor routes the section stays visible but inert. */}
+                  {!d.requires_production && (
+                    <div className="rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <h4 className="text-sm font-semibold text-foreground">Complete asset from the vendor</h4>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {d.source_display} — bought whole on a purchase order, so it has no components or
+                            production route of its own. Its price and warranty come from the order.
+                          </p>
                         </div>
+                        <span className="rounded-full bg-card px-2.5 py-0.5 text-2xs font-medium text-indigo-600 ring-1 ring-indigo-500/20">
+                          {d.status_display ?? statusLabel(d.status)}
+                        </span>
                       </div>
-                      {!d.requires_production && (
-                        <p className="mb-3 rounded-lg border border-dashed border-border px-3 py-2 text-2xs text-muted-foreground">
-                          {d.source_display} — this asset arrives complete from the vendor, so it is
-                          not built from our inventory.
-                        </p>
-                      )}
-                      {d.is_locked && (
-                        <p className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-2xs text-amber-700">
-                          Locked — this asset is in execution{d.project_name ? ` under ${d.project_name}` : ""}. Its components
-                          and production route are fixed now; only its status can change.
-                        </p>
-                      )}
-                      {(d.components ?? []).length > 0 ? (
-                        <div className="overflow-x-auto rounded-xl border border-border">
-                          <table className="w-full text-xs">
-                            <thead>
-                              <tr className="border-b border-border bg-secondary/50 text-left text-muted-foreground">
-                                <th className="px-3 py-2 font-medium">Component</th>
-                                <th className="px-3 py-2 font-medium">Type</th>
-                                <th className="px-3 py-2 font-medium">Serial #</th>
-                                <th className="px-3 py-2 font-medium">Required</th>
-                                <th className="px-3 py-2 font-medium">In Stock</th>
-                                <th className="px-3 py-2 font-medium">From Inventory</th>
-                                <th className="px-3 py-2 font-medium">Fulfilment</th>
-                                {canEdit && <th className="px-3 py-2" />}
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {(d.components ?? []).map((cmp) => (
-                                <tr key={cmp.id} className="border-b border-border/60 last:border-0">
-                                  <td className="px-3 py-2 font-medium text-foreground">
+                      <dl className="mt-3 grid gap-3 text-xs sm:grid-cols-4">
+                        <div><dt className="text-2xs uppercase tracking-wider text-muted-foreground">Vendor</dt><dd className="text-foreground">{d.supply_vendor_name || d.supplier_name || "—"}</dd></div>
+                        <div><dt className="text-2xs uppercase tracking-wider text-muted-foreground">Price</dt><dd className="text-foreground">{d.purchase_price ? `PKR ${Number(d.purchase_price).toLocaleString()}` : "—"}</dd></div>
+                        <div><dt className="text-2xs uppercase tracking-wider text-muted-foreground">Purchase order</dt><dd className="font-mono text-foreground">{d.procurement_po_number ?? (d.procurement_requested_at ? "Awaiting PO" : "—")}</dd></div>
+                        <div><dt className="text-2xs uppercase tracking-wider text-muted-foreground">Project</dt><dd className="text-foreground">{d.project_name ? <ProjectLink id={d.project_on} name={d.project_name} /> : "—"}</dd></div>
+                      </dl>
+                      <p className="mt-3 text-2xs text-muted-foreground">
+                        {d.status === "procured"
+                          ? d.procurement_po_number
+                            ? "On order — it comes into stock when the delivery is received against the PO."
+                            : d.project_name
+                              ? "Awaiting the project's Execution decision to procure it, then the PO in Procurement."
+                              : "Awaiting its purchase order in Procurement → Procurement Requests."
+                          : d.status === "in_stock"
+                            ? "In stock — assign it to a site above to open its installation."
+                            : ""}
+                      </p>
+                    </div>
+                  )}
+                  {d.requires_production && (<>
+                  <div className={d.requires_production ? undefined : "opacity-60"}>
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                      <h4 className="text-sm font-semibold text-foreground">Components</h4>
+                      <div className="flex items-center gap-3">
+                        {d.project_name && (
+                          <span className="text-xs text-muted-foreground">Project: <ProjectLink id={d.project_on} name={d.project_name} /></span>
+                        )}
+                      </div>
+                    </div>
+                    {!d.requires_production && (
+                      <p className="mb-3 rounded-lg border border-dashed border-border px-3 py-2 text-2xs text-muted-foreground">
+                        {d.source_display} — this asset arrives complete from the vendor, so it is
+                        not built from our inventory.
+                      </p>
+                    )}
+                    {d.is_locked && (
+                      <p className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-2xs text-amber-700">
+                        Locked — this asset is in execution{d.project_name ? ` under ${d.project_name}` : ""}. Its components
+                        and production route are fixed now; only its status can change.
+                      </p>
+                    )}
+                    {(d.components ?? []).length > 0 ? (
+                      <div className="overflow-x-auto rounded-xl border border-border">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="border-b border-border bg-secondary/50 text-left text-muted-foreground">
+                              <th className="px-3 py-2 font-medium">Component</th>
+                              <th className="px-3 py-2 font-medium">Type</th>
+                              <th className="px-3 py-2 font-medium">Serial #</th>
+                              <th className="px-3 py-2 font-medium">Required</th>
+                              <th className="px-3 py-2 font-medium">In Stock</th>
+                              <th className="px-3 py-2 font-medium">From Inventory</th>
+                              <th className="px-3 py-2 font-medium">Fulfilment</th>
+                              {canEdit && <th className="px-3 py-2" />}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(d.components ?? []).map((cmp) => (
+                              <tr key={cmp.id} className="border-b border-border/60 last:border-0">
+                                <td className="px-3 py-2 font-medium text-foreground">
+                                  {compReplace?.id === cmp.id ? (
+                                    <select
+                                      value={compReplace.value}
+                                      onChange={(e) => setCompReplace({ ...compReplace, value: e.target.value })}
+                                      aria-label={`Replace ${cmp.name} with`}
+                                      className="h-7 w-56 rounded-lg border border-border bg-background px-2 text-xs text-foreground"
+                                    >
+                                      <option value="">Replace {cmp.name} with…</option>
+                                      {compReplace.unique
+                                        ? stockProducts.filter((sp) => sp.id !== cmp.inventory_unit_type).map((sp) => (
+                                            <option key={sp.id} value={sp.id}>
+                                              {[sp.name, sp.model_name].filter(Boolean).join(" ")} · {sp.in_stock_count} {sp.unit || "piece"} in stock
+                                            </option>
+                                          ))
+                                        : stockItems.filter((si) => si.id !== cmp.inventory_item).map((si) => (
+                                            <option key={si.id} value={si.id}>
+                                              {si.material_name ?? si.sku} · {si.quantity} {si.unit || "piece"} in stock
+                                            </option>
+                                          ))}
+                                    </select>
+                                  ) : cmp.name}
+                                </td>
+                                <td className="px-3 py-2 text-muted-foreground">{cmp.component_type || "—"}</td>
+                                <td className="px-3 py-2 font-mono text-muted-foreground">
+                                  {/* The particular units in this asset. */}
+                                  {(cmp.fitted_serials ?? []).length > 0
+                                    ? cmp.fitted_serials!.map((sn) => (
+                                        <span key={sn} className="block text-foreground">{sn}</span>
+                                      ))
+                                    : cmp.serial_number || "—"}
+                                </td>
+                                <td className="px-3 py-2 text-foreground">
+                                  {compEdit?.id === cmp.id ? (
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      value={compEdit.quantity}
+                                      onChange={(e) => setCompEdit({ id: cmp.id, quantity: Math.max(1, Number(e.target.value) || 1) })}
+                                      aria-label="Quantity"
+                                      className="h-7 w-16 rounded-lg border border-border bg-background px-2 text-xs text-foreground"
+                                    />
+                                  ) : (
+                                    <Qty value={cmp.quantity} unit={cmp.unit} prefix="×" />
+                                  )}
+                                  {cmp.issued_quantity > 0 && (
+                                    <span className="block text-2xs text-muted-foreground">
+                                      {cmp.issued_quantity} issued
+                                    </span>
+                                  )}
+                                </td>
+                                <td className={`px-3 py-2 ${(cmp.available_quantity ?? 0) < cmp.outstanding_quantity ? "text-amber-600" : "text-muted-foreground"}`}>
+                                  {cmp.available_quantity ?? "—"}
+                                </td>
+                                <td className="px-3 py-2 text-muted-foreground">{cmp.source_label || "—"}</td>
+                                <td className="px-3 py-2">
+                                  <span className={`inline-flex rounded-full px-2 py-0.5 text-2xs font-medium ring-1 ${
+                                    FULFILMENT_BADGES[cmp.fulfilment] ?? "bg-secondary text-muted-foreground ring-border"
+                                  }`}>
+                                    {FULFILMENT_LABELS[cmp.fulfilment] ?? cmp.fulfilment}
+                                  </span>
+                                  {cmp.po_number && (
+                                    <span className="block font-mono text-2xs text-muted-foreground">{cmp.po_number}</span>
+                                  )}
+                                </td>
+                                {canEdit && (
+                                  <td className="px-3 py-2 text-right">
                                     {compReplace?.id === cmp.id ? (
-                                      <select
-                                        value={compReplace.value}
-                                        onChange={(e) => setCompReplace({ ...compReplace, value: e.target.value })}
-                                        aria-label={`Replace ${cmp.name} with`}
-                                        className="h-7 w-56 rounded-lg border border-border bg-background px-2 text-xs text-foreground"
-                                      >
-                                        <option value="">Replace {cmp.name} with…</option>
-                                        {compReplace.unique
-                                          ? stockProducts.filter((sp) => sp.id !== cmp.inventory_unit_type).map((sp) => (
-                                              <option key={sp.id} value={sp.id}>
-                                                {[sp.name, sp.model_name].filter(Boolean).join(" ")} · {sp.in_stock_count} {sp.unit || "piece"} in stock
-                                              </option>
-                                            ))
-                                          : stockItems.filter((si) => si.id !== cmp.inventory_item).map((si) => (
-                                              <option key={si.id} value={si.id}>
-                                                {si.material_name ?? si.sku} · {si.quantity} {si.unit || "piece"} in stock
-                                              </option>
-                                            ))}
-                                      </select>
-                                    ) : cmp.name}
-                                  </td>
-                                  <td className="px-3 py-2 text-muted-foreground">{cmp.component_type || "—"}</td>
-                                  <td className="px-3 py-2 font-mono text-muted-foreground">
-                                    {/* The particular units in this asset. */}
-                                    {(cmp.fitted_serials ?? []).length > 0
-                                      ? cmp.fitted_serials!.map((sn) => (
-                                          <span key={sn} className="block text-foreground">{sn}</span>
-                                        ))
-                                      : cmp.serial_number || "—"}
-                                  </td>
-                                  <td className="px-3 py-2 text-foreground">
-                                    {compEdit?.id === cmp.id ? (
-                                      <input
-                                        type="number"
-                                        min={1}
-                                        value={compEdit.quantity}
-                                        onChange={(e) => setCompEdit({ id: cmp.id, quantity: Math.max(1, Number(e.target.value) || 1) })}
-                                        aria-label="Quantity"
-                                        className="h-7 w-16 rounded-lg border border-border bg-background px-2 text-xs text-foreground"
-                                      />
+                                      <span className="inline-flex items-center gap-1.5">
+                                        <button type="button" onClick={() => saveComponentReplace(d.id)} disabled={!compReplace.value} className="text-emerald-600 transition-colors hover:text-emerald-700 disabled:opacity-40" title="Save replacement">
+                                          <Check className="h-3.5 w-3.5" />
+                                        </button>
+                                        <button type="button" onClick={() => setCompReplace(null)} className="text-muted-foreground transition-colors hover:text-foreground" title="Cancel">
+                                          <X className="h-3.5 w-3.5" />
+                                        </button>
+                                      </span>
+                                    ) : compEdit?.id === cmp.id ? (
+                                      <span className="inline-flex items-center gap-1.5">
+                                        <button type="button" onClick={() => saveComponentEdit(d.id)} className="text-emerald-600 transition-colors hover:text-emerald-700" title="Save quantity">
+                                          <Check className="h-3.5 w-3.5" />
+                                        </button>
+                                        <button type="button" onClick={() => setCompEdit(null)} className="text-muted-foreground transition-colors hover:text-foreground" title="Cancel">
+                                          <X className="h-3.5 w-3.5" />
+                                        </button>
+                                      </span>
                                     ) : (
-                                      <Qty value={cmp.quantity} unit={cmp.unit} prefix="×" />
-                                    )}
-                                    {cmp.issued_quantity > 0 && (
-                                      <span className="block text-2xs text-muted-foreground">
-                                        {cmp.issued_quantity} issued
+                                      <span className="inline-flex items-center gap-2">
+                                        <button type="button" onClick={() => { setCompEdit(null); setCompReplace({ id: cmp.id, unique: !!cmp.inventory_unit_type, value: "" }); }} disabled={!d.requires_production || d.is_locked || (!cmp.inventory_item && !cmp.inventory_unit_type)} className="text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-50" title={cmp.inventory_unit_type ? "Replace with another unique item" : "Replace with another stock item"}>
+                                          <ArrowLeftRight className="h-3.5 w-3.5" />
+                                        </button>
+                                        <button type="button" onClick={() => { setCompReplace(null); setCompEdit({ id: cmp.id, quantity: cmp.quantity }); }} disabled={!d.requires_production || d.is_locked} className="text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-50" title="Edit quantity">
+                                          <Pencil className="h-3.5 w-3.5" />
+                                        </button>
+                                        <button onClick={() => handleDeleteComponent(cmp.id, d.id)} disabled={!d.requires_production || d.is_locked} className="text-muted-foreground transition-colors hover:text-destructive disabled:pointer-events-none disabled:opacity-50" title="Remove component">
+                                          <Trash2 className="h-3.5 w-3.5" />
+                                        </button>
                                       </span>
                                     )}
                                   </td>
-                                  <td className={`px-3 py-2 ${(cmp.available_quantity ?? 0) < cmp.outstanding_quantity ? "text-amber-600" : "text-muted-foreground"}`}>
-                                    {cmp.available_quantity ?? "—"}
-                                  </td>
-                                  <td className="px-3 py-2 text-muted-foreground">{cmp.source_label || "—"}</td>
-                                  <td className="px-3 py-2">
-                                    <span className={`inline-flex rounded-full px-2 py-0.5 text-2xs font-medium ring-1 ${
-                                      FULFILMENT_BADGES[cmp.fulfilment] ?? "bg-secondary text-muted-foreground ring-border"
-                                    }`}>
-                                      {FULFILMENT_LABELS[cmp.fulfilment] ?? cmp.fulfilment}
-                                    </span>
-                                    {cmp.po_number && (
-                                      <span className="block font-mono text-2xs text-muted-foreground">{cmp.po_number}</span>
-                                    )}
-                                  </td>
-                                  {canEdit && (
-                                    <td className="px-3 py-2 text-right">
-                                      {compReplace?.id === cmp.id ? (
-                                        <span className="inline-flex items-center gap-1.5">
-                                          <button type="button" onClick={() => saveComponentReplace(d.id)} disabled={!compReplace.value} className="text-emerald-600 transition-colors hover:text-emerald-700 disabled:opacity-40" title="Save replacement">
-                                            <Check className="h-3.5 w-3.5" />
-                                          </button>
-                                          <button type="button" onClick={() => setCompReplace(null)} className="text-muted-foreground transition-colors hover:text-foreground" title="Cancel">
-                                            <X className="h-3.5 w-3.5" />
-                                          </button>
-                                        </span>
-                                      ) : compEdit?.id === cmp.id ? (
-                                        <span className="inline-flex items-center gap-1.5">
-                                          <button type="button" onClick={() => saveComponentEdit(d.id)} className="text-emerald-600 transition-colors hover:text-emerald-700" title="Save quantity">
-                                            <Check className="h-3.5 w-3.5" />
-                                          </button>
-                                          <button type="button" onClick={() => setCompEdit(null)} className="text-muted-foreground transition-colors hover:text-foreground" title="Cancel">
-                                            <X className="h-3.5 w-3.5" />
-                                          </button>
-                                        </span>
-                                      ) : (
-                                        <span className="inline-flex items-center gap-2">
-                                          <button type="button" onClick={() => { setCompEdit(null); setCompReplace({ id: cmp.id, unique: !!cmp.inventory_unit_type, value: "" }); }} disabled={!d.requires_production || d.is_locked || (!cmp.inventory_item && !cmp.inventory_unit_type)} className="text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-50" title={cmp.inventory_unit_type ? "Replace with another unique item" : "Replace with another stock item"}>
-                                            <ArrowLeftRight className="h-3.5 w-3.5" />
-                                          </button>
-                                          <button type="button" onClick={() => { setCompReplace(null); setCompEdit({ id: cmp.id, quantity: cmp.quantity }); }} disabled={!d.requires_production || d.is_locked} className="text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-50" title="Edit quantity">
-                                            <Pencil className="h-3.5 w-3.5" />
-                                          </button>
-                                          <button onClick={() => handleDeleteComponent(cmp.id, d.id)} disabled={!d.requires_production || d.is_locked} className="text-muted-foreground transition-colors hover:text-destructive disabled:pointer-events-none disabled:opacity-50" title="Remove component">
-                                            <Trash2 className="h-3.5 w-3.5" />
-                                          </button>
-                                        </span>
-                                      )}
-                                    </td>
-                                  )}
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      ) : (
-                        <p className="text-xs text-muted-foreground">No components recorded — single-unit asset.</p>
-                      )}
-                      {canEdit && (
-                        <form onSubmit={(e) => handleAddComponent(e, d.id)} noValidate className="mt-2">
-                          <fieldset disabled={!d.requires_production || d.is_locked} className="space-y-2">
-                            <p className="text-2xs text-muted-foreground">
-                              What this asset is built from. Stock is not reduced here — the project decides
-                              later whether to take each line from inventory or procure it.
-                            </p>
-                            <div className="flex flex-wrap items-end gap-2">
-                              <select
-                                value={compSource}
-                                onChange={(e) => { setCompSource(e.target.value as "generic" | "unique"); setCompItemId(""); setCompUnitType(""); setCompQty("1"); }}
-                                className="h-8 w-32 rounded-lg border border-border bg-background px-2 text-xs text-foreground"
-                              >
-                                <option value="generic">Stock item</option>
-                                <option value="unique">Unique item</option>
-                              </select>
-
-                              {compSource === "generic" ? (
-                                <select
-                                  value={compItemId}
-                                  onChange={(e) => setCompItemId(e.target.value)}
-                                  required
-                                  className="h-8 w-72 rounded-lg border border-border bg-background px-2 text-xs text-foreground"
-                                >
-                                  <option value="">Select stock item…</option>
-                                  {/* Every known item, including ones at zero. */}
-                                  {stockItems.map((s) => (
-                                    <option key={s.id} value={s.id}>
-                                      {s.material_name ?? s.sku} · {s.quantity} {s.unit || "piece"} in stock
-                                    </option>
-                                  ))}
-                                </select>
-                              ) : (
-                                <select
-                                  value={compUnitType}
-                                  onChange={(e) => setCompUnitType(e.target.value)}
-                                  required
-                                  className="h-8 w-72 rounded-lg border border-border bg-background px-2 text-xs text-foreground"
-                                >
-                                  <option value="">
-                                    {stockProducts.length === 0 ? "No unique items opened yet" : "Select unique item…"}
-                                  </option>
-                                  {stockProducts.map((p) => (
-                                    <option key={p.id} value={p.id}>
-                                      {[p.name, p.model_name].filter(Boolean).join(" ")} · {p.in_stock_count} {p.unit || "piece"} in stock
-                                    </option>
-                                  ))}
-                                </select>
-                              )}
-
-                              <div className="flex items-center gap-1">
-                                <label htmlFor="comp_qty" className="text-2xs text-muted-foreground">Qty needed</label>
-                                <input
-                                  id="comp_qty"
-                                  type="number"
-                                  min={1}
-                                  value={compQty}
-                                  onChange={(e) => setCompQty(e.target.value)}
-                                  className="h-8 w-20 rounded-lg border border-border bg-background px-2 text-xs text-foreground"
-                                />
-                                {compSelected && <span className="text-2xs text-muted-foreground">{compUnit}</span>}
-                              </div>
-
-                              <button
-                                type="submit"
-                                disabled={!compSelected}
-                                className="h-8 rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
-                              >
-                                Add
-                              </button>
-                            </div>
-
-                            {compSelected && Number(compQty) > compAvailable && (
-                              <p className="text-2xs text-amber-600">
-                                Only {compAvailable} {compUnit} in stock — the shortfall can be procured from the project.
-                              </p>
-                            )}
-                          </fieldset>
-                        </form>
-                      )}
-                    </div>
-                    <div className={d.requires_production ? undefined : "opacity-60"}>
-                      <h4 className="mb-3 text-sm font-semibold text-foreground">Production Route</h4>
-                      <ProductionRoute
-                        deviceId={d.id}
-                        steps={d.production_steps ?? []}
-                        onChanged={() => refreshDetail(d.id)}
-                        assetTypeName={d.asset_type_name}
-                        readOnly={!d.requires_production}
-                        readOnlyReason={d.source_display}
-                        locked={d.is_locked}
-                      />
-                    </div>
-                    {d.requires_production && (
-                      <ProductionLeftovers
-                        deviceId={d.id}
-                        lines={d.components ?? []}
-                        routeFinished={(d.production_steps ?? []).every((s) => s.status === "completed" || s.status === "skipped")}
-                        canReturn={can("decide_requirements")}
-                        onChanged={() => refreshDetail(d.id)}
-                        settled={d.leftovers_settled_at ? { at: d.leftovers_settled_at, by: d.leftovers_settled_by_name ?? null, grn: d.leftovers_grn ?? "" } : null}
-                      />
-                    )}
-                    </>)}
-                    {/* Who puts it in and switches it on. Assigning here is
-                        what opens the job on the Installation Tracker; the
-                        technician's work there is what moves the asset to
-                        Installed and then Active. */}
-                    <div>
-                      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                        <h4 className="text-sm font-semibold text-foreground">Installation &amp; Activation</h4>
-                        {installation && (
-                          <Link
-                            href={`/installation-tracker?device=${d.id}`}
-                            className="inline-flex items-center gap-1 text-2xs font-medium text-primary hover:underline"
-                          >
-                            Open in Installation Tracker <ChevronRight className="h-3 w-3" />
-                          </Link>
-                        )}
+                                )}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
-                      {installation ? (
-                        <div className="rounded-xl border border-border p-4">
-                          <div className="flex flex-wrap items-start justify-between gap-3">
-                            <dl className="grid flex-1 gap-3 text-xs sm:grid-cols-[repeat(auto-fill,minmax(9rem,1fr))]">
-                              <div>
-                                <dt className="text-2xs uppercase tracking-wider text-muted-foreground">Site</dt>
-                                <dd className="text-foreground">{installation.site_name ?? d.site_name ?? "—"}</dd>
-                              </div>
-                              <div>
-                                <dt className="text-2xs uppercase tracking-wider text-muted-foreground">Client</dt>
-                                <dd className="text-foreground">{(d.client_names ?? []).length > 0 ? d.client_names.join(", ") : d.client_name ?? "—"}</dd>
-                              </div>
-                              <div>
-                                <dt className="text-2xs uppercase tracking-wider text-muted-foreground">Technician</dt>
-                                <dd className="text-foreground">{d.assigned_to_display ?? installation.installed_by_name ?? installation.vendor_display ?? "—"}</dd>
-                                {d.technician_phone && <dd className="text-2xs text-muted-foreground">{d.technician_phone}</dd>}
-                              </div>
-                              <div>
-                                <dt className="text-2xs uppercase tracking-wider text-muted-foreground">Due</dt>
-                                <dd className="text-foreground">{installation.due_date ?? "—"}</dd>
-                              </div>
-                              <div>
-                                <dt className="text-2xs uppercase tracking-wider text-muted-foreground">Steps</dt>
-                                <dd className="text-foreground">
-                                  {installation.steps_done ?? 0} of {installation.steps_total ?? 0} done
-                                </dd>
-                              </div>
-                            </dl>
-                            <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-2xs font-medium ring-1 ${
-                              installation.completed_at
-                                ? "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20"
-                                : "bg-amber-500/10 text-amber-600 ring-amber-500/20"
-                            }`}>
-                              {installation.completed_at ? "Checklist complete" : "On site"}
-                            </span>
-                          </div>
-                          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-secondary">
-                            <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${installation.progress ?? 0}%` }} />
-                          </div>
-                          <p className="mt-2 text-2xs text-muted-foreground">
-                            {d.status === "active"
-                              ? "Active — the technician activated it on site with a photo."
-                              : d.status === "installed"
-                                ? "Installed. It becomes Active when the technician activates it in the tracker, with a photo."
-                                : "The asset becomes Installed when the checklist there is finished, and Active when the technician activates it."}
+                    ) : (
+                      <p className="text-xs text-muted-foreground">No components recorded — single-unit asset.</p>
+                    )}
+                    {canEdit && (
+                      <form onSubmit={(e) => handleAddComponent(e, d.id)} noValidate className="mt-2">
+                        <fieldset disabled={!d.requires_production || d.is_locked} className="space-y-2">
+                          <p className="text-2xs text-muted-foreground">
+                            What this asset is built from. Stock is not reduced here — the project decides
+                            later whether to take each line from inventory or procure it.
                           </p>
-                        </div>
-                      ) : d.requires_production && !d.leftovers_settled_at && (d.components ?? []).some((c) => (c.issued_quantity ?? 0) > 0) ? (
-                        // Installation waits until the build's leftover parts are squared up.
-                        <p className="rounded-xl border border-dashed border-border px-4 py-5 text-center text-xs text-muted-foreground">
-                          Available once the leftover parts from production are settled above.
-                        </p>
-                      ) : canAny("edit_assets", "assign_installation") && (d.allowed_transitions ?? []).includes("assigned") ? (
-                        <div className="space-y-2.5 rounded-xl border border-border p-4">
-                          <p className="text-xs text-muted-foreground">
-                            {d.current_site
-                              ? "Say who puts it in. That opens the job on the Installation Tracker and the asset follows it from there — no status is typed in."
-                              : "Say where it goes and who puts it in. That opens the job on the Installation Tracker and the asset follows it from there — no status is typed in."}
-                          </p>
-                          <div className="grid gap-2 sm:grid-cols-2">
-                            {/* The site was settled when the asset was scoped to
-                                the project. Asking again would let somebody send
-                                it where the project never agreed to. */}
-                            {d.current_site ? (
-                              <div
-                                id="install_site"
-                                className={`${inputClass} flex h-9 items-center justify-between gap-2 text-xs`}
+                          <div className="flex flex-wrap items-end gap-2">
+                            <select
+                              value={compSource}
+                              onChange={(e) => { setCompSource(e.target.value as "generic" | "unique"); setCompItemId(""); setCompUnitType(""); setCompQty("1"); }}
+                              className="h-8 w-32 rounded-lg border border-border bg-background px-2 text-xs text-foreground"
+                            >
+                              <option value="generic">Stock item</option>
+                              <option value="unique">Unique item</option>
+                            </select>
+
+                            {compSource === "generic" ? (
+                              <select
+                                value={compItemId}
+                                onChange={(e) => setCompItemId(e.target.value)}
+                                required
+                                className="h-8 w-72 rounded-lg border border-border bg-background px-2 text-xs text-foreground"
                               >
-                                <span className="truncate text-foreground">{d.site_name ?? "Site set on the project"}</span>
-                                <span className="shrink-0 text-2xs text-muted-foreground">from the project</span>
-                              </div>
+                                <option value="">Select stock item…</option>
+                                {/* Every known item, including ones at zero. */}
+                                {stockItems.map((s) => (
+                                  <option key={s.id} value={s.id}>
+                                    {s.material_name ?? s.sku} · {s.quantity} {s.unit || "piece"} in stock
+                                  </option>
+                                ))}
+                              </select>
                             ) : (
                               <select
-                                id="install_site"
-                                value={assignSite}
-                                onChange={(e) => setAssignSite(e.target.value)}
-                                className={`${inputClass} h-9 text-xs`}
+                                value={compUnitType}
+                                onChange={(e) => setCompUnitType(e.target.value)}
+                                required
+                                className="h-8 w-72 rounded-lg border border-border bg-background px-2 text-xs text-foreground"
                               >
-                                {/* An asset goes up at one of the places its
-                                    own project is for. Offering all 23 sites
-                                    on the books invited it to be sent
-                                    somewhere the order never mentioned. */}
                                 <option value="">
-                                  {installSites.length ? "Select site…" : "No site on this project"}
+                                  {stockProducts.length === 0 ? "No unique items opened yet" : "Select unique item…"}
                                 </option>
-                                {installSites.map((site) => (
-                                  <option key={site.id} value={site.id}>{site.label}</option>
+                                {stockProducts.map((p) => (
+                                  <option key={p.id} value={p.id}>
+                                    {[p.name, p.model_name].filter(Boolean).join(" ")} · {p.in_stock_count} {p.unit || "piece"} in stock
+                                  </option>
                                 ))}
                               </select>
                             )}
-                            <select
-                              id="install_technician"
-                              value={assignTechnician}
-                              onChange={(e) => setAssignTechnician(e.target.value)}
-                              className={`${inputClass} h-9 text-xs`}
-                            >
-                              <option value="">
-                                {d.source === "vendor_turnkey" ? "Technician overseeing…" : "Select technician…"}
-                              </option>
-                              {technicians.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
-                            </select>
-                          </div>
-                          <MultiSelect
-                            options={technicians.filter((t) => t.id !== assignTechnician)}
-                            values={assignHelpers.filter((h) => h !== assignTechnician)}
-                            onChange={setAssignHelpers}
-                            placeholder="Helpers (optional) - check in and out only"
-                          />
-                          {d.source === "vendor_turnkey" && (
-                            <div className="grid gap-2 sm:grid-cols-2">
-                              <select
-                                id="install_vendor"
-                                value={assignVendorId}
-                                onChange={(e) => setAssignVendorId(e.target.value)}
-                                className={`${inputClass} h-9 text-xs`}
-                              >
-                                <option value="">Vendor installing it…</option>
-                                {suppliers.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
-                              </select>
-                              <div id="install_vendor_contact" className={`${inputClass} flex h-9 items-center text-xs`}>
-                                {vendorContact(suppliers.find((v) => v.id === assignVendorId))
-                                  || <span className="text-muted-foreground">Contact comes from the vendor</span>}
-                              </div>
-                            </div>
-                          )}
-                          {/* Agreed here, with whoever is taking the job, rather
-                              than left blank on the tracker for somebody to
-                              guess at afterwards. */}
-                          <div className="grid gap-2 sm:grid-cols-2">
-                            <div className="space-y-1">
-                              <label htmlFor="install_due" className="text-2xs font-medium text-muted-foreground">
-                                Due by
-                              </label>
+
+                            <div className="flex items-center gap-1">
+                              <label htmlFor="comp_qty" className="text-2xs text-muted-foreground">Qty needed</label>
                               <input
-                                id="install_due"
-                                type="date"
-                                min={todayIso()}
-                                value={assignDue}
-                                onChange={(e) => setAssignDue(e.target.value)}
-                                className={`${inputClass} h-9 text-xs`}
+                                id="comp_qty"
+                                type="number"
+                                min={1}
+                                value={compQty}
+                                onChange={(e) => setCompQty(e.target.value)}
+                                className="h-8 w-20 rounded-lg border border-border bg-background px-2 text-xs text-foreground"
                               />
+                              {compSelected && <span className="text-2xs text-muted-foreground">{compUnit}</span>}
                             </div>
-                          </div>
-                          <p className="text-2xs text-muted-foreground">
-                            {d.source === "vendor_turnkey"
-                              ? "The vendor supplies and installs it; our technician oversees."
-                              : d.source === "vendor_supplied"
-                                ? "The vendor supplies the asset; our own technician installs it."
-                                : "Details come from the manpower records."}
-                          </p>
-                          <button
-                            type="button"
-                            onClick={() => openInstallationJob(d.id)}
-                            disabled={
-                              installLoading || !assignTechnician || !assignDue ||
-                              !(assignSite || d.current_site) ||
-                              (d.source === "vendor_turnkey" && !assignVendorId)
-                            }
-                            className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
-                          >
-                            {installLoading ? "Opening…" : "Assign & open installation"}
-                          </button>
-                        </div>
-                      ) : (
-                        <p className="rounded-xl border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
-                          {["procured", "in_production"].includes(d.status)
-                            ? d.requires_production
-                              ? "Available once the build is finished and the asset is in stock."
-                              : "Available once the asset has been received into stock."
-                            : ["installed", "active", "under_maintenance", "client_property", "decommissioned"].includes(d.status)
-                              ? "No installation job on record — this asset was not put in through the tracker."
-                              : `Not available while the asset is “${statusLabel(d.status)}”.`}
-                        </p>
-                      )}
-                    </div>
-                    {/* One history, not two. A fault is reported as a
-                        ticket and worked as a corrective job — listing
-                        both put the same visit on the screen twice and
-                        made three repairs look like seven. Each job is
-                        one row, saying what set it off. */}
-                    {(() => {
-                      const ticketOf = new Map(
-                        deviceTickets.map((t) => [t.id, t] as const),
-                      );
-                      const jobs = maintSchedules.map((m) => {
-                        const corrective = m.maintenance_type === "corrective";
-                        const t = m.ticket ? ticketOf.get(m.ticket) : undefined;
-                        return {
-                          ...m,
-                          corrective,
-                          ticket_number: m.ticket_number ?? t?.ticket_number ?? null,
-                          occurrence: t?.occurrence ?? null,
-                          done: m.status === "completed",
-                        };
-                      });
-                      const corrective = jobs.filter((j) => j.corrective);
-                      const preventive = jobs.filter((j) => !j.corrective);
-                      const openNow = jobs.filter((j) => !j.done);
-                      /* A ticket with no job behind it has not been worked
-                         yet; it still belongs on the asset's history. */
-                      const unworked = deviceTickets.filter(
-                        (t) => !jobs.some((j) => j.ticket === t.id),
-                      );
 
-                      const Tile = ({ label, value, tone }: {
-                        label: string; value: number; tone: string;
-                      }) => (
-                        <div className="rounded-lg bg-secondary/30 px-3 py-2">
-                          <p className={`text-lg font-bold leading-tight ${tone}`}>{value}</p>
-                          <p className="text-2xs uppercase tracking-wider text-muted-foreground">{label}</p>
-                        </div>
-                      );
-
-                      return (
-                        <div>
-                          <div className="mb-3 flex items-center justify-between gap-2">
-                            <h4 className="text-sm font-semibold text-foreground">Service history</h4>
                             <button
-                              type="button"
-                              onClick={() => setDetailTab("maintenance")}
-                              className="text-2xs font-medium text-primary hover:underline"
+                              type="submit"
+                              disabled={!compSelected}
+                              className="h-8 rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
                             >
-                              View all ({jobs.length + unworked.length}) →
+                              Add
                             </button>
                           </div>
 
-                          <div className="rounded-xl border border-border p-4">
-                            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                              <Tile label="Jobs" value={jobs.length} tone="text-foreground" />
-                              <Tile label="Corrective" value={corrective.length} tone="text-amber-600" />
-                              <Tile label="Preventive" value={preventive.length} tone="text-sky-600" />
-                              <Tile label="Open now" value={openNow.length}
-                                tone={openNow.length ? "text-red-600" : "text-emerald-600"} />
-                            </div>
-
-                            {jobs.length === 0 && unworked.length === 0 ? (
-                              <p className="mt-3 rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
-                                Nothing has been done to this asset yet.
-                              </p>
-                            ) : (
-                              <div className="mt-3 divide-y divide-border/60">
-                                {jobs.slice(0, 3).map((j) => (
-                                  <Link
-                                    key={j.id}
-                                    href={`/maintenance?kind=${j.corrective ? "corrective" : "preventive"}#job-${j.id}`}
-                                    className="flex items-center gap-3 px-1 py-2 text-xs transition-colors hover:bg-secondary/40"
-                                  >
-                                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-2xs font-medium ring-1 ${
-                                      j.corrective
-                                        ? "bg-amber-500/10 text-amber-600 ring-amber-500/20"
-                                        : "bg-sky-500/10 text-sky-600 ring-sky-500/20"
-                                    }`}>
-                                      {j.corrective ? "Corrective" : "Preventive"}
-                                    </span>
-                                    <span className="min-w-0 flex-1 truncate text-foreground">{j.title}</span>
-                                    {/* What set it off: a fault somebody
-                                        reported, or the calendar. */}
-                                    <span className="hidden shrink-0 text-muted-foreground sm:block">
-                                      {j.ticket_number
-                                        ? `${j.ticket_number}${j.occurrence ? ` · #${j.occurrence}` : ""}`
-                                        : j.frequency
-                                          ? j.frequency.replace(/_/g, " ")
-                                          : "Scheduled"}
-                                    </span>
-                                    <span className={`shrink-0 ${
-                                      j.done ? "text-emerald-600" : "text-amber-600"
-                                    }`}>
-                                      {j.done ? "Completed" : j.status.replace(/_/g, " ")}
-                                    </span>
-                                  </Link>
-                                ))}
-                                {unworked.slice(0, Math.max(0, 3 - jobs.length)).map((t) => (
-                                  <Link
-                                    key={t.id}
-                                    href={`/tickets?open=${t.id}`}
-                                    className="flex items-center gap-3 px-1 py-2 text-xs transition-colors hover:bg-secondary/40"
-                                  >
-                                    <span className="shrink-0 rounded-full bg-secondary px-2 py-0.5 text-2xs font-medium text-muted-foreground ring-1 ring-border">
-                                      Reported
-                                    </span>
-                                    <span className="min-w-0 flex-1 truncate text-foreground">{t.title}</span>
-                                    <span className="hidden shrink-0 text-muted-foreground sm:block">
-                                      {t.ticket_number}
-                                    </span>
-                                    <span className="shrink-0 text-muted-foreground">
-                                      {t.status.replace(/_/g, " ")}
-                                    </span>
-                                  </Link>
-                                ))}
-                                {jobs.length + unworked.length > 3 && (
-                                  <button
-                                    type="button"
-                                    onClick={() => setDetailTab("maintenance")}
-                                    className="px-1 pt-2 text-2xs text-primary hover:underline"
-                                  >
-                                    +{jobs.length + unworked.length - 3} more in Maintenance History
-                                  </button>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })()}
-                    {d.notes && (
-                      <div>
-                        <h4 className="text-sm font-semibold text-foreground mb-2">Notes</h4>
-                        <p className="text-sm text-muted-foreground bg-secondary/30 rounded-lg p-3">{d.notes}</p>
-                      </div>
+                          {compSelected && Number(compQty) > compAvailable && (
+                            <p className="text-2xs text-amber-600">
+                              Only {compAvailable} {compUnit} in stock — the shortfall can be procured from the project.
+                            </p>
+                          )}
+                        </fieldset>
+                      </form>
                     )}
                   </div>
-                )}
-
-                {/* Warranties */}
-                {detailTab === "warranties" && (() => {
-                  // Two different things get called "warranty" on an asset, so
-                  // they are shown apart rather than in one flat list:
-                  //   · what covers the asset coming in — the parts' own cover
-                  //     on an in-house build, or the vendor's cover on the
-                  //     whole thing when we did not build it
-                  //   · what we in turn warrant to the client
-                  const ours = warranties.filter((w) => w.warranty_type === "client");
-                  const componentCover = warranties.filter((w) => w.component);
-                  const vendorCover = warranties.filter((w) => !w.component && w.warranty_type !== "client");
-                  const incoming = [...vendorCover, ...componentCover];
-                  const incomingLabel = d.requires_production
-                    ? "Component Warranties"
-                    : "Vendor Warranty";
-                  const incomingHint = d.requires_production
-                    ? "Cover the individual parts brought with them from inventory."
-                    : "What the vendor warrants to us on the complete asset.";
-
-                  return (
-                    <div className="space-y-8">
-                      <div>
-                        <h4 className="text-sm font-semibold text-foreground">{incomingLabel}</h4>
-                        <p className="mb-3 text-xs text-muted-foreground">{incomingHint}</p>
-                        {incoming.length > 0 ? (
-                          <div className="space-y-4">
-                            {incoming.map((w) => (
-                          <div key={w.id} className="rounded-xl border border-border p-5 flex flex-col sm:flex-row sm:items-start gap-4">
-                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl" style={{ background: `${WARRANTY_COLORS[w.warranty_type] ?? "#6366f1"}15` }}>
-                              <Shield className="h-5 w-5" style={{ color: WARRANTY_COLORS[w.warranty_type] ?? "#6366f1" }} />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-1">
-                                <h4 className="text-sm font-semibold text-foreground">
-                                  {w.component_name ?? (WARRANTY_TYPE_LABELS[w.warranty_type] ?? w.warranty_type)}
-                                </h4>
-                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-2xs font-medium ${
-                                  w.is_expired ? "bg-red-500/10 text-red-600"
-                                    : w.status === "extended" ? "bg-violet-500/10 text-violet-600 dark:text-violet-400"
-                                    : w.status === "active" ? "bg-green-500/10 text-green-600"
-                                      : "bg-secondary text-muted-foreground"
-                                }`}>
-                                  {w.status_display ?? (w.is_expired ? "Expired" : "Active")}
-                                </span>
-                                {w.component_name && (
-                                  <span className="rounded-full bg-secondary px-2 py-0.5 text-2xs text-muted-foreground">
-                                    {WARRANTY_TYPE_LABELS[w.warranty_type] ?? w.warranty_type}
-                                  </span>
-                                )}
-                              </div>
-                              {w.supplier_name && <p className="text-xs text-muted-foreground mb-1">Provider: {w.supplier_name}</p>}
-                              <p className="text-xs text-muted-foreground">{w.coverage_details || "Comprehensive coverage"}</p>
-                              <div className="flex items-center gap-4 mt-2">
-                                <span className="text-2xs text-muted-foreground">
-                                  <Calendar className="inline h-3 w-3 mr-1" />
-                                  {w.status === "not_started" && w.warranty_type === "client"
-                                    ? `${w.months ?? "—"} months from the day the asset goes live`
-                                    : `${formatDate(w.start_date)} → ${formatDate(w.end_date)}`}
-                                </span>
-                                {w.reference_number && <span className="text-2xs text-muted-foreground">Ref: {w.reference_number}</span>}
-                              </div>
-                              <div className="mt-3">
-                                <WarrantyTimeline start={w.start_date} end={w.end_date} color={WARRANTY_COLORS[w.warranty_type] ?? "#6366f1"} />
-                              </div>
-                            </div>
-                          </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="rounded-xl border border-dashed border-border p-4 text-xs text-muted-foreground">
-                            {d.requires_production
-                              ? "None of this asset's components carry a warranty."
-                              : "No vendor warranty recorded. Warranties are raised under Warranties."}
-                          </p>
-                        )}
-                      </div>
-
-                      <div>
-                        <h4 className="text-sm font-semibold text-foreground">Client Warranty</h4>
-                        <p className="mb-3 text-xs text-muted-foreground">
-                          What we warrant to the client the asset is installed for.
-                        </p>
-                        {ours.length > 0 ? (
-                          <div className="space-y-4">
-                            {ours.map((w) => (
-                          <div key={w.id} className="rounded-xl border border-border p-5 flex flex-col sm:flex-row sm:items-start gap-4">
-                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl" style={{ background: `${WARRANTY_COLORS[w.warranty_type] ?? "#6366f1"}15` }}>
-                              <Shield className="h-5 w-5" style={{ color: WARRANTY_COLORS[w.warranty_type] ?? "#6366f1" }} />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-1">
-                                <h4 className="text-sm font-semibold text-foreground">
-                                  {w.component_name ?? (WARRANTY_TYPE_LABELS[w.warranty_type] ?? w.warranty_type)}
-                                </h4>
-                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-2xs font-medium ${
-                                  w.is_expired ? "bg-red-500/10 text-red-600"
-                                    : w.status === "extended" ? "bg-violet-500/10 text-violet-600 dark:text-violet-400"
-                                    : w.status === "active" ? "bg-green-500/10 text-green-600"
-                                      : "bg-secondary text-muted-foreground"
-                                }`}>
-                                  {w.status_display ?? (w.is_expired ? "Expired" : "Active")}
-                                </span>
-                                {w.component_name && (
-                                  <span className="rounded-full bg-secondary px-2 py-0.5 text-2xs text-muted-foreground">
-                                    {WARRANTY_TYPE_LABELS[w.warranty_type] ?? w.warranty_type}
-                                  </span>
-                                )}
-                              </div>
-                              {w.supplier_name && <p className="text-xs text-muted-foreground mb-1">Provider: {w.supplier_name}</p>}
-                              <p className="text-xs text-muted-foreground">{w.coverage_details || "Comprehensive coverage"}</p>
-                              <div className="flex items-center gap-4 mt-2">
-                                <span className="text-2xs text-muted-foreground">
-                                  <Calendar className="inline h-3 w-3 mr-1" />
-                                  {w.status === "not_started" && w.warranty_type === "client"
-                                    ? `${w.months ?? "—"} months from the day the asset goes live`
-                                    : `${formatDate(w.start_date)} → ${formatDate(w.end_date)}`}
-                                </span>
-                                {w.reference_number && <span className="text-2xs text-muted-foreground">Ref: {w.reference_number}</span>}
-                              </div>
-                              <div className="mt-3">
-                                <WarrantyTimeline start={w.start_date} end={w.end_date} color={WARRANTY_COLORS[w.warranty_type] ?? "#6366f1"} />
-                              </div>
-                            </div>
-                          </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="rounded-xl border border-dashed border-border p-4 text-xs text-muted-foreground">
-                            {/* Cover is a commercial commitment, raised and
-                                revised in one place. */}
-                            No client warranty recorded. Warranties are raised under Warranties.
-                          </p>
-                        )}
-                      </div>
+                  <div className={d.requires_production ? undefined : "opacity-60"}>
+                    <h4 className="mb-3 text-sm font-semibold text-foreground">Production Route</h4>
+                    <ProductionRoute
+                      deviceId={d.id}
+                      steps={d.production_steps ?? []}
+                      onChanged={() => refreshDetail(d.id)}
+                      assetTypeName={d.asset_type_name}
+                      readOnly={!d.requires_production}
+                      readOnlyReason={d.source_display}
+                      locked={d.is_locked}
+                    />
+                  </div>
+                  {d.requires_production && (
+                    <ProductionLeftovers
+                      deviceId={d.id}
+                      lines={d.components ?? []}
+                      routeFinished={(d.production_steps ?? []).every((s) => s.status === "completed" || s.status === "skipped")}
+                      canReturn={can("decide_requirements")}
+                      onChanged={() => refreshDetail(d.id)}
+                      settled={d.leftovers_settled_at ? { at: d.leftovers_settled_at, by: d.leftovers_settled_by_name ?? null, grn: d.leftovers_grn ?? "" } : null}
+                    />
+                  )}
+                  </>)}
+                  {/* Who puts it in and switches it on. Assigning here is
+                      what opens the job on the Installation Tracker; the
+                      technician's work there is what moves the asset to
+                      Installed and then Active. */}
+                  <div>
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                      <h4 className="text-sm font-semibold text-foreground">Installation &amp; Activation</h4>
+                      {installation && (
+                        <Link
+                          href={`/installation-tracker?device=${d.id}`}
+                          className="inline-flex items-center gap-1 text-2xs font-medium text-primary hover:underline"
+                        >
+                          Open in Installation Tracker <ChevronRight className="h-3 w-3" />
+                        </Link>
+                      )}
                     </div>
-                  );
-                })()}
-
-                {/* Costs & Pricing */}
-                {detailTab === "costs" && (
-                  <div className="space-y-6">
-                    {/* Built once, kept running for years. Both halves are
-                        read from where they are already added up — the
-                        project's costing and the maintenance register — so
-                        there is no second answer to go stale. */}
-                    {(() => {
-                      const c = d.cost_of_ownership;
-                      if (!c) return null;
-                      const dev = c.development;
-                      const row = (label: string, value: string | null | undefined, muted = false) => (
-                        <div className="flex items-center justify-between gap-4">
-                          <span className={`text-sm ${muted ? "text-muted-foreground" : "text-foreground"}`}>{label}</span>
-                          <span className={`text-sm tabular-nums ${muted ? "text-muted-foreground" : "font-medium text-foreground"}`}>
-                            {value == null ? "—" : `PKR ${Number(value).toLocaleString()}`}
+                    {installation ? (
+                      <div className="rounded-xl border border-border p-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <dl className="grid flex-1 gap-3 text-xs sm:grid-cols-[repeat(auto-fill,minmax(9rem,1fr))]">
+                            <div>
+                              <dt className="text-2xs uppercase tracking-wider text-muted-foreground">Site</dt>
+                              <dd className="text-foreground">{installation.site_name ?? d.site_name ?? "—"}</dd>
+                            </div>
+                            <div>
+                              <dt className="text-2xs uppercase tracking-wider text-muted-foreground">Client</dt>
+                              <dd className="text-foreground">{(d.client_names ?? []).length > 0 ? d.client_names.join(", ") : d.client_name ?? "—"}</dd>
+                            </div>
+                            <div>
+                              <dt className="text-2xs uppercase tracking-wider text-muted-foreground">Technician</dt>
+                              <dd className="text-foreground">{d.assigned_to_display ?? installation.installed_by_name ?? installation.vendor_display ?? "—"}</dd>
+                              {d.technician_phone && <dd className="text-2xs text-muted-foreground">{d.technician_phone}</dd>}
+                            </div>
+                            <div>
+                              <dt className="text-2xs uppercase tracking-wider text-muted-foreground">Due</dt>
+                              <dd className="text-foreground">{installation.due_date ?? "—"}</dd>
+                            </div>
+                            <div>
+                              <dt className="text-2xs uppercase tracking-wider text-muted-foreground">Steps</dt>
+                              <dd className="text-foreground">
+                                {installation.steps_done ?? 0} of {installation.steps_total ?? 0} done
+                              </dd>
+                            </div>
+                          </dl>
+                          <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-2xs font-medium ring-1 ${
+                            installation.completed_at
+                              ? "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20"
+                              : "bg-amber-500/10 text-amber-600 ring-amber-500/20"
+                          }`}>
+                            {installation.completed_at ? "Checklist complete" : "On site"}
                           </span>
                         </div>
-                      );
-                      return (
-                        <div className="rounded-xl border border-border p-5">
-                          <h4 className="mb-1 text-sm font-semibold text-foreground">Asset cost</h4>
-                          <p className="mb-4 text-2xs text-muted-foreground">
-                            Building it, and keeping it running since.
-                          </p>
+                        <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-secondary">
+                          <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${installation.progress ?? 0}%` }} />
+                        </div>
+                        <p className="mt-2 text-2xs text-muted-foreground">
+                          {d.status === "active"
+                            ? "Active — the technician activated it on site with a photo."
+                            : d.status === "installed"
+                              ? "Installed. It becomes Active when the technician activates it in the tracker, with a photo."
+                              : "The asset becomes Installed when the checklist there is finished, and Active when the technician activates it."}
+                        </p>
+                      </div>
+                    ) : d.requires_production && !d.leftovers_settled_at && (d.components ?? []).some((c) => (c.issued_quantity ?? 0) > 0) ? (
+                      // Installation waits until the build's leftover parts are squared up.
+                      <p className="rounded-xl border border-dashed border-border px-4 py-5 text-center text-xs text-muted-foreground">
+                        Available once the leftover parts from production are settled above.
+                      </p>
+                    ) : canAny("edit_assets", "assign_installation") && (d.allowed_transitions ?? []).includes("assigned") ? (
+                      <div className="space-y-2.5 rounded-xl border border-border p-4">
+                        <p className="text-xs text-muted-foreground">
+                          {d.current_site
+                            ? "Say who puts it in. That opens the job on the Installation Tracker and the asset follows it from there — no status is typed in."
+                            : "Say where it goes and who puts it in. That opens the job on the Installation Tracker and the asset follows it from there — no status is typed in."}
+                        </p>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          {/* The site was settled when the asset was scoped to
+                              the project. Asking again would let somebody send
+                              it where the project never agreed to. */}
+                          {d.current_site ? (
+                            <div
+                              id="install_site"
+                              className={`${inputClass} flex h-9 items-center justify-between gap-2 text-xs`}
+                            >
+                              <span className="truncate text-foreground">{d.site_name ?? "Site set on the project"}</span>
+                              <span className="shrink-0 text-2xs text-muted-foreground">from the project</span>
+                            </div>
+                          ) : (
+                            <select
+                              id="install_site"
+                              value={assignSite}
+                              onChange={(e) => setAssignSite(e.target.value)}
+                              className={`${inputClass} h-9 text-xs`}
+                            >
+                              {/* An asset goes up at one of the places its
+                                  own project is for. Offering all 23 sites
+                                  on the books invited it to be sent
+                                  somewhere the order never mentioned. */}
+                              <option value="">
+                                {installSites.length ? "Select site…" : "No site on this project"}
+                              </option>
+                              {installSites.map((site) => (
+                                <option key={site.id} value={site.id}>{site.label}</option>
+                              ))}
+                            </select>
+                          )}
+                          <select
+                            id="install_technician"
+                            value={assignTechnician}
+                            onChange={(e) => setAssignTechnician(e.target.value)}
+                            className={`${inputClass} h-9 text-xs`}
+                          >
+                            <option value="">
+                              {d.source === "vendor_turnkey" ? "Technician overseeing…" : "Select technician…"}
+                            </option>
+                            {technicians.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+                          </select>
+                        </div>
+                        <MultiSelect
+                          options={technicians.filter((t) => t.id !== assignTechnician)}
+                          values={assignHelpers.filter((h) => h !== assignTechnician)}
+                          onChange={setAssignHelpers}
+                          placeholder="Helpers (optional) - check in and out only"
+                        />
+                        {d.source === "vendor_turnkey" && (
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            <select
+                              id="install_vendor"
+                              value={assignVendorId}
+                              onChange={(e) => setAssignVendorId(e.target.value)}
+                              className={`${inputClass} h-9 text-xs`}
+                            >
+                              <option value="">Vendor installing it…</option>
+                              {suppliers.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+                            </select>
+                            <div id="install_vendor_contact" className={`${inputClass} flex h-9 items-center text-xs`}>
+                              {vendorContact(suppliers.find((v) => v.id === assignVendorId))
+                                || <span className="text-muted-foreground">Contact comes from the vendor</span>}
+                            </div>
+                          </div>
+                        )}
+                        {/* Agreed here, with whoever is taking the job, rather
+                            than left blank on the tracker for somebody to
+                            guess at afterwards. */}
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <div className="space-y-1">
+                            <label htmlFor="install_due" className="text-2xs font-medium text-muted-foreground">
+                              Due by
+                            </label>
+                            <input
+                              id="install_due"
+                              type="date"
+                              min={todayIso()}
+                              value={assignDue}
+                              onChange={(e) => setAssignDue(e.target.value)}
+                              className={`${inputClass} h-9 text-xs`}
+                            />
+                          </div>
+                        </div>
+                        <p className="text-2xs text-muted-foreground">
+                          {d.source === "vendor_turnkey"
+                            ? "The vendor supplies and installs it; our technician oversees."
+                            : d.source === "vendor_supplied"
+                              ? "The vendor supplies the asset; our own technician installs it."
+                              : "Details come from the manpower records."}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => openInstallationJob(d.id)}
+                          disabled={
+                            installLoading || !assignTechnician || !assignDue ||
+                            !(assignSite || d.current_site) ||
+                            (d.source === "vendor_turnkey" && !assignVendorId)
+                          }
+                          className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+                        >
+                          {installLoading ? "Opening…" : "Assign & open installation"}
+                        </button>
+                      </div>
+                    ) : (
+                      <p className="rounded-xl border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
+                        {["procured", "in_production"].includes(d.status)
+                          ? d.requires_production
+                            ? "Available once the build is finished and the asset is in stock."
+                            : "Available once the asset has been received into stock."
+                          : ["installed", "active", "under_maintenance", "client_property", "decommissioned"].includes(d.status)
+                            ? "No installation job on record — this asset was not put in through the tracker."
+                            : `Not available while the asset is “${statusLabel(d.status)}”.`}
+                      </p>
+                    )}
+                  </div>
+                  {/* One history, not two. A fault is reported as a
+                      ticket and worked as a corrective job — listing
+                      both put the same visit on the screen twice and
+                      made three repairs look like seven. Each job is
+                      one row, saying what set it off. */}
+                  {(() => {
+                    const ticketOf = new Map(
+                      deviceTickets.map((t) => [t.id, t] as const),
+                    );
+                    const jobs = maintSchedules.map((m) => {
+                      const corrective = m.maintenance_type === "corrective";
+                      const t = m.ticket ? ticketOf.get(m.ticket) : undefined;
+                      return {
+                        ...m,
+                        corrective,
+                        ticket_number: m.ticket_number ?? t?.ticket_number ?? null,
+                        occurrence: t?.occurrence ?? null,
+                        done: m.status === "completed",
+                      };
+                    });
+                    const corrective = jobs.filter((j) => j.corrective);
+                    const preventive = jobs.filter((j) => !j.corrective);
+                    const openNow = jobs.filter((j) => !j.done);
+                    /* A ticket with no job behind it has not been worked
+                       yet; it still belongs on the asset's history. */
+                    const unworked = deviceTickets.filter(
+                      (t) => !jobs.some((j) => j.ticket === t.id),
+                    );
 
-                          <div className="space-y-3">
-                            {/* Three headings, whichever way the asset got
-                                here: what it cost to obtain, what it cost
-                                to put up, and what it has cost since. */}
-                            <div className="space-y-2">
-                              <div className="flex items-center justify-between gap-4">
-                                <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                                  Procurement
+                    const Tile = ({ label, value, tone }: {
+                      label: string; value: number; tone: string;
+                    }) => (
+                      <div className="rounded-lg bg-secondary/30 px-3 py-2">
+                        <p className={`text-lg font-bold leading-tight ${tone}`}>{value}</p>
+                        <p className="text-2xs uppercase tracking-wider text-muted-foreground">{label}</p>
+                      </div>
+                    );
+
+                    return (
+                      <div>
+                        <div className="mb-3 flex items-center justify-between gap-2">
+                          <h4 className="text-sm font-semibold text-foreground">Service history</h4>
+                          <button
+                            type="button"
+                            onClick={() => setDetailTab("maintenance")}
+                            className="text-2xs font-medium text-primary hover:underline"
+                          >
+                            View all ({jobs.length + unworked.length}) →
+                          </button>
+                        </div>
+
+                        <div className="rounded-xl border border-border p-4">
+                          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                            <Tile label="Jobs" value={jobs.length} tone="text-foreground" />
+                            <Tile label="Corrective" value={corrective.length} tone="text-amber-600" />
+                            <Tile label="Preventive" value={preventive.length} tone="text-sky-600" />
+                            <Tile label="Open now" value={openNow.length}
+                              tone={openNow.length ? "text-red-600" : "text-emerald-600"} />
+                          </div>
+
+                          {jobs.length === 0 && unworked.length === 0 ? (
+                            <p className="mt-3 rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
+                              Nothing has been done to this asset yet.
+                            </p>
+                          ) : (
+                            <div className="mt-3 divide-y divide-border/60">
+                              {jobs.slice(0, 3).map((j) => (
+                                <Link
+                                  key={j.id}
+                                  href={`/maintenance?kind=${j.corrective ? "corrective" : "preventive"}#job-${j.id}`}
+                                  className="flex items-center gap-3 px-1 py-2 text-xs transition-colors hover:bg-secondary/40"
+                                >
+                                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-2xs font-medium ring-1 ${
+                                    j.corrective
+                                      ? "bg-amber-500/10 text-amber-600 ring-amber-500/20"
+                                      : "bg-sky-500/10 text-sky-600 ring-sky-500/20"
+                                  }`}>
+                                    {j.corrective ? "Corrective" : "Preventive"}
+                                  </span>
+                                  <span className="min-w-0 flex-1 truncate text-foreground">{j.title}</span>
+                                  {/* What set it off: a fault somebody
+                                      reported, or the calendar. */}
+                                  <span className="hidden shrink-0 text-muted-foreground sm:block">
+                                    {j.ticket_number
+                                      ? `${j.ticket_number}${j.occurrence ? ` · #${j.occurrence}` : ""}`
+                                      : j.frequency
+                                        ? j.frequency.replace(/_/g, " ")
+                                        : "Scheduled"}
+                                  </span>
+                                  <span className={`shrink-0 ${
+                                    j.done ? "text-emerald-600" : "text-amber-600"
+                                  }`}>
+                                    {j.done ? "Completed" : j.status.replace(/_/g, " ")}
+                                  </span>
+                                </Link>
+                              ))}
+                              {unworked.slice(0, Math.max(0, 3 - jobs.length)).map((t) => (
+                                <Link
+                                  key={t.id}
+                                  href={`/tickets?open=${t.id}`}
+                                  className="flex items-center gap-3 px-1 py-2 text-xs transition-colors hover:bg-secondary/40"
+                                >
+                                  <span className="shrink-0 rounded-full bg-secondary px-2 py-0.5 text-2xs font-medium text-muted-foreground ring-1 ring-border">
+                                    Reported
+                                  </span>
+                                  <span className="min-w-0 flex-1 truncate text-foreground">{t.title}</span>
+                                  <span className="hidden shrink-0 text-muted-foreground sm:block">
+                                    {t.ticket_number}
+                                  </span>
+                                  <span className="shrink-0 text-muted-foreground">
+                                    {t.status.replace(/_/g, " ")}
+                                  </span>
+                                </Link>
+                              ))}
+                              {jobs.length + unworked.length > 3 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setDetailTab("maintenance")}
+                                  className="px-1 pt-2 text-2xs text-primary hover:underline"
+                                >
+                                  +{jobs.length + unworked.length - 3} more in Maintenance History
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                  {d.notes && (
+                    <div>
+                      <h4 className="text-sm font-semibold text-foreground mb-2">Notes</h4>
+                      <p className="text-sm text-muted-foreground bg-secondary/30 rounded-lg p-3">{d.notes}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Warranties */}
+              {detailTab === "warranties" && (() => {
+                // Two different things get called "warranty" on an asset, so
+                // they are shown apart rather than in one flat list:
+                //   · what covers the asset coming in — the parts' own cover
+                //     on an in-house build, or the vendor's cover on the
+                //     whole thing when we did not build it
+                //   · what we in turn warrant to the client
+                const ours = warranties.filter((w) => w.warranty_type === "client");
+                const componentCover = warranties.filter((w) => w.component);
+                const vendorCover = warranties.filter((w) => !w.component && w.warranty_type !== "client");
+                const incoming = [...vendorCover, ...componentCover];
+                const incomingLabel = d.requires_production
+                  ? "Component Warranties"
+                  : "Vendor Warranty";
+                const incomingHint = d.requires_production
+                  ? "Cover the individual parts brought with them from inventory."
+                  : "What the vendor warrants to us on the complete asset.";
+
+                return (
+                  <div className="space-y-8">
+                    <div>
+                      <h4 className="text-sm font-semibold text-foreground">{incomingLabel}</h4>
+                      <p className="mb-3 text-xs text-muted-foreground">{incomingHint}</p>
+                      {incoming.length > 0 ? (
+                        <div className="space-y-4">
+                          {incoming.map((w) => (
+                        <div key={w.id} className="rounded-xl border border-border p-5 flex flex-col sm:flex-row sm:items-start gap-4">
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl" style={{ background: `${WARRANTY_COLORS[w.warranty_type] ?? "#6366f1"}15` }}>
+                            <Shield className="h-5 w-5" style={{ color: WARRANTY_COLORS[w.warranty_type] ?? "#6366f1" }} />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <h4 className="text-sm font-semibold text-foreground">
+                                {w.component_name ?? (WARRANTY_TYPE_LABELS[w.warranty_type] ?? w.warranty_type)}
+                              </h4>
+                              <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-2xs font-medium ${
+                                w.is_expired ? "bg-red-500/10 text-red-600"
+                                  : w.status === "extended" ? "bg-violet-500/10 text-violet-600 dark:text-violet-400"
+                                  : w.status === "active" ? "bg-green-500/10 text-green-600"
+                                    : "bg-secondary text-muted-foreground"
+                              }`}>
+                                {w.status_display ?? (w.is_expired ? "Expired" : "Active")}
+                              </span>
+                              {w.component_name && (
+                                <span className="rounded-full bg-secondary px-2 py-0.5 text-2xs text-muted-foreground">
+                                  {WARRANTY_TYPE_LABELS[w.warranty_type] ?? w.warranty_type}
                                 </span>
-                                {dev?.project_name && (
-                                  <span className="text-2xs text-muted-foreground">{dev.project_name}</span>
-                                )}
-                              </div>
-                              {dev ? (
-                                <>
-                                  {dev.vendor_asset ? (
-                                    <>
-                                      {row("Purchase price", dev.purchase_price, true)}
-                                      {dev.priced_from && (
-                                        <p className="text-2xs text-muted-foreground">{dev.priced_from}</p>
-                                      )}
-                                    </>
-                                  ) : (
-                                    <>
-                                      {row("Materials", dev.materials, true)}
-                                      {/* In-house work and anything paid out
-                                          on a work order: one cost of making
-                                          it, not two to add up. */}
-                                      {row("Production", dev.production, true)}
-                                    </>
-                                  )}
-                                  <div className="border-t border-border pt-2">
-                                    {row("Procurement total", dev.obtained)}
-                                  </div>
-                                </>
-                              ) : (
-                                <p className="text-xs text-muted-foreground">
-                                  This asset is not on a project, so there is nothing to read a cost from.
-                                </p>
                               )}
                             </div>
-
-                            <div className="space-y-2 border-t border-border pt-3">
-                              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                                Installation
+                            {w.supplier_name && <p className="text-xs text-muted-foreground mb-1">Provider: {w.supplier_name}</p>}
+                            <p className="text-xs text-muted-foreground">{w.coverage_details || "Comprehensive coverage"}</p>
+                            <div className="flex items-center gap-4 mt-2">
+                              <span className="text-2xs text-muted-foreground">
+                                <Calendar className="inline h-3 w-3 mr-1" />
+                                {w.status === "not_started" && w.warranty_type === "client"
+                                  ? `${w.months ?? "—"} months from the day the asset goes live`
+                                  : `${formatDate(w.start_date)} → ${formatDate(w.end_date)}`}
                               </span>
-                              {row("Installation and activation", dev?.installation, true)}
-                              <div className="border-t border-border pt-2">
-                                {row("Installation total", dev?.installation ?? "0")}
-                              </div>
+                              {w.reference_number && <span className="text-2xs text-muted-foreground">Ref: {w.reference_number}</span>}
                             </div>
-
-                            <div className="space-y-2 border-t border-border pt-3">
-                              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                                Maintenance
-                              </span>
-                              {row(
-                                `Preventive · ${c.maintenance.preventive.visits} visit${c.maintenance.preventive.visits === 1 ? "" : "s"}`,
-                                c.maintenance.preventive.total, true,
-                              )}
-                              {row(
-                                `Corrective · ${c.maintenance.corrective.visits} visit${c.maintenance.corrective.visits === 1 ? "" : "s"}`,
-                                c.maintenance.corrective.total, true,
-                              )}
-                              <div className="border-t border-border pt-2">{row("Maintenance total", c.maintenance.total)}</div>
-                            </div>
-
-                            <div className="flex items-center justify-between gap-4 border-t border-border pt-3">
-                              <span className="text-sm font-semibold text-foreground">Total cost</span>
-                              <span className="text-base font-bold tabular-nums text-primary">
-                                PKR {Number(c.total).toLocaleString()}
-                              </span>
+                            <div className="mt-3">
+                              <WarrantyTimeline start={w.start_date} end={w.end_date} color={WARRANTY_COLORS[w.warranty_type] ?? "#6366f1"} />
                             </div>
                           </div>
                         </div>
-                      );
-                    })()}
-                  </div>
-                )}
-
-                {/* Documents */}
-                {detailTab === "documents" && (
-                  <div className="space-y-4">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-xs text-muted-foreground">
-                        Its purchase order, goods received notes, work orders, issue slips and handover - and anything uploaded: invoices, warranty cards, site permissions.
-                      </p>
-                      <label className={`inline-flex h-9 cursor-pointer items-center gap-2 rounded-lg bg-primary px-3.5 text-xs font-semibold text-white transition-colors hover:bg-primary/90 ${
-                        uploadingDoc ? "pointer-events-none opacity-60" : ""
-                      }`}>
-                        <Upload className="h-3.5 w-3.5" />
-                        {uploadingDoc ? "Uploading…" : "Upload document"}
-                        <input
-                          type="file"
-                          multiple
-                          className="hidden"
-                          onChange={(e) => uploadDocuments(d.id, e.target.files)}
-                        />
-                      </label>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="rounded-xl border border-dashed border-border p-4 text-xs text-muted-foreground">
+                          {d.requires_production
+                            ? "None of this asset's components carry a warranty."
+                            : "No vendor warranty recorded. Warranties are raised under Warranties."}
+                        </p>
+                      )}
                     </div>
-                    <GeneratedDocuments docs={generated} />
-                    {documents.length > 0 ? (
-                      <div className="space-y-2">
-                        {generated.length > 0 && (
-                          <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">Uploaded</p>
-                        )}
-                        {documents.map((doc) => (
-                          <div key={doc.id} className="flex items-center gap-3 rounded-lg border border-border p-3 hover:bg-secondary/30 transition-colors">
-                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-500/10">
-                              <FileText className="h-4 w-4 text-blue-400" />
+
+                    <div>
+                      <h4 className="text-sm font-semibold text-foreground">Client Warranty</h4>
+                      <p className="mb-3 text-xs text-muted-foreground">
+                        What we warrant to the client the asset is installed for.
+                      </p>
+                      {ours.length > 0 ? (
+                        <div className="space-y-4">
+                          {ours.map((w) => (
+                        <div key={w.id} className="rounded-xl border border-border p-5 flex flex-col sm:flex-row sm:items-start gap-4">
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl" style={{ background: `${WARRANTY_COLORS[w.warranty_type] ?? "#6366f1"}15` }}>
+                            <Shield className="h-5 w-5" style={{ color: WARRANTY_COLORS[w.warranty_type] ?? "#6366f1" }} />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <h4 className="text-sm font-semibold text-foreground">
+                                {w.component_name ?? (WARRANTY_TYPE_LABELS[w.warranty_type] ?? w.warranty_type)}
+                              </h4>
+                              <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-2xs font-medium ${
+                                w.is_expired ? "bg-red-500/10 text-red-600"
+                                  : w.status === "extended" ? "bg-violet-500/10 text-violet-600 dark:text-violet-400"
+                                  : w.status === "active" ? "bg-green-500/10 text-green-600"
+                                    : "bg-secondary text-muted-foreground"
+                              }`}>
+                                {w.status_display ?? (w.is_expired ? "Expired" : "Active")}
+                              </span>
+                              {w.component_name && (
+                                <span className="rounded-full bg-secondary px-2 py-0.5 text-2xs text-muted-foreground">
+                                  {WARRANTY_TYPE_LABELS[w.warranty_type] ?? w.warranty_type}
+                                </span>
+                              )}
                             </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-foreground truncate">{doc.title}</p>
-                              <p className="text-2xs text-muted-foreground">{doc.doc_type} · {doc.uploaded_by_name} · {formatDate(doc.created_at)}</p>
+                            {w.supplier_name && <p className="text-xs text-muted-foreground mb-1">Provider: {w.supplier_name}</p>}
+                            <p className="text-xs text-muted-foreground">{w.coverage_details || "Comprehensive coverage"}</p>
+                            <div className="flex items-center gap-4 mt-2">
+                              <span className="text-2xs text-muted-foreground">
+                                <Calendar className="inline h-3 w-3 mr-1" />
+                                {w.status === "not_started" && w.warranty_type === "client"
+                                  ? `${w.months ?? "—"} months from the day the asset goes live`
+                                  : `${formatDate(w.start_date)} → ${formatDate(w.end_date)}`}
+                              </span>
+                              {w.reference_number && <span className="text-2xs text-muted-foreground">Ref: {w.reference_number}</span>}
                             </div>
-                            {doc.file && (
-                              <a href={doc.file} target="_blank" rel="noopener noreferrer" className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground">
-                                <Download className="h-4 w-4" />
-                              </a>
+                            <div className="mt-3">
+                              <WarrantyTimeline start={w.start_date} end={w.end_date} color={WARRANTY_COLORS[w.warranty_type] ?? "#6366f1"} />
+                            </div>
+                          </div>
+                        </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="rounded-xl border border-dashed border-border p-4 text-xs text-muted-foreground">
+                          {/* Cover is a commercial commitment, raised and
+                              revised in one place. */}
+                          No client warranty recorded. Warranties are raised under Warranties.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Costs & Pricing */}
+              {detailTab === "costs" && (
+                <div className="space-y-6">
+                  {/* Built once, kept running for years. Both halves are
+                      read from where they are already added up — the
+                      project's costing and the maintenance register — so
+                      there is no second answer to go stale. */}
+                  {(() => {
+                    const c = d.cost_of_ownership;
+                    if (!c) return null;
+                    const dev = c.development;
+                    const row = (label: string, value: string | null | undefined, muted = false) => (
+                      <div className="flex items-center justify-between gap-4">
+                        <span className={`text-sm ${muted ? "text-muted-foreground" : "text-foreground"}`}>{label}</span>
+                        <span className={`text-sm tabular-nums ${muted ? "text-muted-foreground" : "font-medium text-foreground"}`}>
+                          {value == null ? "—" : `PKR ${Number(value).toLocaleString()}`}
+                        </span>
+                      </div>
+                    );
+                    return (
+                      <div className="rounded-xl border border-border p-5">
+                        <h4 className="mb-1 text-sm font-semibold text-foreground">Asset cost</h4>
+                        <p className="mb-4 text-2xs text-muted-foreground">
+                          Building it, and keeping it running since.
+                        </p>
+
+                        <div className="space-y-3">
+                          {/* Three headings, whichever way the asset got
+                              here: what it cost to obtain, what it cost
+                              to put up, and what it has cost since. */}
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between gap-4">
+                              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                Procurement
+                              </span>
+                              {dev?.project_name && (
+                                <span className="text-2xs text-muted-foreground">{dev.project_name}</span>
+                              )}
+                            </div>
+                            {dev ? (
+                              <>
+                                {dev.vendor_asset ? (
+                                  <>
+                                    {row("Purchase price", dev.purchase_price, true)}
+                                    {dev.priced_from && (
+                                      <p className="text-2xs text-muted-foreground">{dev.priced_from}</p>
+                                    )}
+                                  </>
+                                ) : (
+                                  <>
+                                    {row("Materials", dev.materials, true)}
+                                    {/* In-house work and anything paid out
+                                        on a work order: one cost of making
+                                        it, not two to add up. */}
+                                    {row("Production", dev.production, true)}
+                                  </>
+                                )}
+                                <div className="border-t border-border pt-2">
+                                  {row("Procurement total", dev.obtained)}
+                                </div>
+                              </>
+                            ) : (
+                              <p className="text-xs text-muted-foreground">
+                                This asset is not on a project, so there is nothing to read a cost from.
+                              </p>
                             )}
                           </div>
-                        ))}
-                      </div>
-                    ) : (
-                      generated.length === 0 && <EmptyState icon={<FileText className="h-10 w-10" />} text="No documents uploaded for this device." />
-                    )}
-                  </div>
-                )}
 
-                {/* Maintenance History */}
-                {detailTab === "maintenance" && (
-                  <div>
-                    {maintSchedules.length > 0 ? (
-                      <div className="space-y-3">
-                        {maintSchedules.map((m) => (
-                          <div key={m.id} className="flex items-start gap-3 rounded-lg border border-border p-4">
-                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/10">
-                              <Wrench className="h-4 w-4 text-amber-400" />
+                          <div className="space-y-2 border-t border-border pt-3">
+                            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                              Installation
+                            </span>
+                            {row("Installation and activation", dev?.installation, true)}
+                            <div className="border-t border-border pt-2">
+                              {row("Installation total", dev?.installation ?? "0")}
                             </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-1">
-                                <p className="text-sm font-medium text-foreground">{m.title}</p>
-                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-2xs font-medium ring-1 ring-inset ring-current/20 ${MAINT_TYPE_BADGE[m.maintenance_type] ?? "bg-gray-500/10 text-gray-600"}`}>
-                                  {m.maintenance_type}
-                                </span>
-                              </div>
-                              <p className="text-xs text-muted-foreground">
-                                Frequency: {m.frequency} · Next Due: {formatDate(m.next_due)}
-                                {m.assigned_to_name && ` · Assigned: ${m.assigned_to_name}`}
-                              </p>
-                            </div>
-                            <span className={`shrink-0 inline-flex items-center rounded-full px-2 py-0.5 text-2xs font-medium ${m.is_active ? "bg-green-500/10 text-green-600" : "bg-gray-500/10 text-gray-600"}`}>
-                              {m.is_active ? "Active" : "Inactive"}
+                          </div>
+
+                          <div className="space-y-2 border-t border-border pt-3">
+                            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                              Maintenance
+                            </span>
+                            {row(
+                              `Preventive · ${c.maintenance.preventive.visits} visit${c.maintenance.preventive.visits === 1 ? "" : "s"}`,
+                              c.maintenance.preventive.total, true,
+                            )}
+                            {row(
+                              `Corrective · ${c.maintenance.corrective.visits} visit${c.maintenance.corrective.visits === 1 ? "" : "s"}`,
+                              c.maintenance.corrective.total, true,
+                            )}
+                            <div className="border-t border-border pt-2">{row("Maintenance total", c.maintenance.total)}</div>
+                          </div>
+
+                          <div className="flex items-center justify-between gap-4 border-t border-border pt-3">
+                            <span className="text-sm font-semibold text-foreground">Total cost</span>
+                            <span className="text-base font-bold tabular-nums text-primary">
+                              PKR {Number(c.total).toLocaleString()}
                             </span>
                           </div>
-                        ))}
+                        </div>
                       </div>
-                    ) : (
-                      <EmptyState icon={<Wrench className="h-10 w-10" />} text="No maintenance schedules for this device." />
-                    )}
-                  </div>
-                )}
-
-                {/* Lifecycle Events */}
-              </div>
-            </div>
-          </div>
-
-          {/* Right sidebar — warranty cards + recurring costs */}
-          <div className="space-y-4">
-            {vendorWarranty && (
-              <WarrantyCard
-                title="Vendor Warranty"
-                duration={getWarrantyDuration(vendorWarranty.start_date, vendorWarranty.end_date)}
-                detail={vendorWarranty.coverage_details || "Comprehensive Warranty"}
-                validTill={vendorWarranty.end_date}
-                color="#3b82f6"
-                expired={vendorWarranty.is_expired}
-              />
-            )}
-            {clientWarranty && (
-              <WarrantyCard
-                title="Client Warranty"
-                duration={getWarrantyDuration(clientWarranty.start_date, clientWarranty.end_date)}
-                detail={clientWarranty.coverage_details || "On-site Warranty"}
-                validTill={clientWarranty.end_date}
-                color="#06b6d4"
-                expired={clientWarranty.is_expired}
-              />
-            )}
-            {!vendorWarranty && !clientWarranty && (
-              <div className="rounded-xl border border-border bg-card p-5 text-center">
-                <Shield className="mx-auto h-8 w-8 text-muted-foreground/30 mb-2" />
-                <p className="text-xs text-muted-foreground">No warranties on file</p>
-              </div>
-            )}
-
-            {/* Activity — who changed what, and when. This is the asset's
-                whole lifecycle journal; it used to be repeated in a tab of
-                its own, which was the same list twice. */}
-            <div className="rounded-xl border border-border bg-card p-5">
-              <div className="mb-3 flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-foreground">Activity</h3>
-                {(d.lifecycle_events ?? []).length > 0 && (
-                  <button
-                    onClick={() => setAllActivity((v) => !v)}
-                    className="text-2xs font-medium text-primary hover:underline"
-                  >
-                    {allActivity ? "Show less" : `View all (${d.lifecycle_events.length})`}
-                  </button>
-                )}
-              </div>
-              {(d.lifecycle_events ?? []).length === 0 ? (
-                <p className="text-xs text-muted-foreground">Nothing recorded yet.</p>
-              ) : (
-                <div className={allActivity ? "max-h-[28rem] overflow-y-auto pr-1" : ""}>
-                  <Timeline
-                    compact
-                    items={lifecycleItems(allActivity ? d.lifecycle_events : d.lifecycle_events.slice(0, 6))}
-                  />
+                    );
+                  })()}
                 </div>
               )}
-            </div>
 
-            {/* Warranty timeline summary */}
-            {warranties.length > 0 && (
-              <div className="rounded-xl border border-border bg-card p-5">
-                <h3 className="text-sm font-semibold text-foreground mb-3">Warranty Timeline</h3>
-                <div className="space-y-3">
-                  {warranties.map((w) => (
-                    <div key={w.id} className="space-y-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-muted-foreground">{WARRANTY_TYPE_LABELS[w.warranty_type] ?? w.warranty_type}</span>
-                        <span className="text-2xs text-muted-foreground">{formatDate(w.end_date)}</span>
-                      </div>
-                      <WarrantyTimeline start={w.start_date} end={w.end_date} color={WARRANTY_COLORS[w.warranty_type] ?? "#6366f1"} />
+              {/* Documents */}
+              {detailTab === "documents" && (
+                <div className="space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs text-muted-foreground">
+                      Its purchase order, goods received notes, work orders, issue slips and handover - and anything uploaded: invoices, warranty cards, site permissions.
+                    </p>
+                    <label className={`inline-flex h-9 cursor-pointer items-center gap-2 rounded-lg bg-primary px-3.5 text-xs font-semibold text-white transition-colors hover:bg-primary/90 ${
+                      uploadingDoc ? "pointer-events-none opacity-60" : ""
+                    }`}>
+                      <Upload className="h-3.5 w-3.5" />
+                      {uploadingDoc ? "Uploading…" : "Upload document"}
+                      <input
+                        type="file"
+                        multiple
+                        className="hidden"
+                        onChange={(e) => uploadDocuments(d.id, e.target.files)}
+                      />
+                    </label>
+                  </div>
+                  <GeneratedDocuments docs={generated} />
+                  {documents.length > 0 ? (
+                    <div className="space-y-2">
+                      {generated.length > 0 && (
+                        <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">Uploaded</p>
+                      )}
+                      {documents.map((doc) => (
+                        <div key={doc.id} className="flex items-center gap-3 rounded-lg border border-border p-3 hover:bg-secondary/30 transition-colors">
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-500/10">
+                            <FileText className="h-4 w-4 text-blue-400" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-foreground truncate">{doc.title}</p>
+                            <p className="text-2xs text-muted-foreground">{doc.doc_type} · {doc.uploaded_by_name} · {formatDate(doc.created_at)}</p>
+                          </div>
+                          {doc.file && (
+                            <a href={doc.file} target="_blank" rel="noopener noreferrer" className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground">
+                              <Download className="h-4 w-4" />
+                            </a>
+                          )}
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  ) : (
+                    generated.length === 0 && <EmptyState icon={<FileText className="h-10 w-10" />} text="No documents uploaded for this device." />
+                  )}
                 </div>
-              </div>
-            )}
+              )}
+
+              {/* Maintenance History */}
+              {detailTab === "maintenance" && (
+                <div>
+                  {maintSchedules.length > 0 ? (
+                    <div className="space-y-3">
+                      {maintSchedules.map((m) => (
+                        <div key={m.id} className="flex items-start gap-3 rounded-lg border border-border p-4">
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/10">
+                            <Wrench className="h-4 w-4 text-amber-400" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <p className="text-sm font-medium text-foreground">{m.title}</p>
+                              <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-2xs font-medium ring-1 ring-inset ring-current/20 ${MAINT_TYPE_BADGE[m.maintenance_type] ?? "bg-gray-500/10 text-gray-600"}`}>
+                                {m.maintenance_type}
+                              </span>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              Frequency: {m.frequency} · Next Due: {formatDate(m.next_due)}
+                              {m.assigned_to_name && ` · Assigned: ${m.assigned_to_name}`}
+                            </p>
+                          </div>
+                          <span className={`shrink-0 inline-flex items-center rounded-full px-2 py-0.5 text-2xs font-medium ${m.is_active ? "bg-green-500/10 text-green-600" : "bg-gray-500/10 text-gray-600"}`}>
+                            {m.is_active ? "Active" : "Inactive"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <EmptyState icon={<Wrench className="h-10 w-10" />} text="No maintenance schedules for this device." />
+                  )}
+                </div>
+              )}
+
+              {/* Lifecycle Events */}
+            </div>
           </div>
         </div>
 
