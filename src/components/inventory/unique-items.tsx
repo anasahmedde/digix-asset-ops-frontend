@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, ChevronRight, Fingerprint, Info, Pencil, Trash2, Upload, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Fingerprint, Info, PackageX, Pencil, Trash2, Upload, X } from "lucide-react";
 import Link from "next/link";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -13,6 +13,7 @@ import { Modal } from "@/components/ui/modal";
 import { Qty } from "@/components/ui/qty";
 import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
 import { confirmAction } from "@/components/ui/confirm";
+import { WriteOffDialog, type WriteOffTarget } from "@/components/inventory/write-offs";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
@@ -82,7 +83,7 @@ const labelClass = "text-xs font-medium text-muted-foreground";
 
 const STATUS_LABELS: Record<string, string> = {
   in_stock: "In Stock", reserved: "Reserved", issued: "Issued", returned: "Returned",
-  damaged: "Damaged", scrapped: "Scrapped", converted: "Registered as Asset",
+  damaged: "Damaged", scrapped: "Scrapped", converted: "Registered as Asset", written_off: "Written Off",
 };
 const WARRANTY_BADGES: Record<string, string> = {
   active: "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20",
@@ -92,6 +93,9 @@ const WARRANTY_BADGES: Record<string, string> = {
 export function UniqueItems({ openTick = 0, viewOnly = false }: { openTick?: number; viewOnly?: boolean }) {
   const { can } = useUser();
   const canEdit = can("manage_stock") && !viewOnly;
+  // A unit in the store can be written off: obsolete, damaged, stolen or lost.
+  const canWriteOff = can("adjust_stock") && !viewOnly;
+  const [writeOff, setWriteOff] = useState<WriteOffTarget | null>(null);
 
   const [products, setProducts] = useState<UniqueProduct[]>([]);
   const unitSort = useSortState();
@@ -172,6 +176,16 @@ export function UniqueItems({ openTick = 0, viewOnly = false }: { openTick?: num
     api.get("/assets/brands/").then((r) => setBrands(r.data.results ?? r.data)).catch(() => {});
     api.get("/setup/units/", { params: { is_active: true, page_size: 200 } }).then((r) => setUoms(r.data.results ?? r.data)).catch(() => {});
   }, [fetchProducts]);
+
+  // After a write-off: the product's count and its shelf list read again.
+  async function refreshUnits() {
+    fetchProducts();
+    if (!expanded) return;
+    try {
+      const { data } = await api.get(`/inventory/products/${expanded}/units/`, { params: { page_size: 200, in_store: 1 } });
+      setUnits((prev) => ({ ...prev, [expanded]: data.results ?? data }));
+    } catch { /* the list stays as it was */ }
+  }
 
   async function toggleUnits(productId: string) {
     if (expanded === productId) { setExpanded(null); return; }
@@ -431,6 +445,7 @@ export function UniqueItems({ openTick = 0, viewOnly = false }: { openTick?: num
                                   <SortTh sort={unitSort} k="source" className="py-1.5 font-medium">Source</SortTh>
                                   <SortTh sort={unitSort} k="warranty_end" className="py-1.5 font-medium">Warranty</SortTh>
                                   <SortTh sort={unitSort} k="storage_location" className="py-1.5 font-medium">Storage location</SortTh>
+                                  {canWriteOff && <th className="py-1.5" />}
                                 </tr>
                               </thead>
                               <tbody>
@@ -493,6 +508,20 @@ export function UniqueItems({ openTick = 0, viewOnly = false }: { openTick?: num
                                         </Link>
                                       ) : u.storage_location || (u.status === "in_stock" ? "Not recorded" : "—")}
                                     </td>
+                                    {canWriteOff && (
+                                      <td className="py-1.5 text-right">
+                                        {["in_stock", "returned", "damaged"].includes(u.status) && (
+                                          <button
+                                            type="button"
+                                            onClick={() => setWriteOff({ kind: "unit", id: u.id, label: `${p.name} · ${u.serial_number || u.unit_code}` })}
+                                            title="Write off — obsolete, damaged, stolen or lost"
+                                            className="text-muted-foreground transition-colors hover:text-destructive"
+                                          >
+                                            <PackageX className="h-3.5 w-3.5" />
+                                          </button>
+                                        )}
+                                      </td>
+                                    )}
                                   </tr>
                                 ))}
                               </tbody>
@@ -745,6 +774,7 @@ export function UniqueItems({ openTick = 0, viewOnly = false }: { openTick?: num
           </div>
         </form>
       </Modal>
+      <WriteOffDialog target={writeOff} onClose={() => setWriteOff(null)} onDone={refreshUnits} />
     </div>
   );
 }

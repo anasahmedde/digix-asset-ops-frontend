@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, ChevronRight, Download, Info, Package, Pencil, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Download, Info, Package, PackageX, Pencil, Plus, Trash2 } from "lucide-react";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { IssuanceLog } from "@/components/inventory/issuance-log";
 import { IssuanceRequests } from "@/components/inventory/issuance-requests";
 import { PigeonHoles } from "@/components/inventory/pigeon-holes";
+import { WriteOffDialog, WriteOffs, type WriteOffTarget } from "@/components/inventory/write-offs";
 import { LowStock } from "@/components/inventory/low-stock";
 import { PriceApprovals } from "@/components/procurement/price-approvals";
 import { PendingInspection } from "@/components/inventory/pending-inspection";
@@ -71,7 +72,10 @@ const inputClass =
 const labelClass = "text-xs font-medium text-muted-foreground";
 
 export default function InventoryPage() {
-  const { canWrite, canAny } = useUser();
+  const { canWrite, canAny, can } = useUser();
+  // Obsolete, damaged, stolen or lost stock is taken off the books by whoever may adjust stock.
+  const canWriteOff = can("adjust_stock");
+  const [writeOff, setWriteOff] = useState<WriteOffTarget | null>(null);
   // Whoever does not work the store - the field, the office looking things
   // up - sees what is on the shelf and nothing else: no receiving, no
   // issuing, no logs, no actions on a line.
@@ -124,13 +128,13 @@ export default function InventoryPage() {
   // Two kinds of inventory: generic stock tracked by quantity, and unique
   // (serialized) units tracked one row per physical item.
   const [tab, setTab] = useState<
-    "generic" | "unique" | "low_stock" | "inspection" | "receiving_log" | "requests" | "issuance" | "pigeon_hole"
+    "generic" | "unique" | "low_stock" | "inspection" | "receiving_log" | "requests" | "issuance" | "pigeon_hole" | "write_offs"
   >("generic");
   // A notification lands on the tab it is about.
   const params = useSearchParams();
   useEffect(() => {
     const t = params.get("tab");
-    if (t && (worksStore ? ["generic", "unique", "low_stock", "inspection", "receiving_log", "requests", "issuance", "pigeon_hole"] : ["generic", "unique", "pigeon_hole"]).includes(t)) {
+    if (t && (worksStore ? ["generic", "unique", "low_stock", "inspection", "receiving_log", "requests", "issuance", "pigeon_hole", "write_offs"] : ["generic", "unique", "pigeon_hole"]).includes(t)) {
       setTab(t as typeof tab);
     }
   }, [params, worksStore]);
@@ -348,6 +352,7 @@ export default function InventoryPage() {
           { key: "requests", label: "Issue Requests" },
           { key: "issuance", label: "Issuance Log" },
           { key: "pigeon_hole", label: "Pigeon Hole" },
+          { key: "write_offs", label: "Write-offs" },
         ] as const).filter((t) => worksStore || t.key === "generic" || t.key === "unique" || t.key === "pigeon_hole").map((t) => (
           <button
             key={t.key}
@@ -380,6 +385,10 @@ export default function InventoryPage() {
       {tab === "issuance" && <IssuanceLog />}
 
       {tab === "pigeon_hole" && <PigeonHoles />}
+
+      {tab === "write_offs" && <WriteOffs />}
+
+      <WriteOffDialog target={writeOff} onClose={() => setWriteOff(null)} onDone={fetchItems} />
       {tab === "low_stock" && (
         <div className="space-y-6">
           {/* A reorder the store raised, coming back priced over the last
@@ -472,6 +481,15 @@ export default function InventoryPage() {
                         <button onClick={() => openDetails(item)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground" title="Stock history">
                           <Info className="h-3.5 w-3.5" />
                         </button>
+                        {canWriteOff && item.quantity > 0 && (
+                          <button
+                            onClick={() => setWriteOff({ kind: "item", id: item.id, label: item.material_name || item.sku, onHand: item.quantity })}
+                            className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-destructive"
+                            title="Write off — obsolete, damaged, stolen or lost"
+                          >
+                            <PackageX className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                         {canEdit && (
                           <>
                             <button onClick={() => openItemModal("edit", item)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground" title="Edit">

@@ -990,17 +990,22 @@ export function ScheduleDetail({
 
                     {bought.length > 0 && (
                       <div className="mt-4 border-t border-border pt-4">
-                        <p className={label}>Bought on site</p>
+                        <p className={label}>Visit Costs</p>
                         <div className="mt-1 space-y-2">
                           {bought.map((p) => (
                             <div key={p.id} className="flex flex-wrap items-center gap-3">
-                              <a href={p.photo} target="_blank" rel="noreferrer" title="Photo of the component"
-                                className="h-10 w-10 shrink-0 overflow-hidden rounded-md bg-secondary">
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img src={p.photo} alt={p.description} className="h-full w-full object-cover" />
-                              </a>
+                              {p.photo ? (
+                                <a href={p.photo} target="_blank" rel="noreferrer" title="Photo of the component"
+                                  className="h-10 w-10 shrink-0 overflow-hidden rounded-md bg-secondary">
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img src={p.photo} alt={p.description} className="h-full w-full object-cover" />
+                                </a>
+                              ) : null}
                               <div className="min-w-0 flex-1">
-                                <p className="text-sm text-foreground">{p.description}</p>
+                                <p className="text-sm text-foreground">
+                                  {p.kind && p.kind !== "part" ? <span className="text-muted-foreground">{p.kind_display}: </span> : null}
+                                  {p.description}
+                                </p>
                                 <p className="text-2xs text-muted-foreground">
                                   {p.quantity} · PKR {Number(p.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                   {p.shop ? ` · ${p.shop}` : ""} · {p.bought_by_name ?? "—"}, {formatDateTime(p.created_at)}

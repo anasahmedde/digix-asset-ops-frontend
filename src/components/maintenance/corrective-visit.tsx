@@ -74,9 +74,10 @@ export interface CorrectiveVisitRow {
   has_after_photo: boolean;
   /** When the technician checked in for it, and out after it. */
   on_site?: { checked_in_at: string; checked_out_at: string | null; offline: boolean } | null;
-  /** Bought on site by the technician, with the receipt and a photo. */
+  /** The visit's costs the technician paid: parts bought on site (with the
+   *  receipt and a photo), and travel, labour, hire or other expenses. */
   purchases?: {
-    id: string; description: string; quantity: number; amount: string; shop: string;
+    id: string; kind?: string; kind_display?: string; description: string; quantity: number; amount: string; shop: string;
     receipt: string; photo: string; bought_by_name: string | null; created_at: string;
   }[];
   /** What the parts used, and anything bought on site, are worth. */
@@ -505,6 +506,8 @@ export function CorrectiveVisit({
   const [againWith, setAgainWith] = useState("");
   const [againOn, setAgainOn] = useState("");
   const [note, setNote] = useState("");
+  // Whose side the issue was on, as the reviewer reads the visit.
+  const [side, setSide] = useState("");
   /** Anything the parts do not cover: a lift, a call-out, an hour of overtime. */
   const [extra, setExtra] = useState<{ description: string; amount: string }[]>([]);
   /** A price for a part the store has none on file for. */
@@ -625,6 +628,7 @@ export function CorrectiveVisit({
     try {
       await api.post(`/maintenance/visits/${current.id}/review/`, {
         decision: reviewing,
+        ...(side ? { issue_side: side } : {}),
         ...(reviewing === "unresolved"
           ? { reason, technician: againWith || null, next_due: againOn || null }
           : {
@@ -638,7 +642,7 @@ export function CorrectiveVisit({
             }),
       });
       setReviewing(null);
-      setNote(""); setReason(""); setAgainWith(""); setAgainOn("");
+      setNote(""); setReason(""); setAgainWith(""); setAgainOn(""); setSide("");
       setExtra([]); setPriced({});
       onChanged();
       toast.success(reviewing === "accepted"
@@ -819,7 +823,7 @@ export function CorrectiveVisit({
       {(current.purchases ?? []).length > 0 && (
         <div className="mt-4 border-t border-border pt-4">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <p className={label}>Bought on site</p>
+            <p className={label}>Visit Costs</p>
             <span className="text-xs font-medium tabular-nums text-foreground">
               PKR {(current.purchases ?? []).reduce((n, p) => n + Number(p.amount || 0), 0)
                 .toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -828,22 +832,29 @@ export function CorrectiveVisit({
           <div className="space-y-2">
             {(current.purchases ?? []).map((p) => (
               <div key={p.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-border p-2.5">
-                <button type="button" onClick={() => setShowing(p.photo)} title="Photo of the component"
-                  className="h-12 w-12 shrink-0 overflow-hidden rounded-md bg-secondary">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={p.photo} alt={p.description} className="h-full w-full object-cover" />
-                </button>
+                {p.photo ? (
+                  <button type="button" onClick={() => setShowing(p.photo)} title="Photo of the component"
+                    className="h-12 w-12 shrink-0 overflow-hidden rounded-md bg-secondary">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={p.photo} alt={p.description} className="h-full w-full object-cover" />
+                  </button>
+                ) : null}
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-foreground">{p.description}</p>
+                  <p className="text-sm font-medium text-foreground">
+                    {p.kind && p.kind !== "part" ? <span className="text-muted-foreground">{p.kind_display}: </span> : null}
+                    {p.description}
+                  </p>
                   <p className="text-2xs text-muted-foreground">
                     {p.quantity} · PKR {Number(p.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     {p.shop ? ` · ${p.shop}` : ""} · {p.bought_by_name ?? "—"}, {formatDateTime(p.created_at)}
                   </p>
                 </div>
-                <a href={p.receipt} target="_blank" rel="noreferrer"
-                  className="shrink-0 text-2xs font-semibold text-primary hover:underline">
-                  Receipt
-                </a>
+                {p.receipt ? (
+                  <a href={p.receipt} target="_blank" rel="noreferrer"
+                    className="shrink-0 text-2xs font-semibold text-primary hover:underline">
+                    Receipt
+                  </a>
+                ) : <span className="shrink-0 text-2xs text-muted-foreground">No receipt</span>}
               </div>
             ))}
           </div>
@@ -1167,6 +1178,15 @@ export function CorrectiveVisit({
       <Modal open={reviewing !== null} onClose={() => setReviewing(null)} size="sm"
         title={reviewing === "accepted" ? "Accept this work" : "Plan next visit"}>
         <form onSubmit={review} className="space-y-4">
+          <div className="space-y-1.5">
+            <label htmlFor="issue-side" className="text-xs font-medium text-muted-foreground">Issue was on</label>
+            <select id="issue-side" value={side} onChange={(e) => setSide(e.target.value)}
+              className="h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground">
+              <option value="">Not sure / not recorded</option>
+              <option value="client">Client side — power, site, handling</option>
+              <option value="ours">Our side — the product or our work</option>
+            </select>
+          </div>
           {reviewing === "accepted" ? (
             <>
               <p className="text-sm text-muted-foreground">
