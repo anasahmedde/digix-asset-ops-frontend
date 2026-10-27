@@ -188,6 +188,13 @@
     -webkit-backdrop-filter: none;
     border-color: hsl(var(--border));
   }
+  /* Frosted glass makes every card its own layer, so a list dropped open
+     inside one would slide under the next card down. The card holding an
+     open list is lifted over its neighbours (still under the header). */
+  .bg-card.border-border:not(.absolute, .fixed, .sticky):has([aria-haspopup][aria-expanded="true"]) {
+    position: relative;
+    z-index: 30;
+  }
   /* A scrollbar in a 72px rail is a stripe through the icons: scroll without one. */
   /* Nothing in a grid cell can force its column wider than the screen: a
      tab strip, a stepper or a table that is too wide scrolls or wraps
