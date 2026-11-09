@@ -462,7 +462,7 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                         )}
                       </td>
                       <td className={tdClass}>
-                        <span className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-2xs font-medium ${row.unit_type_name ? "bg-indigo-500/10 text-indigo-600" : "bg-secondary text-muted-foreground"}`}>{row.unit_type_name ? "Unique item" : "Generic stock"}</span>
+                        <span className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-2xs font-medium ${row.unit_type_name ? "bg-indigo-500/10 text-indigo-600" : "bg-secondary text-muted-foreground"}`}>{row.unit_type_name ? "Unique item" : "Generic item"}</span>
                       </td>
                       <td className={`${tdClass} text-foreground`}><Qty value={row.quantity_requested} unit={row.unit} /></td>
                       <td className={`${tdClass} text-muted-foreground`}>
@@ -677,7 +677,7 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
             <div className="space-y-1.5">
               <label htmlFor="mr-kind" className={labelClass}>Kind</label>
               <select id="mr-kind" value={newKind} onChange={(e) => { setNewKind(e.target.value as "generic" | "unique"); setDraft((d) => ({ ...d, component: "" })); }} className={inputClass}>
-                <option value="generic">Generic stock</option>
+                <option value="generic">Generic item</option>
                 <option value="unique">Unique component</option>
               </select>
             </div>

@@ -304,9 +304,9 @@ export function IssuanceLog() {
                         </td>
                         <td className={tdClass}>
                           {r.kind === "request" ? (
-                            <span className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-2xs font-medium ${r.row.unit_type_name ? "bg-indigo-500/10 text-indigo-600" : "bg-secondary text-muted-foreground"}`}>{r.row.unit_type_name ? "Unique item" : "Generic stock"}</span>
+                            <span className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-2xs font-medium ${r.row.unit_type_name ? "bg-indigo-500/10 text-indigo-600" : "bg-secondary text-muted-foreground"}`}>{r.row.unit_type_name ? "Unique item" : "Generic item"}</span>
                           ) : (
-                            <span className="inline-flex whitespace-nowrap rounded-full bg-secondary px-2 py-0.5 text-2xs font-medium text-muted-foreground">Generic stock</span>
+                            <span className="inline-flex whitespace-nowrap rounded-full bg-secondary px-2 py-0.5 text-2xs font-medium text-muted-foreground">Generic item</span>
                           )}
                         </td>
                         <td className={`${tdClass} whitespace-nowrap font-medium text-foreground`}>
@@ -361,7 +361,7 @@ export function IssuanceLog() {
                             {r.kind === "request" ? (
                               <div className="space-y-4">
                                 <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-4">
-                                  <Detail label="Component" value={<>{r.row.unit_type_name ?? r.row.item_name ?? r.row.what}{r.row.unit_type_code ? <span className="ml-1 font-mono text-xs text-muted-foreground">{r.row.unit_type_code}</span> : null}{r.row.item_sku ? <span className="ml-1 font-mono text-xs text-muted-foreground">{r.row.item_sku}</span> : null}<span className={`ml-2 rounded-full px-2 py-0.5 text-2xs font-medium ${r.row.unit_type_name ? "bg-indigo-500/10 text-indigo-600" : "bg-secondary text-muted-foreground"}`}>{r.row.unit_type_name ? "Unique item" : "Generic stock"}</span></>} />
+                                  <Detail label="Component" value={<>{r.row.unit_type_name ?? r.row.item_name ?? r.row.what}{r.row.unit_type_code ? <span className="ml-1 font-mono text-xs text-muted-foreground">{r.row.unit_type_code}</span> : null}{r.row.item_sku ? <span className="ml-1 font-mono text-xs text-muted-foreground">{r.row.item_sku}</span> : null}<span className={`ml-2 rounded-full px-2 py-0.5 text-2xs font-medium ${r.row.unit_type_name ? "bg-indigo-500/10 text-indigo-600" : "bg-secondary text-muted-foreground"}`}>{r.row.unit_type_name ? "Unique item" : "Generic item"}</span></>} />
                                   <Detail label="For asset" value={r.row.asset_code ? <>{r.row.asset_code}{r.row.component_name ? <span className="text-muted-foreground"> · {r.row.component_name}</span> : null}</> : null} />
                                   <Detail label="Project" value={r.row.project_name} />
                                   <Detail label="Source" value={r.row.source_display} />
