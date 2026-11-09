@@ -917,7 +917,7 @@ export function ScheduleDetail({
                 ["Checked out", at(v.on_site?.checked_out_at)],
                 ["Cost", (
                   <>
-                    {v.cost ? `PKR ${v.cost}` : "—"}
+                    {v.cost ? `PKR ${Number(v.cost).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—"}
                     {/* Billing is settled when the visit is accepted and the
                         record written. Until then there is no answer. */}
                     {v.is_billable !== null && (
@@ -990,7 +990,7 @@ export function ScheduleDetail({
 
                     {bought.length > 0 && (
                       <div className="mt-4 border-t border-border pt-4">
-                        <p className={label}>Visit Costs</p>
+                        <p className={label}>Paid by the technician</p>
                         <div className="mt-1 space-y-2">
                           {bought.map((p) => (
                             <div key={p.id} className="flex flex-wrap items-center gap-3">
@@ -1017,6 +1017,35 @@ export function ScheduleDetail({
                               </a>
                             </div>
                           ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* What the visit came to, line by line, once the office reviewed it
+                        - accepted or not, the trip cost what it cost. */}
+                    {(v.cost_lines ?? []).length > 0 && (
+                      <div className="mt-4 border-t border-border pt-4">
+                        <p className={label}>Cost of this visit</p>
+                        <div className="mt-1 divide-y divide-border rounded-lg border border-border">
+                          {v.cost_lines.map((l) => (
+                            <div key={l.id} className="flex items-start justify-between gap-3 px-3 py-2 text-sm">
+                              <div className="min-w-0">
+                                <p className="text-foreground">{l.description}</p>
+                                {l.quantity && l.unit_cost && (
+                                  <p className="text-2xs tabular-nums text-muted-foreground">
+                                    {Number(l.quantity)} × PKR {Number(l.unit_cost).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  </p>
+                                )}
+                              </div>
+                              <span className="shrink-0 tabular-nums text-foreground">{Number(l.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            </div>
+                          ))}
+                          <div className="flex items-center justify-between gap-3 bg-primary/[0.06] px-3 py-2 text-sm font-semibold">
+                            <span className="text-foreground">Total</span>
+                            <span className="tabular-nums text-foreground">
+                              PKR {v.cost_lines.reduce((n, l) => n + Number(l.amount || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                          </div>
                         </div>
                       </div>
                     )}
