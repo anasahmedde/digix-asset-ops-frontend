@@ -46,7 +46,7 @@ const ICONS: Record<string, typeof BarChart3> = {
 const GROUP_ORDER = ["Assets", "Projects", "Maintenance & Service", "Procurement & Stock", "Partners"];
 
 const SHEETS = [
-  ["Summary", "Project ID, client, sites, manager, phase, health, progress, every date, budget against actual, delivery counts."],
+  ["Summary", "Project ID, client, sites, manager, phase, status, progress, every date, budget against actual, delivery counts."],
   ["Cost", "Planned against actual for each asset — components, production, installation — plus overheads and contingency."],
   ["Components", "Every part: quantity required and used, planned and actual unit price and total, and the variance."],
   ["Production", "Each operation on the build route, in-house or vendor, planned against actual."],

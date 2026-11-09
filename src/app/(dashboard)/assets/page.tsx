@@ -78,7 +78,7 @@ interface DeviceDetail extends Device {
   /** The sites this asset's project covers — where it may be installed. */
   project_sites?: { id: string; name: string; city?: string }[];
   /** Its maintenance visits at a glance. */
-  visit_summary?: { total: number; last_visit: string | null; client_side: number; our_side: number; not_recorded: number };
+  visit_summary?: { total: number; last_visit: string | null; client_side: number; our_side: number; not_recorded: number; last_visit_cost?: number | string | null; visits_cost?: number | string };
   /** What the asset has cost: building it, and keeping it running. */
   cost_of_ownership?: {
     development: {
@@ -338,6 +338,8 @@ const OFF_TRACK = ["in_transit", "rma", "lost_stolen"];
 // produces — handing the asset to the client, and retiring it — so they are the
 // only ones a person sets by hand.
 const MANUAL_STATUSES = ["client_property", "decommissioned"];
+// Nothing in the app moves an asset here; the filter offers them only while an old asset still sits in one.
+const NEVER_SET = ["in_transit", "lost_stolen", "rma"];
 
 // What is actually moving the asset on, said plainly where the old dropdown was.
 const LIFECYCLE_SOURCE: Record<string, string> = {
@@ -1588,12 +1590,20 @@ export default function AssetsPage() {
                 <OverviewRow icon={<Zap className="h-4 w-4 text-amber-400" />} label="Production Steps" value={d.requires_production ? String((d.production_steps ?? []).length) : "—"} />
                 <OverviewRow icon={<Clock className="h-4 w-4 text-green-400" />} label="Batch" value={d.batch_number || "—"} />
                 {/* Its maintenance visits: when last, how many, and whose side the issues were on. */}
-                <OverviewRow icon={<Calendar className="h-4 w-4 text-purple-400" />} label="Visit Date" value={d.visit_summary?.last_visit ? formatDate(d.visit_summary.last_visit) : "No visit yet"} />
-                <OverviewRow icon={<Wrench className="h-4 w-4 text-purple-400" />} label="Total Visits" value={String(d.visit_summary?.total ?? 0)} />
+                {/* With the cost beside each, for those who may see prices; either opens the visits, the last one first. */}
+                <OverviewRow icon={<Calendar className="h-4 w-4 text-purple-400" />} label="Last Visit"
+                  value={d.visit_summary?.last_visit
+                    ? formatDate(d.visit_summary.last_visit) + (d.visit_summary.last_visit_cost != null ? ` · PKR ${Number(d.visit_summary.last_visit_cost).toLocaleString()}` : "")
+                    : "No visit yet"}
+                  onClick={d.visit_summary?.total ? () => setVisitsOpen(true) : undefined} />
+                <OverviewRow icon={<Wrench className="h-4 w-4 text-purple-400" />} label="Total Visits"
+                  value={String(d.visit_summary?.total ?? 0) + (d.visit_summary?.total && d.visit_summary.visits_cost != null ? ` · PKR ${Number(d.visit_summary.visits_cost).toLocaleString()}` : "")}
+                  onClick={d.visit_summary?.total ? () => setVisitsOpen(true) : undefined} />
                 <OverviewRow icon={<Shield className="h-4 w-4 text-amber-500" />} label="Issue on Client Side" value={String(d.visit_summary?.client_side ?? 0)} />
                 <OverviewRow icon={<Shield className="h-4 w-4 text-sky-500" />} label="Issue on Our Side" value={String(d.visit_summary?.our_side ?? 0)} />
                 {d.cost_of_ownership && (
-                  <OverviewRow icon={<DollarSign className="h-4 w-4 text-emerald-500" />} label="Total Incurred Cost" value={`PKR ${Number(d.cost_of_ownership.total).toLocaleString()}`} />
+                  <OverviewRow icon={<DollarSign className="h-4 w-4 text-emerald-500" />} label="Total Incurred Cost" value={`PKR ${Number(d.cost_of_ownership.total).toLocaleString()}`}
+                    onClick={() => { setDetailTab("costs"); document.getElementById("asset-tabs")?.scrollIntoView({ behavior: "smooth", block: "start" }); }} />
                 )}
               </div>
               {(d.visit_summary?.not_recorded ?? 0) > 0 && (
@@ -1698,7 +1708,7 @@ export default function AssetsPage() {
             </div>
           </div>
 
-          <div className="order-1 min-w-0 overflow-hidden rounded-xl border border-border bg-card xl:order-none xl:col-span-3">
+          <div id="asset-tabs" className="order-1 min-w-0 scroll-mt-24 overflow-hidden rounded-xl border border-border bg-card xl:order-none xl:col-span-3">
             <Tabs
               tabs={[
                 { key: "overview", label: "Product Details" },
@@ -3081,7 +3091,7 @@ export default function AssetsPage() {
 
       <FilterBar
         filters={[
-          { key: "status", label: "Status", options: STATUSES.map((s) => ({ value: s.value, label: s.label })) },
+          { key: "status", label: "Status", options: STATUSES.filter((s) => !NEVER_SET.includes(s.value) || devices.some((d) => d.status === s.value)).map((s) => ({ value: s.value, label: s.label })) },
           { key: "asset_type", label: "Type", options: Array.from(new Set(devices.map((d) => d.asset_type_name).filter(Boolean))).sort().map((t) => ({ value: t as string, label: t as string })) },
           { key: "client", label: "Client", options: Array.from(new Set(devices.flatMap((d) => (d.client_names ?? []).length > 0 ? d.client_names : d.client_name ? [d.client_name] : []))).sort().map((c) => ({ value: c, label: c })) },
           { key: "site", label: "Site", options: Array.from(new Set(devices.map((d) => d.site_name).filter(Boolean))).sort().map((s) => ({ value: s as string, label: s as string })) },
@@ -3497,18 +3507,24 @@ function MetaField({ label, value, mono, highlight, capitalize: cap }: { label: 
 }
 
 
-function OverviewRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: string | null | undefined }) {
-  return (
-    // The value sits to the right of its label while there is room, and
-    // drops under it when the column is narrow (a laptop with the sidebar
-    // open gives this card a quarter of the page).
-    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5">
+function OverviewRow({ icon, label, value, onClick }: { icon: React.ReactNode; label: string; value: string | null | undefined; onClick?: () => void }) {
+  const body = (
+    <>
       <div className="flex items-center gap-2.5">
         {icon}
         <span className="text-xs text-muted-foreground">{label}</span>
       </div>
-      <span className="ml-auto text-right text-sm font-semibold text-foreground">{value || "—"}</span>
-    </div>
+      <span className={`ml-auto text-right text-sm font-semibold ${onClick ? "text-primary underline decoration-dotted decoration-primary/40 underline-offset-4 group-hover:decoration-solid" : "text-foreground"}`}>{value || "—"}</span>
+    </>
+  );
+  // The value sits to the right of its label while there is room, and
+  // drops under it when the column is narrow (a laptop with the sidebar
+  // open gives this card a quarter of the page).
+  const cls = "flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5";
+  return onClick ? (
+    <button type="button" onClick={onClick} title={`See ${label.toLowerCase()} in full`} className={`group w-full text-left ${cls}`}>{body}</button>
+  ) : (
+    <div className={cls}>{body}</div>
   );
 }
 
