@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, FileText, Pencil, Plus, Printer, RotateCcw, Save, Send, Trash2, XCircle } from "lucide-react";
+import { CheckCircle2, FileText, Pencil, Plus, Printer, Save, Send, Trash2, XCircle } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -821,7 +821,7 @@ export function ProjectPlanning({
                                     </button>
                                   </>
                                 ) : (
-                                  <span className="text-2xs text-muted-foreground" title="The budget was signed off on this line — revise the budget to change it">
+                                  <span className="text-2xs text-muted-foreground" title="The budget was signed off on this line - it can no longer be changed">
                                     in the signed budget
                                   </span>
                                 )}
@@ -944,18 +944,6 @@ export function ProjectPlanning({
                 className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
               >
                 <Send className="h-3.5 w-3.5" /> Submit for approval
-              </button>
-            )}
-            {/* Approved: reopening it is the approver's call; the lead who
-                planned it then revises it and sends it up again. */}
-            {plan.status === "approved" && can("approve_budget") && (
-              <button
-                onClick={() => run(() => api.post(`/teams/projects/${projectId}/revise-budget/`, {}), "Budget reopened - the lead has been asked to revise it")}
-                disabled={busy}
-                title="Reopen the budget for the lead to revise and send for approval again — execution locks until it is approved again"
-                className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
-              >
-                <RotateCcw className="h-3.5 w-3.5" /> Revise
               </button>
             )}
             {plan.status === "approved" && onGoToExecution && (

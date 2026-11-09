@@ -169,6 +169,10 @@ const statusBadge: Record<string, string> = {
   cancelled: "bg-zinc-500/10 text-zinc-500 ring-zinc-500/20",
 };
 
+// Statuses only a ticket without a maintenance job could reach - none since
+// every ticket opens one. The filter offers them only while an old ticket carries one.
+const NEVER_SET = ["on_hold", "blocked", "alignment_pending", "pending_ops_approval", "pending_client_approval", "approved", "rejected"];
+
 const statusIcon: Record<string, React.ReactNode> = {
   open: <Clock className="h-3.5 w-3.5" />,
   assigned: <User className="h-3.5 w-3.5" />,
@@ -1192,7 +1196,7 @@ export default function TicketsPage() {
 
       <FilterBar
         filters={[
-          { key: "status", label: "Status", options: Object.keys(statusBadge).map((s) => ({ value: s, label: formatLabel(s) })) },
+          { key: "status", label: "Status", options: Object.keys(statusBadge).filter((s) => !NEVER_SET.includes(s) || tickets.some((t) => t.status === s)).map((s) => ({ value: s, label: formatLabel(s) })) },
           { key: "priority", label: "Priority", options: Object.keys(priorityBadge).map((p) => ({ value: p, label: formatLabel(p) })) },
           { key: "category", label: "Category", options: CATEGORY_OPTIONS.map((c) => ({ value: c, label: formatLabel(c) })) },
         ]}

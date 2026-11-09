@@ -848,7 +848,8 @@ export default function ProcurementPage() {
       <>
       <FilterBar
         filters={[
-          { key: "status", label: "Status", options: Object.keys(STATUS_BADGES).map((s) => ({ value: s, label: statusLabel(s) })) },
+          // "ordered" is kept only for old orders; nothing moves an order there now.
+          { key: "status", label: "Status", options: Object.keys(STATUS_BADGES).filter((s) => s !== "ordered" || orders.some((o) => o.status === s)).map((s) => ({ value: s, label: statusLabel(s) })) },
         ]}
         values={filterValues}
         onChange={(k, v) => setFilterValues((prev) => ({ ...prev, [k]: v }))}

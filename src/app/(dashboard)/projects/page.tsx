@@ -1261,8 +1261,7 @@ export default function ProjectsPage() {
                   asset then would land outside the figure that was signed off. */}
               {canEdit && d.phase !== "planning" ? (
                 <p className="mt-3 rounded-lg border border-dashed border-border p-3 text-xs text-muted-foreground">
-                  The scope was settled in planning and the budget approved against it. Put the project
-                  back on Planning to change what it is building.
+                  The scope was settled in planning and the budget approved against it, so it can no longer be changed.
                 </p>
               ) : canEdit && (
                 <form onSubmit={addScopeItem} className="mt-3 space-y-2 rounded-lg border border-border/70 p-3">
