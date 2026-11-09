@@ -1595,7 +1595,8 @@ export default function AssetsPage() {
                 <OverviewRow icon={<Shield className="h-4 w-4 text-amber-500" />} label="Issue on Client Side" value={String(d.visit_summary?.client_side ?? 0)} />
                 <OverviewRow icon={<Shield className="h-4 w-4 text-sky-500" />} label="Issue on Our Side" value={String(d.visit_summary?.our_side ?? 0)} />
                 {d.cost_of_ownership && (
-                  <OverviewRow icon={<DollarSign className="h-4 w-4 text-emerald-500" />} label="Total Incurred Cost" value={`PKR ${Number(d.cost_of_ownership.total).toLocaleString()}`} />
+                  <OverviewRow icon={<DollarSign className="h-4 w-4 text-emerald-500" />} label="Total Incurred Cost" value={`PKR ${Number(d.cost_of_ownership.total).toLocaleString()}`}
+                    onClick={() => { setDetailTab("costs"); document.getElementById("asset-tabs")?.scrollIntoView({ behavior: "smooth", block: "start" }); }} />
                 )}
               </div>
               {(d.visit_summary?.not_recorded ?? 0) > 0 && (
@@ -1700,7 +1701,7 @@ export default function AssetsPage() {
             </div>
           </div>
 
-          <div className="order-1 min-w-0 overflow-hidden rounded-xl border border-border bg-card xl:order-none xl:col-span-3">
+          <div id="asset-tabs" className="order-1 min-w-0 scroll-mt-24 overflow-hidden rounded-xl border border-border bg-card xl:order-none xl:col-span-3">
             <Tabs
               tabs={[
                 { key: "overview", label: "Product Details" },
@@ -3499,18 +3500,24 @@ function MetaField({ label, value, mono, highlight, capitalize: cap }: { label: 
 }
 
 
-function OverviewRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: string | null | undefined }) {
-  return (
-    // The value sits to the right of its label while there is room, and
-    // drops under it when the column is narrow (a laptop with the sidebar
-    // open gives this card a quarter of the page).
-    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5">
+function OverviewRow({ icon, label, value, onClick }: { icon: React.ReactNode; label: string; value: string | null | undefined; onClick?: () => void }) {
+  const body = (
+    <>
       <div className="flex items-center gap-2.5">
         {icon}
         <span className="text-xs text-muted-foreground">{label}</span>
       </div>
-      <span className="ml-auto text-right text-sm font-semibold text-foreground">{value || "—"}</span>
-    </div>
+      <span className={`ml-auto text-right text-sm font-semibold ${onClick ? "text-primary group-hover:underline" : "text-foreground"}`}>{value || "—"}</span>
+    </>
+  );
+  // The value sits to the right of its label while there is room, and
+  // drops under it when the column is narrow (a laptop with the sidebar
+  // open gives this card a quarter of the page).
+  const cls = "flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5";
+  return onClick ? (
+    <button type="button" onClick={onClick} title={`See ${label.toLowerCase()} in full`} className={`group w-full text-left ${cls}`}>{body}</button>
+  ) : (
+    <div className={cls}>{body}</div>
   );
 }
 
