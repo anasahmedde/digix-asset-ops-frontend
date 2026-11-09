@@ -10,7 +10,7 @@ import { ActivityPanel } from "@/components/activity-panel";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import {
-  CorrectiveVisit, Evidence, type CorrectiveVisitRow, type VisitPhoto,
+  CorrectiveVisit, Evidence, LabourInputs, useCrewLabour, type CorrectiveVisitRow, type VisitPhoto,
 } from "./corrective-visit";
 import { SearchSelect } from "@/components/ui/search-select";
 import { confirmAction } from "@/components/ui/confirm";
@@ -96,7 +96,7 @@ interface Visit {
     unit_cost: string | null; amount: string;
   }[];
   /** Hours at the site for this visit, from check-ins. */
-  time_on_site?: { hours: number; reckoned: boolean } | null;
+  time_on_site?: CorrectiveVisitRow["time_on_site"];
   cost_lines: {
     id: string; source: string; description: string;
     quantity: string | null; unit_cost: string | null; amount: string;
@@ -1073,8 +1073,7 @@ const money = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits
 function VisitCost({ visit: v, canDecide, onSaved }: { visit: Visit; canDecide: boolean; onSaved: () => void }) {
   const recorded = v.cost_lines ?? [];
   const hasLabour = recorded.some((l) => l.source === "labour");
-  const [hours, setHours] = useState(v.time_on_site ? String(v.time_on_site.hours) : "");
-  const [rate, setRate] = useState(() => { try { return localStorage.getItem("labour-rate") ?? ""; } catch { return ""; } });
+  const crew = useCrewLabour(v.time_on_site, v.id);
   const [busy, setBusy] = useState(false);
   const lines = recorded.length > 0
     ? recorded.map((l) => ({
@@ -1086,7 +1085,7 @@ function VisitCost({ visit: v, canDecide, onSaved }: { visit: Visit; canDecide: 
         calc: c.unit_cost !== null ? `${Number(c.quantity)} × PKR ${money(Number(c.unit_cost))}` : `${Number(c.quantity)} used · no price on file`,
       }));
   const editable = canDecide && Boolean(v.review_decision) && !hasLabour;
-  const labour = hasLabour ? 0 : Number(hours || 0) * Number(rate || 0);
+  const labour = hasLabour ? 0 : crew.total;
   const total = lines.reduce((n, l) => n + l.amount, 0) + labour;
   if (lines.length === 0 && !v.time_on_site && !editable) return null;
 
@@ -1094,11 +1093,11 @@ function VisitCost({ visit: v, canDecide, onSaved }: { visit: Visit; canDecide: 
     setBusy(true);
     try {
       await api.post(`/maintenance/visits/${v.id}/price/`, {
-        ...(Number(rate) > 0 ? { labour: { hours: hours === "" ? null : hours, rate } } : {}),
+        ...crew.payload,
         // What the office added at review stays.
         cost_lines: recorded.filter((l) => l.source === "manual").map((l) => ({ description: l.description, amount: l.amount })),
       });
-      try { localStorage.setItem("labour-rate", rate); } catch { /* private window */ }
+      crew.remember();
       toast.success("Cost recorded");
       onSaved();
     } catch (err) {
@@ -1108,7 +1107,6 @@ function VisitCost({ visit: v, canDecide, onSaved }: { visit: Visit; canDecide: 
     }
   }
 
-  const input = "h-8 rounded-md border border-border bg-background px-2 text-right text-xs tabular-nums text-foreground focus:border-primary/50 focus:outline-none";
   return (
     <div className="mt-4 border-t border-border pt-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -1135,12 +1133,7 @@ function VisitCost({ visit: v, canDecide, onSaved }: { visit: Visit; canDecide: 
               </p>
             </div>
             {editable ? (
-              <div className="flex flex-wrap items-center gap-2 text-xs">
-                <input aria-label="Hours" value={hours} onChange={(e) => setHours(e.target.value)} type="number" min={0} step="0.25" className={`${input} w-20`} />
-                <span className="text-muted-foreground">h ×</span>
-                <input aria-label="Rate per hour" value={rate} onChange={(e) => setRate(e.target.value)} type="number" min={0} step="1" placeholder="PKR / hour" className={`${input} w-28`} />
-                <span className="w-24 text-right text-sm tabular-nums text-foreground">{money(labour)}</span>
-              </div>
+              <div className="w-full"><LabourInputs crew={crew} /></div>
             ) : (
               <span className="text-2xs text-muted-foreground">Rate not set</span>
             )}
