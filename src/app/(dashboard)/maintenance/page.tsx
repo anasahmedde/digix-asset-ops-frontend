@@ -582,7 +582,7 @@ export default function MaintenancePage() {
                     <SortTh sort={sort} k="device_name" className={thClass}>Asset Name</SortTh>
                     <SortTh sort={sort} k="project_name" className={thClass}>Project</SortTh>
                     <SortTh sort={sort} k="site_name" className={thClass}>Site</SortTh>
-                    <SortTh sort={sort} k="assigned_to_name" className={thClass}>Assigned To</SortTh>
+                    <SortTh sort={sort} k="assigned_to_name" className={thClass}>Assigned To / Last Assigned</SortTh>
                     <SortTh sort={sort} k="status" className={thClass}>Status</SortTh>
                     <th className={thClass}>Actions</th>
                   </tr>
@@ -644,9 +644,9 @@ export default function MaintenancePage() {
                         {s.site_name || "-"}
                       </td>
                       <td className={`${tdClass} text-muted-foreground`}>
-                        {/* Who is going next - and nobody, when the next round is still to be given out. */}
-                        {s.next_visit_assignee
-                          || (["completed", "on_hold"].includes(s.effective_status || s.status) ? (s.assigned_to_name || "-") : <span className="italic">To be assigned</span>)}
+                        {/* Who is going next; with no visit open (one waiting on the office,
+                            or the job done), whoever had it last. */}
+                        {s.next_visit_assignee || s.assigned_to_name || <span className="italic">To be assigned</span>}
                         {(s.vendor_names ?? []).length > 0 && (
                           <span className="block text-xs">Vendors: {s.vendor_names.join(", ")}</span>
                         )}
