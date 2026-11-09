@@ -494,7 +494,7 @@ export function ScheduleDetail({
                             ? "bg-indigo-500/10 text-indigo-600"
                             : "bg-secondary text-muted-foreground"
                         }`}>
-                          {line.unit_type ? "Unique item" : "Stock item"}
+                          {line.unit_type ? "Unique item" : "Generic item"}
                         </span>
                       </td>
                       <td className="px-3 py-2.5 text-muted-foreground">
@@ -611,7 +611,7 @@ export function ScheduleDetail({
                   }}
                   className={inputClass}
                 >
-                  <option value="generic">Stock item</option>
+                  <option value="generic">Generic item</option>
                   <option value="unique">Unique item</option>
                 </select>
               </div>
@@ -622,7 +622,7 @@ export function ScheduleDetail({
                   value={askPart}
                   onChange={setAskPart}
                   name="ask-part"
-                  placeholder={askKind === "generic" ? "Search stock items…" : "Search unique items…"}
+                  placeholder={askKind === "generic" ? "Search generic items…" : "Search unique items…"}
                 />
               </div>
               <div className="w-32 space-y-1">
