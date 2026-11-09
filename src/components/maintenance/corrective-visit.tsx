@@ -87,6 +87,12 @@ export interface CorrectiveVisitRow {
     /** Null when the store has no price on file for it. */
     unit_cost: string | null; amount: string;
   }[];
+  /** Hours at the site for this visit, from check-ins. A day with no
+   *  check-out ends at the last work recorded that day ("reckoned"). */
+  time_on_site?: {
+    hours: number; reckoned: boolean;
+    people: { id: string; name: string; lead: boolean; hours: number; spells: { from: string; to: string; reckoned: boolean }[] }[];
+  } | null;
   /** What it came to once the office accepted it. */
   cost_lines: {
     id: string; source: string; description: string;
@@ -512,6 +518,9 @@ export function CorrectiveVisit({
   const [extra, setExtra] = useState<{ description: string; amount: string }[]>([]);
   /** A price for a part the store has none on file for. */
   const [priced, setPriced] = useState<Record<string, string>>({});
+  /** Labour: hours on site (measured, editable) at the reviewer's rate. */
+  const [labourHours, setLabourHours] = useState("");
+  const [labourRate, setLabourRate] = useState("");
   const [cancelling, setCancelling] = useState(false);
   /** Helpers being changed on the open visit, while the dialog is up. */
   const [crew, setCrew] = useState<string[] | null>(null);
@@ -542,7 +551,17 @@ export function CorrectiveVisit({
         : Number(priced[c.part_request ?? ""] || 0) * Number(c.quantity || 0)),
       0,
     )
-    + extra.reduce((n, l) => n + Number(l.amount || 0), 0);
+    + extra.reduce((n, l) => n + Number(l.amount || 0), 0)
+    + Number(labourHours || 0) * Number(labourRate || 0);
+  const fromStore = (current?.component_costs ?? []).filter((c) => !c.purchase);
+  const paidByTech = (current?.component_costs ?? []).filter((c) => c.purchase);
+
+  /** Accept opens with the measured hours and the rate this reviewer used last. */
+  function openAccept() {
+    setLabourHours(current?.time_on_site ? String(current.time_on_site.hours) : "");
+    try { setLabourRate(localStorage.getItem("labour-rate") ?? ""); } catch { setLabourRate(""); }
+    setReviewing("accepted");
+  }
 
   async function assign(e: React.FormEvent) {
     e.preventDefault();
@@ -636,6 +655,7 @@ export function CorrectiveVisit({
               cost_lines: extra
                 .filter((l) => l.description.trim() && l.amount !== "")
                 .map((l) => ({ description: l.description.trim(), amount: l.amount })),
+              ...(Number(labourRate) > 0 ? { labour: { hours: labourHours === "" ? null : labourHours, rate: labourRate } } : {}),
               component_prices: Object.fromEntries(
                 Object.entries(priced).filter(([, v]) => v !== ""),
               ),
@@ -643,6 +663,9 @@ export function CorrectiveVisit({
       });
       setReviewing(null);
       setNote(""); setReason(""); setAgainWith(""); setAgainOn(""); setSide("");
+      if (reviewing === "accepted" && Number(labourRate) > 0) {
+        try { localStorage.setItem("labour-rate", labourRate); } catch { /* private window */ }
+      }
       setExtra([]); setPriced({});
       onChanged();
       toast.success(reviewing === "accepted"
@@ -883,7 +906,7 @@ export function CorrectiveVisit({
             </button>
           )}
           {may("accept") && (
-            <button onClick={() => setReviewing("accepted")} disabled={busy !== null}
+            <button onClick={openAccept} disabled={busy !== null}
               className={`${btn} bg-emerald-600 text-white hover:bg-emerald-700`}>
               <ClipboardCheck className="h-3.5 w-3.5" /> Accept
             </button>
@@ -1175,7 +1198,7 @@ export function CorrectiveVisit({
         </form>
       </Modal>
 
-      <Modal open={reviewing !== null} onClose={() => setReviewing(null)} size="sm"
+      <Modal open={reviewing !== null} onClose={() => setReviewing(null)} size={reviewing === "accepted" ? "md" : "sm"}
         title={reviewing === "accepted" ? "Accept this work" : "Plan next visit"}>
         <form onSubmit={review} className="space-y-4">
           <div className="space-y-1.5">
@@ -1199,45 +1222,89 @@ export function CorrectiveVisit({
                   store; everything else is written in here, as lines, so
                   the total is always something you can read the reasons
                   for rather than one figure to be taken on trust. */}
-              <div className="space-y-2 rounded-lg border border-border p-3">
-                <p className="text-xs font-semibold text-foreground">What this visit cost</p>
-                {(current.component_costs ?? []).length > 0 ? (
-                  <div className="space-y-1">
-                    {current.component_costs.map((c) => (
-                      <div key={c.part_request ?? c.purchase} className="flex items-center justify-between gap-3 text-xs">
-                        <span className="min-w-0 text-foreground">
-                          {c.description}
-                          <span className="text-muted-foreground"> · {c.quantity} {c.purchase ? "bought" : "used"}</span>
-                        </span>
-                        {c.unit_cost !== null ? (
-                          <span className="shrink-0 tabular-nums text-muted-foreground">
-                            × PKR {c.unit_cost}
-                            <span className="ml-2 font-medium text-foreground">PKR {c.amount}</span>
-                          </span>
-                        ) : (
-                          /* The store has no price on file for this one, so
-                             it is asked for here rather than left out of
-                             the total with nobody any the wiser. */
-                          <span className="flex shrink-0 items-center gap-1.5">
-                            <span className="text-2xs text-amber-600">No price on file · PKR</span>
-                            <input
-                              value={priced[c.part_request ?? ""] ?? ""}
-                              onChange={(e) => setPriced((cur) =>
-                                ({ ...cur, [c.part_request ?? ""]: e.target.value }))}
-                              type="number" min={0} step="0.01" placeholder="each"
-                              className="h-7 w-24 rounded-lg border border-border bg-card px-2 text-xs tabular-nums text-foreground focus:border-primary/50 focus:outline-none"
-                            />
-                          </span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-2xs text-muted-foreground">
-                    No components were used, so there is nothing priced from the store.
-                  </p>
-                )}
+              <div className="space-y-3 rounded-lg border border-border p-3">
+                <p className="text-xs font-semibold text-foreground">Cost of this visit</p>
 
+                <CostGroup title="Components from the store" note="Used on the visit, at the store's price"
+                  total={fromStore.reduce((n, c) => n + (c.unit_cost !== null ? Number(c.amount || 0) : Number(priced[c.part_request ?? ""] || 0) * Number(c.quantity || 0)), 0)}>
+                  {fromStore.length === 0 ? (
+                    <p className="text-2xs text-muted-foreground">None used.</p>
+                  ) : fromStore.map((c) => (
+                    <div key={c.part_request} className="flex items-center justify-between gap-3 text-xs">
+                      <span className="min-w-0 text-foreground">
+                        {c.description}<span className="text-muted-foreground"> · {c.quantity} used</span>
+                      </span>
+                      {c.unit_cost !== null ? (
+                        <span className="shrink-0 tabular-nums text-muted-foreground">
+                          × PKR {c.unit_cost}<span className="ml-2 font-medium text-foreground">PKR {c.amount}</span>
+                        </span>
+                      ) : (
+                        /* No price on file: asked for here rather than left out of the total. */
+                        <span className="flex shrink-0 items-center gap-1.5">
+                          <span className="text-2xs text-amber-600">No price on file · PKR</span>
+                          <input value={priced[c.part_request ?? ""] ?? ""}
+                            onChange={(e) => setPriced((cur) => ({ ...cur, [c.part_request ?? ""]: e.target.value }))}
+                            type="number" min={0} step="0.01" placeholder="each" aria-label={`Price of one ${c.description}`}
+                            className="h-7 w-24 rounded-lg border border-border bg-card px-2 text-xs tabular-nums text-foreground focus:border-primary/50 focus:outline-none" />
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </CostGroup>
+
+                <CostGroup title="Paid by the technician" note="Recorded in the field app, with receipts"
+                  total={paidByTech.reduce((n, c) => n + Number(c.amount || 0), 0)}>
+                  {paidByTech.length === 0 ? (
+                    <p className="text-2xs text-muted-foreground">Nothing recorded.</p>
+                  ) : paidByTech.map((c) => (
+                    <div key={c.purchase} className="flex items-center justify-between gap-3 text-xs">
+                      <span className="min-w-0 text-foreground">{c.description}</span>
+                      <span className="shrink-0 font-medium tabular-nums text-foreground">PKR {c.amount}</span>
+                    </div>
+                  ))}
+                </CostGroup>
+
+                <CostGroup title="Labour" note="Time on site from check-ins, at your rate per hour"
+                  total={Number(labourHours || 0) * Number(labourRate || 0)}>
+                  {current.time_on_site && current.time_on_site.people.length > 0 ? (
+                    <div className="space-y-1">
+                      {current.time_on_site.people.map((person) => (
+                        <div key={person.id} className="text-xs">
+                          <div className="flex justify-between gap-3">
+                            <span className="text-foreground">{person.name}{person.lead ? "" : " (helper)"}</span>
+                            <span className="tabular-nums text-foreground">{person.hours} h</span>
+                          </div>
+                          {person.spells.map((sp, i) => (
+                            <p key={i} className="text-2xs tabular-nums text-muted-foreground">
+                              {formatDateTime(sp.from)} to {formatDateTime(sp.to)}
+                              {sp.reckoned && <span className="text-amber-600"> · reckoned</span>}
+                            </p>
+                          ))}
+                        </div>
+                      ))}
+                      {current.time_on_site.reckoned && (
+                        <p className="text-2xs text-amber-600">
+                          Reckoned: no check-in or check-out that day, so the time is taken from the first or last work recorded. Change the hours if you know better.
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-2xs text-muted-foreground">No check-in at the site was found for this visit. Enter the hours worked.</p>
+                  )}
+                  <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
+                    <label htmlFor="labour-hours" className="text-muted-foreground">Hours</label>
+                    <input id="labour-hours" value={labourHours} onChange={(e) => setLabourHours(e.target.value)}
+                      type="number" min={0} step="0.25"
+                      className="h-8 w-20 rounded-lg border border-border bg-card px-2 text-xs tabular-nums text-foreground focus:border-primary/50 focus:outline-none" />
+                    <span className="text-muted-foreground">×</span>
+                    <label htmlFor="labour-rate" className="text-muted-foreground">PKR per hour</label>
+                    <input id="labour-rate" value={labourRate} onChange={(e) => setLabourRate(e.target.value)}
+                      type="number" min={0} step="1" placeholder="rate"
+                      className="h-8 w-28 rounded-lg border border-border bg-card px-2 text-xs tabular-nums text-foreground focus:border-primary/50 focus:outline-none" />
+                  </div>
+                </CostGroup>
+
+                <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">Other costs</p>
                 {extra.map((l, i) => (
                   <div key={i} className="flex items-center gap-2">
                     <input
@@ -1271,7 +1338,7 @@ export function CorrectiveVisit({
                 <div className="flex items-baseline justify-between gap-3 border-t border-border pt-2 text-sm">
                   <span className="font-semibold text-foreground">Total</span>
                   <span className="font-semibold tabular-nums text-foreground">
-                    PKR {visitTotal.toFixed(2)}
+                    PKR {visitTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
                 </div>
               </div>
@@ -1332,6 +1399,22 @@ export function CorrectiveVisit({
           </div>
         </form>
       </Modal>
+    </div>
+  );
+}
+
+/** One heading of the visit's cost, with what it adds up to. */
+function CostGroup({ title, note, total, children }: { title: string; note: string; total: number; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1.5 border-b border-border pb-3">
+      <div className="flex items-baseline justify-between gap-3">
+        <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">{title}</p>
+        <span className="text-xs font-semibold tabular-nums text-foreground">
+          PKR {total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        </span>
+      </div>
+      <p className="text-2xs text-muted-foreground">{note}</p>
+      {children}
     </div>
   );
 }
