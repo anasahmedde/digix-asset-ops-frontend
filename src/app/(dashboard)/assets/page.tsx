@@ -338,6 +338,8 @@ const OFF_TRACK = ["in_transit", "rma", "lost_stolen"];
 // produces — handing the asset to the client, and retiring it — so they are the
 // only ones a person sets by hand.
 const MANUAL_STATUSES = ["client_property", "decommissioned"];
+// Nothing in the app moves an asset here; the filter offers them only while an old asset still sits in one.
+const NEVER_SET = ["in_transit", "lost_stolen", "rma"];
 
 // What is actually moving the asset on, said plainly where the old dropdown was.
 const LIFECYCLE_SOURCE: Record<string, string> = {
@@ -3081,7 +3083,7 @@ export default function AssetsPage() {
 
       <FilterBar
         filters={[
-          { key: "status", label: "Status", options: STATUSES.map((s) => ({ value: s.value, label: s.label })) },
+          { key: "status", label: "Status", options: STATUSES.filter((s) => !NEVER_SET.includes(s.value) || devices.some((d) => d.status === s.value)).map((s) => ({ value: s.value, label: s.label })) },
           { key: "asset_type", label: "Type", options: Array.from(new Set(devices.map((d) => d.asset_type_name).filter(Boolean))).sort().map((t) => ({ value: t as string, label: t as string })) },
           { key: "client", label: "Client", options: Array.from(new Set(devices.flatMap((d) => (d.client_names ?? []).length > 0 ? d.client_names : d.client_name ? [d.client_name] : []))).sort().map((c) => ({ value: c, label: c })) },
           { key: "site", label: "Site", options: Array.from(new Set(devices.map((d) => d.site_name).filter(Boolean))).sort().map((s) => ({ value: s as string, label: s as string })) },
