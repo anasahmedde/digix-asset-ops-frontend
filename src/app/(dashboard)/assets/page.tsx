@@ -2158,7 +2158,7 @@ export default function AssetsPage() {
                                       </span>
                                     ) : (
                                       <span className="inline-flex items-center gap-2">
-                                        <button type="button" onClick={() => { setCompEdit(null); setCompReplace({ id: cmp.id, unique: !!cmp.inventory_unit_type, value: "" }); }} disabled={!d.requires_production || d.is_locked || (!cmp.inventory_item && !cmp.inventory_unit_type)} className="text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-50" title={cmp.inventory_unit_type ? "Replace with another unique item" : "Replace with another stock item"}>
+                                        <button type="button" onClick={() => { setCompEdit(null); setCompReplace({ id: cmp.id, unique: !!cmp.inventory_unit_type, value: "" }); }} disabled={!d.requires_production || d.is_locked || (!cmp.inventory_item && !cmp.inventory_unit_type)} className="text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-50" title={cmp.inventory_unit_type ? "Replace with another unique item" : "Replace with another generic item"}>
                                           <ArrowLeftRight className="h-3.5 w-3.5" />
                                         </button>
                                         <button type="button" onClick={() => { setCompReplace(null); setCompEdit({ id: cmp.id, quantity: cmp.quantity }); }} disabled={!d.requires_production || d.is_locked} className="text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-50" title="Edit quantity">
@@ -2192,7 +2192,7 @@ export default function AssetsPage() {
                               onChange={(e) => { setCompSource(e.target.value as "generic" | "unique"); setCompItemId(""); setCompUnitType(""); setCompQty("1"); }}
                               className="h-8 w-32 rounded-lg border border-border bg-background px-2 text-xs text-foreground"
                             >
-                              <option value="generic">Stock item</option>
+                              <option value="generic">Generic item</option>
                               <option value="unique">Unique item</option>
                             </select>
 
@@ -2203,7 +2203,7 @@ export default function AssetsPage() {
                                 required
                                 className="h-8 w-72 rounded-lg border border-border bg-background px-2 text-xs text-foreground"
                               >
-                                <option value="">Select stock item…</option>
+                                <option value="">Select generic item…</option>
                                 {/* Every known item, including ones at zero. */}
                                 {stockItems.map((s) => (
                                   <option key={s.id} value={s.id}>

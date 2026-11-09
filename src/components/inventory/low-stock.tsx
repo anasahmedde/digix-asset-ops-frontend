@@ -106,7 +106,7 @@ export function LowStock({ onChanged }: { onChanged?: () => void }) {
   return (
     <div className="space-y-5">
       <p className="text-sm text-muted-foreground">
-        Stock items and unique products at or below their reorder level. Raise a reorder request here and it
+        Generic items and unique items at or below their reorder level. Raise a reorder request here and it
         goes to Procurement › Procurement Requests to be put on a purchase order; it closes when the goods are received
         into stock. Reorder levels are set on each component.
       </p>
@@ -119,7 +119,7 @@ export function LowStock({ onChanged }: { onChanged?: () => void }) {
         <div className="rounded-xl border border-border bg-card p-12 text-center">
           <PackageCheck className="mx-auto h-12 w-12 text-emerald-500/40" />
           <h3 className="mt-4 text-lg font-semibold text-foreground">Nothing below its reorder level</h3>
-          <p className="mt-2 text-sm text-muted-foreground">Every stock item and unique product is above the level set on it.</p>
+          <p className="mt-2 text-sm text-muted-foreground">Every generic item and unique item is above the level set on it.</p>
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-border bg-card">
@@ -157,7 +157,7 @@ export function LowStock({ onChanged }: { onChanged?: () => void }) {
                     </td>
                     <td className={tdClass}>
                       <span className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-2xs font-medium ${r.kind === "unique" ? "bg-indigo-500/10 text-indigo-600" : "bg-secondary text-muted-foreground"}`}>
-                        {r.kind === "unique" ? "Unique item" : "Generic stock"}
+                        {r.kind === "unique" ? "Unique item" : "Generic item"}
                       </span>
                     </td>
                     <td className={`${tdClass} text-right font-medium ${r.on_hand === 0 ? "text-red-600" : "text-amber-600"}`}>

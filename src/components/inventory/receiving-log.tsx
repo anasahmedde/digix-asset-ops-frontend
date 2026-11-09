@@ -66,7 +66,7 @@ function Detail({ label, value, mono = false }: { label: string; value: React.Re
 }
 
 function kindLabel(k: ReceivedLine["kind"]) {
-  return k === "unique" ? "Unique item" : k === "asset" ? "Whole asset" : k === "generic" ? "Generic stock" : "—";
+  return k === "unique" ? "Unique item" : k === "asset" ? "Whole asset" : k === "generic" ? "Generic item" : "—";
 }
 
 export function ReceivingLog() {
@@ -231,7 +231,7 @@ export function ReceivingLog() {
                           {rejected ? (
                             <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-2xs font-medium text-red-600">Rejected</span>
                           ) : (
-                            r.kind === "asset" ? "Asset registry" : r.routed_to === "unique" ? "Unique item" : r.routed_to === "generic" ? "Generic stock" : "—"
+                            r.kind === "asset" ? "Asset registry" : r.routed_to === "unique" ? "Unique item" : r.routed_to === "generic" ? "Generic item" : "—"
                           )}
                           {!rejected && (r.stocked_code ?? r.stocked_item_sku) && <span className="block font-mono text-2xs">{r.stocked_code ?? r.stocked_item_sku}</span>}
                         </td>

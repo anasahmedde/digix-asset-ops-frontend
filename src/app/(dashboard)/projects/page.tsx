@@ -588,7 +588,7 @@ export default function ProjectsPage() {
     e.preventDefault();
     if (!allocLine || !detail) return;
     if (allocMode === "device" && !allocDevice) { toast.error("Pick a device to allocate"); return; }
-    if (allocMode === "stock" && !allocItem) { toast.error("Pick a stock item to allocate"); return; }
+    if (allocMode === "stock" && !allocItem) { toast.error("Pick a generic item to allocate"); return; }
     setAllocSaving(true);
     try {
       if (allocMode === "device") {
@@ -1569,7 +1569,7 @@ export default function ProjectsPage() {
                       onChange={(e) => setAllocItem(e.target.value)}
                       className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none"
                     >
-                      <option value="">Select stock item…</option>
+                      <option value="">Select generic item…</option>
                       {allocItems.map((it) => (
                         <option key={it.id} value={it.id}>
                           {it.material_name || it.sku || "Item"}{it.sku ? ` (${it.sku})` : ""} — {it.quantity} {it.unit || "pcs"} in stock
