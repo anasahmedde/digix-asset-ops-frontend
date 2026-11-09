@@ -556,7 +556,7 @@ export function CorrectiveVisit({
   const fromStore = (current?.component_costs ?? []).filter((c) => !c.purchase);
 
   /** Whoever may accept fills in the cost; everyone else reads it. */
-  const reviewer = may("accept");
+  const reviewer = may("accept") || may("unresolved");
   /** Accepted: the cost as it was recorded. */
   const settled = current?.status === "completed" && (current?.cost_lines ?? []).length > 0;
   const settledTotal = (current?.cost_lines ?? []).reduce((n, l) => n + Number(l.amount || 0), 0);
@@ -655,20 +655,19 @@ export function CorrectiveVisit({
         ...(side ? { issue_side: side } : {}),
         ...(reviewing === "unresolved"
           ? { reason, technician: againWith || null, next_due: againOn || null }
-          : {
-              note,
-              cost_lines: extra
-                .filter((l) => l.description.trim() && l.amount !== "")
-                .map((l) => ({ description: l.description.trim(), amount: l.amount })),
-              ...(Number(labourRate) > 0 ? { labour: { hours: labourHours === "" ? null : labourHours, rate: labourRate } } : {}),
-              component_prices: Object.fromEntries(
-                Object.entries(priced).filter(([, v]) => v !== ""),
-              ),
-            }),
+          : { note }),
+        // Fixed or not, the visit cost what it cost: recorded either way.
+        cost_lines: extra
+          .filter((l) => l.description.trim() && l.amount !== "")
+          .map((l) => ({ description: l.description.trim(), amount: l.amount })),
+        ...(Number(labourRate) > 0 ? { labour: { hours: labourHours === "" ? null : labourHours, rate: labourRate } } : {}),
+        component_prices: Object.fromEntries(
+          Object.entries(priced).filter(([, v]) => v !== ""),
+        ),
       });
       setReviewing(null);
       setNote(""); setReason(""); setAgainWith(""); setAgainOn(""); setSide("");
-      if (reviewing === "accepted" && Number(labourRate) > 0) {
+      if (Number(labourRate) > 0) {
         try { localStorage.setItem("labour-rate", labourRate); } catch { /* private window */ }
       }
       setExtra([]); setPriced({});
@@ -1368,6 +1367,10 @@ export function CorrectiveVisit({
             </>
           ) : (
             <>
+              <div className="flex items-baseline justify-between gap-3 rounded-lg border border-border p-3 text-sm">
+                <span className="text-muted-foreground">Cost of this visit, recorded though not fixed</span>
+                <span className="font-semibold tabular-nums text-foreground">PKR {pkr(visitTotal)}</span>
+              </div>
               <div className="space-y-1">
                 <label htmlFor="review-reason" className={label}>
                   Remarks <span className="text-red-500">*</span>
