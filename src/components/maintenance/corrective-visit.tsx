@@ -993,7 +993,7 @@ export function CorrectiveVisit({
                     <div key={i} className="flex items-center gap-2 py-1">
                       <input value={l.description} aria-label="What the cost was for"
                         onChange={(e) => setExtra((cur) => cur.map((x, j) => (j === i ? { ...x, description: e.target.value } : x)))}
-                        placeholder="What it was for" className={`${moneyInput} flex-1 text-left`} />
+                        placeholder="What it was for" className={`${moneyInput.replace("text-right", "text-left")} flex-1`} />
                       <input value={l.amount} aria-label="Amount"
                         onChange={(e) => setExtra((cur) => cur.map((x, j) => (j === i ? { ...x, amount: e.target.value } : x)))}
                         type="number" min={0} step="0.01" placeholder="PKR" className={`${moneyInput} w-28`} />
