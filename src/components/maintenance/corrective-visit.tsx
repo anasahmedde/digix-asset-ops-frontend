@@ -72,8 +72,14 @@ export interface CorrectiveVisitRow {
   visit_photos: VisitPhoto[];
   has_before_photo: boolean;
   has_after_photo: boolean;
-  /** When the technician checked in for it, and out after it. */
-  on_site?: { checked_in_at: string; checked_out_at: string | null; offline: boolean } | null;
+  /** When the technician checked in for it, and out after it: the first
+   *  check-in, the last check-out, and every stay at the site between. */
+  on_site?: {
+    checked_in_at: string; checked_out_at: string | null; offline: boolean;
+    stays?: { checked_in_at: string; checked_out_at: string | null }[];
+  } | null;
+  /** The technician is checked in at the site now (open visits only): the work opens only then. */
+  technician_here?: boolean | null;
   /** The visit's costs the technician paid: parts bought on site (with the
    *  receipt and a photo), and travel, labour, hire or other expenses. */
   purchases?: {
@@ -521,9 +527,6 @@ export function CorrectiveVisit({
   const [extra, setExtra] = useState<{ description: string; amount: string }[]>([]);
   /** A price for a part the store has none on file for. */
   const [priced, setPriced] = useState<Record<string, string>>({});
-  /** Labour: hours on site (measured, editable) at the reviewer's rate. */
-  const [labourHours, setLabourHours] = useState("");
-  const [labourRate, setLabourRate] = useState("");
   const [cancelling, setCancelling] = useState(false);
   /** Helpers being changed on the open visit, while the dialog is up. */
   const [crew, setCrew] = useState<string[] | null>(null);
@@ -534,6 +537,8 @@ export function CorrectiveVisit({
   const [back, setBack] = useState<Record<string, string[]>>({});
   const ordered = [...visits].sort((a, b) => a.sequence - b.sequence);
   const current = ordered[ordered.length - 1] ?? null;
+  /** Labour: each person's hours (measured, editable) at their own rate. */
+  const crewLabour = useCrewLabour(current?.time_on_site, current?.id);
   const may = (a: string) => actions.includes(a);
   /* A part left the shelf on somebody's say-so and comes back on somebody's
      say-so. Until the visit says how much it used, the difference is just
@@ -555,7 +560,7 @@ export function CorrectiveVisit({
       0,
     )
     + extra.reduce((n, l) => n + Number(l.amount || 0), 0)
-    + Number(labourHours || 0) * Number(labourRate || 0);
+    + crewLabour.total;
   const fromStore = (current?.component_costs ?? []).filter((c) => !c.purchase);
 
   /** Whoever may accept fills in the cost; everyone else reads it. */
@@ -563,12 +568,6 @@ export function CorrectiveVisit({
   /** Accepted: the cost as it was recorded. */
   const settled = current?.status === "completed" && (current?.cost_lines ?? []).length > 0;
   const settledTotal = (current?.cost_lines ?? []).reduce((n, l) => n + Number(l.amount || 0), 0);
-  // The measured hours, and the rate this reviewer used last, once per visit.
-  useEffect(() => {
-    setLabourHours(current?.time_on_site ? String(current.time_on_site.hours) : "");
-    try { setLabourRate(localStorage.getItem("labour-rate") ?? ""); } catch { setLabourRate(""); }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [current?.id]);
   const openAccept = () => setReviewing("accepted");
 
   async function assign(e: React.FormEvent) {
@@ -678,16 +677,14 @@ export function CorrectiveVisit({
         cost_lines: extra
           .filter((l) => l.description.trim() && l.amount !== "")
           .map((l) => ({ description: l.description.trim(), amount: l.amount })),
-        ...(Number(labourRate) > 0 ? { labour: { hours: labourHours === "" ? null : labourHours, rate: labourRate } } : {}),
+        ...crewLabour.payload,
         component_prices: Object.fromEntries(
           Object.entries(priced).filter(([, v]) => v !== ""),
         ),
       });
       setReviewing(null);
       setNote(""); setReason(""); setAgainWith(""); setAgainOn(""); setSide("");
-      if (Number(labourRate) > 0) {
-        try { localStorage.setItem("labour-rate", labourRate); } catch { /* private window */ }
-      }
+      crewLabour.remember();
       setExtra([]); setPriced({});
       onChanged();
       toast.success(reviewing === "accepted"
@@ -886,7 +883,7 @@ export function CorrectiveVisit({
                       <CostRow key={l.id} what={l.description} amount={Number(l.amount)}
                         calc={l.quantity && l.unit_cost ? `${Number(l.quantity)} × ${pkr(Number(l.unit_cost))}` : undefined} />
                     ))}
-                    {src === "labour" && <div className="mt-2"><HoursBasis visit={current} canEnter={false} /></div>}
+                    {src === "labour" && <div className="mt-3"><HoursBasis visit={current} canEnter={false} /></div>}
                   </CostGroup>
                 );
               })
@@ -950,27 +947,9 @@ export function CorrectiveVisit({
                   ))}
                 </CostGroup>
 
-                <CostGroup icon={<Clock className="h-4 w-4" />} title="Man-hours" note="Work time from Start work to Work done, less pauses"
-                  total={Number(labourHours || 0) * Number(labourRate || 0)}>
-                  <HoursBasis visit={current} canEnter={reviewer} />
-                  {reviewer && (
-                    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg bg-secondary/60 px-3 py-2.5 text-xs">
-                      <label className="flex items-center gap-2 text-muted-foreground">
-                        Hours
-                        <input id="labour-hours" value={labourHours} onChange={(e) => setLabourHours(e.target.value)}
-                          type="number" min={0} step="0.25" className={`${moneyInput} w-20`} />
-                      </label>
-                      <span className="text-muted-foreground">×</span>
-                      <label className="flex items-center gap-2 text-muted-foreground">
-                        Rate (PKR / hour)
-                        <input id="labour-rate" value={labourRate} onChange={(e) => setLabourRate(e.target.value)}
-                          type="number" min={0} step="1" placeholder="0" className={`${moneyInput} w-28`} />
-                      </label>
-                      <span className="ml-auto text-sm font-semibold tabular-nums text-foreground">
-                        = PKR {pkr(Number(labourHours || 0) * Number(labourRate || 0))}
-                      </span>
-                    </div>
-                  )}
+                <CostGroup icon={<Clock className="h-4 w-4" />} title="Man-hours" note="Each person's hours at their own rate"
+                  total={crewLabour.total}>
+                  <HoursBasis visit={current} canEnter={reviewer} crew={reviewer ? crewLabour : undefined} />
                 </CostGroup>
 
                 <CostGroup icon={<Plus className="h-4 w-4" />} title="Other costs" note="Anything else this visit cost"
@@ -1015,6 +994,13 @@ export function CorrectiveVisit({
           && (mine || can("manage_maintenance") || can("review_maintenance"))}
         onChanged={onChanged}
       />
+
+      {/* Away from the site: the work waits for the technician's next check-in. */}
+      {current.technician_here === false && current.assigned_to && (
+        <p className="mt-4 rounded-lg bg-secondary px-3 py-2 text-xs text-muted-foreground">
+          {current.assigned_to_name ?? "The technician"} is not checked in at the site. Starting, pausing, resuming and finishing the work open once they check in.
+        </p>
+      )}
 
       {/* Work stopped for now: the paused time is left out of the man-hours. */}
       {current.paused_since && (
@@ -1474,68 +1460,236 @@ const moneyInput =
 
 const pkr = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-/** How the man-hours were counted: the visit's own times in order -
- *  check-in, work started, every pause and resume, work done, check-out -
- *  then each person's hours. */
-function HoursBasis({ visit: v, canEnter }: { visit: CorrectiveVisitRow; canEnter: boolean }) {
-  const events: { at: string; what: string; tone?: "pause" }[] = [];
-  if (v.on_site?.checked_in_at) events.push({ at: v.on_site.checked_in_at, what: "Checked in at the site" });
-  if (v.started_at) events.push({ at: v.started_at, what: "Work started" });
+/** How the man-hours were counted. Day by day: a bar of the day (on site,
+ *  working, paused) over the times themselves - check-in, work started,
+ *  every pause and resume, work done, check-out. Then each person's hours,
+ *  with their rate beside them while the reviewer prices the visit. */
+function HoursBasis({ visit: v, canEnter, crew }: {
+  visit: CorrectiveVisitRow; canEnter: boolean; crew?: ReturnType<typeof useCrewLabour>;
+}) {
+  type Kind = "site" | "work" | "pause";
+  const events: { at: Date; what: string; kind: Kind }[] = [];
+  const add = (at: string | null | undefined, what: string, kind: Kind) => { if (at) events.push({ at: new Date(at), what, kind }); };
+  add(v.started_at, "Work started", "work");
   for (const p of v.pauses ?? []) {
-    events.push({ at: p.paused_at, what: p.automatic ? "Paused - checked out with work going" : `Paused${p.reason ? `: ${p.reason}` : ""}`, tone: "pause" });
-    if (p.resumed_at) events.push({ at: p.resumed_at, what: "Resumed" });
+    add(p.paused_at, p.automatic ? "Paused on check-out" : `Paused${p.reason ? `: ${p.reason}` : ""}`, "pause");
+    add(p.resumed_at, "Resumed", "work");
   }
-  if (v.completed_at) events.push({ at: v.completed_at, what: "Work done" });
-  if (v.on_site?.checked_out_at) events.push({ at: v.on_site.checked_out_at, what: "Checked out" });
-  events.sort((x, y) => new Date(x.at).getTime() - new Date(y.at).getTime());
+  add(v.completed_at, "Work done", "work");
+  // After the pauses, so a pause made by checking out reads before the check-out.
+  const stays = v.on_site?.stays ?? (v.on_site ? [v.on_site] : []);
+  for (const s of stays) {
+    add(s.checked_in_at, "Checked in at the site", "site");
+    add(s.checked_out_at, "Checked out", "site");
+  }
+  events.sort((x, y) => x.at.getTime() - y.at.getTime());
+
   const spent = v.time_on_site;
+  const lead = spent?.people.find((p) => p.lead);
+  const now = Date.now();
+  const days: { key: string; label: string; items: typeof events }[] = [];
+  for (const e of events) {
+    const key = e.at.toDateString();
+    const day = days.find((d) => d.key === key);
+    if (day) day.items.push(e); else days.push({ key, label: dayLabel(e.at), items: [e] });
+  }
+  const t = (s: string | null | undefined) => (s ? new Date(s).getTime() : now);
+  const dot: Record<Kind, string> = { site: "bg-slate-400", work: "bg-primary", pause: "bg-amber-500" };
 
   return (
-    <div className="space-y-2">
-      {events.length > 0 && (
-        <ol className="space-y-0.5 rounded-lg bg-secondary/40 px-3 py-2">
-          {events.map((e, i) => (
-            <li key={i} className="flex flex-wrap justify-between gap-x-3 text-2xs tabular-nums">
-              <span className={e.tone === "pause" ? "text-amber-700" : "text-foreground"}>{e.what}</span>
-              <span className="text-muted-foreground">{formatDateTime(e.at)}</span>
-            </li>
-          ))}
-        </ol>
+    <div className="space-y-3">
+      {days.length > 0 && (
+        <div className="space-y-2">
+          <div className="grid gap-2 sm:grid-cols-2">
+            {days.map((day) => {
+              const from = day.items[0].at.getTime();
+              const to = day.items[day.items.length - 1].at.getTime();
+              const span = to - from;
+              // A stretch as a share of the day's bar, clipped to it.
+              const bar = (a: number, b: number) => {
+                const l = Math.max(a, from), r = Math.min(b, to);
+                return r > l ? { left: `${((l - from) / span) * 100}%`, width: `${((r - l) / span) * 100}%` } : null;
+              };
+              const worked = (lead?.spells ?? []).reduce((n, sp) => {
+                const l = Math.max(t(sp.from), from), r = Math.min(t(sp.to), to);
+                return n + Math.max(0, r - l);
+              }, 0);
+              return (
+                <div key={day.key} className="rounded-lg border border-border bg-background/60 p-3">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <p className="text-xs font-semibold text-foreground">{day.label}</p>
+                    {worked > 0 && <p className="text-2xs tabular-nums text-muted-foreground">{hoursOf(worked)} worked</p>}
+                  </div>
+                  {span > 0 && (
+                    <div className="relative mt-2 h-2 overflow-hidden rounded-full bg-secondary" aria-hidden>
+                      {stays.map((s, i) => { const st = bar(t(s.checked_in_at), t(s.checked_out_at)); return st && <span key={`s${i}`} className="absolute inset-y-0 bg-slate-300 dark:bg-slate-600" style={st} />; })}
+                      {(lead?.spells ?? []).map((sp, i) => { const st = bar(t(sp.from), t(sp.to)); return st && <span key={`w${i}`} className="absolute inset-y-0 bg-primary" style={st} />; })}
+                      {(v.pauses ?? []).map((p, i) => { const st = bar(t(p.paused_at), t(p.resumed_at)); return st && <span key={`p${i}`} className="absolute inset-y-0 bg-amber-400" style={st} />; })}
+                    </div>
+                  )}
+                  <ol className="mt-2.5 space-y-1">
+                    {day.items.map((e, i) => (
+                      <li key={i} className="grid grid-cols-[4.5rem_0.375rem_1fr] items-center gap-2 text-2xs">
+                        <span className="tabular-nums text-muted-foreground">{clock(e.at)}</span>
+                        <span className={`h-1.5 w-1.5 rounded-full ${dot[e.kind]}`} />
+                        <span className={e.kind === "pause" ? "text-amber-700 dark:text-amber-400" : "text-foreground"}>{e.what}</span>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-2xs text-muted-foreground">
+            <span className="inline-flex items-center gap-1.5"><span className="h-2 w-3 rounded-sm bg-slate-300 dark:bg-slate-600" />On site</span>
+            <span className="inline-flex items-center gap-1.5"><span className="h-2 w-3 rounded-sm bg-primary" />Working</span>
+            <span className="inline-flex items-center gap-1.5"><span className="h-2 w-3 rounded-sm bg-amber-400" />Paused, not counted</span>
+          </div>
+        </div>
       )}
+
       {spent && spent.people.length > 0 ? (
-        <>
-          {spent.people.map((person) => (
-            <div key={person.id}>
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-sm text-foreground">
-                  {person.name}
-                  <span className="text-muted-foreground">{person.lead ? " · work time, less pauses" : " · helper, time checked in"}</span>
-                </span>
-                <span className="rounded-full bg-secondary px-2 py-0.5 text-2xs font-semibold tabular-nums text-foreground">{person.hours} h</span>
+        <div className="divide-y divide-border rounded-lg border border-border">
+          {spent.people.map((person) => {
+            const i = crew ? crew.rows.findIndex((r) => r.id === person.id) : -1;
+            const row = i >= 0 ? crew!.rows[i] : null;
+            const byDay: { label: string; spans: string[]; reckoned: boolean }[] = [];
+            for (const sp of person.spells) {
+              const a = new Date(sp.from), b = new Date(sp.to);
+              const label = dayLabel(a);
+              const day = byDay.find((d) => d.label === label) ?? (byDay.push({ label, spans: [], reckoned: false }), byDay[byDay.length - 1]);
+              day.spans.push(`${clock(a)} – ${clock(b)}`);
+              day.reckoned ||= sp.reckoned;
+            }
+            return (
+              <div key={person.id} className="flex flex-col gap-2 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-foreground">
+                    {person.name}
+                    <span className="ml-2 text-2xs font-normal text-muted-foreground">
+                      {person.lead ? "Technician, work time less pauses" : "Helper, on site while the work ran"}
+                    </span>
+                  </p>
+                  <div className="mt-0.5 space-y-px">
+                    {byDay.map((d) => (
+                      <p key={d.label} className="text-2xs tabular-nums text-muted-foreground">
+                        <span className="mr-2 font-medium text-foreground/80">{d.label}</span>{d.spans.join(", ")}
+                        {d.reckoned && (
+                          <span title="No check-in or check-out that day: taken from the first or last work recorded"
+                            className="ml-1.5 rounded bg-amber-500/10 px-1 py-px font-medium text-amber-700">reckoned</span>
+                        )}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+                {row ? (
+                  <div className="flex w-full shrink-0 items-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground sm:w-auto">
+                    <input id={`labour-hours-${i}`} aria-label={`Hours for ${person.name}`} value={row.hours}
+                      onChange={(e) => crew!.set(i, { hours: e.target.value })}
+                      type="number" min={0} step="0.25" className={`${moneyInput} w-16 shrink-0 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none`} />
+                    <span>h ×</span>
+                    <input id={`labour-rate-${i}`} aria-label={`Rate per hour for ${person.name}`} value={row.rate}
+                      onChange={(e) => crew!.set(i, { rate: e.target.value })}
+                      type="number" min={0} step="1" placeholder="Rate" className={`${moneyInput} w-20 shrink-0 sm:w-24 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none`} />
+                    <span>/ h</span>
+                    <span className="ml-auto pl-1 text-right text-sm font-semibold tabular-nums text-foreground">
+                      {pkr(Number(row.hours || 0) * Number(row.rate || 0))}
+                    </span>
+                  </div>
+                ) : (
+                  <span className="shrink-0 self-start rounded-full bg-secondary px-2 py-0.5 text-2xs font-semibold tabular-nums text-foreground sm:self-center">
+                    {person.hours} h
+                  </span>
+                )}
               </div>
-              <ul className="mt-1 space-y-0.5 border-l border-border pl-3">
-                {person.spells.map((sp, i) => (
-                  <li key={i} className="text-2xs tabular-nums text-muted-foreground">
-                    {formatDateTime(sp.from)} – {formatDateTime(sp.to)}
-                    {sp.reckoned && (
-                      <span title="No check-in or check-out that day: taken from the first or last work recorded"
-                        className="ml-1.5 rounded bg-amber-500/10 px-1 py-px font-medium text-amber-700">reckoned</span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-          {spent.reckoned && (
-            <p className="text-2xs text-muted-foreground">
-              <span className="font-medium text-amber-700">Reckoned</span> times ran past a day with no pause or check-out,
-              so they stop at the last work recorded that day and restart at the first the next.{canEnter ? " Change the hours if you know better." : ""}
-            </p>
-          )}
-        </>
+            );
+          })}
+        </div>
       ) : (
-        <p className="text-xs text-muted-foreground">No work time or check-in was found for this visit{canEnter ? ". Enter the hours worked." : "."}</p>
+        <>
+          <p className="text-xs text-muted-foreground">No work time or check-in was found for this visit{canEnter ? ". Enter the hours worked." : "."}</p>
+          {crew && <LabourInputs crew={crew} />}
+        </>
       )}
+      {spent?.reckoned && (
+        <p className="text-2xs text-muted-foreground">
+          <span className="font-medium text-amber-700">Reckoned</span> times ran past a day with no pause or check-out,
+          so they stop at the last work recorded that day and restart at the first the next.{canEnter ? " Change the hours if you know better." : ""}
+        </p>
+      )}
+    </div>
+  );
+}
+
+const dayLabel = (d: Date) => d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+const clock = (d: Date) => d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+/** 4.5 hours as "4 h 30 m". */
+const hoursOf = (ms: number) => {
+  const m = Math.round(ms / 60000);
+  return m >= 60 ? `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} m` : ""}` : `${m} m`;
+};
+
+export interface LabourRow { id: string | null; name: string; hours: string; rate: string }
+
+/** The rate last used for this person, else the last rate used at all. */
+function savedRate(id: string | null): string {
+  try { return (id && localStorage.getItem(`labour-rate:${id}`)) || localStorage.getItem("labour-rate") || ""; } catch { return ""; }
+}
+
+/** Man-hours priced per person - the technician and each helper at their
+ *  own rate - starting from the hours counted for the visit. */
+export function useCrewLabour(spent: CorrectiveVisitRow["time_on_site"], key: string | undefined) {
+  const [rows, setRows] = useState<LabourRow[]>([]);
+  useEffect(() => {
+    const people = spent?.people ?? [];
+    setRows(people.length > 0
+      ? people.map((p) => ({ id: p.id, name: p.name, hours: String(p.hours), rate: savedRate(p.id) }))
+      : [{ id: null, name: "", hours: spent ? String(spent.hours) : "", rate: savedRate(null) }]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  const total = rows.reduce((n, r) => n + Number(r.hours || 0) * Number(r.rate || 0), 0);
+  const paid = rows.filter((r) => Number(r.rate) > 0);
+  const hrs = (r: LabourRow) => (r.hours === "" ? null : r.hours);
+  /** What the server is sent; nothing when no rate was given. */
+  const payload = paid.length === 0 ? {} : {
+    labour: rows[0].id === null
+      ? { hours: hrs(rows[0]), rate: rows[0].rate }
+      : { people: paid.map((r) => ({ id: r.id, hours: hrs(r), rate: r.rate })) },
+  };
+  const remember = () => {
+    try {
+      for (const r of paid) if (r.id) localStorage.setItem(`labour-rate:${r.id}`, r.rate);
+      if (paid[0]) localStorage.setItem("labour-rate", paid[0].rate);
+    } catch { /* private window */ }
+  };
+  const set = (i: number, change: Partial<LabourRow>) =>
+    setRows((cur) => cur.map((r, j) => (j === i ? { ...r, ...change } : r)));
+  return { rows, set, total, payload, remember };
+}
+
+/** A line per person: hours × their rate per hour. */
+export function LabourInputs({ crew }: { crew: ReturnType<typeof useCrewLabour> }) {
+  return (
+    <div className="space-y-2 rounded-lg bg-secondary/60 px-3 py-2.5 text-xs">
+      {crew.rows.map((r, i) => (
+        <div key={r.id ?? "visit"} className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          {r.name && <span className="w-full truncate text-sm font-medium text-foreground sm:w-32">{r.name}</span>}
+          <label className="flex items-center gap-2 text-muted-foreground">
+            Hours
+            <input id={`labour-hours-${i}`} value={r.hours} onChange={(e) => crew.set(i, { hours: e.target.value })}
+              type="number" min={0} step="0.25" className={`${moneyInput} w-20`} />
+          </label>
+          <span className="text-muted-foreground">×</span>
+          <label className="flex items-center gap-2 text-muted-foreground">
+            Rate (PKR / hour)
+            <input id={`labour-rate-${i}`} value={r.rate} onChange={(e) => crew.set(i, { rate: e.target.value })}
+              type="number" min={0} step="1" placeholder="0" className={`${moneyInput} w-28`} />
+          </label>
+          <span className="ml-auto text-sm font-semibold tabular-nums text-foreground">
+            = PKR {pkr(Number(r.hours || 0) * Number(r.rate || 0))}
+          </span>
+        </div>
+      ))}
     </div>
   );
 }
