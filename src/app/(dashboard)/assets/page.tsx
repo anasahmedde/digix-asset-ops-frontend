@@ -78,7 +78,7 @@ interface DeviceDetail extends Device {
   /** The sites this asset's project covers — where it may be installed. */
   project_sites?: { id: string; name: string; city?: string }[];
   /** Its maintenance visits at a glance. */
-  visit_summary?: { total: number; last_visit: string | null; client_side: number; our_side: number; not_recorded: number };
+  visit_summary?: { total: number; last_visit: string | null; client_side: number; our_side: number; not_recorded: number; last_visit_cost?: number | string | null; visits_cost?: number | string };
   /** What the asset has cost: building it, and keeping it running. */
   cost_of_ownership?: {
     development: {
@@ -1590,8 +1590,15 @@ export default function AssetsPage() {
                 <OverviewRow icon={<Zap className="h-4 w-4 text-amber-400" />} label="Production Steps" value={d.requires_production ? String((d.production_steps ?? []).length) : "—"} />
                 <OverviewRow icon={<Clock className="h-4 w-4 text-green-400" />} label="Batch" value={d.batch_number || "—"} />
                 {/* Its maintenance visits: when last, how many, and whose side the issues were on. */}
-                <OverviewRow icon={<Calendar className="h-4 w-4 text-purple-400" />} label="Visit Date" value={d.visit_summary?.last_visit ? formatDate(d.visit_summary.last_visit) : "No visit yet"} />
-                <OverviewRow icon={<Wrench className="h-4 w-4 text-purple-400" />} label="Total Visits" value={String(d.visit_summary?.total ?? 0)} />
+                {/* With the cost beside each, for those who may see prices; either opens the visits, the last one first. */}
+                <OverviewRow icon={<Calendar className="h-4 w-4 text-purple-400" />} label="Last Visit"
+                  value={d.visit_summary?.last_visit
+                    ? formatDate(d.visit_summary.last_visit) + (d.visit_summary.last_visit_cost != null ? ` · PKR ${Number(d.visit_summary.last_visit_cost).toLocaleString()}` : "")
+                    : "No visit yet"}
+                  onClick={d.visit_summary?.total ? () => setVisitsOpen(true) : undefined} />
+                <OverviewRow icon={<Wrench className="h-4 w-4 text-purple-400" />} label="Total Visits"
+                  value={String(d.visit_summary?.total ?? 0) + (d.visit_summary?.total && d.visit_summary.visits_cost != null ? ` · PKR ${Number(d.visit_summary.visits_cost).toLocaleString()}` : "")}
+                  onClick={d.visit_summary?.total ? () => setVisitsOpen(true) : undefined} />
                 <OverviewRow icon={<Shield className="h-4 w-4 text-amber-500" />} label="Issue on Client Side" value={String(d.visit_summary?.client_side ?? 0)} />
                 <OverviewRow icon={<Shield className="h-4 w-4 text-sky-500" />} label="Issue on Our Side" value={String(d.visit_summary?.our_side ?? 0)} />
                 {d.cost_of_ownership && (
@@ -3507,7 +3514,7 @@ function OverviewRow({ icon, label, value, onClick }: { icon: React.ReactNode; l
         {icon}
         <span className="text-xs text-muted-foreground">{label}</span>
       </div>
-      <span className={`ml-auto text-right text-sm font-semibold ${onClick ? "text-primary group-hover:underline" : "text-foreground"}`}>{value || "—"}</span>
+      <span className={`ml-auto text-right text-sm font-semibold ${onClick ? "text-primary underline decoration-dotted decoration-primary/40 underline-offset-4 group-hover:decoration-solid" : "text-foreground"}`}>{value || "—"}</span>
     </>
   );
   // The value sits to the right of its label while there is room, and
