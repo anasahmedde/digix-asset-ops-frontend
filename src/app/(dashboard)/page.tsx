@@ -5,6 +5,7 @@ import {
   AlertCircle,
   CheckCircle,
   Clock,
+  Factory,
   Monitor,
   Wrench,
 } from "lucide-react";
@@ -228,6 +229,7 @@ export default function DashboardPage() {
   // Complete, non-overlapping breakdown — these six always sum to `total`.
   const working = sum("active", "installed");
   const inStock = sum("in_stock");
+  const inProduction = sum("in_production");
   const pipeline = sum("procured", "in_transit", "assigned");
   const underMaint = sum("under_maintenance");
   const clientProperty = sum("client_property");
@@ -310,19 +312,24 @@ export default function DashboardPage() {
         </Link>
       )}
 
-      {/* Top stat cards — four plain-language tiles. The full status breakdown
+      {/* Top stat cards — five plain-language tiles, in the order an asset moves. The full status breakdown
           lives in the Status chart below and on the Assets page. */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Link href="/assets" className="block rounded-xl transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md">
+      {/* Five in a row only where there is room; below that three, then the
+          last two wider, so no label is cut short. */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6 2xl:grid-cols-5">
+        <Link href="/assets" className="block rounded-xl transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md lg:col-span-2 2xl:col-span-1">
           <StatCard label="Total Assets" value={total} subtitle="across Pakistan" icon={<Monitor className="h-5 w-5" />} />
         </Link>
-        <Link href="/assets" className="block rounded-xl transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md">
+        <Link href="/assets" className="block rounded-xl transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md lg:col-span-2 2xl:col-span-1">
           <StatCard label="Active" value={working} subtitle="installed & live at client sites" icon={<CheckCircle className="h-5 w-5" />} />
         </Link>
-        <Link href="/assets?status=in_stock" className="block rounded-xl transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md">
+        <Link href="/assets?status=in_production" className="block rounded-xl transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md lg:col-span-2 2xl:col-span-1">
+          <StatCard label="In Production" value={inProduction} subtitle="being built in the workshop" icon={<Factory className="h-5 w-5" />} />
+        </Link>
+        <Link href="/assets?status=in_stock" className="block rounded-xl transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md lg:col-span-3 2xl:col-span-1">
           <StatCard label="In Stock" value={inStock} subtitle="ready to install" variant="highlighted" icon={<Clock className="h-5 w-5" />} />
         </Link>
-        <Link href="/assets?status=under_maintenance" className="block rounded-xl transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md">
+        <Link href="/assets?status=under_maintenance" className="block rounded-xl transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md sm:col-span-2 lg:col-span-3 2xl:col-span-1">
           <StatCard
             label="Needs Attention"
             value={underMaint + outOfService}
