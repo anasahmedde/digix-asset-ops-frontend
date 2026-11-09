@@ -1130,7 +1130,7 @@ function VisitCost({ visit: v, canDecide, onSaved }: { visit: Visit; canDecide: 
             <div className="min-w-0">
               <p className="text-foreground">Man-hours</p>
               <p className="text-2xs text-muted-foreground">
-                {v.time_on_site ? `${v.time_on_site.hours} h on site from check-ins` : "No check-in found for this visit"}
+                {v.time_on_site ? `${v.time_on_site.hours} h of work, less pauses` : "No check-in found for this visit"}
                 {v.time_on_site?.reckoned ? " · some of it reckoned" : ""}
               </p>
             </div>
