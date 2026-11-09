@@ -886,6 +886,7 @@ export function CorrectiveVisit({
                       <CostRow key={l.id} what={l.description} amount={Number(l.amount)}
                         calc={l.quantity && l.unit_cost ? `${Number(l.quantity)} × ${pkr(Number(l.unit_cost))}` : undefined} />
                     ))}
+                    {src === "labour" && <div className="mt-2"><HoursBasis visit={current} canEnter={false} /></div>}
                   </CostGroup>
                 );
               })
@@ -951,39 +952,7 @@ export function CorrectiveVisit({
 
                 <CostGroup icon={<Clock className="h-4 w-4" />} title="Man-hours" note="Work time from Start work to Work done, less pauses"
                   total={Number(labourHours || 0) * Number(labourRate || 0)}>
-                  {current.time_on_site && current.time_on_site.people.length > 0 ? (
-                    <div className="space-y-2">
-                      {current.time_on_site.people.map((person) => (
-                        <div key={person.id}>
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="text-sm text-foreground">
-                              {person.name}{person.lead ? "" : <span className="text-muted-foreground"> · helper</span>}
-                            </span>
-                            <span className="rounded-full bg-secondary px-2 py-0.5 text-2xs font-semibold tabular-nums text-foreground">{person.hours} h</span>
-                          </div>
-                          <ul className="mt-1 space-y-0.5 border-l border-border pl-3">
-                            {person.spells.map((sp, i) => (
-                              <li key={i} className="text-2xs tabular-nums text-muted-foreground">
-                                {formatDateTime(sp.from)} – {formatDateTime(sp.to)}
-                                {sp.reckoned && (
-                                  <span title="No check-in or check-out that day: taken from the first or last work recorded"
-                                    className="ml-1.5 rounded bg-amber-500/10 px-1 py-px font-medium text-amber-700">reckoned</span>
-                                )}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      ))}
-                      {current.time_on_site.reckoned && (
-                        <p className="text-2xs text-muted-foreground">
-                          <span className="font-medium text-amber-700">Reckoned</span> times had no check-in or check-out that day,
-                          so they run from the first or to the last work recorded. Change the hours if you know better.
-                        </p>
-                      )}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">No check-in at the site was found for this visit{reviewer ? ". Enter the hours worked." : "."}</p>
-                  )}
+                  <HoursBasis visit={current} canEnter={reviewer} />
                   {reviewer && (
                     <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg bg-secondary/60 px-3 py-2.5 text-xs">
                       <label className="flex items-center gap-2 text-muted-foreground">
@@ -1504,3 +1473,69 @@ const moneyInput =
   "h-8 rounded-md border border-border bg-background px-2 text-right text-xs tabular-nums text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/15";
 
 const pkr = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** How the man-hours were counted: the visit's own times in order -
+ *  check-in, work started, every pause and resume, work done, check-out -
+ *  then each person's hours. */
+function HoursBasis({ visit: v, canEnter }: { visit: CorrectiveVisitRow; canEnter: boolean }) {
+  const events: { at: string; what: string; tone?: "pause" }[] = [];
+  if (v.on_site?.checked_in_at) events.push({ at: v.on_site.checked_in_at, what: "Checked in at the site" });
+  if (v.started_at) events.push({ at: v.started_at, what: "Work started" });
+  for (const p of v.pauses ?? []) {
+    events.push({ at: p.paused_at, what: p.automatic ? "Paused - checked out with work going" : `Paused${p.reason ? `: ${p.reason}` : ""}`, tone: "pause" });
+    if (p.resumed_at) events.push({ at: p.resumed_at, what: "Resumed" });
+  }
+  if (v.completed_at) events.push({ at: v.completed_at, what: "Work done" });
+  if (v.on_site?.checked_out_at) events.push({ at: v.on_site.checked_out_at, what: "Checked out" });
+  events.sort((x, y) => new Date(x.at).getTime() - new Date(y.at).getTime());
+  const spent = v.time_on_site;
+
+  return (
+    <div className="space-y-2">
+      {events.length > 0 && (
+        <ol className="space-y-0.5 rounded-lg bg-secondary/40 px-3 py-2">
+          {events.map((e, i) => (
+            <li key={i} className="flex flex-wrap justify-between gap-x-3 text-2xs tabular-nums">
+              <span className={e.tone === "pause" ? "text-amber-700" : "text-foreground"}>{e.what}</span>
+              <span className="text-muted-foreground">{formatDateTime(e.at)}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+      {spent && spent.people.length > 0 ? (
+        <>
+          {spent.people.map((person) => (
+            <div key={person.id}>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm text-foreground">
+                  {person.name}
+                  <span className="text-muted-foreground">{person.lead ? " · work time, less pauses" : " · helper, time checked in"}</span>
+                </span>
+                <span className="rounded-full bg-secondary px-2 py-0.5 text-2xs font-semibold tabular-nums text-foreground">{person.hours} h</span>
+              </div>
+              <ul className="mt-1 space-y-0.5 border-l border-border pl-3">
+                {person.spells.map((sp, i) => (
+                  <li key={i} className="text-2xs tabular-nums text-muted-foreground">
+                    {formatDateTime(sp.from)} – {formatDateTime(sp.to)}
+                    {sp.reckoned && (
+                      <span title="No check-in or check-out that day: taken from the first or last work recorded"
+                        className="ml-1.5 rounded bg-amber-500/10 px-1 py-px font-medium text-amber-700">reckoned</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+          {spent.reckoned && (
+            <p className="text-2xs text-muted-foreground">
+              <span className="font-medium text-amber-700">Reckoned</span> times ran past a day with no pause or check-out,
+              so they stop at the last work recorded that day and restart at the first the next.{canEnter ? " Change the hours if you know better." : ""}
+            </p>
+          )}
+        </>
+      ) : (
+        <p className="text-xs text-muted-foreground">No work time or check-in was found for this visit{canEnter ? ". Enter the hours worked." : "."}</p>
+      )}
+    </div>
+  );
+}
