@@ -96,6 +96,8 @@ interface DeviceDetail extends Device {
       preventive: { visits: number; total: string };
       corrective: { visits: number; total: string };
       total: string;
+      /** Each visit's cost, newest first, with the job it belongs to. */
+      lines?: { schedule: string; title: string; kind: string; visit: number | null; date: string; fixed: boolean; cost: string }[];
     };
     total: string;
   } | null;
@@ -2836,10 +2838,34 @@ export default function AssetsPage() {
                               `Preventive · ${c.maintenance.preventive.visits} visit${c.maintenance.preventive.visits === 1 ? "" : "s"}`,
                               c.maintenance.preventive.total, true,
                             )}
+                            {(c.maintenance.lines ?? []).filter((l) => l.kind === "preventive").map((l, i) => (
+                              <Link key={`${l.schedule}-${l.visit ?? i}`} href={`/maintenance?schedule=${l.schedule}`}
+                                className="group ml-3 flex items-center justify-between gap-4 rounded-md border-l-2 border-border py-1 pl-3 pr-1 text-xs hover:border-primary hover:bg-secondary/50">
+                                <span className="min-w-0 text-muted-foreground">
+                                  <span className="text-foreground group-hover:text-primary group-hover:underline">
+                                    {l.visit ? `Visit ${l.visit}` : "Visit"} · {formatDate(l.date)}
+                                  </span>
+                                  {" "}· {l.title}{l.fixed ? "" : " · not fixed"}
+                                </span>
+                                <span className="shrink-0 tabular-nums text-foreground">PKR {Number(l.cost).toLocaleString()}</span>
+                              </Link>
+                            ))}
                             {row(
                               `Corrective · ${c.maintenance.corrective.visits} visit${c.maintenance.corrective.visits === 1 ? "" : "s"}`,
                               c.maintenance.corrective.total, true,
                             )}
+                            {(c.maintenance.lines ?? []).filter((l) => l.kind === "corrective").map((l, i) => (
+                              <Link key={`${l.schedule}-${l.visit ?? i}`} href={`/maintenance?schedule=${l.schedule}`}
+                                className="group ml-3 flex items-center justify-between gap-4 rounded-md border-l-2 border-border py-1 pl-3 pr-1 text-xs hover:border-primary hover:bg-secondary/50">
+                                <span className="min-w-0 text-muted-foreground">
+                                  <span className="text-foreground group-hover:text-primary group-hover:underline">
+                                    {l.visit ? `Visit ${l.visit}` : "Visit"} · {formatDate(l.date)}
+                                  </span>
+                                  {" "}· {l.title}{l.fixed ? "" : " · not fixed"}
+                                </span>
+                                <span className="shrink-0 tabular-nums text-foreground">PKR {Number(l.cost).toLocaleString()}</span>
+                              </Link>
+                            ))}
                             <div className="border-t border-border pt-2">{row("Maintenance total", c.maintenance.total)}</div>
                           </div>
 
