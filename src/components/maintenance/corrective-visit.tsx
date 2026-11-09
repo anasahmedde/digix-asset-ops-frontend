@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  Camera, Check, CircleSlash, ClipboardCheck, Clock, MapPin, Package, Play, Plus,
+  Camera, Check, CircleSlash, ClipboardCheck, Clock, MapPin, Package, Pause, Play, Plus,
   Receipt, RotateCcw, UserPlus, X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -87,6 +87,9 @@ export interface CorrectiveVisitRow {
     /** Null when the store has no price on file for it. */
     unit_cost: string | null; amount: string;
   }[];
+  /** Work stopped for now (overnight, waiting on a part): since when, and every stop. */
+  paused_since?: string | null;
+  pauses?: { paused_at: string; resumed_at: string | null; automatic: boolean; reason: string }[];
   /** Hours at the site for this visit, from check-ins. A day with no
    *  check-out ends at the last work recorded that day ("reckoned"). */
   time_on_site?: {
@@ -604,6 +607,21 @@ export function CorrectiveVisit({
     }
   }
 
+  /** Stop the clock on the work, or pick it up again. */
+  async function pauseOrResume(what: "pause" | "resume") {
+    if (!current) return;
+    setBusy(what);
+    try {
+      await api.post(`/maintenance/visits/${current.id}/${what}/`, {});
+      onChanged();
+      toast.success(what === "pause" ? "Work paused" : "Work resumed");
+    } catch (err) {
+      toast.error(getApiError(err, what === "pause" ? "Could not pause the work" : "Could not resume the work"));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function complete(e: React.FormEvent) {
     e.preventDefault();
     if (!current) return;
@@ -931,7 +949,7 @@ export function CorrectiveVisit({
                   ))}
                 </CostGroup>
 
-                <CostGroup icon={<Clock className="h-4 w-4" />} title="Man-hours" note="Time on site from check-ins"
+                <CostGroup icon={<Clock className="h-4 w-4" />} title="Man-hours" note="Work time from Start work to Work done, less pauses"
                   total={Number(labourHours || 0) * Number(labourRate || 0)}>
                   {current.time_on_site && current.time_on_site.people.length > 0 ? (
                     <div className="space-y-2">
@@ -993,7 +1011,7 @@ export function CorrectiveVisit({
                     <div key={i} className="flex items-center gap-2 py-1">
                       <input value={l.description} aria-label="What the cost was for"
                         onChange={(e) => setExtra((cur) => cur.map((x, j) => (j === i ? { ...x, description: e.target.value } : x)))}
-                        placeholder="What it was for" className={`${moneyInput} flex-1 text-left`} />
+                        placeholder="What it was for" className={`${moneyInput.replace("text-right", "text-left")} flex-1`} />
                       <input value={l.amount} aria-label="Amount"
                         onChange={(e) => setExtra((cur) => cur.map((x, j) => (j === i ? { ...x, amount: e.target.value } : x)))}
                         type="number" min={0} step="0.01" placeholder="PKR" className={`${moneyInput} w-28`} />
@@ -1029,12 +1047,32 @@ export function CorrectiveVisit({
         onChanged={onChanged}
       />
 
-      {(may("start") || may("complete") || may("accept") || may("unresolved") || waitingOn) && (
+      {/* Work stopped for now: the paused time is left out of the man-hours. */}
+      {current.paused_since && (
+        <p className="mt-4 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700">
+          Work paused since {formatDateTime(current.paused_since)}
+          {current.pauses?.find((x) => !x.resumed_at)?.automatic ? " (on check-out)" : ""}. The paused time is not counted in the man-hours.
+        </p>
+      )}
+
+      {(may("start") || may("pause") || may("resume") || may("complete") || may("accept") || may("unresolved") || waitingOn) && (
         <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border pt-4">
           {may("start") && (
             <button onClick={start} disabled={busy !== null}
               className={`${btn} bg-amber-500/10 text-amber-600 ring-1 ring-amber-500/20 hover:bg-amber-500/20`}>
               <Play className="h-3.5 w-3.5" /> Start work
+            </button>
+          )}
+          {may("pause") && (
+            <button onClick={() => pauseOrResume("pause")} disabled={busy !== null}
+              className={`${btn} text-muted-foreground ring-1 ring-border hover:bg-secondary`}>
+              <Pause className="h-3.5 w-3.5" /> Pause work
+            </button>
+          )}
+          {may("resume") && (
+            <button onClick={() => pauseOrResume("resume")} disabled={busy !== null}
+              className={`${btn} bg-amber-500/10 text-amber-600 ring-1 ring-amber-500/20 hover:bg-amber-500/20`}>
+              <Play className="h-3.5 w-3.5" /> Resume work
             </button>
           )}
           {may("complete") && (
