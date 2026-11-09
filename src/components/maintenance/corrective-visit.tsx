@@ -1,8 +1,8 @@
 "use client";
 
 import {
-  Camera, Check, CircleSlash, ClipboardCheck, Clock, MapPin, Play, Plus,
-  RotateCcw, UserPlus, X,
+  Camera, Check, CircleSlash, ClipboardCheck, Clock, MapPin, Package, Play, Plus,
+  Receipt, RotateCcw, UserPlus, X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -846,177 +846,179 @@ export function CorrectiveVisit({
         onChanged={onChanged}
       />
 
-      {/* What this visit cost, in full: parts from the store, what the
-          technician paid (with receipts), man-hours at the reviewer's rate,
-          and anything else. Filled in here while it waits for review;
-          once accepted it shows what was recorded. */}
+      {/* What this visit cost, in full: components, what the technician
+          paid (with receipts), man-hours at the reviewer's rate, and
+          anything else. Filled in here while it waits for review; once
+          accepted it shows what was recorded. */}
       {(current.status === "awaiting_review" || current.status === "completed" || (current.purchases ?? []).length > 0) && (
-        <div className="mt-4 space-y-3 border-t border-border pt-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="mt-4 border-t border-border pt-4">
+          <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
             <p className={label}>Cost of this visit</p>
-            <span className="text-sm font-semibold tabular-nums text-foreground">PKR {pkr(settled ? settledTotal : visitTotal)}</span>
+            {settled && <span className="text-2xs font-medium text-emerald-600">Recorded on acceptance</span>}
           </div>
 
-          {settled ? (
-            // Accepted: the lines as recorded, under the same headings.
-            ([["component", "Components from the store"], ["purchase", "Paid by the technician"],
-              ["labour", "Man-hours"], ["manual", "Other costs"]] as const).map(([src, title]) => {
-              const rows = current.cost_lines.filter((l) => l.source === src);
-              return rows.length === 0 ? null : (
-                <CostGroup key={src} title={title} note="" total={rows.reduce((n, l) => n + Number(l.amount || 0), 0)}>
-                  {rows.map((l) => (
-                    <div key={l.id} className="flex items-center justify-between gap-3 text-xs">
-                      <span className="min-w-0 text-foreground">{l.description}</span>
-                      <span className="shrink-0 tabular-nums text-muted-foreground">
-                        {l.quantity && l.unit_cost ? `${Number(l.quantity)} × PKR ${pkr(Number(l.unit_cost))}` : ""}
-                        <span className="ml-2 font-medium text-foreground">PKR {pkr(Number(l.amount))}</span>
-                      </span>
+          <div className="overflow-hidden rounded-xl border border-border bg-card">
+            {settled ? (
+              ([["component", "Components", Package], ["purchase", "Paid by the technician", Receipt],
+                ["labour", "Man-hours", Clock], ["manual", "Other costs", Plus]] as const).map(([src, title, Icon]) => {
+                const rows = current.cost_lines.filter((l) => l.source === src);
+                return rows.length === 0 ? null : (
+                  <CostGroup key={src} icon={<Icon className="h-4 w-4" />} title={title}
+                    total={rows.reduce((n, l) => n + Number(l.amount || 0), 0)}>
+                    {rows.map((l) => (
+                      <CostRow key={l.id} what={l.description} amount={Number(l.amount)}
+                        calc={l.quantity && l.unit_cost ? `${Number(l.quantity)} × ${pkr(Number(l.unit_cost))}` : undefined} />
+                    ))}
+                  </CostGroup>
+                );
+              })
+            ) : (
+              <>
+                <CostGroup icon={<Package className="h-4 w-4" />} title="Components" note="Used on this visit"
+                  total={fromStore.reduce((n, c) => n + (c.unit_cost !== null ? Number(c.amount || 0) : Number(priced[c.part_request ?? ""] || 0) * Number(c.quantity || 0)), 0)}>
+                  {fromStore.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">None used.</p>
+                  ) : fromStore.map((c) => c.unit_cost !== null ? (
+                    <CostRow key={c.part_request} what={c.description}
+                      calc={`${Number(c.quantity)} × ${pkr(Number(c.unit_cost))}`} amount={Number(c.amount)} />
+                  ) : (
+                    <CostRow key={c.part_request} what={c.description} calc={`${Number(c.quantity)} used`}
+                      amount={Number(priced[c.part_request ?? ""] || 0) * Number(c.quantity || 0)}>
+                      {/* No price on file: asked for here rather than left out of the total. */}
+                      {reviewer ? (
+                        <span className="flex items-center gap-1.5">
+                          <span className="text-2xs text-amber-600">No price on file</span>
+                          <input value={priced[c.part_request ?? ""] ?? ""}
+                            onChange={(e) => setPriced((cur) => ({ ...cur, [c.part_request ?? ""]: e.target.value }))}
+                            type="number" min={0} step="0.01" placeholder="PKR each" aria-label={`Price of one ${c.description}`}
+                            className={`${moneyInput} w-24`} />
+                        </span>
+                      ) : <span className="text-2xs text-amber-600">No price on file</span>}
+                    </CostRow>
+                  ))}
+                </CostGroup>
+
+                <CostGroup icon={<Receipt className="h-4 w-4" />} title="Paid by the technician" note="Recorded in the field app"
+                  total={(current.purchases ?? []).reduce((n, p) => n + Number(p.amount || 0), 0)}>
+                  {(current.purchases ?? []).length === 0 ? (
+                    <p className="text-xs text-muted-foreground">Nothing recorded.</p>
+                  ) : (current.purchases ?? []).map((p) => (
+                    <div key={p.id} className="flex items-center gap-3 py-1.5">
+                      {p.photo ? (
+                        <button type="button" onClick={() => setShowing(p.photo)} title="Photo"
+                          className="h-9 w-9 shrink-0 overflow-hidden rounded-md bg-secondary">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={p.photo} alt={p.description} className="h-full w-full object-cover" />
+                        </button>
+                      ) : (
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-secondary text-muted-foreground">
+                          <Receipt className="h-4 w-4" />
+                        </span>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm text-foreground">
+                          {p.kind && p.kind !== "part" ? <span className="text-muted-foreground">{p.kind_display}: </span> : null}
+                          {p.description}
+                        </p>
+                        <p className="truncate text-2xs text-muted-foreground">
+                          {p.bought_by_name ?? "—"} · {formatDateTime(p.created_at)}
+                          {p.receipt ? (
+                            <> · <a href={p.receipt} target="_blank" rel="noreferrer" className="font-semibold text-primary hover:underline">Receipt</a></>
+                          ) : " · No receipt"}
+                        </p>
+                      </div>
+                      <span className="shrink-0 text-sm font-medium tabular-nums text-foreground">{pkr(Number(p.amount))}</span>
                     </div>
                   ))}
                 </CostGroup>
-              );
-            })
-          ) : (
-            <>
-              <CostGroup title="Components from the store" note="Used on the visit, at the store's price"
-                total={fromStore.reduce((n, c) => n + (c.unit_cost !== null ? Number(c.amount || 0) : Number(priced[c.part_request ?? ""] || 0) * Number(c.quantity || 0)), 0)}>
-                {fromStore.length === 0 ? (
-                  <p className="text-2xs text-muted-foreground">None used.</p>
-                ) : fromStore.map((c) => (
-                  <div key={c.part_request} className="flex items-center justify-between gap-3 text-xs">
-                    <span className="min-w-0 text-foreground">
-                      {c.description}<span className="text-muted-foreground"> · {c.quantity} used</span>
-                    </span>
-                    {c.unit_cost !== null ? (
-                      <span className="shrink-0 tabular-nums text-muted-foreground">
-                        × PKR {pkr(Number(c.unit_cost))}<span className="ml-2 font-medium text-foreground">PKR {pkr(Number(c.amount))}</span>
-                      </span>
-                    ) : reviewer ? (
-                      /* No price on file: asked for here rather than left out of the total. */
-                      <span className="flex shrink-0 items-center gap-1.5">
-                        <span className="text-2xs text-amber-600">No price on file · PKR</span>
-                        <input value={priced[c.part_request ?? ""] ?? ""}
-                          onChange={(e) => setPriced((cur) => ({ ...cur, [c.part_request ?? ""]: e.target.value }))}
-                          type="number" min={0} step="0.01" placeholder="each" aria-label={`Price of one ${c.description}`}
-                          className="h-7 w-24 rounded-lg border border-border bg-card px-2 text-xs tabular-nums text-foreground focus:border-primary/50 focus:outline-none" />
-                      </span>
-                    ) : (
-                      <span className="shrink-0 text-2xs text-amber-600">No price on file</span>
-                    )}
-                  </div>
-                ))}
-              </CostGroup>
 
-              <CostGroup title="Paid by the technician" note="Recorded in the field app, with receipts"
-                total={(current.purchases ?? []).reduce((n, p) => n + Number(p.amount || 0), 0)}>
-                {(current.purchases ?? []).length === 0 ? (
-                  <p className="text-2xs text-muted-foreground">Nothing recorded.</p>
-                ) : (current.purchases ?? []).map((p) => (
-                  <div key={p.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-border p-2.5">
-                    {p.photo ? (
-                      <button type="button" onClick={() => setShowing(p.photo)} title="Photo of the component"
-                        className="h-12 w-12 shrink-0 overflow-hidden rounded-md bg-secondary">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={p.photo} alt={p.description} className="h-full w-full object-cover" />
-                      </button>
-                    ) : null}
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-foreground">
-                        {p.kind && p.kind !== "part" ? <span className="text-muted-foreground">{p.kind_display}: </span> : null}
-                        {p.description}
-                      </p>
-                      <p className="text-2xs text-muted-foreground">
-                        {p.quantity} · PKR {pkr(Number(p.amount))}
-                        {p.shop ? ` · ${p.shop}` : ""} · {p.bought_by_name ?? "—"}, {formatDateTime(p.created_at)}
-                      </p>
-                    </div>
-                    {p.receipt ? (
-                      <a href={p.receipt} target="_blank" rel="noreferrer"
-                        className="shrink-0 text-2xs font-semibold text-primary hover:underline">
-                        Receipt
-                      </a>
-                    ) : <span className="shrink-0 text-2xs text-muted-foreground">No receipt</span>}
-                  </div>
-                ))}
-              </CostGroup>
-
-              <CostGroup title="Man-hours" note="Time on site from check-ins, at the rate per hour"
-                total={Number(labourHours || 0) * Number(labourRate || 0)}>
-                {current.time_on_site && current.time_on_site.people.length > 0 ? (
-                  <div className="space-y-1">
-                    {current.time_on_site.people.map((person) => (
-                      <div key={person.id} className="text-xs">
-                        <div className="flex justify-between gap-3">
-                          <span className="text-foreground">{person.name}{person.lead ? "" : " (helper)"}</span>
-                          <span className="tabular-nums text-foreground">{person.hours} h</span>
+                <CostGroup icon={<Clock className="h-4 w-4" />} title="Man-hours" note="Time on site from check-ins"
+                  total={Number(labourHours || 0) * Number(labourRate || 0)}>
+                  {current.time_on_site && current.time_on_site.people.length > 0 ? (
+                    <div className="space-y-2">
+                      {current.time_on_site.people.map((person) => (
+                        <div key={person.id}>
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-sm text-foreground">
+                              {person.name}{person.lead ? "" : <span className="text-muted-foreground"> · helper</span>}
+                            </span>
+                            <span className="rounded-full bg-secondary px-2 py-0.5 text-2xs font-semibold tabular-nums text-foreground">{person.hours} h</span>
+                          </div>
+                          <ul className="mt-1 space-y-0.5 border-l border-border pl-3">
+                            {person.spells.map((sp, i) => (
+                              <li key={i} className="text-2xs tabular-nums text-muted-foreground">
+                                {formatDateTime(sp.from)} – {formatDateTime(sp.to)}
+                                {sp.reckoned && (
+                                  <span title="No check-in or check-out that day: taken from the first or last work recorded"
+                                    className="ml-1.5 rounded bg-amber-500/10 px-1 py-px font-medium text-amber-700">reckoned</span>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
                         </div>
-                        {person.spells.map((sp, i) => (
-                          <p key={i} className="text-2xs tabular-nums text-muted-foreground">
-                            {formatDateTime(sp.from)} to {formatDateTime(sp.to)}
-                            {sp.reckoned && <span className="text-amber-600"> · reckoned</span>}
-                          </p>
-                        ))}
-                      </div>
-                    ))}
-                    {current.time_on_site.reckoned && (
-                      <p className="text-2xs text-amber-600">
-                        Reckoned: no check-in or check-out that day, so the time is taken from the first or last work recorded. Change the hours if you know better.
-                      </p>
-                    )}
-                  </div>
-                ) : (
-                  <p className="text-2xs text-muted-foreground">No check-in at the site was found for this visit{reviewer ? ". Enter the hours worked." : "."}</p>
-                )}
-                {reviewer ? (
-                  <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
-                    <label htmlFor="labour-hours" className="text-muted-foreground">Hours</label>
-                    <input id="labour-hours" value={labourHours} onChange={(e) => setLabourHours(e.target.value)}
-                      type="number" min={0} step="0.25"
-                      className="h-8 w-20 rounded-lg border border-border bg-card px-2 text-xs tabular-nums text-foreground focus:border-primary/50 focus:outline-none" />
-                    <span className="text-muted-foreground">×</span>
-                    <label htmlFor="labour-rate" className="text-muted-foreground">PKR per hour</label>
-                    <input id="labour-rate" value={labourRate} onChange={(e) => setLabourRate(e.target.value)}
-                      type="number" min={0} step="1" placeholder="rate"
-                      className="h-8 w-28 rounded-lg border border-border bg-card px-2 text-xs tabular-nums text-foreground focus:border-primary/50 focus:outline-none" />
-                    <span className="text-muted-foreground">=</span>
-                    <span className="font-semibold tabular-nums text-foreground">PKR {pkr(Number(labourHours || 0) * Number(labourRate || 0))}</span>
-                  </div>
-                ) : null}
-              </CostGroup>
+                      ))}
+                      {current.time_on_site.reckoned && (
+                        <p className="text-2xs text-muted-foreground">
+                          <span className="font-medium text-amber-700">Reckoned</span> times had no check-in or check-out that day,
+                          so they run from the first or to the last work recorded. Change the hours if you know better.
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">No check-in at the site was found for this visit{reviewer ? ". Enter the hours worked." : "."}</p>
+                  )}
+                  {reviewer && (
+                    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg bg-secondary/60 px-3 py-2.5 text-xs">
+                      <label className="flex items-center gap-2 text-muted-foreground">
+                        Hours
+                        <input id="labour-hours" value={labourHours} onChange={(e) => setLabourHours(e.target.value)}
+                          type="number" min={0} step="0.25" className={`${moneyInput} w-20`} />
+                      </label>
+                      <span className="text-muted-foreground">×</span>
+                      <label className="flex items-center gap-2 text-muted-foreground">
+                        Rate (PKR / hour)
+                        <input id="labour-rate" value={labourRate} onChange={(e) => setLabourRate(e.target.value)}
+                          type="number" min={0} step="1" placeholder="0" className={`${moneyInput} w-28`} />
+                      </label>
+                      <span className="ml-auto text-sm font-semibold tabular-nums text-foreground">
+                        = PKR {pkr(Number(labourHours || 0) * Number(labourRate || 0))}
+                      </span>
+                    </div>
+                  )}
+                </CostGroup>
 
-              <div className="space-y-1.5">
-                <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">Other costs</p>
-                {extra.length === 0 && !reviewer && <p className="text-2xs text-muted-foreground">None.</p>}
-                {extra.map((l, i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <input value={l.description} aria-label="What the cost was for"
-                      onChange={(e) => setExtra((cur) => cur.map((x, j) => (j === i ? { ...x, description: e.target.value } : x)))}
-                      placeholder="What it was for"
-                      className="h-8 flex-1 rounded-lg border border-border bg-card px-2.5 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none" />
-                    <input value={l.amount} aria-label="Amount"
-                      onChange={(e) => setExtra((cur) => cur.map((x, j) => (j === i ? { ...x, amount: e.target.value } : x)))}
-                      type="number" min={0} step="0.01" placeholder="0.00"
-                      className="h-8 w-28 rounded-lg border border-border bg-card px-2.5 text-xs tabular-nums text-foreground focus:border-primary/50 focus:outline-none" />
-                    <button type="button" aria-label="Remove this line"
-                      onClick={() => setExtra((cur) => cur.filter((_, j) => j !== i))}
-                      className="rounded-md p-1 text-muted-foreground hover:bg-secondary hover:text-foreground">
-                      <X className="h-3.5 w-3.5" />
+                <CostGroup icon={<Plus className="h-4 w-4" />} title="Other costs" note="Anything else this visit cost"
+                  total={extra.reduce((n, l) => n + Number(l.amount || 0), 0)}>
+                  {extra.length === 0 && <p className="text-xs text-muted-foreground">None.</p>}
+                  {extra.map((l, i) => (
+                    <div key={i} className="flex items-center gap-2 py-1">
+                      <input value={l.description} aria-label="What the cost was for"
+                        onChange={(e) => setExtra((cur) => cur.map((x, j) => (j === i ? { ...x, description: e.target.value } : x)))}
+                        placeholder="What it was for" className={`${moneyInput} flex-1 text-left`} />
+                      <input value={l.amount} aria-label="Amount"
+                        onChange={(e) => setExtra((cur) => cur.map((x, j) => (j === i ? { ...x, amount: e.target.value } : x)))}
+                        type="number" min={0} step="0.01" placeholder="PKR" className={`${moneyInput} w-28`} />
+                      <button type="button" aria-label="Remove this line"
+                        onClick={() => setExtra((cur) => cur.filter((_, j) => j !== i))}
+                        className="rounded-md p-1 text-muted-foreground hover:bg-secondary hover:text-foreground">
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                  {reviewer && (
+                    <button type="button" onClick={() => setExtra((cur) => [...cur, { description: "", amount: "" }])}
+                      className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline">
+                      <Plus className="h-3.5 w-3.5" /> Add a cost
                     </button>
-                  </div>
-                ))}
-                {reviewer && (
-                  <button type="button" onClick={() => setExtra((cur) => [...cur, { description: "", amount: "" }])}
-                    className="inline-flex items-center gap-1 text-2xs font-semibold text-primary hover:underline">
-                    <Plus className="h-3.5 w-3.5" /> Add a cost
-                  </button>
-                )}
-              </div>
-            </>
-          )}
+                  )}
+                </CostGroup>
+              </>
+            )}
 
-          <div className="flex items-baseline justify-between gap-3 border-t border-border pt-2 text-sm">
-            <span className="font-semibold text-foreground">Total</span>
-            <span className="font-semibold tabular-nums text-foreground">PKR {pkr(settled ? settledTotal : visitTotal)}</span>
+            <div className="flex items-center justify-between gap-3 bg-primary/[0.06] px-4 py-3">
+              <span className="text-sm font-semibold text-foreground">Total cost of this visit</span>
+              <span className="text-lg font-bold tabular-nums text-foreground">PKR {pkr(settled ? settledTotal : visitTotal)}</span>
+            </div>
           </div>
         </div>
       )}
@@ -1425,19 +1427,39 @@ export function CorrectiveVisit({
 }
 
 /** One heading of the visit's cost, with what it adds up to. */
-function CostGroup({ title, note, total, children }: { title: string; note: string; total: number; children: React.ReactNode }) {
+function CostGroup({ icon, title, note, total, children }: {
+  icon: React.ReactNode; title: string; note?: string; total: number; children: React.ReactNode;
+}) {
   return (
-    <div className="space-y-1.5 border-b border-border pb-3">
-      <div className="flex items-baseline justify-between gap-3">
-        <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">{title}</p>
-        <span className="text-xs font-semibold tabular-nums text-foreground">
-          PKR {total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-        </span>
+    <section className="border-b border-border px-4 py-3">
+      <div className="mb-2 flex items-center gap-2.5">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">{icon}</span>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-foreground">{title}</p>
+          {note && <p className="text-2xs text-muted-foreground">{note}</p>}
+        </div>
+        <span className="text-sm font-semibold tabular-nums text-foreground">PKR {pkr(total)}</span>
       </div>
-      <p className="text-2xs text-muted-foreground">{note}</p>
-      {children}
+      <div className="sm:pl-9">{children}</div>
+    </section>
+  );
+}
+
+/** One line: what it was, how it was reckoned, what it came to. */
+function CostRow({ what, calc, amount, children }: { what: string; calc?: string; amount: number; children?: React.ReactNode }) {
+  return (
+    <div className="flex items-start justify-between gap-3 py-1 text-sm">
+      <div className="min-w-0 space-y-0.5">
+        <p className="text-foreground">{what}</p>
+        {calc && <p className="text-2xs tabular-nums text-muted-foreground">{calc}</p>}
+        {children}
+      </div>
+      <span className="shrink-0 font-medium tabular-nums text-foreground">{pkr(amount)}</span>
     </div>
   );
 }
+
+const moneyInput =
+  "h-8 rounded-md border border-border bg-background px-2 text-right text-xs tabular-nums text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/15";
 
 const pkr = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
