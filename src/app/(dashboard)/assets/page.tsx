@@ -295,12 +295,10 @@ const STATUSES = [
   { value: "under_maintenance", label: "Under Maintenance" },
   { value: "client_property", label: "Client Property" },
   { value: "decommissioned", label: "Decommissioned" },
-  { value: "lost_stolen", label: "Lost/Stolen" },
-  { value: "rma", label: "RMA" },
 ];
 
 // The canonical procure→decommission chain, in lifecycle order (the client's
-// requested lifecycle view). lost_stolen / rma sit outside the main flow.
+// requested lifecycle view).
 // The build-and-deploy ladder in the order it actually happens. "In transit"
 // is a movement state an asset can drop into later, not a step between being
 // procured and being built, so it is not part of the chain.
@@ -334,14 +332,16 @@ const TRACK_ALL = ["procured", "in_production", "in_stock", "assigned", "install
 // next step for every asset, and nothing comes back from it.
 const TRACK_END = ["client_property", "decommissioned"] as const;
 // States that take an asset off the line for a while.
-const OFF_TRACK = ["in_transit", "rma", "lost_stolen"];
+const OFF_TRACK = ["in_transit"];
 
 // The lifecycle follows the work. These two are the only stages nobody's work
 // produces — handing the asset to the client, and retiring it — so they are the
 // only ones a person sets by hand.
 const MANUAL_STATUSES = ["client_property", "decommissioned"];
 // Nothing in the app moves an asset here; the filter offers them only while an old asset still sits in one.
-const NEVER_SET = ["in_transit", "lost_stolen", "rma"];
+/** Procurement up to installation: what the dashboard counts as In Production. */
+const PIPELINE = ["procured", "in_transit", "in_production", "in_stock", "assigned"];
+const NEVER_SET = ["in_transit"];
 
 // What is actually moving the asset on, said plainly where the old dropdown was.
 const LIFECYCLE_SOURCE: Record<string, string> = {
@@ -531,7 +531,7 @@ function lifecycleItems(
     if (evt.event_type === "note" || evt.event_type === "reassignment") return "muted";
     if (["active", "installed"].includes(evt.to_value)) return "success";
     if (evt.to_value === "under_maintenance") return "warning";
-    if (["rma", "lost_stolen", "decommissioned"].includes(evt.to_value)) return "danger";
+    if (evt.to_value === "decommissioned") return "danger";
     return "primary";
   };
   return events.map((evt) => ({
@@ -779,6 +779,8 @@ export default function AssetsPage() {
     if (autoOpenedRef.current || loading) return;
     const statusParam = searchParams.get("status");
     if (statusParam) setFilterValues((prev) => ({ ...prev, status: statusParam }));
+    const flagParam = searchParams.get("flag");
+    if (flagParam) setFilterValues((prev) => ({ ...prev, status: "", flag: flagParam }));
     // Sent here to define an asset — from a project's scope, say — so open the
     // registration form rather than making them find the button.
     if (searchParams.get("new") && !searchParams.get("device")) {
@@ -1431,6 +1433,7 @@ export default function AssetsPage() {
     if (filterValues.site && (d.site_name || "") !== filterValues.site) return false;
     if (filterValues.warranty && (d.warranty_status || "none") !== filterValues.warranty) return false;
     if (filterValues.flag === "operational" && !["active", "installed"].includes(d.status)) return false;
+    if (filterValues.flag === "pipeline" && !PIPELINE.includes(d.status)) return false;
     if (filterValues.flag === "warranty_expired" && d.warranty_status !== "expired") return false;
     if (search) {
       const q = search.toLowerCase();
@@ -3078,7 +3081,7 @@ export default function AssetsPage() {
         const STATUS_HEX: Record<string, string> = {
           procured: "#8b5cf6", in_transit: "#ec4899", in_production: "#eab308", in_stock: "#6366f1", assigned: "#3b82f6",
           installed: "#06b6d4", active: "#22c55e", under_maintenance: "#f59e0b",
-          client_property: "#5c8aa3", decommissioned: "#ef4444", lost_stolen: "#dc2626", rma: "#f97316",
+          client_property: "#5c8aa3", decommissioned: "#ef4444",
         };
         return (
           <div className="space-y-3 rounded-xl border border-border bg-card p-4">

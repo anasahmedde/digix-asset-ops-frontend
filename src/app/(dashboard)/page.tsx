@@ -229,11 +229,12 @@ export default function DashboardPage() {
   // Complete, non-overlapping breakdown — these six always sum to `total`.
   const working = sum("active", "installed");
   const inStock = sum("in_stock");
-  const inProduction = sum("in_production");
+  // Procurement up to installation: bought, being built, in stock or assigned.
+  const inProduction = sum("procured", "in_transit", "in_production", "in_stock", "assigned");
   const pipeline = sum("procured", "in_transit", "assigned");
   const underMaint = sum("under_maintenance");
   const clientProperty = sum("client_property");
-  const outOfService = sum("decommissioned", "lost_stolen", "rma");
+  const outOfService = sum("decommissioned");
 
 
   const statusDistData = [
@@ -323,8 +324,8 @@ export default function DashboardPage() {
         <Link href="/assets" className="block rounded-xl transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md lg:col-span-2 2xl:col-span-1">
           <StatCard label="Active" value={working} subtitle="installed & live at client sites" icon={<CheckCircle className="h-5 w-5" />} />
         </Link>
-        <Link href="/assets?status=in_production" className="block rounded-xl transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md lg:col-span-2 2xl:col-span-1">
-          <StatCard label="In Production" value={inProduction} subtitle="being built in the workshop" icon={<Factory className="h-5 w-5" />} />
+        <Link href="/assets?flag=pipeline" className="block rounded-xl transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md lg:col-span-2 2xl:col-span-1">
+          <StatCard label="In Production" value={inProduction} subtitle="procured, being built or waiting to install" icon={<Factory className="h-5 w-5" />} />
         </Link>
         <Link href="/assets?status=in_stock" className="block rounded-xl transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md lg:col-span-3 2xl:col-span-1">
           <StatCard label="In Stock" value={inStock} subtitle="ready to install" variant="highlighted" icon={<Clock className="h-5 w-5" />} />

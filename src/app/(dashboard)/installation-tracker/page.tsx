@@ -878,7 +878,7 @@ export default function InstallationTrackerPage() {
     // server moves it through Installed itself now; only an asset that has
     // left the install path (out of service, written off, the client's) is
     // not something this screen can take live.
-    const offPath = ["under_maintenance", "client_property", "decommissioned", "lost_stolen", "rma"]
+    const offPath = ["under_maintenance", "client_property", "decommissioned"]
       .includes(selected.device_status);
     // The installer records their own work from the phone, at the asset,
     // after scanning its label. The desktop offers them nothing to press.

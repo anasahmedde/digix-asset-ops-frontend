@@ -23,8 +23,6 @@ const STATUS_META: Record<string, { color: string; label: string; pulse?: boolea
   procured:           { color: "#8b5cf6", label: "In Procurement" },
   assigned:           { color: "#3b82f6", label: "Assigned" },
   decommissioned:     { color: "#ef4444", label: "Decommissioned" },
-  lost_stolen:        { color: "#ef4444", label: "Lost / Stolen" },
-  rma:                { color: "#f97316", label: "RMA" },
   in_transit:         { color: "#ec4899", label: "In Transit",         pulse: true },
 };
 
