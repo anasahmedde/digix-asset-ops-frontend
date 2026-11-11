@@ -339,8 +339,8 @@ const OFF_TRACK = ["in_transit"];
 // only ones a person sets by hand.
 const MANUAL_STATUSES = ["client_property", "decommissioned"];
 // Nothing in the app moves an asset here; the filter offers them only while an old asset still sits in one.
-/** Procurement up to installation: what the dashboard counts as In Production. */
-const PIPELINE = ["procured", "in_transit", "in_production", "in_stock", "assigned"];
+/** Procurement up to In Stock: what the dashboard counts as In Production. */
+const PIPELINE = ["procured", "in_transit", "in_production"];
 const NEVER_SET = ["in_transit"];
 
 // What is actually moving the asset on, said plainly where the old dropdown was.
