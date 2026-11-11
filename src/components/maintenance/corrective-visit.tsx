@@ -1423,7 +1423,7 @@ export function CorrectiveVisit({
 }
 
 /** One heading of the visit's cost, with what it adds up to. */
-function CostGroup({ icon, title, note, total, children }: {
+export function CostGroup({ icon, title, note, total, children }: {
   icon: React.ReactNode; title: string; note?: string; total: number; children: React.ReactNode;
 }) {
   return (
@@ -1442,7 +1442,7 @@ function CostGroup({ icon, title, note, total, children }: {
 }
 
 /** One line: what it was, how it was reckoned, what it came to. */
-function CostRow({ what, calc, amount, children }: { what: string; calc?: string; amount: number; children?: React.ReactNode }) {
+export function CostRow({ what, calc, amount, children }: { what: string; calc?: string; amount: number; children?: React.ReactNode }) {
   return (
     <div className="flex items-start justify-between gap-3 py-1 text-sm">
       <div className="min-w-0 space-y-0.5">
@@ -1455,17 +1455,20 @@ function CostRow({ what, calc, amount, children }: { what: string; calc?: string
   );
 }
 
-const moneyInput =
+export const moneyInput =
   "h-8 rounded-md border border-border bg-background px-2 text-right text-xs tabular-nums text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/15";
 
-const pkr = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+export const pkr = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /** How the man-hours were counted. Day by day: a bar of the day (on site,
  *  working, paused) over the times themselves - check-in, work started,
  *  every pause and resume, work done, check-out. Then each person's hours,
  *  with their rate beside them while the reviewer prices the visit. */
-function HoursBasis({ visit: v, canEnter, crew }: {
-  visit: CorrectiveVisitRow; canEnter: boolean; crew?: ReturnType<typeof useCrewLabour>;
+/** The times a field job keeps - a maintenance visit or an installation. */
+export type WorkTimes = Pick<CorrectiveVisitRow, "started_at" | "completed_at" | "pauses" | "on_site" | "time_on_site">;
+
+export function HoursBasis({ visit: v, canEnter, crew }: {
+  visit: WorkTimes; canEnter: boolean; crew?: ReturnType<typeof useCrewLabour>;
 }) {
   type Kind = "site" | "work" | "pause";
   const events: { at: Date; what: string; kind: Kind }[] = [];

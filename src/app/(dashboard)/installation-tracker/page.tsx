@@ -36,6 +36,7 @@ import { StatusBadge } from "@/components/ui/badge";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { ProgressStepper } from "@/components/ui/progress-stepper";
 import { ActivityPanel } from "@/components/activity-panel";
+import { InstallationCost, InstallationWork, type InstallationWorkRow } from "@/components/installations/installation-cost";
 import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
 import { confirmAction } from "@/components/ui/confirm";
 import { formatDate, deadlineMin, todayIso } from "@/lib/utils";
@@ -66,7 +67,7 @@ interface Handover {
   performed_by_name: string | null;
 }
 
-interface Installation {
+interface Installation extends InstallationWorkRow {
   id: string;
   device: string;
   installed_by: string | null;
@@ -1149,6 +1150,9 @@ export default function InstallationTrackerPage() {
           </div>
         )}
 
+        {/* Paused or under way: the clock the man-hours are counted from. */}
+        <InstallationWork inst={selected} onChanged={() => loadDetail(selected.id)} />
+
         {/* Installation Steps Pipeline */}
         <div className="rounded-xl border border-border bg-card p-5">
           <div className="mb-6 flex flex-wrap items-center justify-between gap-2">
@@ -1511,6 +1515,9 @@ export default function InstallationTrackerPage() {
                 </div>
               ))}
             </div>
+
+            {/* What it cost: paid on site, man-hours, anything else. */}
+            <InstallationCost inst={selected} onChanged={() => loadDetail(selected.id)} />
 
             {/* Photos */}
             {selected.photos.length > 0 && (
