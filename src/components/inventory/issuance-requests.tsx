@@ -70,6 +70,8 @@ interface RequestRow {
   into_pigeon_hole?: boolean;
   pigeon_hole?: string | null;
   pigeon_project?: string | null;
+  /** The rack the pigeon hole is on. */
+  pigeon_rack?: string | null;
   created_at: string;
 }
 
@@ -500,7 +502,7 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                             <span className="block max-w-[11rem] text-foreground">
                               {row.into_pigeon_hole ? "Keep in pigeon hole" : "From pigeon hole"}
                             </span>
-                            <span className="block text-2xs text-muted-foreground">{row.pigeon_project} · contingency stock</span>
+                            <span className="block text-2xs text-muted-foreground">{row.pigeon_project}{row.pigeon_rack ? ` · rack ${row.pigeon_rack}` : ""} · contingency stock</span>
                           </>
                         ) : row.maintenance_title ? (
                           <>
@@ -847,7 +849,7 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
               {issueFor.into_pigeon_hole ? (
                 <>
                   <p className={`${inputClass} flex items-center bg-secondary/40 text-muted-foreground`}>
-                    {issueFor.pigeon_project}&apos;s pigeon hole
+                    {issueFor.pigeon_project}&apos;s pigeon hole{issueFor.pigeon_rack ? `, rack ${issueFor.pigeon_rack}` : ""}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     Nobody takes it away: it leaves general stock and is kept apart in the store for this project.

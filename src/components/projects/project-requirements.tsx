@@ -48,6 +48,8 @@ interface RequirementRow {
   /** Kept apart for the project as contingency, and still with the store to set aside. */
   pigeon_kept?: number;
   pigeon_pending?: number;
+  /** The rack its pigeon hole is on in the store. */
+  pigeon_rack?: string | null;
 }
 /** One operation of an in-house route, with the execution decision on it. */
 interface StepRow {
@@ -201,6 +203,7 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
   // How many of a line to keep in the project's pigeon hole.
   const [pigeonFor, setPigeonFor] = useState<RequirementRow | null>(null);
   const [pigeonQty, setPigeonQty] = useState("1");
+  const [pigeonRack, setPigeonRack] = useState("");
 
   // Only the very first load of a project has nothing to show. A refresh
   // after an action must not blank the page: swapping the whole tree for a
@@ -256,8 +259,8 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
     if (!pigeonFor) return;
     setBusy(pigeonFor.id);
     try {
-      const { data } = await api.post(`/assets/components/${pigeonFor.id}/pigeon-hole/`, { quantity: Number(pigeonQty) });
-      toast.success(`${data.request_number}: the store sets ${data.requested} aside in the pigeon hole`);
+      const { data } = await api.post(`/assets/components/${pigeonFor.id}/pigeon-hole/`, { quantity: Number(pigeonQty), rack: pigeonRack.trim() });
+      toast.success(`${data.request_number}: the store sets ${data.requested} aside on rack ${pigeonRack.trim()}`);
       setPigeonFor(null);
       fetchRequirements();
     } catch (err) {
@@ -663,12 +666,13 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                               ) : (
                                 <span className="text-muted-foreground">—</span>
                               )}
+                              {row.pigeon_rack && <span className="block text-2xs text-muted-foreground">Rack {row.pigeon_rack}</span>}
                               {(row.pigeon_pending ?? 0) > 0 && (
                                 <span className="block text-2xs text-amber-600">{row.pigeon_pending} with the store</span>
                               )}
                               {canDecide && (
                                 <button
-                                  onClick={() => { setPigeonQty("1"); setPigeonFor(row); }}
+                                  onClick={() => { setPigeonQty("1"); setPigeonRack(row.pigeon_rack ?? ""); setPigeonFor(row); }}
                                   disabled={locked || busy === row.id || !row.source_label}
                                   title={locked ? "Locked until the budget is approved" : "Keep some apart for this project as contingency"}
                                   className="mt-1 flex w-fit items-center gap-1 rounded-lg border border-border px-2 py-0.5 text-2xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-40"
@@ -1098,13 +1102,19 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                 {pigeonFor.available_quantity ?? 0} {pigeonFor.unit || "piece"} in stock now. Short on the shelf, the store procures the rest.
               </p>
             </div>
+            <div className="space-y-1.5">
+              <label htmlFor="pigeon-rack" className="text-xs font-medium text-muted-foreground">Pigeon hole (rack location)</label>
+              <input id="pigeon-rack" required maxLength={50} value={pigeonRack} onChange={(e) => setPigeonRack(e.target.value)}
+                placeholder="e.g. R-12" className={fieldClass} />
+              <p className="text-2xs text-muted-foreground">Where in the store it is kept, so anyone can find it.</p>
+            </div>
             <div className="flex justify-end gap-3">
               <button type="button" onClick={() => setPigeonFor(null)} className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary">
                 Cancel
               </button>
               <button
                 type="submit"
-                disabled={busy === pigeonFor.id || !Number.isInteger(Number(pigeonQty)) || Number(pigeonQty) < 1}
+                disabled={busy === pigeonFor.id || !Number.isInteger(Number(pigeonQty)) || Number(pigeonQty) < 1 || !pigeonRack.trim()}
                 className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
               >
                 Ask the store to keep {Math.max(0, Number(pigeonQty) || 0)}
