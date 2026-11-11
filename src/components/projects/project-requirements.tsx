@@ -8,6 +8,7 @@ import { toast } from "sonner";
 
 import { Qty } from "@/components/ui/qty";
 import api from "@/lib/api";
+import { askReason } from "@/components/ui/confirm";
 import { getApiError } from "@/lib/api-error";
 import { aboutProject, useReloadOnNotice } from "@/lib/notification-context";
 import { Modal } from "@/components/ui/modal";
@@ -50,6 +51,8 @@ interface RequirementRow {
   pigeon_pending?: number;
   /** The rack its pigeon hole is on in the store. */
   pigeon_rack?: string | null;
+  /** Asked to be kept and waiting on the asker's manager. */
+  pigeon_awaiting?: { id: string; request_number: string; quantity: number; requested_by_name: string | null; may_decide?: boolean }[];
 }
 /** One operation of an in-house route, with the execution decision on it. */
 interface StepRow {
@@ -254,13 +257,35 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
     }
   }
 
+  /** The asker's manager approves keeping it, or turns it down. */
+  async function decidePigeon(row: RequirementRow, requestId: string, approve: boolean) {
+    let note = "";
+    if (!approve) {
+      const why = await askReason({ title: "Turn down keeping this in the pigeon hole?", confirmLabel: "Turn down", danger: true });
+      if (why === null) return;
+      note = why;
+    }
+    setBusy(row.id);
+    try {
+      await api.post(`/assets/components/${row.id}/pigeon-decision/`, { request: requestId, approve, note });
+      toast.success(approve ? "Approved - the store sets it aside" : "Turned down");
+      fetchRequirements();
+    } catch (err) {
+      toast.error(getApiError(err, "Could not record the decision"));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function keepInPigeonHole(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!pigeonFor) return;
     setBusy(pigeonFor.id);
     try {
       const { data } = await api.post(`/assets/components/${pigeonFor.id}/pigeon-hole/`, { quantity: Number(pigeonQty), rack: pigeonRack.trim() });
-      toast.success(`${data.request_number}: the store sets ${data.requested} aside on rack ${pigeonRack.trim()}`);
+      toast.success(data.approved
+        ? `${data.request_number}: the store sets ${data.requested} aside on rack ${pigeonRack.trim()}`
+        : `${data.request_number}: sent to your manager to approve`);
       setPigeonFor(null);
       fetchRequirements();
     } catch (err) {
@@ -670,6 +695,21 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
                               {(row.pigeon_pending ?? 0) > 0 && (
                                 <span className="block text-2xs text-amber-600">{row.pigeon_pending} with the store</span>
                               )}
+                              {(row.pigeon_awaiting ?? []).map((w) => (
+                                <div key={w.id} className="mt-1 rounded-md bg-violet-500/10 px-1.5 py-1 text-2xs text-violet-700">
+                                  <span className="block" title={w.request_number}>
+                                    {w.quantity} awaiting approval{w.requested_by_name ? ` · asked by ${w.requested_by_name}` : ""}
+                                  </span>
+                                  {w.may_decide && (
+                                    <span className="mt-1 flex gap-1">
+                                      <button onClick={() => decidePigeon(row, w.id, true)} disabled={busy === row.id}
+                                        className="rounded bg-primary px-1.5 py-0.5 font-medium text-white hover:bg-primary/90 disabled:opacity-50">Approve</button>
+                                      <button onClick={() => decidePigeon(row, w.id, false)} disabled={busy === row.id}
+                                        className="rounded border border-border bg-card px-1.5 py-0.5 font-medium text-muted-foreground hover:text-foreground disabled:opacity-50">Turn down</button>
+                                    </span>
+                                  )}
+                                </div>
+                              ))}
                               {canDecide && (
                                 <button
                                   onClick={() => { setPigeonQty("1"); setPigeonRack(row.pigeon_rack ?? ""); setPigeonFor(row); }}
@@ -1092,7 +1132,8 @@ export function ProjectRequirements({ projectId }: { projectId: string }) {
           <form onSubmit={keepInPigeonHole} className="space-y-4">
             <p className="text-xs text-muted-foreground">
               Set aside in the store as this project&apos;s own, in case the job changes and needs more. It leaves
-              general stock and is issued only for this project, through the store like any request.
+              general stock and is issued only for this project, through the store like any request. Your manager
+              approves it before the store sets it aside.
               {(pigeonFor.pigeon_kept ?? 0) > 0 && <> Already kept: <span className="font-semibold text-foreground">{pigeonFor.pigeon_kept}</span>.</>}
             </p>
             <div className="space-y-1.5">
