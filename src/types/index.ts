@@ -111,8 +111,6 @@ export type DeviceStatus =
   | "under_maintenance"
   | "client_property"
   | "decommissioned"
-  | "lost_stolen"
-  | "rma"
   | "in_transit";
 
 export type DeviceSource = "inhouse" | "third_party";

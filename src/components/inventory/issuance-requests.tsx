@@ -70,12 +70,17 @@ interface RequestRow {
   into_pigeon_hole?: boolean;
   pigeon_hole?: string | null;
   pigeon_project?: string | null;
+  /** The rack the pigeon hole is on. */
+  pigeon_rack?: string | null;
+  /** Who approved keeping it in the pigeon hole. */
+  approved_by_name?: string | null;
   created_at: string;
 }
 
 // Only the warehouse hands material over (mirrors the backend).
 
 const STATUS_BADGES: Record<string, string> = {
+  approval: "bg-violet-500/10 text-violet-600 ring-violet-500/20",
   pending: "bg-amber-500/10 text-amber-600 ring-amber-500/20",
   partial: "bg-blue-500/10 text-blue-600 ring-blue-500/20",
   fulfilled: "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20",
@@ -218,7 +223,7 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
       const list: RequestRow[] = data.results ?? data;
       // Anything still owed first — that is the queue's whole purpose.
       const rank = (r: RequestRow) =>
-        r.status === "pending" ? 0 : r.status === "partial" ? 1 : 2;
+        r.status === "pending" ? 0 : r.status === "partial" ? 1 : r.status === "approval" ? 2 : 3;
       setRows([...list].sort((a, b) => rank(a) - rank(b) || b.created_at.localeCompare(a.created_at)));
     } catch (err) {
       toast.error(getApiError(err, "Could not load the issue queue"));
@@ -446,7 +451,8 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
               <tbody>
                 {pageSlice(sortRows(filtered, sort, { component: (r) => r.item_sku || r.unit_type_name || r.what }), requestPage).map((row) => {
                   const short = (row.available_quantity ?? 0) < row.outstanding_quantity;
-                  const settled = row.status === "fulfilled" || row.status === "cancelled";
+                  // Waiting on a manager: nothing for the store to do yet.
+                  const settled = row.status === "fulfilled" || row.status === "cancelled" || row.status === "approval";
                   return (
                     <tr key={row.id} className="border-b border-border transition-colors hover:bg-secondary/30">
                       <td className={`${tdClass} whitespace-nowrap font-mono text-foreground`}>
@@ -500,7 +506,7 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                             <span className="block max-w-[11rem] text-foreground">
                               {row.into_pigeon_hole ? "Keep in pigeon hole" : "From pigeon hole"}
                             </span>
-                            <span className="block text-2xs text-muted-foreground">{row.pigeon_project} · contingency stock</span>
+                            <span className="block text-2xs text-muted-foreground">{row.pigeon_project}{row.pigeon_rack ? ` · rack ${row.pigeon_rack}` : ""} · contingency stock</span>
                           </>
                         ) : row.maintenance_title ? (
                           <>
@@ -530,6 +536,12 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
                         >
                           {row.status_display}
                         </span>
+                        {row.status === "approval" && (
+                          <span className="mt-1 block max-w-[12rem] text-2xs text-muted-foreground">The asker&apos;s manager approves it first</span>
+                        )}
+                        {row.approved_by_name && row.into_pigeon_hole && (
+                          <span className="mt-1 block text-2xs text-muted-foreground">Approved by {row.approved_by_name}</span>
+                        )}
                         {row.awaiting_procurement && (
                           <span className="mt-1 block text-2xs font-medium text-indigo-600">
                             Procurement in progress{row.po_number ? ` · ${row.po_number}` : ""}
@@ -847,7 +859,7 @@ export function IssuanceRequests({ onIssued }: { onIssued?: () => void }) {
               {issueFor.into_pigeon_hole ? (
                 <>
                   <p className={`${inputClass} flex items-center bg-secondary/40 text-muted-foreground`}>
-                    {issueFor.pigeon_project}&apos;s pigeon hole
+                    {issueFor.pigeon_project}&apos;s pigeon hole{issueFor.pigeon_rack ? `, rack ${issueFor.pigeon_rack}` : ""}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     Nobody takes it away: it leaves general stock and is kept apart in the store for this project.

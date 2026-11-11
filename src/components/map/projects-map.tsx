@@ -42,8 +42,6 @@ const STATUS_COLOR: Record<string, string> = {
   procured: "#8b5cf6",
   assigned: "#3b82f6",
   decommissioned: "#ef4444",
-  lost_stolen: "#ef4444",
-  rma: "#f97316",
   in_transit: "#ec4899",
 };
 
@@ -56,8 +54,6 @@ const STATUS_LABEL: Record<string, string> = {
   procured: "In Procurement",
   assigned: "Assigned",
   decommissioned: "Decommissioned",
-  lost_stolen: "Lost / Stolen",
-  rma: "RMA",
   in_transit: "In Transit",
 };
 

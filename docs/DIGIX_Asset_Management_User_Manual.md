@@ -830,7 +830,7 @@ it. A custom role can be, once nobody holds it.
 | `Under Maintenance` | Temporarily out of service |
 | `Client Property` | Handed over to the client |
 | `Decommissioned` | Retired |
-| `In Transit` · `RMA` · `Lost/Stolen` | Off the normal line |
+| `In Transit` | Off the normal line |
 
 ### 16.2 Rules the system will enforce
 

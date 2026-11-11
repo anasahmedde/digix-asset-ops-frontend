@@ -22,6 +22,8 @@ interface Hole {
   unit: string;
   /** On hand in the pigeon hole now. */
   quantity: number;
+  /** The rack location in the store. */
+  rack: string;
   serials: string[];
   kept: number;
   issued: number;
@@ -118,10 +120,10 @@ export function PigeonHoles() {
                 <thead>
                   <tr className="border-b border-border">
                     <th className={thClass}>Item</th>
+                    <th className={thClass}>Pigeon hole (rack)</th>
                     <th className={thClass}>In pigeon hole</th>
                     <th className={thClass}>Kept so far</th>
                     <th className={thClass}>Issued from it</th>
-                    <th className={thClass}>With the store</th>
                     <th className={thClass} />
                   </tr>
                 </thead>
@@ -133,20 +135,20 @@ export function PigeonHoles() {
                         <td className={tdClass}>
                           <span className="font-medium text-foreground">{h.what}</span>
                           <span className="block text-2xs text-muted-foreground">
-                            {h.kind === "generic" ? "Stock" : "Unique"} · {h.code}
+                            {h.kind === "generic" ? "Generic item" : "Unique item"} · {h.code}
                           </span>
                           {h.serials.length > 0 && (
                             <span className="mt-1 block font-mono text-2xs text-muted-foreground">{h.serials.join(", ")}</span>
                           )}
                         </td>
+                        <td className={tdClass}>
+                          {h.rack
+                            ? <span className="inline-flex rounded-md bg-secondary px-2 py-0.5 font-mono text-xs font-semibold text-foreground">{h.rack}</span>
+                            : <span className="text-muted-foreground">—</span>}
+                        </td>
                         <td className={`${tdClass} font-semibold text-foreground`}><Qty value={h.quantity} unit={h.unit} /></td>
                         <td className={`${tdClass} text-muted-foreground`}><Qty value={h.kept} unit={h.unit} /></td>
                         <td className={`${tdClass} text-muted-foreground`}><Qty value={h.issued} unit={h.unit} /></td>
-                        <td className={`${tdClass} text-2xs text-muted-foreground`}>
-                          {h.pending_in > 0 && <span className="block text-amber-600">{h.pending_in} to set aside</span>}
-                          {h.pending_out > 0 && <span className="block text-amber-600">{h.pending_out} asked for</span>}
-                          {!h.pending_in && !h.pending_out && "—"}
-                        </td>
                         <td className={`${tdClass} text-right`}>
                           <button
                             onClick={() => { setAsk({ quantity: "1", purpose: "" }); setAskFor(h); }}

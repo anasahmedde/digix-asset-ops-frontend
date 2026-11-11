@@ -1215,7 +1215,7 @@ export default function ProcurementPage() {
                                 </span>
                               ) : r.serialized ? (
                                 <span className="ml-2 inline-flex rounded-full bg-indigo-500/10 px-2 py-0.5 text-2xs font-medium text-indigo-400 ring-1 ring-indigo-500/20">
-                                  Unique · serial no. required
+                                  Unique item · serial no. required
                                 </span>
                               ) : (
                                 <span className="ml-2 inline-flex rounded-full bg-secondary px-2 py-0.5 text-2xs font-medium text-muted-foreground ring-1 ring-border">
