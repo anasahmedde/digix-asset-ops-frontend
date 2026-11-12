@@ -32,6 +32,9 @@ export interface InstallationWorkRow extends WorkTimes {
   can_record_cost?: boolean;
 }
 
+/** What an installation usually costs besides the crew's time, one tap each. */
+const OTHER_COSTS = ["Travelling", "Transport of the asset", "Loading / unloading", "Accommodation", "Equipment hire"];
+
 const btn = "inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold transition-colors disabled:opacity-50";
 
 /** Paused or not, and the buttons that change it - above the checklist. */
@@ -89,8 +92,9 @@ export function InstallationWork({ inst, onChanged }: { inst: InstallationWorkRo
 }
 
 /** What the installation cost: what the crew paid, man-hours at each
- *  person's rate, anything else. Recorded by the installer's supervisor once
- *  the work is done; it becomes the asset's actual installation cost. */
+ *  person's rate, and anything else - travel, transport, hire. Finalized by
+ *  the installer's supervisor once the work is done; it is the asset's actual
+ *  installation cost on the project, which is not typed in anywhere else. */
 export function InstallationCost({ inst, onChanged }: { inst: InstallationWorkRow; onChanged: () => void }) {
   const crew = useCrewLabour(inst.time_on_site, inst.id);
   const [extra, setExtra] = useState<{ description: string; amount: string }[]>([]);
@@ -103,7 +107,12 @@ export function InstallationCost({ inst, onChanged }: { inst: InstallationWorkRo
 
   const paid = purchases.reduce((n, p) => n + Number(p.amount || 0), 0);
   const others = extra.reduce((n, l) => n + Number(l.amount || 0), 0);
-  const total = paid + crew.total + others;
+  // Man-hours have a price only once the supervisor puts the rates in; a
+  // rate remembered from another job is not this job's cost.
+  const labour = editing ? crew.total : 0;
+  const total = paid + labour + others;
+  const stage = recorded && !again ? "Finalized" : editing ? "Ready to finalize" : inst.work_done ? "Waiting on the supervisor" : "Work under way";
+  const tone = recorded && !again ? "bg-emerald-500/10 text-emerald-700" : editing ? "bg-primary/10 text-primary" : "bg-secondary text-muted-foreground";
 
   async function record() {
     setBusy(true);
@@ -115,7 +124,7 @@ export function InstallationCost({ inst, onChanged }: { inst: InstallationWorkRo
       });
       crew.remember();
       setExtra([]); setAgain(false);
-      toast.success("Installation cost recorded");
+      toast.success("Installation cost finalized - it is the asset's installation cost on the project");
       onChanged();
     } catch (err) {
       toast.error(getApiError(err, "Could not record the cost"));
@@ -127,13 +136,15 @@ export function InstallationCost({ inst, onChanged }: { inst: InstallationWorkRo
   return (
     <div className="mt-6 border-t border-border pt-4">
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="text-sm font-semibold text-foreground">Cost of this installation</h3>
-        {recorded && !again && (
-          <span className="text-2xs font-medium text-emerald-600">
-            Recorded{inst.cost_recorded_by_name ? ` by ${inst.cost_recorded_by_name}` : ""}
-            {inst.cost_recorded_at ? `, ${formatDateTime(inst.cost_recorded_at)}` : ""}
-          </span>
-        )}
+        <div>
+          <h3 className="text-sm font-semibold text-foreground">Cost of this installation</h3>
+          <p className="text-2xs text-muted-foreground">
+            {recorded && !again
+              ? `Finalized${inst.cost_recorded_by_name ? ` by ${inst.cost_recorded_by_name}` : ""}${inst.cost_recorded_at ? `, ${formatDateTime(inst.cost_recorded_at)}` : ""} · it is the asset's installation cost on the project`
+              : "The supervisor finalizes it once the work is done: man-hours at each person's rate, travel, transport, anything else."}
+          </p>
+        </div>
+        <span className={`rounded-full px-2.5 py-0.5 text-2xs font-semibold ${tone}`}>{stage}</span>
       </div>
 
       <div className="overflow-hidden rounded-xl border border-border bg-card">
@@ -185,12 +196,13 @@ export function InstallationCost({ inst, onChanged }: { inst: InstallationWorkRo
               ))}
             </CostGroup>
 
-            <CostGroup icon={<Clock className="h-4 w-4" />} title="Man-hours" note="Each person's hours at their own rate" total={crew.total}>
+            <CostGroup icon={<Clock className="h-4 w-4" />} title="Man-hours"
+              note={editing ? "Each person's hours at their own rate" : "Hours so far · priced when the supervisor finalizes"} total={labour}>
               <HoursBasis visit={inst} canEnter={editing} crew={editing ? crew : undefined} />
             </CostGroup>
 
             {editing && (
-              <CostGroup icon={<Plus className="h-4 w-4" />} title="Other costs" note="Anything else this installation cost" total={others}>
+              <CostGroup icon={<Plus className="h-4 w-4" />} title="Other costs" note="Travel, transport, hire - anything else this installation cost" total={others}>
                 {extra.length === 0 && <p className="text-xs text-muted-foreground">None.</p>}
                 {extra.map((l, i) => (
                   <div key={i} className="flex items-center gap-2 py-1">
@@ -206,17 +218,27 @@ export function InstallationCost({ inst, onChanged }: { inst: InstallationWorkRo
                     </button>
                   </div>
                 ))}
-                <button onClick={() => setExtra((cur) => [...cur, { description: "", amount: "" }])}
-                  className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-foreground hover:text-primary">
-                  <Plus className="h-3.5 w-3.5" /> Add a cost
-                </button>
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  {OTHER_COSTS.map((what) => (
+                    <button key={what} onClick={() => setExtra((cur) => [...cur, { description: what, amount: "" }])}
+                      className="rounded-full bg-secondary px-2.5 py-1 text-2xs font-medium text-foreground transition-colors hover:bg-primary/10 hover:text-primary">
+                      + {what}
+                    </button>
+                  ))}
+                  <button onClick={() => setExtra((cur) => [...cur, { description: "", amount: "" }])}
+                    className="inline-flex items-center gap-1 px-1 text-2xs font-medium text-muted-foreground hover:text-primary">
+                    <Plus className="h-3 w-3" /> Something else
+                  </button>
+                </div>
               </CostGroup>
             )}
           </>
         )}
 
         <div className="flex items-center justify-between gap-3 bg-secondary/60 px-4 py-3">
-          <span className="text-sm font-semibold text-foreground">Total cost of this installation</span>
+          <span className="text-sm font-semibold text-foreground">
+            {editing || (recorded && !again) ? "Total cost of this installation" : "Paid so far"}
+          </span>
           <span className="text-lg font-bold tabular-nums text-foreground">
             PKR {pkr(recorded && !again ? Number(inst.cost || 0) : total)}
           </span>
@@ -231,19 +253,17 @@ export function InstallationCost({ inst, onChanged }: { inst: InstallationWorkRo
                 <button onClick={() => setAgain(false)} className={`${btn} text-muted-foreground ring-1 ring-border hover:bg-secondary`}>Cancel</button>
               )}
               <button onClick={record} disabled={busy} className={`${btn} bg-primary text-primary-foreground hover:bg-primary/90`}>
-                <Check className="h-3.5 w-3.5" /> {recorded ? "Record again" : "Record cost"}
+                <Check className="h-3.5 w-3.5" /> {recorded ? "Finalize again" : "Finalize cost"}
               </button>
             </>
           ) : (
             <button onClick={() => setAgain(true)} className={`${btn} text-muted-foreground ring-1 ring-border hover:bg-secondary`}>
-              Record again
+              Finalize again
             </button>
           )}
         </div>
       )}
-      {!inst.work_done && !recorded && (
-        <p className="mt-2 text-2xs text-muted-foreground">The installer&apos;s supervisor records the cost once the work is done.</p>
-      )}
+
     </div>
   );
 }
