@@ -1,6 +1,7 @@
 "use client";
 
 import { Pencil, Plus, Printer, Trash2 } from "lucide-react";
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -56,9 +57,13 @@ interface ActualAsset {
   materials_actual: string;
   production_actual: string;
   work_orders_actual: string;
-  /** What putting this asset in and switching it on cost, and was planned to. */
+  /** What putting this asset in and switching it on cost, and was planned to.
+   *  The actual is finalized on the installation by the installer's
+   *  supervisor (paid on site, man-hours, travel, transport, anything else). */
   installation_actual: string | null;
   installation_planned: string | null;
+  installation_id?: string | null;
+  installation_finalized?: boolean;
   vendor_asset?: boolean;
   asset_price?: string | null;
   asset_priced_from?: string | null;
@@ -120,19 +125,6 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
       window.open(URL.createObjectURL(data), "_blank", "noopener");
     } catch (err) {
       toast.error(getApiError(err, "Could not build the document"));
-    }
-  }
-
-  /** What putting this asset in and switching it on really cost. */
-  async function saveInstallActual(deviceId: string, raw: string, current: string | null) {
-    const value = raw.trim();
-    if (value === (current ?? "")) return;
-    try {
-      await api.patch(`/assets/devices/${deviceId}/`, { actual_installation_cost: value || null });
-      await load();
-      toast.success(value ? "Installation cost recorded" : "Installation cost cleared");
-    } catch (err) {
-      toast.error(getApiError(err, "Could not record that cost"));
     }
   }
 
@@ -483,21 +475,15 @@ export function ProjectActuals({ projectId }: { projectId: string }) {
                     </td>
                     <td className={`${tdClass} text-right text-muted-foreground`} colSpan={2}>—</td>
                     <td className={`${tdClass} text-right`} colSpan={2}>
-                      {canEdit ? (
-                        <input
-                          type="number"
-                          min={0}
-                          step="0.01"
-                          defaultValue={asset.installation_actual ?? ""}
-                          onBlur={(e) => saveInstallActual(asset.id, e.target.value, asset.installation_actual)}
-                          placeholder="actual"
-                          aria-label={`Installation cost of ${asset.asset_code}`}
-                          className={`${inputClass} w-28 text-right`}
-                        />
+                      {/* Finalized on the installation itself, not typed here:
+                          what was paid on site, the man-hours and anything else. */}
+                      {asset.installation_id ? (
+                        <Link href={`/installation-tracker?installation=${asset.installation_id}`}
+                          className="text-2xs font-semibold text-primary hover:underline">
+                          {asset.installation_finalized ? "Finalized on the installation" : "Finalize on the installation"}
+                        </Link>
                       ) : (
-                        <span className="text-muted-foreground">
-                          {asset.installation_actual != null ? money(asset.installation_actual) : "—"}
-                        </span>
+                        <span className="text-2xs text-muted-foreground">Not installed yet</span>
                       )}
                     </td>
                     <td className={`${tdClass} text-right font-medium text-foreground`}>
