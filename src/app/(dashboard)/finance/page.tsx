@@ -6,8 +6,10 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { FinancialInventory, type InventoryData } from "@/components/finance/inventory";
-import { DraftInvoices, InvoiceModal, NewInvoiceButton, type DraftInvoice } from "@/components/finance/invoices";
-import { LedgerTable, type ByCurrency, type LedgerRow } from "@/components/finance/ledger";
+import Link from "next/link";
+
+import { DraftInvoices, InvoiceModal, type DraftInvoice } from "@/components/finance/invoices";
+import { LedgerTable, money, type ByCurrency, type LedgerRow } from "@/components/finance/ledger";
 import { FinancialOverview, type Overview } from "@/components/finance/overview";
 import { Tabs } from "@/components/ui/tabs";
 import api from "@/lib/api";
@@ -15,7 +17,7 @@ import { getApiError } from "@/lib/api-error";
 import { useUser } from "@/lib/user-context";
 
 type Tab = "dashboard" | "payable" | "receivable" | "inventory";
-interface Ledger { rows: LedgerRow[]; totals: ByCurrency }
+interface Ledger { rows: LedgerRow[]; totals: ByCurrency; uninvoiced?: Record<string, { amount: number; quotations: number }> }
 
 /** The Financial module, for higher management: the company's payables
  *  (from purchase orders), receivables (from approved client invoices), the
@@ -94,8 +96,16 @@ export default function FinancePage() {
         <div className="space-y-4">
           <DraftInvoices drafts={drafts} canEdit={manage} canApprove={approve} onChanged={load}
             onEdit={(d) => setInvoiceModal({ editing: d })} />
-          <LedgerTable side="receivable" rows={receivables.rows} totals={receivables.totals} canPay={manage} onChanged={load}
-            toolbar={manage ? <NewInvoiceButton onClick={() => setInvoiceModal({ editing: null })} /> : undefined} />
+          {Object.entries(receivables.uninvoiced ?? {}).map(([cur, u]) => (
+            <div key={cur} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-card px-4 py-3 text-sm">
+              <span className="text-muted-foreground">
+                <span className="font-semibold tabular-nums text-foreground">{money(u.amount, cur)}</span> of {u.quotations} accepted
+                {u.quotations === 1 ? " quotation is" : " quotations is"} not invoiced yet. It becomes a receivable once invoiced and approved.
+              </span>
+              <Link href="/quotations?status=accepted" className="text-xs font-semibold text-primary hover:underline">Generate invoices from quotations</Link>
+            </div>
+          ))}
+          <LedgerTable side="receivable" rows={receivables.rows} totals={receivables.totals} canPay={manage} onChanged={load} />
         </div>
       ) : tab === "inventory" && inventory ? (
         <FinancialInventory data={inventory} canHold={canAny("manage_finance", "manage_stock")} onChanged={load} />

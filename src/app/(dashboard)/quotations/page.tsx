@@ -2,6 +2,7 @@
 
 import {ChevronDown, ChevronRight, ClipboardList, FileDown, Pencil, Plus, ReceiptText, Trash2} from "lucide-react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -9,6 +10,7 @@ import { Modal } from "@/components/ui/modal";
 import { SegmentBar, StatTiles } from "@/components/ui/analytics-strip";
 import { CopyButton } from "@/components/ui/copy-button";
 import { FilterBar } from "@/components/ui/filter-bar";
+import { QuotationInvoices, type QuotationBilling } from "@/components/quotations/quotation-invoices";
 import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
 import { confirmAction } from "@/components/ui/confirm";
 import { deadlineMin } from "@/lib/utils";
@@ -50,6 +52,9 @@ interface Quotation {
   created_by_name: string | null;
   accepted_at: string | null;
   spawned_project: string | null;
+  /** Invoiced and received so far; only for an accepted quotation, and only
+   *  for whoever may see the finance figures. */
+  billing: QuotationBilling | null;
   items: QuotationItem[];
 }
 
@@ -181,6 +186,14 @@ export default function QuotationsPage() {
   const [saving, setSaving] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("");
+  // Opened from Finance: a quotation to show, or the accepted ones to bill.
+  const params = useSearchParams();
+  useEffect(() => {
+    const status = params.get("status");
+    const one = params.get("quotation");
+    if (status) setStatusFilter(status);
+    if (one) setExpandedId(one);
+  }, [params]);
   const [search, setSearch] = useState("");
   const [pendingTransition, setPendingTransition] = useState<{
     quotation: Quotation;
@@ -697,6 +710,9 @@ export default function QuotationsPage() {
                             </div>
                             {q.notes && (
                               <p className="text-sm text-muted-foreground"><span className="font-medium text-foreground">Notes:</span> {q.notes}</p>
+                            )}
+                            {q.status === "accepted" && q.billing && (
+                              <QuotationInvoices quotation={q} billing={q.billing} onChanged={fetchQuotations} />
                             )}
                             {renderTransitionBar(q)}
                           </div>

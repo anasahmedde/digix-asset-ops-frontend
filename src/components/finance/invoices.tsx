@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Pencil, Plus, Trash2 } from "lucide-react";
+import { Check, Pencil, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -94,14 +94,6 @@ export function DraftInvoices({
         ))}
       </ul>
     </section>
-  );
-}
-
-export function NewInvoiceButton({ onClick }: { onClick: () => void }) {
-  return (
-    <button onClick={onClick} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground">
-      <Plus className="h-4 w-4" /> New invoice
-    </button>
   );
 }
 

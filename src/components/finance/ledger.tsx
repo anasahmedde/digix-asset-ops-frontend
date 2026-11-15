@@ -34,6 +34,10 @@ export interface LedgerRow {
   due_date: string | null;
   due_date_set: boolean;
   terms: string;
+  /** The quotation a client invoice bills, and what the invoice is for. */
+  quotation?: string | null;
+  quote_number?: string | null;
+  description?: string;
   total: number;
   advance: number;
   first: number | null;
@@ -193,6 +197,11 @@ export function LedgerTable({
                           <span className="font-mono text-xs font-semibold text-foreground">{r.number}</span>
                         )}
                         <span className="block text-2xs text-muted-foreground">{r.status_display}{r.date ? ` · ${formatDate(r.date)}` : ""}</span>
+                        {r.quote_number && (
+                          <Link href={`/quotations?quotation=${r.quotation}`} className="block text-2xs text-primary hover:underline" title={r.description}>
+                            {r.quote_number}{r.description ? ` · ${r.description}` : ""}
+                          </Link>
+                        )}
                       </td>
                       <td className={cn(td, "max-w-[220px] truncate")} title={r.party}>{r.party || "—"}</td>
                       <td className={cn(td, "text-right font-medium tabular-nums")}>{money(r.total, r.currency)}</td>
