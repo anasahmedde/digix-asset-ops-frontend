@@ -1,385 +1,119 @@
 "use client";
 
-import {CreditCard, Pencil, Plus, Trash2} from "lucide-react";
+import { Landmark } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
-import { Modal } from "@/components/ui/modal";
-import { FilterBar } from "@/components/ui/filter-bar";
-import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
-import { confirmAction } from "@/components/ui/confirm";
+import { FinancialInventory, type InventoryData } from "@/components/finance/inventory";
+import Link from "next/link";
+
+import { DraftInvoices, InvoiceModal, type DraftInvoice } from "@/components/finance/invoices";
+import { LedgerTable, money, type ByCurrency, type LedgerRow } from "@/components/finance/ledger";
+import { FinancialOverview, type Overview } from "@/components/finance/overview";
+import { Tabs } from "@/components/ui/tabs";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
-import { CURRENCIES, formatCurrency, getCurrency, setCurrency, type CurrencyCode } from "@/lib/currency";
 import { useUser } from "@/lib/user-context";
 
-interface Invoice {
-  id: string;
-  invoice_number: string;
-  invoice_type: string;
-  status: string;
-  currency: string;
-  client: string | null;
-  client_name: string | null;
-  supplier: string | null;
-  supplier_name: string | null;
-  amount: string;
-  tax_amount: string;
-  total_amount: string;
-  issue_date: string;
-  due_date: string;
-  paid_amount: string;
-  balance_due: string;
-  notes: string;
-  created_at: string;
-}
+type Tab = "dashboard" | "payable" | "receivable" | "inventory";
+interface Ledger { rows: LedgerRow[]; totals: ByCurrency; uninvoiced?: Record<string, { amount: number; quotations: number }> }
 
-const inputClass =
-  "flex h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors";
-const labelClass = "text-xs font-medium text-muted-foreground";
-const thClass = "px-5 py-3.5 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground";
-const tdClass = "px-5 py-3.5";
-
-const typeBadge: Record<string, string> = {
-  payable: "bg-red-500/10 text-red-600 ring-red-500/20",
-  receivable: "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20",
-};
-
-const statusBadge: Record<string, string> = {
-  draft: "bg-secondary/500/10 text-muted-foreground ring-gray-500/20",
-  sent: "bg-blue-500/10 text-blue-600 ring-blue-500/20",
-  partially_paid: "bg-amber-500/10 text-amber-600 ring-amber-500/20",
-  paid: "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20",
-  overdue: "bg-red-500/10 text-red-600 ring-red-500/20",
-  cancelled: "bg-slate-500/10 text-slate-600 ring-slate-500/20",
-};
-
-function fmt(value: string | number | null) {
-  return formatCurrency(value);
-}
-
-/** Add up amounts, unless they are hidden.
- *
- * A masked reader gets null for every figure, and summing nulls produced a
- * confident "PKR 0" on all four tiles — a wrong number stated plainly,
- * which is worse than no number. Null in, null out, and the tile reads as
- * a dash like every other amount on the page. */
-function total(values: (string | null)[]): number | null {
-  if (values.length && values.every((v) => v === null || v === undefined)) return null;
-  return values.reduce<number>((sum, v) => sum + parseFloat(v || "0"), 0);
-}
-
+/** The Financial module, for higher management: the company's payables
+ *  (from purchase orders), receivables (from approved client invoices), the
+ *  net worth between them, and the inventory it holds at cost. */
 export default function FinancePage() {
-  const { canWrite } = useUser();
-  const canEdit = canWrite("finance");
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const sort = useSortState();
-  const [loading, setLoading] = useState(true);
-  const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
-  const [selected, setSelected] = useState<Invoice | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [currency, setCurrencyState] = useState<CurrencyCode>(getCurrency());
-  const [filterValues, setFilterValues] = useState<Record<string, string>>({ type: "", status: "" });
-  const [search, setSearch] = useState("");
+  const { can, canAny } = useUser();
+  const params = useSearchParams();
+  const router = useRouter();
+  const tab = (["payable", "receivable", "inventory"].includes(params.get("tab") ?? "") ? params.get("tab") : "dashboard") as Tab;
+  const setTab = (t: string) => router.replace(t === "dashboard" ? "/finance" : `/finance?tab=${t}`, { scroll: false });
 
-  useEffect(() => {
-    function onCurrencyChange() { setCurrencyState(getCurrency()); }
-    window.addEventListener("currency-change", onCurrencyChange);
-    return () => window.removeEventListener("currency-change", onCurrencyChange);
-  }, []);
+  const [overview, setOverview] = useState<Overview | null>(null);
+  const [payables, setPayables] = useState<Ledger | null>(null);
+  const [receivables, setReceivables] = useState<Ledger | null>(null);
+  const [drafts, setDrafts] = useState<DraftInvoice[]>([]);
+  const [inventory, setInventory] = useState<InventoryData | null>(null);
+  const [invoiceModal, setInvoiceModal] = useState<{ editing: DraftInvoice | null } | null>(null);
 
-  const fetchInvoices = useCallback(async () => {
+  const manage = can("manage_finance");
+  const approve = can("approve_invoice");
+
+  const load = useCallback(async () => {
     try {
-      const { data } = await api.get("/finance/invoices/");
-      setInvoices(data.results ?? data);
-    } catch (err: unknown) {
-      toast.error(getApiError(err, "Failed to load invoices"));
-    } finally {
-      setLoading(false);
+      const [o, p, r, d, i] = await Promise.all([
+        api.get("/finance/overview/"),
+        api.get("/finance/payables/"),
+        api.get("/finance/receivables/"),
+        api.get("/finance/invoices/", { params: { invoice_type: "receivable", status: "draft", page_size: 200 } }),
+        api.get("/finance/inventory/"),
+      ]);
+      setOverview(o.data);
+      setPayables(p.data);
+      setReceivables(r.data);
+      setDrafts(d.data.results ?? d.data);
+      setInventory(i.data);
+    } catch (err) {
+      toast.error(getApiError(err, "Could not load the financial figures"));
     }
   }, []);
+  useEffect(() => { load(); }, [load]);
 
-  useEffect(() => {
-    fetchInvoices();
-  }, [fetchInvoices]);
-
-  function closeModal() {
-    setModalMode(null);
-    setSelected(null);
-  }
-
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setSaving(true);
-    const fd = new FormData(e.currentTarget);
-    const payload = {
-      invoice_number: fd.get("invoice_number"),
-      invoice_type: fd.get("invoice_type"),
-      status: fd.get("status"),
-      currency: fd.get("currency"),
-      amount: fd.get("amount"),
-      tax_amount: fd.get("tax_amount"),
-      issue_date: fd.get("issue_date"),
-      due_date: fd.get("due_date"),
-      notes: fd.get("notes"),
-    };
-    try {
-      if (modalMode === "create") {
-        await api.post("/finance/invoices/", payload);
-        toast.success("Invoice created");
-      } else if (selected) {
-        await api.patch(`/finance/invoices/${selected.id}/`, payload);
-        toast.success("Invoice updated");
-      }
-      closeModal();
-      fetchInvoices();
-    } catch (err: unknown) {
-      toast.error(getApiError(err, "Failed to save invoice"));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleDelete(invoice: Invoice) {
-    if (!(await confirmAction(`Delete invoice "${invoice.invoice_number}"? This cannot be undone.`))) return;
-    try {
-      await api.delete(`/finance/invoices/${invoice.id}/`);
-      toast.success("Invoice deleted");
-      fetchInvoices();
-    } catch (err: unknown) {
-      toast.error(getApiError(err, "Cannot delete — invoice may have linked records"));
-    }
-  }
-
-  const totalReceivable = total(
-    invoices.filter((i) => i.invoice_type === "receivable").map((i) => i.total_amount)
-  );
-
-  const totalPayable = total(
-    invoices.filter((i) => i.invoice_type === "payable").map((i) => i.total_amount)
-  );
-
-  const totalPaid = total(invoices.map((i) => i.paid_amount));
-
-  const totalOverdue = invoices
-    .filter((i) => i.status === "overdue")
-    .reduce((sum, i) => sum + parseFloat(i.total_amount || "0"), 0);
-
-  const summaryCards = [
-    { label: "Total Receivable", value: totalReceivable, color: "border-emerald-500", text: "text-emerald-600" },
-    { label: "Total Payable", value: totalPayable, color: "border-red-500", text: "text-red-600" },
-    { label: "Total Paid", value: totalPaid, color: "border-blue-500", text: "text-blue-600" },
-    { label: "Total Overdue", value: totalOverdue, color: "border-amber-500", text: "text-amber-600" },
-  ];
+  const count = (l: Ledger | null) => l?.rows.filter((r) => r.balance > 0).length;
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-green-500 to-emerald-600">
-            <CreditCard className="h-5 w-5 text-white" />
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary">
+            <Landmark className="h-5 w-5 text-primary-foreground" />
           </div>
           <div>
             <h1 className="text-2xl font-bold text-foreground">Finance</h1>
-            <p className="text-muted-foreground">Manage invoices, payments, and financial records</p>
+            <p className="text-muted-foreground">Payables, receivables, net worth and inventory in hand</p>
           </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <select
-            value={currency}
-            onChange={(e) => { setCurrency(e.target.value as CurrencyCode); setCurrencyState(e.target.value as CurrencyCode); }}
-            className="h-10 rounded-lg border border-border bg-card px-3 text-sm text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-          >
-            {CURRENCIES.map((c) => (
-              <option key={c.code} value={c.code}>{c.code} — {c.name}</option>
-            ))}
-          </select>
-          {canEdit && (
-            <button onClick={() => { setSelected(null); setModalMode("create"); }} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-all">
-              <Plus className="h-4 w-4" /> Add Invoice
-            </button>
-          )}
         </div>
       </div>
 
-      {!loading && invoices.length > 0 && (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {summaryCards.map((card) => (
-            <div key={card.label} className={`rounded-xl border border-border bg-card p-5 border-l-4 ${card.color}`}>
-              <p className="text-xs font-medium text-muted-foreground">{card.label}</p>
-              <p className={`mt-1 text-xl font-bold ${card.text}`}>{fmt(card.value)}</p>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <FilterBar
-        filters={[
-          { key: "type", label: "Type", options: [{ value: "receivable", label: "Receivable" }, { value: "payable", label: "Payable" }] },
-          { key: "status", label: "Status", options: Object.keys(statusBadge).map((s) => ({ value: s, label: s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) })) },
+      <Tabs
+        tabs={[
+          { key: "dashboard", label: "Dashboard" },
+          { key: "payable", label: "Payable", count: count(payables) },
+          { key: "receivable", label: "Receivable", count: count(receivables) },
+          { key: "inventory", label: "Inventory" },
         ]}
-        values={filterValues}
-        onChange={(k, v) => setFilterValues((prev) => ({ ...prev, [k]: v }))}
-        search={search}
-        onSearchChange={setSearch}
-        searchPlaceholder="Search by invoice #, client..."
+        active={tab}
+        onChange={setTab}
       />
 
-      {(() => {
-        const filtered = invoices.filter((inv) => {
-          if (filterValues.type && inv.invoice_type !== filterValues.type) return false;
-          if (filterValues.status && inv.status !== filterValues.status) return false;
-          if (search) {
-            const q = search.toLowerCase();
-            if (!inv.invoice_number.toLowerCase().includes(q) && !(inv.client_name || "").toLowerCase().includes(q) && !(inv.supplier_name || "").toLowerCase().includes(q)) return false;
-          }
-          return true;
-        });
-        return loading ? (
-        <div className="flex items-center justify-center py-20">
-          <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+      {!overview ? (
+        <div className="py-20 text-center text-sm text-muted-foreground">Loading the figures…</div>
+      ) : tab === "dashboard" ? (
+        <FinancialOverview data={overview} onOpen={setTab} />
+      ) : tab === "payable" && payables ? (
+        <LedgerTable side="payable" rows={payables.rows} totals={payables.totals} canPay={manage} canSetDue={manage} onChanged={load} />
+      ) : tab === "receivable" && receivables ? (
+        <div className="space-y-4">
+          <DraftInvoices drafts={drafts} canEdit={manage} canApprove={approve} onChanged={load}
+            onEdit={(d) => setInvoiceModal({ editing: d })} />
+          {Object.entries(receivables.uninvoiced ?? {}).map(([cur, u]) => (
+            <div key={cur} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-card px-4 py-3 text-sm">
+              <span className="text-muted-foreground">
+                <span className="font-semibold tabular-nums text-foreground">{money(u.amount, cur)}</span> of {u.quotations} accepted
+                {u.quotations === 1 ? " quotation is" : " quotations is"} not invoiced yet. It becomes a receivable once invoiced and approved.
+              </span>
+              <Link href="/quotations?status=accepted" className="text-xs font-semibold text-primary hover:underline">Generate invoices from quotations</Link>
+            </div>
+          ))}
+          <LedgerTable side="receivable" rows={receivables.rows} totals={receivables.totals} canPay={manage} onChanged={load} />
         </div>
-      ) : filtered.length === 0 ? (
-        <div className="rounded-xl border border-border bg-card p-12 text-center">
-          <CreditCard className="mx-auto h-12 w-12 text-muted-foreground/30" />
-          <h3 className="mt-4 text-lg font-semibold text-foreground">No invoices found</h3>
-          <p className="mt-2 text-sm text-muted-foreground">{invoices.length > 0 ? "Try adjusting your filters." : "Add invoices to start tracking your finances."}</p>
-        </div>
-      ) : (
-        <div className="rounded-xl border border-border bg-card overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border bg-secondary/50">
-                  <SortTh sort={sort} k="invoice_number" className={thClass}>Invoice #</SortTh>
-                  <SortTh sort={sort} k="invoice_type" className={thClass}>Type</SortTh>
-                  <SortTh sort={sort} k="status" className={thClass}>Status</SortTh>
-                  <SortTh sort={sort} k="party" className={thClass}>Client / Supplier</SortTh>
-                  <SortTh sort={sort} k="currency" className={thClass}>Cur.</SortTh>
-                  <SortTh sort={sort} k="amount" className={thClass}>Amount</SortTh>
-                  <SortTh sort={sort} k="tax_amount" className={thClass}>Tax</SortTh>
-                  <SortTh sort={sort} k="total_amount" className={thClass}>Total</SortTh>
-                  <SortTh sort={sort} k="paid_amount" className={thClass}>Paid</SortTh>
-                  <SortTh sort={sort} k="balance_due" className={thClass}>Balance Due</SortTh>
-                  <SortTh sort={sort} k="due_date" className={thClass}>Due Date</SortTh>
-                  <th className={thClass}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortRows(filtered, sort, { party: (i) => i.client_name || i.supplier_name }).map((inv) => (
-                  <tr key={inv.id} onClick={() => { if (!canEdit) return; setSelected(inv); setModalMode("edit"); }} className="border-b border-border cursor-pointer transition-colors hover:bg-secondary/30">
-                    <td className={`${tdClass} font-medium text-foreground`}>{inv.invoice_number}</td>
-                    <td className={tdClass}>
-                      <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${typeBadge[inv.invoice_type] ?? "bg-secondary/500/10 text-muted-foreground ring-gray-500/20"}`}>
-                        {inv.invoice_type}
-                      </span>
-                    </td>
-                    <td className={tdClass}>
-                      <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${statusBadge[inv.status] ?? "bg-secondary/500/10 text-muted-foreground ring-gray-500/20"}`}>
-                        {inv.status?.replace("_", " ")}
-                      </span>
-                    </td>
-                    <td className={`${tdClass} text-muted-foreground`}>
-                      {inv.invoice_type === "receivable" ? inv.client_name || "-" : inv.supplier_name || "-"}
-                    </td>
-                    <td className={`${tdClass} text-xs text-muted-foreground`}>{inv.currency || "PKR"}</td>
-                    <td className={`${tdClass} text-muted-foreground`}>{formatCurrency(inv.amount, (inv.currency as CurrencyCode) || undefined)}</td>
-                    <td className={`${tdClass} text-muted-foreground`}>{formatCurrency(inv.tax_amount, (inv.currency as CurrencyCode) || undefined)}</td>
-                    <td className={`${tdClass} font-medium text-foreground`}>{formatCurrency(inv.total_amount, (inv.currency as CurrencyCode) || undefined)}</td>
-                    <td className={`${tdClass} text-muted-foreground`}>{formatCurrency(inv.paid_amount, (inv.currency as CurrencyCode) || undefined)}</td>
-                    <td className={`${tdClass} font-medium text-foreground`}>{formatCurrency(inv.balance_due, (inv.currency as CurrencyCode) || undefined)}</td>
-                    <td className={`${tdClass} text-muted-foreground`}>{inv.due_date || "-"}</td>
-                    <td className={tdClass} onClick={(e) => e.stopPropagation()}>
-                      {canEdit ? (
-                        <div className="flex items-center gap-1">
-                          <button onClick={() => { setSelected(inv); setModalMode("edit"); }} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground" title="Edit">
-                            <Pencil className="h-3.5 w-3.5" />
-                          </button>
-                          <button onClick={() => handleDelete(inv)} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-destructive" title="Delete">
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      );
-      })()}
+      ) : tab === "inventory" && inventory ? (
+        <FinancialInventory data={inventory} canHold={canAny("manage_finance", "manage_stock")} onChanged={load} />
+      ) : null}
 
-      {modalMode && (
-        <Modal open onClose={closeModal} title={modalMode === "create" ? "Add New Invoice" : "Edit Invoice"} size="md">
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <label htmlFor="invoice_number" className={labelClass}>Invoice Number</label>
-                  <input id="invoice_number" name="invoice_number" required defaultValue={selected?.invoice_number ?? ""} className={inputClass} placeholder="e.g. INV-001" />
-                </div>
-                <div className="space-y-1.5">
-                  <label htmlFor="invoice_type" className={labelClass}>Type</label>
-                  <select id="invoice_type" name="invoice_type" defaultValue={selected?.invoice_type ?? "receivable"} className={inputClass}>
-                    <option value="receivable">Receivable</option>
-                    <option value="payable">Payable</option>
-                  </select>
-                </div>
-                <div className="space-y-1.5">
-                  <label htmlFor="currency" className={labelClass}>Currency</label>
-                  <select id="currency" name="currency" defaultValue={selected?.currency ?? currency} className={inputClass}>
-                    {CURRENCIES.map((c) => (
-                      <option key={c.code} value={c.code}>{c.code} — {c.name}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <label htmlFor="status" className={labelClass}>Status</label>
-                  <select id="status" name="status" defaultValue={selected?.status ?? "draft"} className={inputClass}>
-                    <option value="draft">Draft</option>
-                    <option value="sent">Sent</option>
-                    <option value="partially_paid">Partially Paid</option>
-                    <option value="paid">Paid</option>
-                    <option value="overdue">Overdue</option>
-                    <option value="cancelled">Cancelled</option>
-                  </select>
-                </div>
-                <div className="space-y-1.5">
-                  <label htmlFor="amount" className={labelClass}>Amount</label>
-                  <input id="amount" name="amount" type="number" step="0.01" defaultValue={selected?.amount ?? ""} className={inputClass} placeholder="0.00" />
-                </div>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <label htmlFor="tax_amount" className={labelClass}>Tax Amount</label>
-                  <input id="tax_amount" name="tax_amount" type="number" step="0.01" defaultValue={selected?.tax_amount ?? ""} className={inputClass} placeholder="0.00" />
-                </div>
-                <div className="space-y-1.5">
-                  <label htmlFor="issue_date" className={labelClass}>Issue Date</label>
-                  <input id="issue_date" name="issue_date" type="date" defaultValue={selected?.issue_date ?? ""} className={inputClass} />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <label htmlFor="due_date" className={labelClass}>Due Date</label>
-                <input id="due_date" name="due_date" type="date" min={selected?.issue_date ?? undefined} defaultValue={selected?.due_date ?? ""} className={inputClass} />
-              </div>
-              <div className="space-y-1.5">
-                <label htmlFor="notes" className={labelClass}>Notes</label>
-                <textarea id="notes" name="notes" rows={3} defaultValue={selected?.notes ?? ""} className={`${inputClass} h-auto py-2`} />
-              </div>
-              <div className="flex justify-end gap-3 pt-2">
-                <button type="button" onClick={closeModal} className="inline-flex h-10 items-center rounded-lg border border-border bg-transparent px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">Cancel</button>
-                <button type="submit" disabled={saving} className="inline-flex h-10 items-center rounded-lg bg-primary px-5 text-sm font-medium text-white transition-all disabled:opacity-50">
-                  {saving ? "Saving..." : modalMode === "create" ? "Create Invoice" : "Save Changes"}
-                </button>
-              </div>
-            </form>
-          
-      </Modal>
+      {invoiceModal && (
+        <InvoiceModal editing={invoiceModal.editing} onClose={() => setInvoiceModal(null)}
+          onSaved={() => { setInvoiceModal(null); load(); }} />
       )}
     </div>
   );
