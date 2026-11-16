@@ -23,6 +23,8 @@ interface ReportMeta {
   filters: string[];
   date_label: string;
   statuses: { value: string; label: string }[];
+  /** The report's own drop-downs, e.g. Warranty or Maintenance type. */
+  choices: { key: string; label: string; options: { value: string; label: string }[] }[];
 }
 interface ReportData {
   title: string;
@@ -166,7 +168,7 @@ export default function ReportsPage() {
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [showAll, setShowAll] = useState(false);
-  const [lists, setLists] = useState<{ projects: Option[]; sites: Option[]; people: Option[] }>({ projects: [], sites: [], people: [] });
+  const [lists, setLists] = useState<{ projects: Option[]; sites: Option[]; people: Option[]; clients: Option[]; vendors: Option[] }>({ projects: [], sites: [], people: [], clients: [], vendors: [] });
   const [project, setProject] = useState("");
   const sort = useSortState();
 
@@ -179,17 +181,21 @@ export default function ReportsPage() {
   }, []);
 
   const meta = catalog?.find((r) => r.key === key) ?? null;
-  const needs = useMemo(() => new Set(meta?.filters ?? []), [meta]);
+  const needs = useMemo(() => new Set([...(meta?.filters ?? []), ...(meta?.choices ?? []).map((c) => c.key)]), [meta]);
+  const [listsLoaded, setListsLoaded] = useState(false);
 
   // The pickers a report filters by, fetched the first time one is needed.
   useEffect(() => {
-    const wants = key === PROJECT_WORKBOOK || needs.has("project") || needs.has("site") || needs.has("technician");
-    if (!wants || lists.projects.length) return;
+    const wants = key === PROJECT_WORKBOOK || ["project", "site", "technician", "client", "vendor"].some((k) => needs.has(k));
+    if (!wants || listsLoaded) return;
+    setListsLoaded(true);
     Promise.allSettled([
       api.get("/teams/projects/", { params: { page_size: 1000, ordering: "-created_at" } }),
       api.get("/sites/sites/", { params: { page_size: 1000 } }),
       api.get("/accounts/users/", { params: { role: "technician", is_active: true, page_size: 300 } }),
-    ]).then(([p, s, u]) => {
+      api.get("/clients/", { params: { page_size: 1000 } }),
+      api.get("/suppliers/", { params: { page_size: 1000 } }),
+    ]).then(([p, s, u, cl, v]) => {
       const rows = (r: PromiseSettledResult<{ data: { results?: unknown[] } | unknown[] }>) =>
         r.status === "fulfilled" ? ((r.value.data as { results?: unknown[] }).results ?? (r.value.data as unknown[])) : [];
       setLists({
@@ -198,15 +204,17 @@ export default function ReportsPage() {
         sites: (rows(s) as { id: string; name: string }[]).map((x) => ({ id: x.id, label: x.name })),
         people: (rows(u) as { id: string; first_name: string; last_name: string; username: string }[])
           .map((x) => ({ id: x.id, label: `${x.first_name} ${x.last_name}`.trim() || x.username })),
+        clients: (rows(cl) as { id: string; name: string }[]).map((x) => ({ id: x.id, label: x.name })),
+        vendors: (rows(v) as { id: string; name: string }[]).map((x) => ({ id: x.id, label: x.name })),
       });
     });
-  }, [key, needs, lists.projects.length]);
+  }, [key, needs, listsLoaded]);
 
   const params = useMemo(() => {
     const p: Record<string, string> = { type: key };
     if (from) p.date_from = from;
     if (to) p.date_to = to;
-    for (const [k, v] of Object.entries(extra)) if (v && needs.has(k === "low_stock" ? "low_stock" : k)) p[k] = v;
+    for (const [k, v] of Object.entries(extra)) if (v && needs.has(k)) p[k] = v;
     return p;
   }, [key, from, to, extra, needs]);
 
@@ -448,6 +456,27 @@ export default function ReportsPage() {
                       </select>
                     </div>
                   )}
+                  {needs.has("client") && (
+                    <div className="w-56 space-y-1.5">
+                      <p className={label}>Client</p>
+                      <SearchSelect options={[{ id: "", label: "All clients" }, ...lists.clients]} value={extra.client ?? ""} onChange={(v) => setExtra({ ...extra, client: v })} placeholder="All clients" />
+                    </div>
+                  )}
+                  {needs.has("vendor") && (
+                    <div className="w-56 space-y-1.5">
+                      <p className={label}>Vendor</p>
+                      <SearchSelect options={[{ id: "", label: "All vendors" }, ...lists.vendors]} value={extra.vendor ?? ""} onChange={(v) => setExtra({ ...extra, vendor: v })} placeholder="All vendors" />
+                    </div>
+                  )}
+                  {(meta?.choices ?? []).map((c) => (
+                    <div key={c.key} className="space-y-1.5">
+                      <p className={label}>{c.label}</p>
+                      <select aria-label={c.label} value={extra[c.key] ?? ""} onChange={(e) => setExtra({ ...extra, [c.key]: e.target.value })} className={`${control} w-48`}>
+                        <option value="">All</option>
+                        {c.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                    </div>
+                  ))}
                   {needs.has("project") && (
                     <div className="w-56 space-y-1.5">
                       <p className={label}>Project</p>
