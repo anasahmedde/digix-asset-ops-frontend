@@ -77,6 +77,8 @@ const OFF_RAMP_PHASES = [
 const CONTRACT_TYPES = [
   { value: "sold", label: "Sold Outright" },
   { value: "rental", label: "Rental" },
+  { value: "sample_foc", label: "Sample (FOC)" },
+  { value: "sample_paid", label: "Sample (Paid)" },
 ];
 // The statuses a project moves through, as the dashboard summary lists them.
 const PROJECT_STATUSES = [
@@ -96,14 +98,18 @@ const emptyForm = {
 function ContractBadge({ contractType, rentalEndDate, compact = false }: { contractType: string; rentalEndDate: string | null; compact?: boolean }) {
   if (!contractType) return null;
   const isRental = contractType === "rental";
-  const label = compact
-    ? (isRental ? "Rental" : "Sold")
-    : isRental
-      ? `Rental${rentalEndDate ? ` until ${rentalEndDate}` : ""}`
-      : "Sold Outright";
+  const isSample = contractType.startsWith("sample");
+  const label = isSample
+    ? CONTRACT_TYPES.find((c) => c.value === contractType)?.label ?? "Sample"
+    : compact
+      ? (isRental ? "Rental" : "Sold")
+      : isRental
+        ? `Rental${rentalEndDate ? ` until ${rentalEndDate}` : ""}`
+        : "Sold Outright";
   return (
     <span className={`inline-flex items-center rounded-full font-semibold ${compact ? "px-2 py-0.5 text-2xs" : "px-3 py-1 text-xs"} ${
-      isRental ? "bg-blue-500/10 text-blue-600 ring-1 ring-blue-500/20" : "bg-emerald-500/10 text-emerald-600 ring-1 ring-emerald-500/20"
+      isSample ? "bg-violet-500/10 text-violet-600 ring-1 ring-violet-500/20"
+        : isRental ? "bg-blue-500/10 text-blue-600 ring-1 ring-blue-500/20" : "bg-emerald-500/10 text-emerald-600 ring-1 ring-emerald-500/20"
     }`}>
       {label}
     </span>

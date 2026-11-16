@@ -109,7 +109,7 @@ interface DeviceDetail extends Device {
   status_display?: string;
   allowed_transitions?: string[];
   clients: string[];
-  project_contract_type: "sold" | "rental" | "" | null;
+  project_contract_type: "sold" | "rental" | "sample_foc" | "sample_paid" | "" | null;
   project_rental_end_date: string | null;
   brand_name: string | null;
   asset_type: string | null;
@@ -1543,7 +1543,9 @@ export default function AssetsPage() {
                         className={`inline-flex shrink-0 items-center rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${
                           d.project_contract_type === "rental"
                             ? "bg-amber-500/10 text-amber-600 ring-amber-500/20"
-                            : "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20"
+                            : d.project_contract_type.startsWith("sample")
+                              ? "bg-violet-500/10 text-violet-600 ring-violet-500/20"
+                              : "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20"
                         }`}
                         title={d.project_name ? `Project: ${d.project_name}` : undefined}
                       >
@@ -1551,7 +1553,11 @@ export default function AssetsPage() {
                           ? d.project_rental_end_date
                             ? `Rental until ${formatDate(d.project_rental_end_date)}`
                             : "Rental"
-                          : "Sold Outright"}
+                          : d.project_contract_type === "sample_foc"
+                            ? "Sample (FOC)"
+                            : d.project_contract_type === "sample_paid"
+                              ? "Sample (Paid)"
+                              : "Sold Outright"}
                       </span>
                     )}
                   </div>
