@@ -26,11 +26,23 @@ interface Line {
 interface Group { key: string; label: string; total: number; unpriced: number; lines: Line[] }
 export interface InventoryData { groups: Group[]; total: number }
 
-const HELD = [
-  { value: "stock", label: "Finished product" },
-  { value: "office_display", label: "Office display" },
-  { value: "foc_sample", label: "FOC sample" },
+/** An asset's category, set once when it is registered (same list as the
+ *  asset register). Rented or sold stock not yet delivered is still a
+ *  finished product in hand. */
+export const ASSET_CATEGORIES = [
+  { value: "stock", label: "Finished Product" },
+  { value: "rented", label: "Rented" },
+  { value: "sold", label: "Sold" },
+  { value: "office_display", label: "Office Display" },
+  { value: "foc_sample", label: "FOC Sample" },
 ];
+const HELD = ASSET_CATEGORIES;
+
+const ABOUT: Record<string, string> = {
+  stock: "Assets built or bought that are in stock, waiting to be rented or sold (or rented or sold and not yet delivered), at what it cost to make or buy them.",
+  office_display: "Assets in stock kept on display at the office, at cost.",
+  foc_sample: "Assets in stock set aside to give clients free of charge, at cost.",
+};
 
 const th = "whitespace-nowrap px-4 py-3 text-left text-2xs font-semibold uppercase tracking-wider text-muted-foreground";
 const td = "px-4 py-2.5 text-sm";
@@ -77,7 +89,7 @@ export function FinancialInventory({ data, canHold, onChanged }: { data: Invento
           <p className="text-2xs text-muted-foreground">
             {isMaterial
               ? "Generic stock at what each batch cost, pigeon holes and unique items in the store."
-              : "Assets in stock at what it cost to build or buy them."}
+              : ABOUT[group.key] ?? "Assets in stock at what it cost to build or buy them."}
             {group.unpriced > 0 && <span className="text-amber-700 dark:text-amber-300"> {group.unpriced} have no cost and count as zero.</span>}
           </p>
         </div>

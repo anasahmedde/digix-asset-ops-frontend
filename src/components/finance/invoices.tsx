@@ -97,6 +97,137 @@ export function DraftInvoices({
   );
 }
 
+interface BillableQuote {
+  id: string;
+  quote_number: string;
+  title: string;
+  client_name: string | null;
+  currency: string;
+  billing: {
+    quoted: number; invoiced: number; to_invoice: number;
+    client_po_number: string; client_po_amount: number | null; client_po_date: string | null; po_left: number | null;
+  } | null;
+}
+
+/** Enter a client invoice against the client's PO on an accepted quotation.
+ *  The client's PO number and amount are recorded on the quotation the first
+ *  time; billing past what is left of that PO is asked about first. */
+export function ClientInvoiceModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  const [quotes, setQuotes] = useState<BillableQuote[] | null>(null);
+  const [pick, setPick] = useState("");
+  const [poNumber, setPoNumber] = useState("");
+  const [poAmount, setPoAmount] = useState("");
+  const [poDate, setPoDate] = useState("");
+  const [description, setDescription] = useState("");
+  const [amount, setAmount] = useState("");
+  const [tax, setTax] = useState("0");
+  const [saving, setSaving] = useState(false);
+  const today = new Date().toISOString().slice(0, 10);
+
+  useEffect(() => {
+    api.get("/quotations/quotations/", { params: { status: "accepted", page_size: 500 } })
+      .then(({ data }) => setQuotes(data.results ?? data))
+      .catch((err) => { setQuotes([]); toast.error(getApiError(err, "Could not load the accepted quotations")); });
+  }, []);
+
+  const q = quotes?.find((x) => x.id === pick) ?? null;
+  const b = q?.billing ?? null;
+  function choose(id: string) {
+    setPick(id);
+    const nb = quotes?.find((x) => x.id === id)?.billing;
+    setPoNumber(nb?.client_po_number ?? "");
+    setPoAmount(nb?.client_po_amount != null ? String(nb.client_po_amount) : "");
+    setPoDate(nb?.client_po_date ?? "");
+    setAmount(nb ? String(nb.po_left ?? nb.to_invoice) : "");
+  }
+  const poValue = parseFloat(poAmount || "") || null;
+  const poLeft = poValue == null ? null : Math.max(0, poValue - (b?.invoiced ?? 0));
+  const value = parseFloat(amount || "0") || 0;
+  const over = poLeft != null && value > poLeft + 0.005;
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!q) return;
+    if (over && !(await confirmAction(`This invoice (${money(value, q.currency)}) is more than the ${money(poLeft, q.currency)} left on the client's PO ${poNumber}. Enter it anyway?`))) return;
+    setSaving(true);
+    try {
+      const poChanged = poNumber !== (b?.client_po_number ?? "") || poValue !== (b?.client_po_amount ?? null) || poDate !== (b?.client_po_date ?? "");
+      if (poChanged) {
+        await api.post(`/finance/client-po/${q.id}/`, { client_po_number: poNumber, client_po_amount: poAmount || null, client_po_date: poDate || null });
+      }
+      const { data } = await api.post("/finance/invoices/", {
+        quotation: q.id, description: description || (poNumber ? `Against PO ${poNumber}` : ""),
+        amount, tax_amount: tax || "0", issue_date: today, due_date: new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10),
+      });
+      toast.success(`${data.invoice_number} drafted - it counts as a receivable once approved`);
+      onSaved();
+    } catch (err) {
+      toast.error(getApiError(err, "Could not enter the invoice"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const options = (quotes ?? []).map((x) => ({ id: x.id, label: `${x.quote_number} · ${x.client_name ?? ""} · ${x.title}` }));
+  return (
+    <Modal open onClose={onClose} title="Client invoice" size="md">
+      <form onSubmit={submit} className="space-y-4">
+        <div className="space-y-1.5">
+          <label className={labelClass}>Accepted quotation</label>
+          <SearchSelect options={options} value={pick} onChange={choose} placeholder={quotes == null ? "Loading…" : quotes.length ? "Choose the quotation" : "No accepted quotation yet"} required />
+        </div>
+        {q && b && (
+          <>
+            <div className="grid grid-cols-3 gap-2 rounded-lg bg-secondary/60 px-3 py-2.5 text-xs">
+              <span><span className="block text-muted-foreground">Quotation</span><span className="font-semibold tabular-nums">{money(b.quoted, q.currency)}</span></span>
+              <span><span className="block text-muted-foreground">Invoiced</span><span className="font-semibold tabular-nums">{money(b.invoiced, q.currency)}</span></span>
+              <span><span className="block text-muted-foreground">Left on {poValue != null ? "the PO" : "the quotation"}</span><span className="font-semibold tabular-nums">{money(poLeft ?? b.to_invoice, q.currency)}</span></span>
+            </div>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <div className="space-y-1.5">
+                <label htmlFor="cpo-number" className={labelClass}>Client PO no.</label>
+                <input id="cpo-number" value={poNumber} onChange={(e) => setPoNumber(e.target.value)} required className={inputClass} />
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="cpo-amount" className={labelClass}>PO amount ({q.currency})</label>
+                <input id="cpo-amount" type="number" min="0.01" step="0.01" value={poAmount} onChange={(e) => setPoAmount(e.target.value)} required className={inputClass} />
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="cpo-date" className={labelClass}>PO date</label>
+                <input id="cpo-date" type="date" value={poDate} onChange={(e) => setPoDate(e.target.value)} className={inputClass} />
+              </div>
+              <div className="col-span-2 space-y-1.5 sm:col-span-3">
+                <label htmlFor="ci-desc" className={labelClass}>What it is for</label>
+                <input id="ci-desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="e.g. Advance 30%, Final invoice" className={inputClass} />
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="ci-amount" className={labelClass}>Amount</label>
+                <input id="ci-amount" type="number" min="0.01" step="0.01" max={b.to_invoice} required value={amount} onChange={(e) => setAmount(e.target.value)} className={inputClass} />
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="ci-tax" className={labelClass}>Tax</label>
+                <input id="ci-tax" type="number" min="0" step="0.01" value={tax} onChange={(e) => setTax(e.target.value)} className={inputClass} />
+              </div>
+            </div>
+            {over && (
+              <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+                {money(value, q.currency)} is more than the {money(poLeft, q.currency)} left on the client&apos;s PO.
+              </p>
+            )}
+            <p className="text-2xs text-muted-foreground">Client, currency and the quoted items come from the quotation. It counts as a receivable once approved.</p>
+          </>
+        )}
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="rounded-lg border border-border px-4 py-2 text-sm text-muted-foreground hover:bg-secondary">Cancel</button>
+          <button type="submit" disabled={saving || !q} className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60">
+            {saving ? "Saving…" : "Draft invoice"}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 /** Raise (or correct) a draft client invoice. */
 export function InvoiceModal({ editing, onClose, onSaved }: { editing: DraftInvoice | null; onClose: () => void; onSaved: () => void }) {
   const [clients, setClients] = useState<{ id: string; label: string }[]>([]);
