@@ -18,6 +18,11 @@ export interface QuotationBilling {
   received: number;
   to_invoice: number;
   invoices: number;
+  /** The client's PO against the quotation, and how much of it is not invoiced. */
+  client_po_number?: string;
+  client_po_amount?: number | null;
+  client_po_date?: string | null;
+  po_left?: number | null;
 }
 
 interface QuoteInvoice {
@@ -80,6 +85,22 @@ export function QuotationInvoices({
   const [issue, setIssue] = useState(today);
   const [due, setDue] = useState(new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10));
   const [saving, setSaving] = useState(false);
+  const [editPo, setEditPo] = useState(false);
+
+  async function savePo(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    try {
+      await api.post(`/finance/client-po/${quotation.id}/`, {
+        client_po_number: fd.get("po_number"), client_po_amount: fd.get("po_amount") || null, client_po_date: fd.get("po_date") || null,
+      });
+      toast.success("Client PO saved");
+      setEditPo(false);
+      refresh();
+    } catch (err) {
+      toast.error(getApiError(err, "Could not save the client PO"));
+    }
+  }
 
   const load = useCallback(async () => {
     try {
@@ -102,6 +123,9 @@ export function QuotationInvoices({
 
   async function generate(e: React.FormEvent) {
     e.preventDefault();
+    const value = (parseFloat(amount || "0") || 0);
+    if (billing.po_left != null && value > billing.po_left + 0.005
+      && !(await confirmAction(`This invoice (${fmt(value)}) is more than the ${fmt(billing.po_left)} left on the client's PO ${billing.client_po_number}. Generate it anyway?`))) return;
     setSaving(true);
     try {
       const { data } = await api.post("/finance/invoices/", {
@@ -173,6 +197,38 @@ export function QuotationInvoices({
             </div>
           ))}
         </div>
+        {editPo ? (
+          <form onSubmit={savePo} className="flex flex-wrap items-end gap-2 rounded-lg bg-secondary/50 p-3">
+            <div className="space-y-1">
+              <label htmlFor={`po-n-${quotation.id}`} className={labelClass}>Client PO no.</label>
+              <input id={`po-n-${quotation.id}`} name="po_number" required defaultValue={billing.client_po_number ?? ""} className={cn(inputClass, "h-9 w-40")} />
+            </div>
+            <div className="space-y-1">
+              <label htmlFor={`po-a-${quotation.id}`} className={labelClass}>PO amount</label>
+              <input id={`po-a-${quotation.id}`} name="po_amount" type="number" min="0.01" step="0.01" required defaultValue={billing.client_po_amount ?? ""} className={cn(inputClass, "h-9 w-36")} />
+            </div>
+            <div className="space-y-1">
+              <label htmlFor={`po-d-${quotation.id}`} className={labelClass}>PO date</label>
+              <input id={`po-d-${quotation.id}`} name="po_date" type="date" defaultValue={billing.client_po_date ?? ""} className={cn(inputClass, "h-9 w-40")} />
+            </div>
+            <button type="submit" className="h-9 rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground">Save</button>
+            <button type="button" onClick={() => setEditPo(false)} className="h-9 rounded-lg px-2 text-xs text-muted-foreground hover:text-foreground">Cancel</button>
+          </form>
+        ) : (
+          <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+            {billing.client_po_number ? (
+              <span>
+                Client PO <span className="font-semibold text-foreground">{billing.client_po_number}</span>
+                {billing.client_po_amount != null && <> · {fmt(billing.client_po_amount)}{billing.po_left != null && <> · {fmt(billing.po_left)} not invoiced yet</>}</>}
+              </span>
+            ) : <span>No client PO recorded yet.</span>}
+            {manage && (
+              <button onClick={() => setEditPo(true)} className="font-medium text-primary hover:underline">
+                {billing.client_po_number ? "Edit" : "Add the client's PO"}
+              </button>
+            )}
+          </p>
+        )}
         <div className="relative h-2 overflow-hidden rounded-full bg-secondary" aria-hidden>
           <span className="absolute inset-y-0 left-0 rounded-full bg-primary/30" style={{ width: `${pct(billing.invoiced)}%` }} />
           <span className="absolute inset-y-0 left-0 rounded-full bg-emerald-500" style={{ width: `${pct(billing.received)}%` }} />
