@@ -17,6 +17,7 @@ import { MultiSelect } from "@/components/ui/multi-select";
 import { DeviceImage } from "@/components/ui/device-image";
 import { StatusBadge } from "@/components/ui/badge";
 import { Tabs } from "@/components/ui/tabs";
+import { ASSET_CATEGORIES } from "@/components/finance/inventory";
 import { Modal } from "@/components/ui/modal";
 import { AssetVisits } from "@/components/assets/asset-visits";
 import { Qty } from "@/components/ui/qty";
@@ -36,6 +37,9 @@ interface Device {
   device_model: string;
   device_model_name: string | null;
   source_display: string;
+  /** Finished Product, Rented, Sold, Office Display or FOC Sample - set once at registration. */
+  held_as?: string;
+  held_as_display?: string;
   requires_production: boolean;
   /** In execution under an approved project: components and route are fixed. */
   is_locked?: boolean;
@@ -1308,6 +1312,7 @@ export default function AssetsPage() {
       // No serial here: the platform generates the asset code (and its
       // QR/barcode label), and the serial defaults to it.
       source: assetSource,
+      held_as: fd.get("held_as") || "stock",
       ...(modalMode === "create" && copyFrom ? { copy_from: copyFrom } : {}),
       asset_type: formAssetType || null,
       display_name: fd.get("display_name") || "",
@@ -1384,6 +1389,7 @@ export default function AssetsPage() {
       const params: Record<string, string> = {};
       if (search) params.search = search;
       if (filterValues.status) params.status = filterValues.status;
+      if (filterValues.held_as) params.held_as = filterValues.held_as;
       // Flag tiles (?flag=…) — the expired-warranty dropdown maps to the same
       // backend semantics as the Warranty Expired tile.
       if (filterValues.flag) params.flag = filterValues.flag;
@@ -1432,6 +1438,7 @@ export default function AssetsPage() {
     if (filterValues.client && !(d.client_names ?? []).includes(filterValues.client) && (d.client_name || "") !== filterValues.client) return false;
     if (filterValues.site && (d.site_name || "") !== filterValues.site) return false;
     if (filterValues.warranty && (d.warranty_status || "none") !== filterValues.warranty) return false;
+    if (filterValues.held_as && (d.held_as || "stock") !== filterValues.held_as) return false;
     if (filterValues.flag === "operational" && !["active", "installed"].includes(d.status)) return false;
     if (filterValues.flag === "pipeline" && !PIPELINE.includes(d.status)) return false;
     if (filterValues.flag === "warranty_expired" && d.warranty_status !== "expired") return false;
@@ -1537,27 +1544,17 @@ export default function AssetsPage() {
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <StatusBadge status={d.status} label={d.status_display ?? statusLabel(d.status)} />
-                    {/* PR-01 polish: project contract chip (rental vs sold outright) */}
-                    {d.project_contract_type && (
+                    {/* The asset's category, set once at registration. */}
+                    {d.held_as_display && (
                       <span
                         className={`inline-flex shrink-0 items-center rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${
-                          d.project_contract_type === "rental"
-                            ? "bg-amber-500/10 text-amber-600 ring-amber-500/20"
-                            : d.project_contract_type.startsWith("sample")
-                              ? "bg-violet-500/10 text-violet-600 ring-violet-500/20"
-                              : "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20"
+                          d.held_as === "rented" ? "bg-amber-500/10 text-amber-600 ring-amber-500/20"
+                            : d.held_as === "sold" ? "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20"
+                              : d.held_as === "foc_sample" || d.held_as === "office_display" ? "bg-violet-500/10 text-violet-600 ring-violet-500/20"
+                                : "bg-sky-500/10 text-sky-600 ring-sky-500/20"
                         }`}
-                        title={d.project_name ? `Project: ${d.project_name}` : undefined}
                       >
-                        {d.project_contract_type === "rental"
-                          ? d.project_rental_end_date
-                            ? `Rental until ${formatDate(d.project_rental_end_date)}`
-                            : "Rental"
-                          : d.project_contract_type === "sample_foc"
-                            ? "Sample (FOC)"
-                            : d.project_contract_type === "sample_paid"
-                              ? "Sample (Paid)"
-                              : "Sold Outright"}
+                        {d.held_as_display}
                       </span>
                     )}
                   </div>
@@ -1598,6 +1595,7 @@ export default function AssetsPage() {
                 <OverviewRow icon={<Monitor className="h-4 w-4 text-sky-400" />} label="Asset Type" value={d.asset_type_name} />
                 <OverviewRow icon={<Package className="h-4 w-4 text-blue-400" />} label="Components" value={d.requires_production ? String((d.components ?? []).length) : "—"} />
                 <OverviewRow icon={<HardDrive className="h-4 w-4 text-cyan-400" />} label="Manufacturing Route" value={d.source_display} />
+                <OverviewRow icon={<Package className="h-4 w-4 text-violet-400" />} label="Category" value={d.held_as_display || "—"} />
                 <OverviewRow icon={<Zap className="h-4 w-4 text-amber-400" />} label="Production Steps" value={d.requires_production ? String((d.production_steps ?? []).length) : "—"} />
                 <OverviewRow icon={<Clock className="h-4 w-4 text-green-400" />} label="Batch" value={d.batch_number || "—"} />
                 {/* Its maintenance visits: when last, how many, and whose side the issues were on. */}
@@ -3130,6 +3128,7 @@ export default function AssetsPage() {
           { key: "asset_type", label: "Type", options: Array.from(new Set(devices.map((d) => d.asset_type_name).filter(Boolean))).sort().map((t) => ({ value: t as string, label: t as string })) },
           { key: "client", label: "Client", options: Array.from(new Set(devices.flatMap((d) => (d.client_names ?? []).length > 0 ? d.client_names : d.client_name ? [d.client_name] : []))).sort().map((c) => ({ value: c, label: c })) },
           { key: "site", label: "Site", options: Array.from(new Set(devices.map((d) => d.site_name).filter(Boolean))).sort().map((s) => ({ value: s as string, label: s as string })) },
+          { key: "held_as", label: "Category", options: ASSET_CATEGORIES },
           { key: "warranty", label: "Warranty", options: [{ value: "active", label: "Under Warranty" }, { value: "not_started", label: "Not started" }, { value: "expired", label: "Expired" }, { value: "none", label: "No Warranty" }] },
         ]}
         values={filterValues}
@@ -3395,6 +3394,16 @@ export default function AssetsPage() {
                   : assetSource === "vendor_turnkey"
                     ? "The vendor builds and installs it; assign a technician to oversee the work."
                     : "Bought complete from a vendor, installed by our own technician."}
+              </p>
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <label htmlFor="held_as" className={labelClass}>Category *</label>
+              {/* Set once here, so rent or sale is not decided again per project. */}
+              <select id="held_as" name="held_as" required defaultValue={selected?.held_as ?? copyOf?.held_as ?? "stock"} className={inputClass}>
+                {ASSET_CATEGORIES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+              </select>
+              <p className="text-2xs text-muted-foreground">
+                Finished Product: built or bought, waiting to be rented or sold. While it is in stock Finance counts it as inventory in hand.
               </p>
             </div>
             {modalMode === "edit" && (
