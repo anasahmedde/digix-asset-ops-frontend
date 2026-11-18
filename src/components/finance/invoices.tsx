@@ -126,7 +126,7 @@ export function ClientInvoiceModal({ onClose, onSaved }: { onClose: () => void; 
 
   useEffect(() => {
     api.get("/quotations/quotations/", { params: { status: "accepted", page_size: 500 } })
-      .then(({ data }) => setQuotes(data.results ?? data))
+      .then(({ data }) => setQuotes((data.results ?? data).filter((x: BillableQuote) => (x.billing?.to_invoice ?? 0) > 0)))
       .catch((err) => { setQuotes([]); toast.error(getApiError(err, "Could not load the accepted quotations")); });
   }, []);
 
@@ -174,7 +174,8 @@ export function ClientInvoiceModal({ onClose, onSaved }: { onClose: () => void; 
       <form onSubmit={submit} className="space-y-4">
         <div className="space-y-1.5">
           <label className={labelClass}>Accepted quotation</label>
-          <SearchSelect options={options} value={pick} onChange={choose} placeholder={quotes == null ? "Loading…" : quotes.length ? "Choose the quotation" : "No accepted quotation yet"} required />
+          <SearchSelect options={options} value={pick} onChange={choose} placeholder={quotes == null ? "Loading…" : quotes.length ? "Choose the quotation" : "Nothing left to invoice"} required />
+          <p className="text-2xs text-muted-foreground">Only quotations with something left to invoice. Accepting a quotation drafts its full invoice: to bill it in parts, edit or delete that draft under Waiting for approval first.</p>
         </div>
         {q && b && (
           <>

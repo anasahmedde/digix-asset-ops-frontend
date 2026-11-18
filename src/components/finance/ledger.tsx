@@ -495,7 +495,7 @@ export function LedgerTable({
               })}
               {shown.length === 0 && (
                 <tr><td colSpan={cols} className="px-5 py-12 text-center text-sm text-muted-foreground">
-                  {params === DEFAULT_PARAMS
+                  {JSON.stringify(queryOf(params)) === JSON.stringify(queryOf(DEFAULT_PARAMS))
                     ? payable ? "Nothing outstanding. Approved purchase orders appear here once the Group Head signs them off." : "Nothing outstanding. Approved client invoices appear here."
                     : "Nothing matches these filters."}
                 </td></tr>
@@ -745,7 +745,7 @@ function PaymentModal({ side, row, onClose, onSaved }: { side: "payable" | "rece
           </div>
           <div className="space-y-1.5">
             <label htmlFor="pay-date" className={labelClass}>Date</label>
-            <input id="pay-date" name="payment_date" type="date" required defaultValue={new Date().toISOString().slice(0, 10)} className={inputClass} />
+            <input id="pay-date" name="payment_date" type="date" required defaultValue={iso(new Date())} className={inputClass} />
           </div>
           <div className="space-y-1.5">
             <label htmlFor="pay-method" className={labelClass}>Method</label>
