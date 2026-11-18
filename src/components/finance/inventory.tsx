@@ -22,6 +22,8 @@ interface Line {
   asset_code?: string;
   asset_type?: string;
   held_as?: string;
+  status?: string;
+  status_display?: string;
 }
 interface Group { key: string; label: string; total: number; unpriced: number; lines: Line[] }
 export interface InventoryData { groups: Group[]; total: number }
@@ -40,8 +42,10 @@ const HELD = ASSET_CATEGORIES;
 
 const ABOUT: Record<string, string> = {
   stock: "Assets built or bought that are in stock, waiting to be rented or sold (or rented or sold and not yet delivered), at what it cost to make or buy them.",
-  office_display: "Assets in stock kept on display at the office, at cost.",
-  foc_sample: "Assets in stock set aside to give clients free of charge, at cost.",
+  rented: "Assets out at a client on rent: still ours, at what it cost to make or buy them. Rented by their category or by a Rental project.",
+  foc_sample: "Free-of-charge samples, in stock or placed at a client: still ours, at cost. By their category or a Sample (FOC) project.",
+  sample_paid: "Assets on a Sample (Paid) project, in stock or placed at a client, at cost.",
+  office_display: "Assets kept on display at the office, at cost.",
 };
 
 const th = "whitespace-nowrap px-4 py-3 text-left text-2xs font-semibold uppercase tracking-wider text-muted-foreground";
@@ -66,20 +70,20 @@ export function FinancialInventory({ data, canHold, onChanged }: { data: Invento
   if (!group) return null;
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {data.groups.map((g) => (
           <button key={g.key} onClick={() => setActive(g.key)}
-            className={cn("rounded-xl border p-4 text-left transition-colors",
+            className={cn("min-w-0 rounded-xl border p-3 text-left transition-colors sm:p-4",
               g.key === active ? "border-primary bg-primary/5" : "border-border bg-card hover:border-primary/40")}>
             <p className="text-xs font-medium text-muted-foreground">{g.label}</p>
-            <p className="mt-1 text-xl font-bold tabular-nums text-foreground">{money(g.total)}</p>
+            <p className="mt-1 text-base font-bold tabular-nums text-foreground sm:text-xl">{money(g.total)}</p>
             <p className="text-2xs text-muted-foreground">{g.lines.length} {g.key === "material" ? (g.lines.length === 1 ? "line" : "lines") : g.lines.length === 1 ? "asset" : "assets"}</p>
           </button>
         ))}
-        <div className="rounded-xl bg-primary p-4 text-primary-foreground sm:col-span-2 xl:col-span-1">
+        <div className="col-span-2 rounded-xl bg-primary p-4 text-primary-foreground lg:col-span-1">
           <p className="text-xs font-medium opacity-80">Inventory in hand</p>
           <p className="mt-1 text-xl font-bold tabular-nums">{money(data.total)}</p>
-          <p className="text-2xs opacity-80">Total of the four</p>
+          <p className="text-2xs opacity-80">Total of every heading</p>
         </div>
       </div>
 
@@ -99,6 +103,7 @@ export function FinancialInventory({ data, canHold, onChanged }: { data: Invento
               <tr>
                 <th className={th}>{isMaterial ? "Item" : "Asset"}</th>
                 <th className={th}>{isMaterial ? "Where" : "Type"}</th>
+                {!isMaterial && <th className={th}>Where</th>}
                 {isMaterial && <th className={cn(th, "text-right")}>Quantity</th>}
                 {!isMaterial && <th className={th}>Counted as</th>}
                 <th className={cn(th, "text-right")}>Cost</th>
@@ -116,10 +121,11 @@ export function FinancialInventory({ data, canHold, onChanged }: { data: Invento
                     )}
                   </td>
                   <td className={cn(td, "text-muted-foreground")}>{isMaterial ? l.where : l.asset_type || "—"}</td>
+                  {!isMaterial && <td className={cn(td, "text-muted-foreground")}>{l.where || "—"}</td>}
                   {isMaterial && <td className={cn(td, "text-right tabular-nums")}>{l.quantity} {l.unit}</td>}
                   {!isMaterial && (
                     <td className={td}>
-                      {canHold ? (
+                      {canHold && l.status === "in_stock" ? (
                         <select value={l.held_as} onChange={(e) => hold(l.id, e.target.value)} aria-label={`What ${l.asset_code} is kept as`}
                           className="h-8 rounded-lg border border-border bg-card px-2 text-xs text-foreground focus:border-primary/50 focus:outline-none">
                           {HELD.map((h) => <option key={h.value} value={h.value}>{h.label}</option>)}
@@ -131,17 +137,17 @@ export function FinancialInventory({ data, canHold, onChanged }: { data: Invento
                 </tr>
               ))}
               {group.lines.length === 0 && (
-                <tr><td colSpan={4} className="px-5 py-10 text-center text-sm text-muted-foreground">
+                <tr><td colSpan={5} className="px-5 py-10 text-center text-sm text-muted-foreground">
                   {isMaterial ? "Nothing in the store." : group.key === "stock"
                     ? "No finished assets in stock."
-                    : `No asset is kept as ${group.label.toLowerCase().replace("assets on ", "")}. Mark one under Finished products.`}
+                    : `No ${group.label.toLowerCase().replace("assets on ", "")} assets.`}
                 </td></tr>
               )}
             </tbody>
             {group.lines.length > 0 && (
               <tfoot className="border-t-2 border-border bg-secondary/40">
                 <tr>
-                  <td className={cn(td, "font-semibold")} colSpan={isMaterial ? 3 : 3}>Total</td>
+                  <td className={cn(td, "font-semibold")} colSpan={isMaterial ? 3 : 4}>Total</td>
                   <td className={cn(td, "text-right font-bold tabular-nums")}>{money(group.total)}</td>
                 </tr>
               </tfoot>

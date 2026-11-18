@@ -48,19 +48,25 @@ export default function FinancePage() {
   const manage = can("manage_finance");
   const approve = can("approve_invoice");
 
+  const paySeq = useRef(0);
+  const recSeq = useRef(0);
   const loadPayables = useCallback(async (p: LedgerParams) => {
+    const seq = ++paySeq.current;
     try {
-      setPayables((await api.get("/finance/payables/", { params: queryOf(p) })).data);
+      const { data } = await api.get("/finance/payables/", { params: queryOf(p) });
+      if (seq === paySeq.current) setPayables(data);
     } catch (err) {
       toast.error(getApiError(err, "Could not load the payables"));
     }
   }, []);
   const loadReceivables = useCallback(async (p: LedgerParams) => {
+    const seq = ++recSeq.current;
     try {
       const [r, d] = await Promise.all([
         api.get("/finance/receivables/", { params: queryOf(p) }),
         api.get("/finance/invoices/", { params: { invoice_type: "receivable", status: "draft", page_size: 200 } }),
       ]);
+      if (seq !== recSeq.current) return;
       setReceivables(r.data);
       setDrafts(d.data.results ?? d.data);
     } catch (err) {

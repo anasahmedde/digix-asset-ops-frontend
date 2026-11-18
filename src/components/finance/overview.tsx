@@ -58,22 +58,20 @@ export function FinancialOverview({ data, onOpen }: { data: Overview; onOpen: (t
         <Tile
           label="Inventory in hand" icon={<Boxes className="h-4 w-4" />} tone="text-sky-700 dark:text-sky-300 bg-sky-500/10"
           value={money(data.inventory.total)} onClick={() => onOpen("inventory")}
-          lines={["At cost: material, finished products, display and samples"]}
+          lines={["At cost: material, finished products, rented, samples and display"]}
         />
       </div>
 
-      {/* Material + Finished products + Office display + FOC samples, as
-          the brief adds it up. */}
+      {/* Every inventory heading at cost, then their sum. */}
       <section className="rounded-xl border border-border bg-card p-5">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h2 className="text-sm font-semibold text-foreground">Inventory cost</h2>
           <button onClick={() => onOpen("inventory")} className="text-xs font-medium text-primary hover:underline">See every item</button>
         </div>
-        <div className="mt-4 flex flex-col gap-2 lg:flex-row lg:items-stretch">
-          {data.inventory.groups.map((g, i) => (
-            <div key={g.key} className="flex flex-1 items-center gap-2 lg:contents">
-              {i > 0 && <span className="hidden self-center text-lg font-light text-muted-foreground lg:block" aria-hidden>+</span>}
-              <div className="flex-1 rounded-lg bg-secondary/60 px-4 py-3">
+        <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+          {data.inventory.groups.map((g) => (
+            <div key={g.key} className="rounded-lg bg-secondary/60 px-4 py-3">
+              <div>
                 <p className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">{g.label}</p>
                 <p className="mt-1 text-lg font-bold tabular-nums text-foreground">{money(g.total)}</p>
                 <p className="text-2xs text-muted-foreground">
@@ -83,8 +81,7 @@ export function FinancialOverview({ data, onOpen }: { data: Overview; onOpen: (t
               </div>
             </div>
           ))}
-          <span className="hidden self-center text-lg font-light text-muted-foreground lg:block" aria-hidden>=</span>
-          <div className="rounded-lg bg-primary px-4 py-3 text-primary-foreground lg:min-w-[12rem]">
+          <div className="rounded-lg bg-primary px-4 py-3 text-primary-foreground">
             <p className="text-2xs font-medium uppercase tracking-wider opacity-80">Inventory in hand</p>
             <p className="mt-1 text-lg font-bold tabular-nums">{money(data.inventory.total)}</p>
           </div>

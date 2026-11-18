@@ -81,9 +81,9 @@ export function QuotationInvoices({
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
   const [tax, setTax] = useState("0");
-  const today = new Date().toISOString().slice(0, 10);
+  const today = new Date().toLocaleDateString("en-CA");
   const [issue, setIssue] = useState(today);
-  const [due, setDue] = useState(new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10));
+  const [due, setDue] = useState((() => { const d = new Date(); d.setDate(d.getDate() + 30); return d.toLocaleDateString("en-CA"); })());
   const [saving, setSaving] = useState(false);
   const [editPo, setEditPo] = useState(false);
 
@@ -311,7 +311,7 @@ export function QuotationInvoices({
                 </div>
                 <div className="space-y-1">
                   <label htmlFor={`qi-issue-${quotation.id}`} className={labelClass}>Issue date</label>
-                  <input id={`qi-issue-${quotation.id}`} type="date" required value={issue} onChange={(e) => setIssue(e.target.value)} className={inputClass} />
+                  <input id={`qi-issue-${quotation.id}`} type="date" required value={issue} onChange={(e) => { setIssue(e.target.value); if (e.target.value && due < e.target.value) { const d = new Date(`${e.target.value}T00:00:00`); d.setDate(d.getDate() + 30); setDue(d.toLocaleDateString("en-CA")); } }} className={inputClass} />
                 </div>
                 <div className="space-y-1">
                   <label htmlFor={`qi-due-${quotation.id}`} className={labelClass}>Due date</label>

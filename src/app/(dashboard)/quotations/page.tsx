@@ -661,7 +661,8 @@ export default function QuotationsPage() {
                     {expandedId === q.id && (
                       <tr className="border-b border-border bg-secondary/20">
                         <td colSpan={8} className="px-5 py-4">
-                          <div className="space-y-3">
+                          {/* On a phone the table scrolls sideways; the details stay pinned to the screen's width. */}
+                          <div className="sticky left-5 w-[calc(100vw-5rem)] space-y-3 md:static md:w-auto">
                             {q.items && q.items.length > 0 ? (
                               <div className="overflow-x-auto rounded-lg border border-border">
                                 <table className="w-full text-sm">
