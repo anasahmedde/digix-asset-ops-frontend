@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Clock, Pause, Play, Plus, Receipt, Trash2 } from "lucide-react";
+import { Check, Clock, Pause, Play, Plus, Receipt, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -30,6 +30,13 @@ export interface InstallationWorkRow extends WorkTimes {
   cost_recorded_by_name?: string | null;
   cost_recorded_at?: string | null;
   can_record_cost?: boolean;
+  /** Finance's check of the finalized cost: pending, accepted or rejected. */
+  cost_review?: "" | "pending" | "accepted" | "rejected";
+  cost_review_display?: string;
+  cost_review_note?: string;
+  cost_reviewed_by_name?: string | null;
+  cost_reviewed_at?: string | null;
+  can_review_cost?: boolean;
 }
 
 /** What an installation usually costs besides the crew's time, one tap each. */
@@ -100,6 +107,8 @@ export function InstallationCost({ inst, onChanged }: { inst: InstallationWorkRo
   const [extra, setExtra] = useState<{ description: string; amount: string }[]>([]);
   const [again, setAgain] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [rejecting, setRejecting] = useState(false);
+  const [reason, setReason] = useState("");
   const purchases = inst.purchases ?? [];
   const recorded = inst.cost != null;
   const editing = !!inst.can_record_cost && (!recorded || again);
@@ -111,8 +120,28 @@ export function InstallationCost({ inst, onChanged }: { inst: InstallationWorkRo
   // rate remembered from another job is not this job's cost.
   const labour = editing ? crew.total : 0;
   const total = paid + labour + others;
-  const stage = recorded && !again ? "Finalized" : editing ? "Ready to finalize" : inst.work_done ? "Waiting on the supervisor" : "Work under way";
-  const tone = recorded && !again ? "bg-emerald-500/10 text-emerald-700" : editing ? "bg-primary/10 text-primary" : "bg-secondary text-muted-foreground";
+  const review = inst.cost_review || "";
+  const rejected = review === "rejected";
+  const stage = recorded && !again
+    ? (review === "accepted" ? "Accepted by Finance" : rejected ? "Rejected by Finance" : "Awaiting Finance")
+    : editing ? (rejected ? "Correcting" : "Ready to finalize") : inst.work_done ? "Waiting on the supervisor" : "Work under way";
+  const tone = recorded && !again
+    ? (review === "accepted" ? "bg-emerald-500/10 text-emerald-700" : rejected ? "bg-red-500/10 text-red-700" : "bg-amber-500/10 text-amber-700")
+    : editing ? "bg-primary/10 text-primary" : "bg-secondary text-muted-foreground";
+
+  async function decide(decision: "accept" | "reject") {
+    setBusy(true);
+    try {
+      await api.post(`/sites/installations/${inst.id}/review-cost/`, { decision, note: decision === "reject" ? reason.trim() : "" });
+      toast.success(decision === "accept" ? "Installation cost accepted" : "Installation cost rejected - sent back to the supervisor");
+      setRejecting(false); setReason("");
+      onChanged();
+    } catch (err) {
+      toast.error(getApiError(err, "Could not record the review"));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function record() {
     setBusy(true);
@@ -124,7 +153,7 @@ export function InstallationCost({ inst, onChanged }: { inst: InstallationWorkRo
       });
       crew.remember();
       setExtra([]); setAgain(false);
-      toast.success("Installation cost finalized - it is the asset's installation cost on the project");
+      toast.success(rejected ? "Installation cost corrected and resubmitted to Finance" : "Installation cost finalized - Finance reviews it next");
       onChanged();
     } catch (err) {
       toast.error(getApiError(err, "Could not record the cost"));
@@ -146,6 +175,16 @@ export function InstallationCost({ inst, onChanged }: { inst: InstallationWorkRo
         </div>
         <span className={`rounded-full px-2.5 py-0.5 text-2xs font-semibold ${tone}`}>{stage}</span>
       </div>
+
+      {recorded && (review === "accepted" || rejected) && (
+        <div className={`mb-3 rounded-lg px-3 py-2 text-xs ${rejected ? "bg-red-500/10 text-red-700 dark:text-red-300" : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"}`}>
+          <span className="font-semibold">{rejected ? "Rejected" : "Accepted"}</span>
+          {inst.cost_reviewed_by_name ? ` by ${inst.cost_reviewed_by_name}` : ""}
+          {inst.cost_reviewed_at ? `, ${formatDateTime(inst.cost_reviewed_at)}` : ""}
+          {inst.cost_review_note ? `: ${inst.cost_review_note}` : ""}
+          {rejected && <span className="block text-2xs opacity-80">The supervisor corrects the cost and finalizes it again; it then goes back to Finance. Every step is in the installation&apos;s activity.</span>}
+        </div>
+      )}
 
       <div className="overflow-hidden rounded-xl border border-border bg-card">
         {recorded && !again ? (
@@ -245,6 +284,36 @@ export function InstallationCost({ inst, onChanged }: { inst: InstallationWorkRo
         </div>
       </div>
 
+      {inst.can_review_cost && !again && (
+        <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+          <p className="text-xs font-medium text-foreground">Finance: accept this installation cost, or reject it back to the supervisor with the reason.</p>
+          {rejecting && (
+            <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2} aria-label="Why the cost is rejected"
+              placeholder="What is wrong with it, so it can be corrected" autoFocus
+              className="mt-2 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30" />
+          )}
+          <div className="mt-2 flex flex-wrap justify-end gap-2">
+            {rejecting ? (
+              <>
+                <button onClick={() => { setRejecting(false); setReason(""); }} className={`${btn} text-muted-foreground ring-1 ring-border hover:bg-secondary`}>Cancel</button>
+                <button onClick={() => decide("reject")} disabled={busy || !reason.trim()} className={`${btn} bg-destructive text-destructive-foreground hover:bg-destructive/90`}>
+                  <X className="h-3.5 w-3.5" /> Reject cost
+                </button>
+              </>
+            ) : (
+              <>
+                <button onClick={() => setRejecting(true)} disabled={busy} className={`${btn} text-destructive ring-1 ring-destructive/40 hover:bg-destructive/10`}>
+                  <X className="h-3.5 w-3.5" /> Reject
+                </button>
+                <button onClick={() => decide("accept")} disabled={busy} className={`${btn} bg-emerald-600 text-white hover:bg-emerald-700`}>
+                  <Check className="h-3.5 w-3.5" /> Accept cost
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {inst.can_record_cost && (
         <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
           {editing ? (
@@ -253,12 +322,13 @@ export function InstallationCost({ inst, onChanged }: { inst: InstallationWorkRo
                 <button onClick={() => setAgain(false)} className={`${btn} text-muted-foreground ring-1 ring-border hover:bg-secondary`}>Cancel</button>
               )}
               <button onClick={record} disabled={busy} className={`${btn} bg-primary text-primary-foreground hover:bg-primary/90`}>
-                <Check className="h-3.5 w-3.5" /> {recorded ? "Finalize again" : "Finalize cost"}
+                <Check className="h-3.5 w-3.5" /> {rejected ? "Resubmit cost" : recorded ? "Finalize again" : "Finalize cost"}
               </button>
             </>
           ) : (
-            <button onClick={() => setAgain(true)} className={`${btn} text-muted-foreground ring-1 ring-border hover:bg-secondary`}>
-              Finalize again
+            <button onClick={() => setAgain(true)}
+              className={`${btn} ${rejected ? "bg-primary text-primary-foreground hover:bg-primary/90" : "text-muted-foreground ring-1 ring-border hover:bg-secondary"}`}>
+              {rejected ? "Correct and resubmit" : "Finalize again"}
             </button>
           )}
         </div>

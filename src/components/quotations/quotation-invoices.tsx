@@ -81,9 +81,9 @@ export function QuotationInvoices({
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
   const [tax, setTax] = useState("0");
-  const today = new Date().toISOString().slice(0, 10);
+  const today = new Date().toLocaleDateString("en-CA");
   const [issue, setIssue] = useState(today);
-  const [due, setDue] = useState(new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10));
+  const [due, setDue] = useState((() => { const d = new Date(); d.setDate(d.getDate() + 30); return d.toLocaleDateString("en-CA"); })());
   const [saving, setSaving] = useState(false);
   const [editPo, setEditPo] = useState(false);
 

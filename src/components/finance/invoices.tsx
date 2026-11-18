@@ -10,7 +10,7 @@ import { SearchSelect } from "@/components/ui/search-select";
 import api from "@/lib/api";
 import { getApiError } from "@/lib/api-error";
 import { CURRENCIES } from "@/lib/currency";
-import { formatDate } from "@/lib/utils";
+import { formatDate, todayIso } from "@/lib/utils";
 
 import { money } from "./ledger";
 
@@ -122,7 +122,7 @@ export function ClientInvoiceModal({ onClose, onSaved }: { onClose: () => void; 
   const [amount, setAmount] = useState("");
   const [tax, setTax] = useState("0");
   const [saving, setSaving] = useState(false);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayIso();
 
   useEffect(() => {
     api.get("/quotations/quotations/", { params: { status: "accepted", page_size: 500 } })
@@ -157,7 +157,7 @@ export function ClientInvoiceModal({ onClose, onSaved }: { onClose: () => void; 
       }
       const { data } = await api.post("/finance/invoices/", {
         quotation: q.id, description: description || (poNumber ? `Against PO ${poNumber}` : ""),
-        amount, tax_amount: tax || "0", issue_date: today, due_date: new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10),
+        amount, tax_amount: tax || "0", issue_date: today, due_date: (() => { const d = new Date(); d.setDate(d.getDate() + 30); return d.toLocaleDateString("en-CA"); })(),
       });
       toast.success(`${data.invoice_number} drafted - it counts as a receivable once approved`);
       onSaved();
@@ -235,8 +235,10 @@ export function InvoiceModal({ editing, onClose, onSaved }: { editing: DraftInvo
   const [amount, setAmount] = useState(editing?.amount ?? "");
   const [tax, setTax] = useState(editing?.tax_amount ?? "0");
   const [saving, setSaving] = useState(false);
-  const today = new Date().toISOString().slice(0, 10);
-  const inThirty = new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10);
+  const today = todayIso();
+  const inThirty = (() => { const d = new Date(); d.setDate(d.getDate() + 30); return d.toLocaleDateString("en-CA"); })();
+  // The due date is never before the issue date.
+  const [issue, setIssue] = useState(editing?.issue_date ?? today);
 
   useEffect(() => {
     api.get("/clients/", { params: { page_size: 500 } })
@@ -294,11 +296,11 @@ export function InvoiceModal({ editing, onClose, onSaved }: { editing: DraftInvo
           </div>
           <div className="space-y-1.5">
             <label htmlFor="inv-issue" className={labelClass}>Issue date</label>
-            <input id="inv-issue" name="issue_date" type="date" required defaultValue={editing?.issue_date ?? today} className={inputClass} />
+            <input id="inv-issue" name="issue_date" type="date" required value={issue} onChange={(e) => setIssue(e.target.value)} className={inputClass} />
           </div>
           <div className="space-y-1.5">
             <label htmlFor="inv-due" className={labelClass}>Due date</label>
-            <input id="inv-due" name="due_date" type="date" required defaultValue={editing?.due_date ?? inThirty} className={inputClass} />
+            <input id="inv-due" name="due_date" type="date" required min={issue} defaultValue={editing?.due_date ?? inThirty} className={inputClass} />
           </div>
           <div className="col-span-2 flex flex-col justify-end rounded-lg bg-secondary/60 px-3 py-2 sm:col-span-1">
             <span className="text-2xs text-muted-foreground">Invoice total</span>

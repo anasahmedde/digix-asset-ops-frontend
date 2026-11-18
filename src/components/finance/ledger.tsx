@@ -42,8 +42,14 @@ export interface LedgerRow {
   description?: string;
   party_id?: string | null;
   projects?: { id: string; name: string }[];
+  /** Payable bought for no project: what it was for ("Stock purchase"). */
+  purpose?: string;
+  /** Payable: the payment terms' days, for a supplier invoice's due date. */
+  terms_days?: number;
   /** Payable: the supplier's invoices against the order, and their sum. */
   invoiced?: number;
+  /** Payable: what the supplier knocked off the order on their invoices. */
+  discount?: number;
   invoices?: SupplierBill[];
   pay_status: "unpaid" | "partially_paid" | "paid";
   pay_status_display: string;
@@ -65,6 +71,7 @@ export interface SupplierBill {
   number: string;
   reference: string;
   amount: number;
+  discount: number;
   total: number;
   issue_date: string;
   due_date: string;
@@ -86,7 +93,7 @@ export interface Option { id: string; label: string }
 
 export interface AgingBucket { key: string; label: string; amount: number }
 export interface Totals {
-  total: number; paid: number; balance: number; overdue: number;
+  total: number; discount?: number; paid: number; balance: number; overdue: number;
   open: number; overdue_count: number; aging: AgingBucket[];
 }
 export type ByCurrency = Record<string, Totals>;
@@ -162,9 +169,10 @@ export async function exportFile(path: string, params: Record<string, string>, f
   }
 }
 
-export function ExportButtons({ onExport }: { onExport: (fmt: "xlsx" | "pdf" | "csv") => void }) {
+export function ExportButtons({ onExport, label }: { onExport: (fmt: "xlsx" | "pdf" | "csv") => void; label?: string }) {
   return (
     <span className="inline-flex items-center gap-1">
+      {label && <span className="text-2xs font-semibold text-primary">{label}:</span>}
       {(["xlsx", "pdf", "csv"] as const).map((f) => (
         <button key={f} type="button" onClick={() => onExport(f)}
           className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:border-primary/40 hover:text-primary">
@@ -206,6 +214,8 @@ export function LedgerTable({
   const [paying, setPaying] = useState<LedgerRow | null>(null);
   const [dueFor, setDueFor] = useState<LedgerRow | null>(null);
   const [billing, setBilling] = useState<LedgerRow | null>(null);
+  // Rows ticked for an export of just those.
+  const [picked, setPicked] = useState<Set<string>>(new Set());
 
   const shown = useMemo(
     () => [...rows].sort((a, b) => b.overdue_days - a.overdue_days || b.balance - a.balance),
@@ -227,7 +237,9 @@ export function LedgerTable({
   const partyLabel = payable ? "Supplier" : "Client";
   const set = (patch: Partial<LedgerParams>) => onParams({ ...params, ...patch });
   const sumKeys = (payable ? ["total", "invoiced", "advance", "first", "second", "third", "paid"] : ["total", "advance", "first", "second", "third", "paid"]) as string[];
-  const cols = (payable ? 13 : 12) + (canPay ? 1 : 0);
+  const cols = (payable ? 14 : 13) + (canPay ? 1 : 0);
+  const allPicked = shown.length > 0 && shown.every((r) => picked.has(r.id));
+  const toggle = (id: string) => setPicked((cur) => { const next = new Set(cur); if (next.has(id)) next.delete(id); else next.add(id); return next; });
 
   async function removeBill(b: SupplierBill) {
     if (!(await confirmAction(`Remove the supplier invoice ${b.reference || b.number}?`))) return;
@@ -290,7 +302,15 @@ export function LedgerTable({
             placeholder={payable ? "Search PO, supplier or invoice no." : "Search invoice, client, quotation or PO"}
             aria-label="Search" className={cn(inputClass, "h-9 w-full sm:w-60")} />
           <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
-            <ExportButtons onExport={(fmt) => exportFile(`/finance/${payable ? "payables" : "receivables"}/`, queryOf(params), fmt, payable ? "payables" : "receivables")} />
+            {picked.size > 0 && (
+              <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                <span className="font-semibold text-foreground">{picked.size} selected</span>
+                <button type="button" onClick={() => setPicked(new Set())} className="hover:text-foreground">Clear</button>
+              </span>
+            )}
+            <ExportButtons label={picked.size > 0 ? "Export selected" : undefined}
+              onExport={(fmt) => exportFile(`/finance/${payable ? "payables" : "receivables"}/`,
+                { ...queryOf(params), ...(picked.size > 0 ? { ids: [...picked].join(",") } : {}) }, fmt, payable ? "payables" : "receivables")} />
             {toolbar}
           </div>
         </div>
@@ -299,6 +319,10 @@ export function LedgerTable({
           <table className="w-full min-w-[1180px]">
             <thead className="bg-secondary/60">
               <tr>
+                <th className="w-8 pl-3">
+                  <input type="checkbox" aria-label={`Select all ${payable ? "payables" : "receivables"}`} checked={allPicked}
+                    onChange={(e) => setPicked(e.target.checked ? new Set(shown.map((r) => r.id)) : new Set())} />
+                </th>
                 <th className={cn(th, "w-8")} />
                 <th className={th}>{docLabel}</th>
                 <th className={th}>{partyLabel}</th>
@@ -323,6 +347,9 @@ export function LedgerTable({
                   <Fragment key={r.id}>
                     <tr className={cn("hover:bg-secondary/30", r.overdue_days > 0 && "bg-red-500/[0.03]")}>
                       <td className="pl-3">
+                        <input type="checkbox" aria-label={`Select ${r.number}`} checked={picked.has(r.id)} onChange={() => toggle(r.id)} />
+                      </td>
+                      <td className="pl-1">
                         <button onClick={() => setOpen(expanded ? null : r.id)} aria-label={expanded ? "Hide details" : "Show details"}
                           className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground">
                           {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
@@ -344,9 +371,14 @@ export function LedgerTable({
                       </td>
                       <td className={cn(td, "max-w-[200px] truncate")} title={r.party}>
                         {r.party || "—"}
-                        {(r.projects ?? []).length > 0 && <span className="block truncate text-2xs text-muted-foreground">{r.projects!.map((p) => p.name).join(", ")}</span>}
+                        {(r.projects ?? []).length > 0
+                          ? <span className="block truncate text-2xs text-muted-foreground">{r.projects!.map((p) => p.name).join(", ")}</span>
+                          : r.purpose && <span className="block truncate text-2xs text-muted-foreground">{r.purpose}</span>}
                       </td>
-                      <td className={cn(td, "text-right font-medium tabular-nums")}>{money(r.total, r.currency)}</td>
+                      <td className={cn(td, "text-right font-medium tabular-nums")}>
+                        {money(r.total, r.currency)}
+                        {(r.discount ?? 0) > 0 && <span className="block text-2xs font-normal text-emerald-700 dark:text-emerald-300">less {money(r.discount, r.currency)} discount</span>}
+                      </td>
                       {payable && (
                         <td className={cn(td, "text-right tabular-nums")}>
                           {cell(r.invoiced)}
@@ -396,12 +428,13 @@ export function LedgerTable({
                     </tr>
                     {expanded && (
                       <tr className="bg-secondary/20">
-                        <td />
-                        <td colSpan={cols - 1} className="space-y-3 px-3 py-3">
+                        <td colSpan={2} />
+                        <td colSpan={cols - 2} className="space-y-3 px-3 py-3">
                           {payable && (
                             <div>
                               <p className="mb-1.5 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
                                 Supplier invoices · {money(r.invoiced ?? 0, r.currency)} invoiced of {money(r.total, r.currency)} ordered
+                                {(r.discount ?? 0) > 0 && ` · ${money(r.discount, r.currency)} discount`}
                               </p>
                               {(r.invoices ?? []).length === 0 ? (
                                 <p className="text-xs text-muted-foreground">No supplier invoice entered against this PO yet.</p>
@@ -412,7 +445,10 @@ export function LedgerTable({
                                       <span className="w-32 font-semibold text-foreground">{b.reference || b.number}</span>
                                       <span className="w-24 tabular-nums text-muted-foreground">{formatDate(b.issue_date)}</span>
                                       <span className="w-28 text-right font-medium tabular-nums">{money(b.total, r.currency)}</span>
-                                      <span className="text-muted-foreground">Due {formatDate(b.due_date)} · our ref {b.number}</span>
+                                      <span className="text-muted-foreground">
+                                        {b.discount > 0 && <span className="text-emerald-700 dark:text-emerald-300">{money(b.discount, r.currency)} discount · </span>}
+                                        Due {formatDate(b.due_date)} · our ref {b.number}
+                                      </span>
                                       {canPay && (
                                         <button onClick={() => removeBill(b)} aria-label="Remove supplier invoice" className="ml-auto rounded p-1 text-muted-foreground hover:text-destructive">
                                           <Trash2 className="h-3.5 w-3.5" />
@@ -469,7 +505,7 @@ export function LedgerTable({
               <tfoot className="border-t-2 border-border bg-secondary/40">
                 {sums.map(([cur, s]) => (
                   <tr key={cur}>
-                    <td />
+                    <td colSpan={2} />
                     <td className={cn(td, "font-semibold")} colSpan={2}>Total{sums.length > 1 ? ` · ${cur}` : ""}</td>
                     {sumKeys.map((k) => (
                       <td key={k} className={cn(td, "text-right font-semibold tabular-nums")}>{money(s[k], cur)}</td>
@@ -494,23 +530,31 @@ export function LedgerTable({
 /** Enter the supplier's invoice against their PO. Billing more than is left
  *  of the order is allowed - the bill is theirs - but asked about first. */
 function SupplierInvoiceModal({ row, onClose, onSaved }: { row: LedgerRow; onClose: () => void; onSaved: () => void }) {
-  const left = Math.max(0, row.total - (row.invoiced ?? 0));
+  // What is left of the order: its value less what was billed and discounted.
+  const left = Math.max(0, row.total - (row.invoiced ?? 0) - (row.discount ?? 0));
   const [amount, setAmount] = useState(String(left || ""));
+  const [discount, setDiscount] = useState("0");
   const [tax, setTax] = useState("0");
   const [saving, setSaving] = useState(false);
-  const today = iso(new Date());
-  const total = (parseFloat(amount || "0") || 0) + (parseFloat(tax || "0") || 0);
-  const over = total > left + 0.005;
+  // Due on the invoice date plus the PO's payment terms (Net 30), never before it.
+  const dueFrom = (d: string) => { const x = new Date(`${d}T00:00:00`); x.setDate(x.getDate() + (row.terms_days ?? 0)); return iso(x); };
+  const [issue, setIssue] = useState(iso(new Date()));
+  const [due, setDue] = useState(dueFrom(iso(new Date())));
+  const gross = parseFloat(amount || "0") || 0;
+  const off = parseFloat(discount || "0") || 0;
+  const total = Math.max(0, gross - off) + (parseFloat(tax || "0") || 0);
+  // Billed before the discount, against what is left of the order.
+  const over = gross > left + 0.005;
 
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
-    if (over && !(await confirmAction(`This invoice (${money(total, row.currency)}) is more than the ${money(left, row.currency)} left to invoice on ${row.number}. Enter it anyway?`))) return;
+    if (over && !(await confirmAction(`This invoice (${money(gross, row.currency)}) is more than the ${money(left, row.currency)} left to invoice on ${row.number}. Enter it anyway?`))) return;
     setSaving(true);
     try {
       await api.post("/finance/invoices/", {
-        purchase_order: row.id, reference: fd.get("reference"), amount, tax_amount: tax || "0",
-        issue_date: fd.get("issue_date"), due_date: fd.get("due_date"), notes: fd.get("notes"),
+        purchase_order: row.id, reference: fd.get("reference"), amount, discount_amount: discount || "0", tax_amount: tax || "0",
+        issue_date: issue, due_date: due, notes: fd.get("notes"),
       });
       toast.success(`Supplier invoice entered against ${row.number}`);
       onSaved();
@@ -539,21 +583,38 @@ function SupplierInvoiceModal({ row, onClose, onSaved }: { row: LedgerRow; onClo
             <input id="bill-amount" type="number" min="0.01" step="0.01" required value={amount} onChange={(e) => setAmount(e.target.value)} className={inputClass} />
           </div>
           <div className="space-y-1.5">
+            <label htmlFor="bill-discount" className={labelClass}>Discount</label>
+            <input id="bill-discount" type="number" min="0" step="0.01" max={amount || undefined} value={discount} onChange={(e) => setDiscount(e.target.value)} className={inputClass} />
+          </div>
+          <div className="space-y-1.5">
             <label htmlFor="bill-tax" className={labelClass}>Tax</label>
             <input id="bill-tax" type="number" min="0" step="0.01" value={tax} onChange={(e) => setTax(e.target.value)} className={inputClass} />
           </div>
+          <div className="flex flex-col justify-end rounded-lg bg-secondary/60 px-3 py-2">
+            <span className="text-2xs text-muted-foreground">Invoice total</span>
+            <span className="font-semibold tabular-nums">{money(total, row.currency)}</span>
+          </div>
           <div className="space-y-1.5">
             <label htmlFor="bill-issue" className={labelClass}>Invoice date</label>
-            <input id="bill-issue" name="issue_date" type="date" required defaultValue={today} className={inputClass} />
+            <input id="bill-issue" name="issue_date" type="date" required value={issue}
+              onChange={(e) => { setIssue(e.target.value); if (e.target.value) setDue(dueFrom(e.target.value)); }} className={inputClass} />
           </div>
           <div className="space-y-1.5">
             <label htmlFor="bill-due" className={labelClass}>Due date</label>
-            <input id="bill-due" name="due_date" type="date" required defaultValue={row.due_date ?? today} className={inputClass} />
+            <input id="bill-due" name="due_date" type="date" required min={issue} value={due} onChange={(e) => setDue(e.target.value)} className={inputClass} />
           </div>
+          <p className="col-span-2 -mt-1 text-2xs text-muted-foreground">
+            {row.terms_days ? `Due date: invoice date + ${row.terms_days} days (${row.terms}).` : "No payment terms on the PO: due on the invoice date."}
+          </p>
         </div>
+        {off > 0 && (
+          <p className="rounded-lg bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300">
+            The {money(off, row.currency)} discount comes off what is owed on {row.number}: paying this invoice in full settles it.
+          </p>
+        )}
         {over && (
           <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-            {money(total, row.currency)} is more than the {money(left, row.currency)} left to invoice on this PO.
+            {money(gross, row.currency)} is more than the {money(left, row.currency)} left to invoice on this PO.
           </p>
         )}
         <div className="space-y-1.5">
@@ -590,6 +651,7 @@ function TotalsStrip({ side, totals }: { side: "payable" | "receivable"; totals:
             <p className="mt-1.5 text-2xl font-bold tabular-nums text-foreground">{money(t.balance, cur)}</p>
             <p className="mt-1 text-xs text-muted-foreground">
               {t.open} open · {money(t.paid, cur)} {side === "payable" ? "paid" : "received"} of {money(t.total, cur)}
+              {(t.discount ?? 0) > 0 && ` · ${money(t.discount, cur)} discount`}
             </p>
             {t.overdue > 0 && <p className="mt-1 text-xs font-medium text-red-600 dark:text-red-400">{money(t.overdue, cur)} overdue on {t.overdue_count}</p>}
           </div>
