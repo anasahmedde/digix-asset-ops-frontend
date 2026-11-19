@@ -1,6 +1,6 @@
 "use client";
 
-import {ChevronDown, ChevronRight, ClipboardList, FileDown, Pencil, Plus, ReceiptText, Trash2} from "lucide-react";
+import {ChevronDown, ChevronRight, ClipboardList, ExternalLink, FileDown, Pencil, Plus, ReceiptText, Trash2} from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Fragment, useCallback, useEffect, useState } from "react";
@@ -188,6 +188,9 @@ export default function QuotationsPage() {
   const [statusFilter, setStatusFilter] = useState("");
   // Opened from Finance: a quotation to show, or the accepted ones to bill.
   const params = useSearchParams();
+  // DIGIX Suite (the quotation builder) shown inside this tab; hidden when no Suite address is set.
+  const suiteUrl = process.env.NEXT_PUBLIC_SUITE_URL;
+  const [view, setView] = useState<"list" | "suite">(suiteUrl && params.get("view") === "suite" ? "suite" : "list");
   useEffect(() => {
     const status = params.get("status");
     const one = params.get("quotation");
@@ -515,6 +518,49 @@ export default function QuotationsPage() {
     return true;
   });
 
+  const switcher = suiteUrl && (
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="inline-flex rounded-lg border border-border bg-card p-1">
+        {([["list", "Quotations"], ["suite", "Suite"]] as const).map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setView(key)}
+            className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${view === key ? "bg-primary text-white" : "text-muted-foreground hover:text-foreground"}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {view === "suite" && (
+        <a href={suiteUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+          <ExternalLink className="h-4 w-4" /> Open Suite in a new tab
+        </a>
+      )}
+    </div>
+  );
+
+  if (view === "suite" && suiteUrl) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-teal-500 to-emerald-600">
+            <ReceiptText className="h-5 w-5 text-white" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">Client Quotations</h1>
+            <p className="text-muted-foreground">DIGIX Suite — build and approve quotations</p>
+          </div>
+        </div>
+        {switcher}
+        <iframe
+          src={suiteUrl}
+          title="DIGIX Suite"
+          className="h-[calc(100dvh-14rem)] min-h-[32rem] w-full rounded-xl border border-border bg-white"
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -533,6 +579,7 @@ export default function QuotationsPage() {
           </button>
         )}
       </div>
+      {switcher}
 
       {!loading && quotations.length > 0 && (
         <div className="space-y-3">
