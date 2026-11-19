@@ -3,7 +3,7 @@
 import {ChevronDown, ChevronRight, ClipboardList, ExternalLink, FileDown, Pencil, Plus, ReceiptText, Trash2} from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Modal } from "@/components/ui/modal";
@@ -191,6 +191,23 @@ export default function QuotationsPage() {
   // DIGIX Suite (the quotation builder) shown inside this tab; hidden when no Suite address is set.
   const suiteUrl = process.env.NEXT_PUBLIC_SUITE_URL;
   const [view, setView] = useState<"list" | "suite">(suiteUrl && params.get("view") === "suite" ? "suite" : "list");
+  // The Suite frame fills the window below it, so the page itself never scrolls.
+  const frameRef = useRef<HTMLIFrameElement>(null);
+  const [frameH, setFrameH] = useState<number>();
+  useEffect(() => {
+    const el = frameRef.current;
+    if (view !== "suite" || !el) return;
+    const fit = () => {
+      const r = el.getBoundingClientRect();
+      // The page padding below the frame stays on screen too.
+      const main = el.closest("main");
+      const below = main ? parseFloat(getComputedStyle(main).paddingBottom) : 0;
+      setFrameH(Math.max(480, Math.floor(window.innerHeight - (r.top + window.scrollY) - below)));
+    };
+    fit();
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, [view]);
   useEffect(() => {
     const status = params.get("status");
     const one = params.get("quotation");
@@ -542,20 +559,24 @@ export default function QuotationsPage() {
   if (view === "suite" && suiteUrl) {
     return (
       <div className="space-y-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-teal-500 to-emerald-600">
-            <ReceiptText className="h-5 w-5 text-white" />
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-teal-500 to-emerald-600">
+              <ReceiptText className="h-5 w-5 text-white" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-foreground">Client Quotations</h1>
+              <p className="text-muted-foreground">DIGIX Suite — build and approve quotations</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-2xl font-bold text-foreground">Client Quotations</h1>
-            <p className="text-muted-foreground">DIGIX Suite — build and approve quotations</p>
-          </div>
+          {switcher}
         </div>
-        {switcher}
         <iframe
+          ref={frameRef}
           src={suiteUrl}
           title="DIGIX Suite"
-          className="h-[calc(100dvh-14rem)] min-h-[32rem] w-full rounded-xl border border-border bg-white"
+          style={{ height: frameH ?? 480 }}
+          className="block w-full rounded-xl border border-border bg-white"
         />
       </div>
     );
