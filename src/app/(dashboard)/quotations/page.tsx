@@ -11,6 +11,7 @@ import { SegmentBar, StatTiles } from "@/components/ui/analytics-strip";
 import { CopyButton } from "@/components/ui/copy-button";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { QuotationInvoices, type QuotationBilling } from "@/components/quotations/quotation-invoices";
+import { SuiteJobs } from "@/components/quotations/suite-jobs";
 import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
 import { confirmAction } from "@/components/ui/confirm";
 import { deadlineMin } from "@/lib/utils";
@@ -626,6 +627,8 @@ export default function QuotationsPage() {
           />
         </div>
       )}
+
+      <SuiteJobs clients={clients} canEdit={canEdit} onCreated={fetchQuotations} />
 
       <FilterBar
         filters={[
