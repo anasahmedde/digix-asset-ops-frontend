@@ -44,6 +44,7 @@ interface TeamUser {
   first_name: string;
   last_name: string;
   role: string;
+  role_label?: string;
   avatar: string | null;
 }
 
@@ -478,7 +479,7 @@ export default function ChatPage() {
                     <Avatar name={u.full_name || u.username} src={u.avatar} size="md" />
                     <div>
                       <p className="text-sm font-medium text-foreground">{u.full_name || u.username}</p>
-                      <p className="text-2xs capitalize text-muted-foreground">{u.role.replace(/_/g, " ")}</p>
+                      <p className="text-2xs capitalize text-muted-foreground">{u.role_label ?? u.role.replace(/_/g, " ")}</p>
                     </div>
                   </button>
                 ))
