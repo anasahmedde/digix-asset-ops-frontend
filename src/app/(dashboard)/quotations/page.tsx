@@ -171,7 +171,7 @@ function statusLabel(status: string): string {
 }
 
 export default function QuotationsPage() {
-  const { canWrite } = useUser();
+  const { can, canWrite } = useUser();
   const canEdit = canWrite("quotations");
 
   const [quotations, setQuotations] = useState<Quotation[]>([]);
@@ -192,12 +192,33 @@ export default function QuotationsPage() {
   // DIGIX Suite (the quotation builder) shown inside this tab; hidden when no Suite address is set.
   const suiteUrl = process.env.NEXT_PUBLIC_SUITE_URL;
   const [view, setView] = useState<"list" | "suite">(suiteUrl && params.get("view") === "suite" ? "suite" : "list");
+  // Only people given "Sign in to DIGIX Suite" (Roles & Rights) see it here.
+  const suiteAllowed = !!suiteUrl && can("use_suite");
+  const showSuite = view === "suite" && suiteAllowed;
+  // Each opening signs in afresh as whoever is signed in here: a one-minute,
+  // single-use token Suite's /sso turns into a Suite session for their email.
+  const [frameSrc, setFrameSrc] = useState("about:blank");
+  useEffect(() => {
+    if (!showSuite || !suiteUrl) return;
+    let live = true;
+    api.get("/quotations/quotations/suite/sign-in/")
+      .then(({ data }) => live && setFrameSrc(`${suiteUrl}/sso?token=${encodeURIComponent(data.token)}`))
+      .catch((err: unknown) => {
+        if (!live) return;
+        toast.error(getApiError(err, "You could not be signed in to Suite"));
+        setFrameSrc(suiteUrl);
+      });
+    return () => {
+      live = false;
+      setFrameSrc("about:blank");
+    };
+  }, [showSuite, suiteUrl]);
   // The Suite frame fills the window below it, so the page itself never scrolls.
   const frameRef = useRef<HTMLIFrameElement>(null);
   const [frameH, setFrameH] = useState<number>();
   useEffect(() => {
     const el = frameRef.current;
-    if (view !== "suite" || !el) return;
+    if (!showSuite || !el) return;
     const fit = () => {
       const r = el.getBoundingClientRect();
       // The page padding below the frame stays on screen too.
@@ -208,7 +229,7 @@ export default function QuotationsPage() {
     fit();
     window.addEventListener("resize", fit);
     return () => window.removeEventListener("resize", fit);
-  }, [view]);
+  }, [showSuite]);
   useEffect(() => {
     const status = params.get("status");
     const one = params.get("quotation");
@@ -536,7 +557,7 @@ export default function QuotationsPage() {
     return true;
   });
 
-  const switcher = suiteUrl && (
+  const switcher = suiteAllowed && (
     <div className="flex flex-wrap items-center gap-2">
       <div className="inline-flex rounded-lg border border-border bg-card p-1">
         {([["list", "Quotations"], ["suite", "Suite"]] as const).map(([key, label]) => (
@@ -557,7 +578,7 @@ export default function QuotationsPage() {
     </div>
   );
 
-  if (view === "suite" && suiteUrl) {
+  if (showSuite) {
     return (
       <div className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -574,7 +595,7 @@ export default function QuotationsPage() {
         </div>
         <iframe
           ref={frameRef}
-          src={suiteUrl}
+          src={frameSrc}
           title="DIGIX Suite"
           style={{ height: frameH ?? 480 }}
           className="block w-full rounded-xl border border-border bg-white"
