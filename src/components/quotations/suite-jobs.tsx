@@ -1,8 +1,8 @@
 "use client";
 
-import { ArrowRight, Boxes, ExternalLink, FolderPlus, RefreshCw } from "lucide-react";
+import { ArrowRight, ExternalLink, FolderPlus, RefreshCw } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { Modal } from "@/components/ui/modal";
@@ -51,12 +51,13 @@ interface ClientOpt {
 
 const assetCount = (job: SuiteJob) => job.lines.filter((l) => l.asset).reduce((n, l) => n + l.qty, 0);
 
-// One grid for the labels and the rows, so each label sits over its column.
-const GRID = "md:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)_10rem]";
-const COLUMNS = ["Job order · Quotation · Project · Location", "Client · PO number · PO amount", "Assets · Target date · Status", "Action"];
-const CellLabel = ({ i }: { i: number }) => (
-  <p className="mb-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground md:hidden">{COLUMNS[i]}</p>
-);
+// One column per value, so each reads under its own label.
+const COLUMNS = ["Job order", "Quotation", "Project", "Location", "Client", "PO number", "PO amount", "Assets", "Lines", "Target date", "Status", "Action"];
+const RIGHT = new Set(["PO amount", "Assets", "Lines", "Action"]);
+const TD = "whitespace-nowrap px-3 py-3";
+const WRAP = "px-3 py-3";
+// The button stays in view when the table scrolls sideways on smaller screens.
+const STICKY = "sticky right-0 bg-card";
 
 /** Where the Suite job stands, in Suite's own words once it follows a project here. */
 function suiteState(job: SuiteJob) {
@@ -131,65 +132,69 @@ export function SuiteJobs({ clients, canEdit, onCreated }: { clients: ClientOpt[
       )}
 
       {jobs.length > 0 && (
-        <div className={`hidden gap-3 border-b border-border bg-muted/40 px-4 py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground md:grid ${GRID}`}>
-          {COLUMNS.map((c, i) => (
-            <span key={c} className={i === 3 ? "text-right" : ""}>{c}</span>
-          ))}
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-muted/40 text-[11px] uppercase tracking-wide text-muted-foreground">
+                {COLUMNS.map((c) => (
+                  <th key={c} className={`whitespace-nowrap px-3 py-2 font-medium ${RIGHT.has(c) ? "text-right" : "text-left"} ${c === "Action" ? STICKY : ""}`}>{c}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {jobs.map((job) => {
+                const state = suiteState(job);
+                return (
+                  <Fragment key={job.record_id}>
+                    <tr className="border-t border-border">
+                      <td className={`${TD} font-semibold text-foreground`}>{job.job_number || "—"}</td>
+                      <td className={`${WRAP} min-w-[7rem] text-muted-foreground`}>{job.quote_number}{job.version ? ` V${job.version}` : ""}</td>
+                      <td className={`${WRAP} min-w-[10rem] text-foreground`}>{job.project || "—"}</td>
+                      <td className={`${WRAP} min-w-[7rem] text-muted-foreground`}>{job.location || "—"}</td>
+                      <td className={`${WRAP} text-foreground`}>{job.client || "—"}</td>
+                      <td className={`${TD} text-muted-foreground`}>{job.po_number || "—"}</td>
+                      <td className={`${TD} text-right tabular-nums text-foreground`}>{formatCurrency(job.po_amount, "PKR")}</td>
+                      <td className={`${TD} text-right tabular-nums text-foreground`}>{assetCount(job)}</td>
+                      <td className={`${TD} text-right tabular-nums text-foreground`}>{job.lines.length}</td>
+                      <td className={`${TD} text-muted-foreground`}>{job.target_date ? formatDate(job.target_date) : "—"}</td>
+                      <td className={TD}>
+                        <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-medium ${state.tone}`}>{state.text}</span>
+                      </td>
+                      <td className={`${TD} ${STICKY} text-right`}>
+                        {job.linked?.project ? (
+                          <Link href={`/projects?project=${job.linked.project}`} className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted">
+                            {job.linked.project_code || "Project"} <ArrowRight className="h-3.5 w-3.5" />
+                          </Link>
+                        ) : (
+                          canEdit && (
+                            <button onClick={() => setPicked(job)} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white">
+                              <FolderPlus className="h-4 w-4" /> Create project
+                            </button>
+                          )
+                        )}
+                      </td>
+                    </tr>
+                    {job.linked?.suite_sync_error && (
+                      <tr>
+                        <td colSpan={COLUMNS.length} className="px-4 pb-3">
+                          <div className="flex flex-wrap items-center gap-2 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-700 dark:text-red-400">
+                            <span className="min-w-0 flex-1">Suite was not updated: {job.linked.suite_sync_error}</span>
+                            {canEdit && (
+                              <button onClick={() => retry(job)} disabled={retrying === job.record_id} className="inline-flex items-center gap-1 rounded-md border border-red-500/30 px-2 py-1 font-medium disabled:opacity-50">
+                                <RefreshCw className={`h-3 w-3 ${retrying === job.record_id ? "animate-spin" : ""}`} /> Try again
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
-      <ul className="divide-y divide-border">
-        {jobs.map((job) => {
-          const state = suiteState(job);
-          return (
-            <li key={job.record_id} className={`grid gap-3 px-4 py-3 md:items-center ${GRID}`}>
-              <div className="min-w-0">
-                <CellLabel i={0} />
-                <p className="text-sm font-semibold text-foreground">
-                  {job.job_number || "No JO"} <span className="font-normal text-muted-foreground">· {job.quote_number}{job.version ? ` V${job.version}` : ""}</span>
-                </p>
-                <p className="truncate text-sm text-foreground">{job.project || "—"}</p>
-                <p className="truncate text-xs text-muted-foreground">{job.location}</p>
-              </div>
-              <div className="min-w-0 text-sm">
-                <CellLabel i={1} />
-                <p className="truncate text-foreground">{job.client || "—"}</p>
-                <p className="text-xs text-muted-foreground">
-                  PO {job.po_number || "—"} · {formatCurrency(job.po_amount, "PKR")}
-                </p>
-              </div>
-              <div className="min-w-0 text-xs text-muted-foreground">
-                <CellLabel i={2} />
-                <p><Boxes className="mr-1 inline h-3.5 w-3.5" />{assetCount(job)} assets · {job.lines.length} lines</p>
-                {job.target_date && <p>Target {formatDate(job.target_date)}</p>}
-                <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[11px] font-medium ${state.tone}`}>{state.text}</span>
-              </div>
-              <div className="flex flex-wrap items-center gap-2 md:justify-end">
-                {job.linked?.project ? (
-                  <Link href={`/projects?project=${job.linked.project}`} className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted">
-                    {job.linked.project_code || "Project"} <ArrowRight className="h-3.5 w-3.5" />
-                  </Link>
-                ) : (
-                  canEdit && (
-                    <button onClick={() => setPicked(job)} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white">
-                      <FolderPlus className="h-4 w-4" /> Create project
-                    </button>
-                  )
-                )}
-              </div>
-              {job.linked?.suite_sync_error && (
-                <div className="flex flex-wrap items-center gap-2 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-700 dark:text-red-400 md:col-span-4">
-                  <span className="min-w-0 flex-1">Suite was not updated: {job.linked.suite_sync_error}</span>
-                  {canEdit && (
-                    <button onClick={() => retry(job)} disabled={retrying === job.record_id} className="inline-flex items-center gap-1 rounded-md border border-red-500/30 px-2 py-1 font-medium disabled:opacity-50">
-                      <RefreshCw className={`h-3 w-3 ${retrying === job.record_id ? "animate-spin" : ""}`} /> Try again
-                    </button>
-                  )}
-                </div>
-              )}
-            </li>
-          );
-        })}
-      </ul>
 
       {picked && (
         <CreateProjectModal

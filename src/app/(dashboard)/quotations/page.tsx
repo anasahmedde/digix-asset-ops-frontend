@@ -189,12 +189,15 @@ export default function QuotationsPage() {
   const [statusFilter, setStatusFilter] = useState("");
   // Opened from Finance: a quotation to show, or the accepted ones to bill.
   const params = useSearchParams();
-  // Quotations are made in DIGIX Suite, so this tab is Suite itself. The list of
-  // this app's own quotation records stays only for Finance's links into it.
+  // Quotations are made in DIGIX Suite: the Quotations tab lists Suite's
+  // Production Go-Ahead jobs, the Suite tab is Suite itself. The list of this
+  // app's own quotation records stays only for Finance's links into it.
   const suiteUrl = process.env.NEXT_PUBLIC_SUITE_URL;
   const suitePage = !!suiteUrl && !params.has("quotation") && !params.has("status");
-  // Only people given "Sign in to DIGIX Suite" (Roles & Rights) see Suite itself.
-  const showSuite = suitePage && can("use_suite");
+  const [view, setView] = useState<"list" | "suite">(params.get("view") === "suite" ? "suite" : "list");
+  // Only people given "Sign in to DIGIX Suite" (Roles & Rights) get the Suite tab.
+  const suiteAllowed = suitePage && can("use_suite");
+  const showSuite = suiteAllowed && view === "suite";
   // Each opening signs in afresh as whoever is signed in here: a one-minute,
   // single-use token Suite's /sso turns into a Suite session for their email.
   const [frameSrc, setFrameSrc] = useState("about:blank");
@@ -228,7 +231,7 @@ export default function QuotationsPage() {
     };
     fit();
     window.addEventListener("resize", fit);
-    // The Go-Ahead panel above it loads later and changes height.
+    // The header above it can wrap and change height.
     const watch = new ResizeObserver(fit);
     if (el.previousElementSibling) watch.observe(el.previousElementSibling);
     return () => {
@@ -574,7 +577,9 @@ export default function QuotationsPage() {
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-foreground">Client Quotations</h1>
-                <p className="text-muted-foreground">Made and approved in DIGIX Suite — a Production Go-Ahead becomes a project here</p>
+                <p className="text-muted-foreground">
+                  {showSuite ? "DIGIX Suite — build and approve quotations" : "Made and approved in DIGIX Suite — a Production Go-Ahead becomes a project here"}
+                </p>
               </div>
             </div>
             {showSuite && (
@@ -583,7 +588,19 @@ export default function QuotationsPage() {
               </a>
             )}
           </div>
-          <SuiteJobs clients={clients} canEdit={canEdit} onCreated={fetchQuotations} />
+          {suiteAllowed && (
+            <div className="inline-flex rounded-lg border border-border bg-card p-1">
+              {([["list", "Quotations"], ["suite", "Suite"]] as const).map(([key, label]) => (
+                <button
+                  key={key}
+                  onClick={() => setView(key)}
+                  className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${view === key ? "bg-primary text-white" : "text-muted-foreground hover:text-foreground"}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         {showSuite ? (
           <iframe
@@ -594,10 +611,7 @@ export default function QuotationsPage() {
             className="block w-full rounded-xl border border-border bg-white"
           />
         ) : (
-          <div className="rounded-xl border border-border bg-card px-5 py-8 text-center text-sm text-muted-foreground">
-            Quotations are made in DIGIX Suite. Ask an administrator to tick{" "}
-            <span className="font-medium text-foreground">Sign in to DIGIX Suite</span> for you on Teams › Roles &amp; Rights.
-          </div>
+          <SuiteJobs clients={clients} canEdit={canEdit} onCreated={fetchQuotations} />
         )}
       </div>
     );
