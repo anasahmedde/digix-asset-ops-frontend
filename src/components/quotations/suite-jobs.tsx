@@ -51,6 +51,13 @@ interface ClientOpt {
 
 const assetCount = (job: SuiteJob) => job.lines.filter((l) => l.asset).reduce((n, l) => n + l.qty, 0);
 
+// One grid for the labels and the rows, so each label sits over its column.
+const GRID = "md:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)_10rem]";
+const COLUMNS = ["Job order · Quotation · Project · Location", "Client · PO number · PO amount", "Assets · Target date · Status", "Action"];
+const CellLabel = ({ i }: { i: number }) => (
+  <p className="mb-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground md:hidden">{COLUMNS[i]}</p>
+);
+
 /** Where the Suite job stands, in Suite's own words once it follows a project here. */
 function suiteState(job: SuiteJob) {
   if (!job.linked) return { text: "Waiting for a project", tone: "bg-amber-500/10 text-amber-700 dark:text-amber-400" };
@@ -123,12 +130,20 @@ export function SuiteJobs({ clients, canEdit, onCreated }: { clients: ClientOpt[
         <p className="px-4 py-3 text-sm text-muted-foreground">No Suite quotation is at Production Go-Ahead.</p>
       )}
 
+      {jobs.length > 0 && (
+        <div className={`hidden gap-3 border-b border-border bg-muted/40 px-4 py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground md:grid ${GRID}`}>
+          {COLUMNS.map((c, i) => (
+            <span key={c} className={i === 3 ? "text-right" : ""}>{c}</span>
+          ))}
+        </div>
+      )}
       <ul className="divide-y divide-border">
         {jobs.map((job) => {
           const state = suiteState(job);
           return (
-            <li key={job.record_id} className="grid gap-3 px-4 py-3 md:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)_auto] md:items-center">
+            <li key={job.record_id} className={`grid gap-3 px-4 py-3 md:items-center ${GRID}`}>
               <div className="min-w-0">
+                <CellLabel i={0} />
                 <p className="text-sm font-semibold text-foreground">
                   {job.job_number || "No JO"} <span className="font-normal text-muted-foreground">· {job.quote_number}{job.version ? ` V${job.version}` : ""}</span>
                 </p>
@@ -136,12 +151,14 @@ export function SuiteJobs({ clients, canEdit, onCreated }: { clients: ClientOpt[
                 <p className="truncate text-xs text-muted-foreground">{job.location}</p>
               </div>
               <div className="min-w-0 text-sm">
+                <CellLabel i={1} />
                 <p className="truncate text-foreground">{job.client || "—"}</p>
                 <p className="text-xs text-muted-foreground">
                   PO {job.po_number || "—"} · {formatCurrency(job.po_amount, "PKR")}
                 </p>
               </div>
               <div className="min-w-0 text-xs text-muted-foreground">
+                <CellLabel i={2} />
                 <p><Boxes className="mr-1 inline h-3.5 w-3.5" />{assetCount(job)} assets · {job.lines.length} lines</p>
                 {job.target_date && <p>Target {formatDate(job.target_date)}</p>}
                 <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[11px] font-medium ${state.tone}`}>{state.text}</span>
