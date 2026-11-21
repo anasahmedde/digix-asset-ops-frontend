@@ -52,9 +52,6 @@ interface Role {
 const inputClass =
   "h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30";
 
-/** The top role is the Administrator wherever it is shown. */
-const shownLabel = (role: { key?: string; label: string }) => (role.key === "super_admin" ? "Administrator" : role.label);
-
 export function RolesMatrix({ readOnly = false }: { readOnly?: boolean }) {
   const [caps, setCaps] = useState<CapabilityDef[]>([]);
   const [modules, setModules] = useState<string[]>([]);
@@ -132,7 +129,7 @@ export function RolesMatrix({ readOnly = false }: { readOnly?: boolean }) {
       const role = roles.find((r) => r.id === roleId);
       const what = caps.find((c) => c.key === capKey)?.label ?? capKey;
       const ok = await confirmAction({
-        title: `Untick ${what} for ${role ? shownLabel(role) : "this role"}?`,
+        title: `Untick ${what} for ${role ? role.label : "this role"}?`,
         message: `These need it, so they are unticked too: ${goWith.map((c) => c.label).join(", ")}.`,
         confirmLabel: "Untick them all",
         danger: true,
@@ -182,7 +179,7 @@ export function RolesMatrix({ readOnly = false }: { readOnly?: boolean }) {
           capabilities: [...(draft[role.id] ?? [])],
         });
         setRoles((prev) => prev.map((r) => (r.id === role.id ? { ...r, ...data } : r)));
-        done.push(shownLabel(role));
+        done.push(role.label);
       }
       const people = changedRoles.reduce((n, r) => n + r.holders, 0);
       toast.success(`Saved ${done.join(", ")}${people ? ` — ${people} ${people === 1 ? "person" : "people"} affected` : ""}`);
@@ -306,7 +303,7 @@ export function RolesMatrix({ readOnly = false }: { readOnly?: boolean }) {
         <div className="sticky top-20 z-30 flex flex-wrap items-center gap-3 rounded-xl border border-amber-500/30 bg-amber-50 px-4 py-2.5 shadow-sm dark:bg-amber-950/60">
           <p className="min-w-0 flex-1 text-xs text-foreground">
             <span className="font-semibold">{ticks} unsaved {ticks === 1 ? "change" : "changes"}</span>
-            {" "}on {dirty.map(shownLabel).join(", ")}. Nothing changes for anyone until you save.
+            {" "}on {dirty.map((r) => r.label).join(", ")}. Nothing changes for anyone until you save.
           </p>
           <button type="button" onClick={discard} disabled={saving === "all"}
             className="inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium text-muted-foreground ring-1 ring-border hover:bg-secondary disabled:opacity-50">
@@ -328,7 +325,7 @@ export function RolesMatrix({ readOnly = false }: { readOnly?: boolean }) {
               </th>
               {roles.map((role) => (
                 <th key={role.id} className="w-20 min-w-20 border-b border-border px-1.5 py-3 text-center align-bottom">
-                  <span className="block break-words text-xs font-semibold leading-tight text-foreground">{shownLabel(role)}</span>
+                  <span className="block break-words text-xs font-semibold leading-tight text-foreground">{role.label}</span>
                   <span className="block text-2xs font-normal text-muted-foreground">
                     {role.holders} {role.holders === 1 ? "person" : "people"}
                   </span>
@@ -419,7 +416,7 @@ export function RolesMatrix({ readOnly = false }: { readOnly?: boolean }) {
                               disabled={readOnly || (!!cap.super_admin_only && role.key !== "super_admin")}
                               title={by.length ? `Needed by ${by.join(", ")} - unticking this unticks them too` : undefined}
                               onChange={() => toggle(role.id, cap.key)}
-                              aria-label={`${cap.label} for ${shownLabel(role)}`}
+                              aria-label={`${cap.label} for ${role.label}`}
                               // Ticked because another right needs it: shown greyed.
                               className={`h-4 w-4 rounded border-border ${by.length ? "accent-[hsl(var(--muted-foreground))] opacity-50" : "accent-[hsl(var(--primary))]"}`}
                             />
