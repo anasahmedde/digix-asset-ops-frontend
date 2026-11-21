@@ -34,6 +34,10 @@ export async function login(
 
 export function logout() {
   clearTokens();
+  // Leaving here leaves DIGIX Suite too, so the next person on this browser
+  // does not find Suite still signed in as you.
+  const suite = process.env.NEXT_PUBLIC_SUITE_URL;
+  if (suite) fetch(`${suite}/sso/logout`, { mode: "no-cors", credentials: "include", keepalive: true }).catch(() => {});
   window.location.href = "/login";
 }
 

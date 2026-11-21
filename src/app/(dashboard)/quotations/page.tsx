@@ -1,9 +1,9 @@
 "use client";
 
-import {ChevronDown, ChevronRight, ClipboardList, FileDown, Pencil, Plus, ReceiptText, Trash2} from "lucide-react";
+import {ChevronDown, ChevronRight, ClipboardList, ExternalLink, FileDown, Pencil, Plus, ReceiptText, Trash2} from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Modal } from "@/components/ui/modal";
@@ -11,6 +11,7 @@ import { SegmentBar, StatTiles } from "@/components/ui/analytics-strip";
 import { CopyButton } from "@/components/ui/copy-button";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { QuotationInvoices, type QuotationBilling } from "@/components/quotations/quotation-invoices";
+import { SuiteJobs } from "@/components/quotations/suite-jobs";
 import { SortTh, sortRows, useSortState } from "@/components/ui/sortable";
 import { confirmAction } from "@/components/ui/confirm";
 import { deadlineMin } from "@/lib/utils";
@@ -170,7 +171,7 @@ function statusLabel(status: string): string {
 }
 
 export default function QuotationsPage() {
-  const { canWrite } = useUser();
+  const { can, canWrite } = useUser();
   const canEdit = canWrite("quotations");
 
   const [quotations, setQuotations] = useState<Quotation[]>([]);
@@ -188,6 +189,47 @@ export default function QuotationsPage() {
   const [statusFilter, setStatusFilter] = useState("");
   // Opened from Finance: a quotation to show, or the accepted ones to bill.
   const params = useSearchParams();
+  // DIGIX Suite (the quotation builder) shown inside this tab; hidden when no Suite address is set.
+  const suiteUrl = process.env.NEXT_PUBLIC_SUITE_URL;
+  const [view, setView] = useState<"list" | "suite">(suiteUrl && params.get("view") === "suite" ? "suite" : "list");
+  // Only people given "Sign in to DIGIX Suite" (Roles & Rights) see it here.
+  const suiteAllowed = !!suiteUrl && can("use_suite");
+  const showSuite = view === "suite" && suiteAllowed;
+  // Each opening signs in afresh as whoever is signed in here: a one-minute,
+  // single-use token Suite's /sso turns into a Suite session for their email.
+  const [frameSrc, setFrameSrc] = useState("about:blank");
+  useEffect(() => {
+    if (!showSuite || !suiteUrl) return;
+    let live = true;
+    api.get("/quotations/quotations/suite/sign-in/")
+      .then(({ data }) => live && setFrameSrc(`${suiteUrl}/sso?token=${encodeURIComponent(data.token)}`))
+      .catch((err: unknown) => {
+        if (!live) return;
+        toast.error(getApiError(err, "You could not be signed in to Suite"));
+        setFrameSrc(suiteUrl);
+      });
+    return () => {
+      live = false;
+      setFrameSrc("about:blank");
+    };
+  }, [showSuite, suiteUrl]);
+  // The Suite frame fills the window below it, so the page itself never scrolls.
+  const frameRef = useRef<HTMLIFrameElement>(null);
+  const [frameH, setFrameH] = useState<number>();
+  useEffect(() => {
+    const el = frameRef.current;
+    if (!showSuite || !el) return;
+    const fit = () => {
+      const r = el.getBoundingClientRect();
+      // The page padding below the frame stays on screen too.
+      const main = el.closest("main");
+      const below = main ? parseFloat(getComputedStyle(main).paddingBottom) : 0;
+      setFrameH(Math.max(480, Math.floor(window.innerHeight - (r.top + window.scrollY) - below)));
+    };
+    fit();
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, [showSuite]);
   useEffect(() => {
     const status = params.get("status");
     const one = params.get("quotation");
@@ -515,6 +557,53 @@ export default function QuotationsPage() {
     return true;
   });
 
+  const switcher = suiteAllowed && (
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="inline-flex rounded-lg border border-border bg-card p-1">
+        {([["list", "Quotations"], ["suite", "Suite"]] as const).map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setView(key)}
+            className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${view === key ? "bg-primary text-white" : "text-muted-foreground hover:text-foreground"}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {view === "suite" && (
+        <a href={suiteUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+          <ExternalLink className="h-4 w-4" /> Open Suite in a new tab
+        </a>
+      )}
+    </div>
+  );
+
+  if (showSuite) {
+    return (
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-teal-500 to-emerald-600">
+              <ReceiptText className="h-5 w-5 text-white" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-foreground">Client Quotations</h1>
+              <p className="text-muted-foreground">DIGIX Suite — build and approve quotations</p>
+            </div>
+          </div>
+          {switcher}
+        </div>
+        <iframe
+          ref={frameRef}
+          src={frameSrc}
+          title="DIGIX Suite"
+          style={{ height: frameH ?? 480 }}
+          className="block w-full rounded-xl border border-border bg-white"
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -533,6 +622,7 @@ export default function QuotationsPage() {
           </button>
         )}
       </div>
+      {switcher}
 
       {!loading && quotations.length > 0 && (
         <div className="space-y-3">
@@ -558,6 +648,8 @@ export default function QuotationsPage() {
           />
         </div>
       )}
+
+      <SuiteJobs clients={clients} canEdit={canEdit} onCreated={fetchQuotations} />
 
       <FilterBar
         filters={[
