@@ -57,7 +57,16 @@ const RIGHT = new Set(["PO amount", "Assets", "Lines", "Action"]);
 const TD = "whitespace-nowrap px-3 py-3";
 const WRAP = "px-3 py-3";
 // The button stays in view when the table scrolls sideways on smaller screens.
-const STICKY = "sticky right-0 bg-card";
+// Its cell must look like the rest of the row: the row is solid here (the global
+// table style makes it see-through) and the cell takes the row's hover colour.
+// Dark mode tints a hovered row with 5% of the primary colour instead; the row
+// gets that tint on a solid card too, so it and the pinned cell match exactly.
+const ROW =
+  "group !bg-card dark:hover:!bg-card " +
+  "dark:hover:![background-image:linear-gradient(hsl(var(--primary)/0.05),hsl(var(--primary)/0.05))]";
+const STICKY =
+  "sticky right-0 bg-card transition-colors group-hover:bg-accent dark:group-hover:bg-card " +
+  "dark:group-hover:[background-image:linear-gradient(hsl(var(--primary)/0.05),hsl(var(--primary)/0.05))]";
 
 /** Where the Suite job stands, in Suite's own words once it follows a project here. */
 function suiteState(job: SuiteJob) {
@@ -146,7 +155,7 @@ export function SuiteJobs({ clients, canEdit, onCreated }: { clients: ClientOpt[
                 const state = suiteState(job);
                 return (
                   <Fragment key={job.record_id}>
-                    <tr className="border-t border-border">
+                    <tr className={ROW}>
                       <td className={`${TD} font-semibold text-foreground`}>{job.job_number || "—"}</td>
                       <td className={`${WRAP} min-w-[7rem] text-muted-foreground`}>{job.quote_number}{job.version ? ` V${job.version}` : ""}</td>
                       <td className={`${WRAP} min-w-[10rem] text-foreground`}>{job.project || "—"}</td>
