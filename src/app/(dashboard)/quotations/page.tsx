@@ -49,6 +49,8 @@ interface Quotation {
   valid_until: string | null;
   status: QuotationStatus;
   total_amount: string;
+  /** Set on a quotation from Suite: its value includes GST. */
+  suite_record_id?: string | null;
   notes: string;
   created_by_name: string | null;
   accepted_at: string | null;
@@ -725,6 +727,7 @@ export default function QuotationsPage() {
                       <td className={`${tdClass} text-muted-foreground`}>{q.site_name || "-"}</td>
                       <td className={`${tdClass} font-medium text-foreground`}>
                         {q.currency} {Number(q.total_amount).toLocaleString()}
+                        {q.suite_record_id && <span className="block text-2xs font-normal text-muted-foreground">incl. GST</span>}
                       </td>
                       <td className={tdClass}>
                         <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${STATUS_BADGES[q.status] ?? ""}`}>
@@ -794,7 +797,7 @@ export default function QuotationsPage() {
                                   </tbody>
                                   <tfoot>
                                     <tr className="bg-secondary/30">
-                                      <td colSpan={4} className="px-4 py-2 text-right text-xs font-medium uppercase tracking-wider text-muted-foreground">Grand Total</td>
+                                      <td colSpan={4} className="px-4 py-2 text-right text-xs font-medium uppercase tracking-wider text-muted-foreground">Grand Total{q.suite_record_id ? " (incl. GST)" : ""}</td>
                                       <td className="px-4 py-2 text-right font-semibold text-foreground">
                                         {q.currency} {Number(q.total_amount).toLocaleString()}
                                       </td>

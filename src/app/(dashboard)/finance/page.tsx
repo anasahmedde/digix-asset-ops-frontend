@@ -152,7 +152,7 @@ export default function FinancePage() {
           {Object.entries(receivables.uninvoiced ?? {}).map(([cur, u]) => (
             <div key={cur} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-card px-4 py-3 text-sm">
               <span className="text-muted-foreground">
-                <span className="font-semibold tabular-nums text-foreground">{money(u.amount, cur)}</span> of {u.quotations} accepted
+                <span className="font-semibold tabular-nums text-foreground">{money(u.amount, cur)}</span> (incl. GST) of {u.quotations} accepted
                 {u.quotations === 1 ? " quotation is" : " quotations is"} not invoiced yet. It becomes a receivable once invoiced and approved.
               </span>
               <Link href="/quotations?status=accepted" className="text-xs font-semibold text-primary hover:underline">Generate invoices from quotations</Link>

@@ -23,6 +23,8 @@ export interface QuotationBilling {
   client_po_amount?: number | null;
   client_po_date?: string | null;
   po_left?: number | null;
+  /** The value already includes GST (a Suite quotation): no tax goes on top. */
+  tax_included?: boolean;
 }
 
 interface QuoteInvoice {
@@ -75,6 +77,7 @@ export function QuotationInvoices({
   const approve = can("approve_invoice");
   const cur = quotation.currency as CurrencyCode;
   const fmt = (v: number | string) => formatCurrency(v, cur);
+  const incl = billing.tax_included ? " (incl. GST)" : "";
 
   const [invoices, setInvoices] = useState<QuoteInvoice[]>([]);
   const [open, setOpen] = useState(false);
@@ -186,10 +189,10 @@ export function QuotationInvoices({
       <div className="space-y-3 px-4 py-3">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {[
-            { label: "Quotation value", value: billing.quoted },
-            { label: "Invoiced", value: billing.invoiced },
-            { label: "Received", value: billing.received },
-            { label: "Left to invoice", value: billing.to_invoice, strong: true },
+            { label: `Quotation value${incl}`, value: billing.quoted },
+            { label: `Invoiced${incl}`, value: billing.invoiced },
+            { label: `Received${incl}`, value: billing.received },
+            { label: `Left to invoice${incl}`, value: billing.to_invoice, strong: true },
           ].map((s) => (
             <div key={s.label}>
               <p className={labelClass}>{s.label}</p>
@@ -241,7 +244,7 @@ export function QuotationInvoices({
                 <tr className="text-left text-2xs uppercase tracking-wider text-muted-foreground">
                   <th className="py-2 pr-3 font-semibold">Invoice</th>
                   <th className="py-2 pr-3 font-semibold">Due</th>
-                  <th className="py-2 pr-3 text-right font-semibold">Total</th>
+                  <th className="py-2 pr-3 text-right font-semibold">Total (incl. tax)</th>
                   <th className="py-2 pr-3 text-right font-semibold">Received</th>
                   <th className="py-2 pr-3 font-semibold">Status</th>
                   <th className="py-2" />
@@ -302,13 +305,15 @@ export function QuotationInvoices({
                   <input id={`qi-desc-${quotation.id}`} value={description} onChange={(e) => setDescription(e.target.value)} required placeholder="e.g. Advance 30%" className={inputClass} />
                 </div>
                 <div className="space-y-1">
-                  <label htmlFor={`qi-amount-${quotation.id}`} className={labelClass}>Amount ({quotation.currency})</label>
+                  <label htmlFor={`qi-amount-${quotation.id}`} className={labelClass}>Amount{billing.tax_included ? " incl. GST" : ""} ({quotation.currency})</label>
                   <input id={`qi-amount-${quotation.id}`} type="number" min="0.01" step="0.01" max={billing.to_invoice} required value={amount} onChange={(e) => setAmount(e.target.value)} className={inputClass} />
                 </div>
-                <div className="space-y-1">
-                  <label htmlFor={`qi-tax-${quotation.id}`} className={labelClass}>Tax</label>
-                  <input id={`qi-tax-${quotation.id}`} type="number" min="0" step="0.01" value={tax} onChange={(e) => setTax(e.target.value)} className={inputClass} />
-                </div>
+                {!billing.tax_included && (
+                  <div className="space-y-1">
+                    <label htmlFor={`qi-tax-${quotation.id}`} className={labelClass}>Tax</label>
+                    <input id={`qi-tax-${quotation.id}`} type="number" min="0" step="0.01" value={tax} onChange={(e) => setTax(e.target.value)} className={inputClass} />
+                  </div>
+                )}
                 <div className="space-y-1">
                   <label htmlFor={`qi-issue-${quotation.id}`} className={labelClass}>Issue date</label>
                   <input id={`qi-issue-${quotation.id}`} type="date" required value={issue} onChange={(e) => { setIssue(e.target.value); if (e.target.value && due < e.target.value) { const d = new Date(`${e.target.value}T00:00:00`); d.setDate(d.getDate() + 30); setDue(d.toLocaleDateString("en-CA")); } }} className={inputClass} />
@@ -320,7 +325,7 @@ export function QuotationInvoices({
               </div>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-2xs text-muted-foreground">
-                  {fmt(billing.to_invoice)} left to invoice. Billed to {quotation.client_name}; it counts as a receivable once approved.
+                  {fmt(billing.to_invoice)}{incl} left to invoice. Billed to {quotation.client_name}; it counts as a receivable once approved.
                 </p>
                 <span className="flex gap-2">
                   <button type="button" onClick={() => setOpen(false)} className="rounded-lg border border-border px-3 py-1.5 text-xs text-muted-foreground hover:bg-card">Cancel</button>
