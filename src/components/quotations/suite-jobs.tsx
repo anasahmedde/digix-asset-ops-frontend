@@ -61,8 +61,8 @@ const assetCount = (job: SuiteJob) => job.lines.filter((l) => l.asset).reduce((n
 const VALUE = "Value (incl. GST)";
 const COLUMNS = ["Job order", "Quotation", "Project", "Location", "Client", VALUE, "PO number", "PO amount", "Assets", "Lines", "Target date", "Status", "Action"];
 const RIGHT = new Set([VALUE, "PO amount", "Assets", "Lines", "Action"]);
-const TD = "whitespace-nowrap px-3 py-3";
-const WRAP = "px-3 py-3";
+const TD = "whitespace-nowrap px-2 py-3 first:pl-4 last:pr-4";
+const WRAP = "px-2 py-3 first:pl-4 last:pr-4";
 // The button stays in view when the table scrolls sideways on smaller screens.
 // Its cell must look like the rest of the row: the row is solid here (the global
 // table style makes it see-through) and the cell takes the row's hover colour.
@@ -153,7 +153,7 @@ export function SuiteJobs({ clients, canEdit, onCreated }: { clients: ClientOpt[
             <thead>
               <tr className="border-b border-border bg-muted/40 text-[11px] uppercase tracking-wide text-muted-foreground">
                 {COLUMNS.map((c) => (
-                  <th key={c} className={`whitespace-nowrap px-3 py-2 font-medium ${RIGHT.has(c) ? "text-right" : "text-left"} ${c === "Action" ? STICKY : ""}`}>{c}</th>
+                  <th key={c} className={`whitespace-nowrap px-2 py-2 font-medium first:pl-4 last:pr-4 ${RIGHT.has(c) ? "text-right" : "text-left"} ${c === "Action" ? STICKY : ""}`}>{c}</th>
                 ))}
               </tr>
             </thead>
