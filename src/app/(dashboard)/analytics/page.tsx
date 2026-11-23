@@ -334,7 +334,7 @@ export default function AnalyticsPage() {
           </div>
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">Total Receivable</span>
+              <span className="text-sm text-muted-foreground">Total Receivable (incl. tax)</span>
               <span className="text-lg font-semibold text-emerald-600">
                 {formatCurrency(data.invoices.totalReceivable)}
               </span>
