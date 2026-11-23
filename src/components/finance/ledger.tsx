@@ -326,7 +326,7 @@ export function LedgerTable({
                 <th className={cn(th, "w-8")} />
                 <th className={th}>{docLabel}</th>
                 <th className={th}>{partyLabel}</th>
-                <th className={cn(th, "text-right")}>{payable ? "PO value" : "Total value"}</th>
+                <th className={cn(th, "text-right")}>{payable ? "PO value" : "Total value (incl. tax)"}</th>
                 {payable && <th className={cn(th, "text-right")}>Invoiced</th>}
                 <th className={cn(th, "text-right")}>Advance</th>
                 <th className={cn(th, "text-right")}>1st payment</th>
@@ -647,7 +647,7 @@ function TotalsStrip({ side, totals }: { side: "payable" | "receivable"; totals:
       {entries.map(([cur, t]) => (
         <Fragment key={cur}>
           <div className="rounded-xl border border-border bg-card p-4">
-            <p className="text-xs font-medium text-muted-foreground">{side === "payable" ? "Total payable" : "Total receivable"}{entries.length > 1 ? ` · ${cur}` : ""}</p>
+            <p className="text-xs font-medium text-muted-foreground">{side === "payable" ? "Total payable" : "Total receivable (incl. tax)"}{entries.length > 1 ? ` · ${cur}` : ""}</p>
             <p className="mt-1.5 text-2xl font-bold tabular-nums text-foreground">{money(t.balance, cur)}</p>
             <p className="mt-1 text-xs text-muted-foreground">
               {t.open} open · {money(t.paid, cur)} {side === "payable" ? "paid" : "received"} of {money(t.total, cur)}

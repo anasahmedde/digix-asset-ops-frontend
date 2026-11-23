@@ -68,7 +68,7 @@ export function DraftInvoices({
     <section className="rounded-xl border border-amber-500/30 bg-amber-500/5">
       <div className="flex flex-wrap items-baseline justify-between gap-2 px-4 py-3">
         <h2 className="text-sm font-semibold text-foreground">Waiting for approval <span className="ml-1 text-xs font-medium text-muted-foreground">{drafts.length}</span></h2>
-        <p className="text-2xs text-muted-foreground">Not counted in receivables until approved.</p>
+        <p className="text-2xs text-muted-foreground">Totals include tax. Not counted in receivables until approved.</p>
       </div>
       <ul className="divide-y divide-amber-500/20 border-t border-amber-500/20">
         {drafts.map((d) => (
@@ -106,6 +106,7 @@ interface BillableQuote {
   billing: {
     quoted: number; invoiced: number; to_invoice: number;
     client_po_number: string; client_po_amount: number | null; client_po_date: string | null; po_left: number | null;
+    tax_included?: boolean;
   } | null;
 }
 
@@ -180,8 +181,8 @@ export function ClientInvoiceModal({ onClose, onSaved }: { onClose: () => void; 
         {q && b && (
           <>
             <div className="grid grid-cols-3 gap-2 rounded-lg bg-secondary/60 px-3 py-2.5 text-xs">
-              <span><span className="block text-muted-foreground">Quotation</span><span className="font-semibold tabular-nums">{money(b.quoted, q.currency)}</span></span>
-              <span><span className="block text-muted-foreground">Invoiced</span><span className="font-semibold tabular-nums">{money(b.invoiced, q.currency)}</span></span>
+              <span><span className="block text-muted-foreground">Quotation{b.tax_included && " incl. GST"}</span><span className="font-semibold tabular-nums">{money(b.quoted, q.currency)}</span></span>
+              <span><span className="block text-muted-foreground">Invoiced{b.tax_included && " incl. GST"}</span><span className="font-semibold tabular-nums">{money(b.invoiced, q.currency)}</span></span>
               <span><span className="block text-muted-foreground">Left on {poValue != null ? "the PO" : "the quotation"}</span><span className="font-semibold tabular-nums">{money(poLeft ?? b.to_invoice, q.currency)}</span></span>
             </div>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -202,13 +203,15 @@ export function ClientInvoiceModal({ onClose, onSaved }: { onClose: () => void; 
                 <input id="ci-desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="e.g. Advance 30%, Final invoice" className={inputClass} />
               </div>
               <div className="space-y-1.5">
-                <label htmlFor="ci-amount" className={labelClass}>Amount</label>
+                <label htmlFor="ci-amount" className={labelClass}>Amount{b.tax_included && " incl. GST"}</label>
                 <input id="ci-amount" type="number" min="0.01" step="0.01" max={b.to_invoice} required value={amount} onChange={(e) => setAmount(e.target.value)} className={inputClass} />
               </div>
-              <div className="space-y-1.5">
-                <label htmlFor="ci-tax" className={labelClass}>Tax</label>
-                <input id="ci-tax" type="number" min="0" step="0.01" value={tax} onChange={(e) => setTax(e.target.value)} className={inputClass} />
-              </div>
+              {!b.tax_included && (
+                <div className="space-y-1.5">
+                  <label htmlFor="ci-tax" className={labelClass}>Tax</label>
+                  <input id="ci-tax" type="number" min="0" step="0.01" value={tax} onChange={(e) => setTax(e.target.value)} className={inputClass} />
+                </div>
+              )}
             </div>
             {over && (
               <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
@@ -304,7 +307,7 @@ export function InvoiceModal({ editing, onClose, onSaved }: { editing: DraftInvo
             <input id="inv-due" name="due_date" type="date" required min={issue} defaultValue={editing?.due_date ?? inThirty} className={inputClass} />
           </div>
           <div className="col-span-2 flex flex-col justify-end rounded-lg bg-secondary/60 px-3 py-2 sm:col-span-1">
-            <span className="text-2xs text-muted-foreground">Invoice total</span>
+            <span className="text-2xs text-muted-foreground">Invoice total (incl. tax)</span>
             <span className="font-semibold tabular-nums">{total.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
           </div>
         </div>

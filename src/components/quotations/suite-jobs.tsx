@@ -31,6 +31,12 @@ interface SuiteJob {
   target_date: string | null;
   stage: string;
   stage_display: string;
+  /** Suite's figures: before GST, the GST, and the total with it (what comes here). */
+  net: string | number;
+  discount: string | number;
+  gst_pct: string | number;
+  gst: string | number;
+  gross: string | number;
   lines: SuiteLine[];
   linked: null | {
     quotation: string;
@@ -52,8 +58,9 @@ interface ClientOpt {
 const assetCount = (job: SuiteJob) => job.lines.filter((l) => l.asset).reduce((n, l) => n + l.qty, 0);
 
 // One column per value, so each reads under its own label.
-const COLUMNS = ["Job order", "Quotation", "Project", "Location", "Client", "PO number", "PO amount", "Assets", "Lines", "Target date", "Status", "Action"];
-const RIGHT = new Set(["PO amount", "Assets", "Lines", "Action"]);
+const VALUE = "Value (incl. GST)";
+const COLUMNS = ["Job order", "Quotation", "Project", "Location", "Client", VALUE, "PO number", "PO amount", "Assets", "Lines", "Target date", "Status", "Action"];
+const RIGHT = new Set([VALUE, "PO amount", "Assets", "Lines", "Action"]);
 const TD = "whitespace-nowrap px-3 py-3";
 const WRAP = "px-3 py-3";
 // The button stays in view when the table scrolls sideways on smaller screens.
@@ -161,6 +168,7 @@ export function SuiteJobs({ clients, canEdit, onCreated }: { clients: ClientOpt[
                       <td className={`${WRAP} min-w-[10rem] text-foreground`}>{job.project || "—"}</td>
                       <td className={`${WRAP} min-w-[7rem] text-muted-foreground`}>{job.location || "—"}</td>
                       <td className={`${WRAP} text-foreground`}>{job.client || "—"}</td>
+                      <td className={`${TD} text-right font-medium tabular-nums text-foreground`}>{formatCurrency(job.gross, "PKR")}</td>
                       <td className={`${TD} text-muted-foreground`}>{job.po_number || "—"}</td>
                       <td className={`${TD} text-right tabular-nums text-foreground`}>{formatCurrency(job.po_amount, "PKR")}</td>
                       <td className={`${TD} text-right tabular-nums text-foreground`}>{assetCount(job)}</td>
@@ -254,6 +262,7 @@ function CreateProjectModal({ job, clients, onClose, onDone }: { job: SuiteJob; 
         <dl className="grid grid-cols-1 gap-x-6 gap-y-2 rounded-lg bg-muted/50 p-3 text-sm sm:grid-cols-2">
           <div><dt className="text-xs text-muted-foreground">Suite quotation</dt><dd className="text-foreground">{job.quote_number}{job.version ? ` · V${job.version}` : ""}</dd></div>
           <div><dt className="text-xs text-muted-foreground">Job order / PO</dt><dd className="text-foreground">{job.job_number || "—"} · {job.po_number || "No PO"} · {formatCurrency(job.po_amount, "PKR")}</dd></div>
+          <div><dt className="text-xs text-muted-foreground">Value (incl. GST)</dt><dd className="font-medium text-foreground">{formatCurrency(job.gross, "PKR")}</dd></div>
           <div><dt className="text-xs text-muted-foreground">Project</dt><dd className="text-foreground">{job.project || "—"}</dd></div>
           <div><dt className="text-xs text-muted-foreground">Location</dt><dd className="text-foreground">{job.location || "—"}</dd></div>
           <div><dt className="text-xs text-muted-foreground">Client in Suite</dt><dd className="font-medium text-foreground">{job.client || "—"}</dd></div>
@@ -273,7 +282,7 @@ function CreateProjectModal({ job, clients, onClose, onDone }: { job: SuiteJob; 
         <div className="overflow-x-auto rounded-lg border border-border">
           <table className="w-full text-sm">
             <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
-              <tr><th className="px-3 py-2 font-medium">Line</th><th className="px-3 py-2 text-right font-medium">Qty</th><th className="px-3 py-2 text-right font-medium">Unit price</th><th className="px-3 py-2 font-medium">Becomes</th></tr>
+              <tr><th className="px-3 py-2 font-medium">Line</th><th className="px-3 py-2 text-right font-medium">Qty</th><th className="px-3 py-2 text-right font-medium">Unit price (excl. GST)</th><th className="px-3 py-2 font-medium">Becomes</th></tr>
             </thead>
             <tbody className="divide-y divide-border">
               {job.lines.map((l, i) => (
@@ -285,11 +294,18 @@ function CreateProjectModal({ job, clients, onClose, onDone }: { job: SuiteJob; 
                 </tr>
               ))}
             </tbody>
+            <tfoot className="border-t border-border text-sm">
+              {Number(job.discount) > 0 && (
+                <tr><td colSpan={2} className="px-3 py-1.5 text-right text-muted-foreground">Discount</td><td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">−{formatCurrency(job.discount, "PKR")}</td><td /></tr>
+              )}
+              <tr><td colSpan={2} className="px-3 py-1.5 text-right text-muted-foreground">GST {job.gst_pct}%</td><td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">{formatCurrency(job.gst, "PKR")}</td><td /></tr>
+              <tr><td colSpan={2} className="px-3 py-1.5 text-right font-semibold text-foreground">Total incl. GST</td><td className="whitespace-nowrap px-3 py-1.5 text-right font-semibold tabular-nums text-foreground">{formatCurrency(job.gross, "PKR")}</td><td /></tr>
+            </tfoot>
           </table>
         </div>
 
         <p className="text-xs text-muted-foreground">
-          Creates the accepted quotation, its project with the BOM, and {assets} asset{assets === 1 ? "" : "s"} (one per product unit). Finance gets the invoice draft. The Suite job moves to Execution. Fill in each asset&apos;s route, model and the rest on the project, as usual.
+          Creates the accepted quotation, its project with the BOM, and {assets} asset{assets === 1 ? "" : "s"} (one per product unit). Finance gets the invoice draft for {formatCurrency(job.gross, "PKR")} incl. GST. The Suite job moves to Execution. Fill in each asset&apos;s route, model and the rest on the project, as usual.
         </p>
 
         <div className="flex flex-wrap justify-end gap-2">
